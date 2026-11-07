@@ -1551,6 +1551,9 @@ impl ConnectResponder {
             .iter()
             .any(|cap| cap == CAPABILITY_SPOKE_COGNITION)
         {
+            // Family absence is the normative consumer contract's
+            // `capability_missing` branch (§2.1); the ownership conjunct keeps
+            // `op_unsupported`. §D7 maps both codes to one dialer class.
             self.send_reverse_error_envelope(
                 doc,
                 "capability_missing",
@@ -1626,6 +1629,9 @@ impl ConnectResponder {
                 .iter()
                 .any(|cap| cap == CAPABILITY_KE_OWNERSHIP)
         {
+            // The frozen deny matrix fixes the ownership conjunct to
+            // `op_unsupported` (spoke-connect §Op dispatch gate), unlike the
+            // cognition family's `capability_missing`.
             self.send_reverse_error_envelope(
                 doc,
                 "op_unsupported",

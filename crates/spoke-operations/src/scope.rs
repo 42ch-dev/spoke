@@ -11,66 +11,15 @@ use spoke_schemas::data::cognition::{
 use spoke_schemas::knowledge_entry::{KnowledgeEntry, KnowledgeEntryModulesValue};
 use spoke_schemas::{Scope, TimelineEvent};
 
-/// Scope refinements with wire-aware presence for optional array fields.
+/// Scope refinements match by presence: `None` is absent (wildcard) while a
+/// present array — including an explicit `[]` — is an AND refinement that
+/// matches nothing when empty. The generated `Scope` arrays keep that
+/// distinction through typed JSON decode (`deserialize_presence_sensitive_array`),
+/// so the served path cannot widen a declared `[]` to absent.
 ///
-/// Typed [`Scope`] cannot distinguish omitted `entry_ids` from present-empty `[]` after
-/// deserialize. Build from wire JSON when that distinction matters.
-#[derive(Debug, Clone)]
-pub struct ScopeMatchView {
-    scope: Scope,
-    entry_ids_present: bool,
-    entry_types_present: bool,
-    timeline_event_ids_present: bool,
-}
-
-impl ScopeMatchView {
-    /// Empty optional-array fields are absent; non-empty fields are present refinements.
-    #[must_use]
-    pub fn from_scope(scope: Scope) -> Self {
-        Self {
-            entry_ids_present: !scope.entry_ids.is_empty(),
-            entry_types_present: !scope.entry_types.is_empty(),
-            timeline_event_ids_present: !scope.timeline_event_ids.is_empty(),
-            scope,
-        }
-    }
-
-    /// Preserve optional-array presence from wire JSON (`[]` is present-empty).
-    pub fn from_wire_json(value: &Value) -> Result<Self, serde_json::Error> {
-        let scope: Scope = serde_json::from_value(value.clone())?;
-        let object = value.as_object();
-
-        Ok(Self {
-            scope,
-            entry_ids_present: object.is_some_and(|map| map.contains_key("entry_ids")),
-            entry_types_present: object.is_some_and(|map| map.contains_key("entry_types")),
-            timeline_event_ids_present: object
-                .is_some_and(|map| map.contains_key("timeline_event_ids")),
-        })
-    }
-
-    #[must_use]
-    pub fn scope(&self) -> &Scope {
-        &self.scope
-    }
-}
-
 /// Internal authorization stage: KnowledgeEntry passes optional Scope refinements
 /// (AND when present), including the core disclosure predicate applied to
 /// `scope.viewpoint`.
-#[must_use]
-pub(crate) fn knowledge_entry_passes_scope_authorization(
-    knowledge_entry: &KnowledgeEntry,
-    scope: &Scope,
-) -> bool {
-    knowledge_entry_passes_scope_authorization_view(
-        knowledge_entry,
-        &ScopeMatchView::from_scope(scope.clone()),
-    )
-}
-
-/// Internal authorization stage with wire-aware array presence, including the
-/// core disclosure predicate applied to `scope.viewpoint`.
 ///
 /// Cognition is a derivative selection: this boolean predicate deliberately does
 /// not evaluate `scope.cognition` and is therefore crate-internal. Served Scope
@@ -79,20 +28,22 @@ pub(crate) fn knowledge_entry_passes_scope_authorization(
 /// silently matching every entry. Assembly builders that need the pre-cognition
 /// authorized source set use [`authorize_knowledge_entries_by_scope`].
 #[must_use]
-pub(crate) fn knowledge_entry_passes_scope_authorization_view(
+pub(crate) fn knowledge_entry_passes_scope_authorization(
     knowledge_entry: &KnowledgeEntry,
-    view: &ScopeMatchView,
+    scope: &Scope,
 ) -> bool {
-    let scope = &view.scope;
-
-    if view.entry_ids_present
-        && !scope.entry_ids.contains(&knowledge_entry.entry_id)
+    if scope
+        .entry_ids
+        .as_ref()
+        .is_some_and(|entry_ids| !entry_ids.contains(&knowledge_entry.entry_id))
     {
         return false;
     }
 
-    if view.entry_types_present
-        && !scope.entry_types.contains(&knowledge_entry.entry_type)
+    if scope
+        .entry_types
+        .as_ref()
+        .is_some_and(|entry_types| !entry_types.contains(&knowledge_entry.entry_type))
     {
         return false;
     }
@@ -126,12 +77,9 @@ pub(crate) fn authorize_knowledge_entries_by_scope<'a>(
     knowledge_entries: &'a [KnowledgeEntry],
     scope: &Scope,
 ) -> Vec<&'a KnowledgeEntry> {
-    let view = ScopeMatchView::from_scope(scope.clone());
     knowledge_entries
         .iter()
-        .filter(|knowledge_entry| {
-            knowledge_entry_passes_scope_authorization_view(knowledge_entry, &view)
-        })
+        .filter(|knowledge_entry| knowledge_entry_passes_scope_authorization(knowledge_entry, scope))
         .collect()
 }
 
@@ -350,24 +298,10 @@ pub(crate) fn filter_knowledge_entries_by_scope_cognition<'a>(
 /// TimelineEvent passes optional Scope refinements (AND when present).
 #[must_use]
 pub fn timeline_event_matches_scope(timeline_event: &TimelineEvent, scope: &Scope) -> bool {
-    timeline_event_matches_scope_view(
-        timeline_event,
-        &ScopeMatchView::from_scope(scope.clone()),
-    )
-}
-
-/// TimelineEvent passes optional Scope refinements with wire-aware array presence.
-#[must_use]
-pub fn timeline_event_matches_scope_view(
-    timeline_event: &TimelineEvent,
-    view: &ScopeMatchView,
-) -> bool {
-    let scope = &view.scope;
-
-    if view.timeline_event_ids_present
-        && !scope
-            .timeline_event_ids
-            .contains(&timeline_event.timeline_event_id)
+    if scope
+        .timeline_event_ids
+        .as_ref()
+        .is_some_and(|ids| !ids.contains(&timeline_event.timeline_event_id))
     {
         return false;
     }
@@ -393,19 +327,9 @@ pub fn filter_timeline_events_by_scope<'a>(
     timeline_events: &'a [TimelineEvent],
     scope: &Scope,
 ) -> Vec<&'a TimelineEvent> {
-    let view = ScopeMatchView::from_scope(scope.clone());
-    filter_timeline_events_by_scope_view(timeline_events, &view)
-}
-
-/// Filter TimelineEvents by optional Scope refinements with wire-aware array presence.
-#[must_use]
-pub fn filter_timeline_events_by_scope_view<'a>(
-    timeline_events: &'a [TimelineEvent],
-    view: &ScopeMatchView,
-) -> Vec<&'a TimelineEvent> {
     timeline_events
         .iter()
-        .filter(|timeline_event| timeline_event_matches_scope_view(timeline_event, view))
+        .filter(|timeline_event| timeline_event_matches_scope(timeline_event, scope))
         .collect()
 }
 
@@ -425,13 +349,13 @@ mod tests {
     fn base_scope() -> Scope {
         Scope {
             cognition: None,
-            entry_ids: Vec::new(),
-            entry_types: Vec::new(),
+            entry_ids: None,
+            entry_types: None,
             extensions: None,
             fork_id: None,
             scope_id: "world_1".into(),
             source_id: None,
-            timeline_event_ids: Vec::new(),
+            timeline_event_ids: None,
             timeline_scale: None,
             viewpoint: None,
         }
@@ -493,52 +417,81 @@ mod tests {
         event
     }
 
+    /// A typed JSON decode keeps an explicitly present `[]` distinct from an
+    /// omitted list, and re-serializing keeps `[]` on the wire. Omitted is a
+    /// wildcard; present-empty matches nothing; present-nonempty is the AND
+    /// refinement. One round-trip covers all three Scope lists.
     #[test]
-    fn present_empty_entry_ids_from_wire_matches_nothing() {
-        let knowledge_entry = make_knowledge_entry(|entry| {
-            entry.source_anchor = Some(SourceAnchor {
-                extensions: spoke_schemas::knowledge_entry::Shared2(HashMap::new()),
-                label: None,
-                mime_type: None,
-                schema_version: spoke_schemas::knowledge_entry::Shared1(NonZeroU64::new(1).unwrap()),
-                source_id: "manuscript_1".into(),
-                span: None,
-            });
-        });
-
-        let wire = json!({
-            "scope_id": "world_1",
-            "entry_ids": [],
-        });
-        let view = ScopeMatchView::from_wire_json(&wire).expect("scope wire json");
-
-        assert!(!knowledge_entry_passes_scope_authorization_view(&knowledge_entry, &view));
-    }
-
-    #[test]
-    fn present_empty_entry_types_from_wire_matches_nothing() {
+    fn typed_scope_decode_keeps_present_empty_refinements() {
         let knowledge_entry = make_knowledge_entry(|_| {});
-        let wire = json!({
-            "scope_id": "world_1",
-            "entry_types": [],
-        });
-        let view = ScopeMatchView::from_wire_json(&wire).expect("scope wire json");
-
-        assert!(!knowledge_entry_passes_scope_authorization_view(&knowledge_entry, &view));
-    }
-
-    #[test]
-    fn present_empty_timeline_event_ids_from_wire_matches_nothing() {
         let timeline_event = make_timeline_event(|event| {
             event.timeline_scale = Some("narrative".into());
         });
-        let wire = json!({
+
+        let entry_ids: Scope = serde_json::from_value(json!({
+            "scope_id": "world_1",
+            "entry_ids": [],
+        }))
+        .expect("valid scope");
+        assert_eq!(entry_ids.entry_ids, Some(Vec::new()));
+        assert_eq!(
+            serde_json::to_value(&entry_ids).expect("serialize")["entry_ids"],
+            json!([])
+        );
+        assert!(!knowledge_entry_passes_scope_authorization(&knowledge_entry, &entry_ids));
+        assert!(knowledge_entry_passes_scope_authorization(&knowledge_entry, &base_scope()));
+        let matching_entry_ids: Scope = serde_json::from_value(json!({
+            "scope_id": "world_1",
+            "entry_ids": ["kb_1"],
+        }))
+        .expect("valid scope");
+        assert!(knowledge_entry_passes_scope_authorization(
+            &knowledge_entry,
+            &matching_entry_ids
+        ));
+
+        let entry_types: Scope = serde_json::from_value(json!({
+            "scope_id": "world_1",
+            "entry_types": [],
+        }))
+        .expect("valid scope");
+        assert_eq!(entry_types.entry_types, Some(Vec::new()));
+        assert_eq!(
+            serde_json::to_value(&entry_types).expect("serialize")["entry_types"],
+            json!([])
+        );
+        assert!(!knowledge_entry_passes_scope_authorization(&knowledge_entry, &entry_types));
+        let matching_entry_types: Scope = serde_json::from_value(json!({
+            "scope_id": "world_1",
+            "entry_types": ["character"],
+        }))
+        .expect("valid scope");
+        assert!(knowledge_entry_passes_scope_authorization(
+            &knowledge_entry,
+            &matching_entry_types
+        ));
+
+        let timeline_event_ids: Scope = serde_json::from_value(json!({
             "scope_id": "world_1",
             "timeline_event_ids": [],
-        });
-        let view = ScopeMatchView::from_wire_json(&wire).expect("scope wire json");
-
-        assert!(!timeline_event_matches_scope_view(&timeline_event, &view));
+        }))
+        .expect("valid scope");
+        assert_eq!(timeline_event_ids.timeline_event_ids, Some(Vec::new()));
+        assert_eq!(
+            serde_json::to_value(&timeline_event_ids).expect("serialize")["timeline_event_ids"],
+            json!([])
+        );
+        assert!(!timeline_event_matches_scope(&timeline_event, &timeline_event_ids));
+        assert!(timeline_event_matches_scope(&timeline_event, &base_scope()));
+        let matching_timeline_event_ids: Scope = serde_json::from_value(json!({
+            "scope_id": "world_1",
+            "timeline_event_ids": ["evt_1"],
+        }))
+        .expect("valid scope");
+        assert!(timeline_event_matches_scope(
+            &timeline_event,
+            &matching_timeline_event_ids
+        ));
     }
 
     #[test]
@@ -574,13 +527,13 @@ mod tests {
         });
 
         let mut matching_scope = base_scope();
-        matching_scope.entry_ids = vec!["kb_1".into(), "kb_2".into()];
+        matching_scope.entry_ids = Some(vec!["kb_1".into(), "kb_2".into()]);
         assert!(knowledge_entry_passes_scope_authorization(
             &knowledge_entry,
             &matching_scope
         ));
 
-        matching_scope.entry_ids = vec!["kb_2".into()];
+        matching_scope.entry_ids = Some(vec!["kb_2".into()]);
         assert!(!knowledge_entry_passes_scope_authorization(
             &knowledge_entry,
             &matching_scope
@@ -601,13 +554,13 @@ mod tests {
         });
 
         let mut matching_scope = base_scope();
-        matching_scope.entry_types = vec!["character".into()];
+        matching_scope.entry_types = Some(vec!["character".into()]);
         assert!(knowledge_entry_passes_scope_authorization(
             &knowledge_entry,
             &matching_scope
         ));
 
-        matching_scope.entry_types = vec!["location".into()];
+        matching_scope.entry_types = Some(vec!["location".into()]);
         assert!(!knowledge_entry_passes_scope_authorization(
             &knowledge_entry,
             &matching_scope
@@ -655,7 +608,7 @@ mod tests {
         });
 
         let mut scope = base_scope();
-        scope.timeline_event_ids = vec!["evt_missing".into()];
+        scope.timeline_event_ids = Some(vec!["evt_missing".into()]);
         scope.timeline_scale = Some(spoke_schemas::TimelineScale("brief".to_owned()));
 
         assert!(knowledge_entry_passes_scope_authorization(
@@ -678,8 +631,8 @@ mod tests {
         });
 
         let mut scope = base_scope();
-        scope.entry_ids = vec!["kb_1".into()];
-        scope.entry_types = vec!["location".into()];
+        scope.entry_ids = Some(vec!["kb_1".into()]);
+        scope.entry_types = Some(vec!["location".into()]);
 
         assert!(!knowledge_entry_passes_scope_authorization(
             &knowledge_entry,
@@ -701,7 +654,7 @@ mod tests {
         ];
 
         let mut scope = base_scope();
-        scope.entry_types = vec!["character".into()];
+        scope.entry_types = Some(vec!["character".into()]);
 
         let filtered = authorized_scope_entries(&knowledge_entries, &scope);
         assert_eq!(filtered.len(), 1);
@@ -727,13 +680,13 @@ mod tests {
         });
 
         let mut matching_scope = base_scope();
-        matching_scope.timeline_event_ids = vec!["evt_1".into()];
+        matching_scope.timeline_event_ids = Some(vec!["evt_1".into()]);
         assert!(timeline_event_matches_scope(
             &timeline_event,
             &matching_scope
         ));
 
-        matching_scope.timeline_event_ids = vec!["evt_2".into()];
+        matching_scope.timeline_event_ids = Some(vec!["evt_2".into()]);
         assert!(!timeline_event_matches_scope(
             &timeline_event,
             &matching_scope
@@ -767,8 +720,8 @@ mod tests {
         });
 
         let mut scope = base_scope();
-        scope.entry_ids = vec!["kb_missing".into()];
-        scope.entry_types = vec!["character".into()];
+        scope.entry_ids = Some(vec!["kb_missing".into()]);
+        scope.entry_types = Some(vec!["character".into()]);
         scope.source_id = Some("manuscript_1".into());
 
         assert!(timeline_event_matches_scope(&timeline_event, &scope));
@@ -946,7 +899,7 @@ mod tests {
         });
 
         let mut core_scope = base_scope();
-        core_scope.entry_types = vec!["character".into()];
+        core_scope.entry_types = Some(vec!["character".into()]);
 
         // (a) matching uses core fields — identical selection with or without extensions.
         assert_eq!(
@@ -1052,7 +1005,7 @@ mod tests {
         let knowledge_entry = owner_private_entry("kb_1", "kb_mira");
 
         let mut scope = base_scope();
-        scope.entry_ids = vec!["kb_1".into()];
+        scope.entry_ids = Some(vec!["kb_1".into()]);
         scope.viewpoint = viewpoint("kb_mira");
         assert!(knowledge_entry_passes_scope_authorization(&knowledge_entry, &scope));
 
@@ -1061,7 +1014,7 @@ mod tests {
         assert!(!knowledge_entry_passes_scope_authorization(&knowledge_entry, &scope));
 
         // viewpoint admits the entry; the entry refinement still excludes it.
-        scope.entry_ids = vec!["kb_missing".into()];
+        scope.entry_ids = Some(vec!["kb_missing".into()]);
         scope.viewpoint = viewpoint("kb_mira");
         assert!(!knowledge_entry_passes_scope_authorization(&knowledge_entry, &scope));
     }
@@ -1080,24 +1033,24 @@ mod tests {
     }
 
     #[test]
-    fn knowledge_entry_matches_scope_view_keeps_viewpoint_and_wire_array_presence() {
+    fn knowledge_entry_matches_scope_keeps_viewpoint_and_wire_array_presence() {
         let knowledge_entry = owner_private_entry("kb_1", "kb_mira");
 
-        let wire = json!({
+        let scope: Scope = serde_json::from_value(json!({
             "scope_id": "world_1",
             "viewpoint": "kb_mira",
-        });
-        let view = ScopeMatchView::from_wire_json(&wire).expect("scope wire json");
-        assert!(knowledge_entry_passes_scope_authorization_view(&knowledge_entry, &view));
+        }))
+        .expect("valid scope");
+        assert!(knowledge_entry_passes_scope_authorization(&knowledge_entry, &scope));
 
         // Present-empty entry_ids still matches nothing, even with a matching viewpoint.
-        let wire = json!({
+        let scope: Scope = serde_json::from_value(json!({
             "scope_id": "world_1",
             "entry_ids": [],
             "viewpoint": "kb_mira",
-        });
-        let view = ScopeMatchView::from_wire_json(&wire).expect("scope wire json");
-        assert!(!knowledge_entry_passes_scope_authorization_view(&knowledge_entry, &view));
+        }))
+        .expect("valid scope");
+        assert!(!knowledge_entry_passes_scope_authorization(&knowledge_entry, &scope));
     }
 
     #[test]

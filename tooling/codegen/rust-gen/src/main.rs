@@ -435,6 +435,25 @@ fn normalize_content_cognition_arrays(rust: &str) -> Result<String, String> {
     )
 }
 
+/// Scope optional-array refinements: the derived copies appear as `Scope`,
+/// `CheckRequestScope` and `AssembleRequestScope`. Omitted is a wildcard while
+/// an explicitly present `[]` matches nothing, so presence must survive typed
+/// decode on every copy — otherwise the served path widens `[]` to absent.
+fn is_scope_refinement_array(owner: &str, name: &str, _type_text: &str) -> bool {
+    owner.ends_with("Scope")
+        && matches!(name, "entry_ids" | "entry_types" | "timeline_event_ids")
+}
+
+/// Scope refinement presence rule (see [`is_scope_refinement_array`]).
+fn normalize_scope_arrays(rust: &str) -> Result<String, String> {
+    normalize_arrays_matching(
+        rust,
+        is_scope_refinement_array,
+        "Scope refinement presence",
+        false,
+    )
+}
+
 /// Rewrite every `serde(default)` `Vec` wire field selected by `matches` to
 /// `Option<Vec<_>>`, together with its builder field and setter. `require_any`
 /// fails generation when a module-wide rule selects nothing.
@@ -600,7 +619,11 @@ fn normalize_arrays_matching(
         rest = &tail[insert_at..];
     }
     with_setters.push_str(rest);
-    with_setters.push_str(PRESENCE_ARRAY_HELPER);
+    // Two presence rules may select fields in the same module; the shared
+    // decode helper is emitted once.
+    if !with_setters.contains("fn deserialize_presence_sensitive_array") {
+        with_setters.push_str(PRESENCE_ARRAY_HELPER);
+    }
 
     // Fail loudly on partial builder/setter drift: every converted wire field
     // must have exactly one builder field and one setter rewrite.
@@ -852,6 +875,15 @@ fn generate_schema_rust(
         )
     })?;
 
+    // Every derived Scope copy keeps optional-array presence distinct, whatever
+    // module it was generated into.
+    let rust = normalize_scope_arrays(&rust).map_err(|err| {
+        format!(
+            "Scope refinement presence normalization failed for {}: {err}",
+            schema_path.display()
+        )
+    })?;
+
     if let Some(parent) = out_path.parent() {
         fs::create_dir_all(parent).map_err(|err| {
             format!(
@@ -1013,9 +1045,13 @@ mod tests {
     }
 
     fn module(fields: &[(&str, &str)]) -> String {
-        let mut wire = String::from("pub struct Foo { ");
-        let mut builder = String::from("pub mod builder { pub struct Foo { ");
-        let mut setter_source = String::from("impl Foo { ");
+        module_with_owner("Foo", fields)
+    }
+
+    fn module_with_owner(owner: &str, fields: &[(&str, &str)]) -> String {
+        let mut wire = format!("pub struct {owner} {{ ");
+        let mut builder = format!("pub mod builder {{ pub struct {owner} {{ ");
+        let mut setter_source = format!("impl {owner} {{ ");
         for (attr, name) in fields {
             wire.push_str(&field(attr, name));
             builder.push_str(&builder_field(name));
@@ -1172,5 +1208,36 @@ mod tests {
             error.contains("coverage mismatch") && error.contains("Content::cognition"),
             "unexpected error: {error}"
         );
+    }
+
+    #[test]
+    fn scope_refinement_arrays_keep_presence_on_every_derived_copy() {
+        for owner in ["Scope", "CheckRequestScope", "AssembleRequestScope"] {
+            let source = module_with_owner(
+                owner,
+                &[
+                    (OPTIONAL_ATTR, "entry_ids"),
+                    (OPTIONAL_ATTR, "entry_types"),
+                    (OPTIONAL_ATTR, "timeline_event_ids"),
+                ],
+            );
+            let output = normalize_scope_arrays(&source).expect("normalizes");
+            for name in ["entry_ids", "entry_types", "timeline_event_ids"] {
+                assert!(
+                    output.contains(&format!(
+                        "deserialize_with = \"deserialize_presence_sensitive_array\" , skip_serializing_if = \"::std::option::Option::is_none\")] pub {name} : :: std :: option :: Option < :: std :: vec :: Vec <"
+                    )),
+                    "{owner}::{name} must keep `[]` distinct: {output}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn scope_refinement_rule_leaves_other_owners_unchanged() {
+        // `Rule.entry_types` is an open-vocabulary selector on a non-Scope
+        // owner: its generated `Vec` shape must survive this rule.
+        let source = module_with_owner("Rule", &[(OPTIONAL_ATTR, "entry_types")]);
+        assert_eq!(normalize_scope_arrays(&source).expect("no-op"), source);
     }
 }

@@ -154,7 +154,7 @@ interface AssessmentMembers {
 }
 ```
 
-`view = "current"` is valid only in holder-side current input/authority. `view = "recorded_at"` is required in Memory and valid for explicitly supplied historical input.
+`view = "current"` is valid only in holder-side current input/authority. `view = "recorded_at"` is required in Memory and valid for explicitly supplied historical input. The carrier guards reject a repeated `record_id` within `modules.cognition.records` and within one `Content.cognition` array; ids are never compared across carriers.
 
 ### 3.1 Belief
 
@@ -365,7 +365,7 @@ interface CognitionProjection {
 
 Every item carries its own source `assessment_context`; there is no projection-global effective or assessment context. Multi-context matches remain separate, and an empty projection infers no context. Records group by `(holder, target.carrier, target.kind, target.target_id, assessment_context.context_id, assessment_context.fork_id)`. Groups retain first-match order and assessments retain input order.
 
-For current assessed items, `selection` is required and identifies the explicitly injected product policy; `selected_record_id` must be one of `input_record_ids`. All attributed disagreements remain in `assessments`. Recorded-at-time projection has no current selection. The protocol supplies no policy algorithm.
+For current assessed items, `selection` is required and identifies the explicitly injected product policy; `selected_record_id` must be one of `input_record_ids`. All attributed disagreements remain in `assessments`. Recorded-at-time projection has no current selection. The protocol supplies no policy algorithm. One item stays self-consistent: every assessment carries the item's holder, target identity and assessment context, the item's record ids are distinct, `input_record_ids` name exactly that item's assessments, and `selected_record_id` names one of them. Ids are never compared across items or carriers.
 
 A filter exactly addresses a source key only when it supplies the complete holder and target identities, `assessment_context.context_id`, and an explicit fork predicate. Before optional `category`, `state`, `q`, `order` or Belief-dimension predicates, the authorized source is checked for the selected `view` and complete key. If absent, exactly one `no_record` item carries the addressed holder/target/context, `assessments: []` and no `selection`. If any source record exists, `no_record` is never emitted even when optional predicates exclude every record; the result is then an empty projection for that key. Wildcard or partially addressed empty results are always `items: []`. Emitted `no_record` items follow assessed items.
 

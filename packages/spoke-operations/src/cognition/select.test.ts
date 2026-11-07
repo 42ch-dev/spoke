@@ -16,6 +16,7 @@ import {
   selectCognitionRecords,
   type CognitionProjection,
 } from "./select.js";
+import { validateCognitionProjection } from "./validate.js";
 
 // Shared cross-language cognition selection contract (TS ↔ Rust): both
 // suites execute every vector id from this single file and must observe the
@@ -149,6 +150,7 @@ function runVector(vector: SelectionVector): void {
     expect(projectionSummary(result.value), vector.id).toEqual(
       vector.expected,
     );
+    expect(validateCognitionProjection(result.value), vector.id).toBe(true);
   }
 }
 

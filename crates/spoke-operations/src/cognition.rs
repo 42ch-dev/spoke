@@ -1178,21 +1178,46 @@ pub fn validate_cognition_record(value: &Value) -> SpokeResult<()> {
     )
 }
 
+// `record_id` is unique within one carrier (§3) and nowhere else, so the same
+// id may still identify different records in another carrier.
+fn all_distinct(mut ids: Vec<&str>) -> bool {
+    let total = ids.len();
+    ids.sort_unstable();
+    ids.dedup();
+    ids.len() == total
+}
+
+// One carrier's record list: every entry is a placed record of that carrier's
+// view and the ids are distinct, so the selection trace can name one record.
+fn carrier_records_valid(records: &[Value], view: &str) -> bool {
+    let mut ids = Vec::with_capacity(records.len());
+    for record in records {
+        if !validate_placed_record(record, None)
+            || record.get("view").and_then(Value::as_str) != Some(view)
+        {
+            return false;
+        }
+        let Some(record_id) = record.get("record_id").and_then(Value::as_str) else {
+            return false;
+        };
+        ids.push(record_id);
+    }
+    all_distinct(ids)
+}
+
 /// Wire-shape gate over Content-like values: when `cognition` is present,
-/// every entry must be a valid `CognitionRecord` with `view = "recorded_at"`;
-/// when absent the guard accepts. No byte measurement, no persistence.
+/// every entry must be a valid `CognitionRecord` with `view = "recorded_at"`
+/// and a distinct `record_id` within this carrier; when absent the guard
+/// accepts. No byte measurement, no persistence.
 pub fn validate_cognition_content(value: &Value) -> SpokeResult<()> {
     let Some(content) = value.as_object() else {
         return gate(false, "Content must be a non-null plain object");
     };
     let ok = match content.get("cognition") {
         None => true,
-        Some(records) => records.as_array().is_some_and(|records| {
-            records.iter().all(|record| {
-                validate_placed_record(record, None)
-                    && record.get("view").and_then(Value::as_str) == Some("recorded_at")
-            })
-        }),
+        Some(records) => records
+            .as_array()
+            .is_some_and(|records| carrier_records_valid(records, "recorded_at")),
     };
     gate(ok, "Content cognition entries must be recorded-at-time records")
 }
@@ -1262,8 +1287,8 @@ fn is_world_fact_record(value: &Value) -> bool {
 }
 
 /// Wire-shape gate for the KnowledgeEntry `modules.cognition` carrier: closed
-/// `{records, world_facts, extensions}` with current-view actor records and
-/// order-0 world facts whose holder is kind = "world".
+/// `{records, world_facts, extensions}` with distinct-id current-view actor
+/// records and order-0 world facts whose holder is kind = "world".
 pub fn validate_cognition_module(value: &Value) -> SpokeResult<()> {
     let Some(module) = value.as_object() else {
         return gate(false, "cognition module must be a non-null plain object");
@@ -1274,12 +1299,7 @@ pub fn validate_cognition_module(value: &Value) -> SpokeResult<()> {
     let records_ok = module
         .get("records")
         .and_then(Value::as_array)
-        .is_some_and(|records| {
-            records.iter().all(|record| {
-                validate_placed_record(record, None)
-                    && record.get("view").and_then(Value::as_str) == Some("current")
-            })
-        });
+        .is_some_and(|records| carrier_records_valid(records, "current"));
     let world_facts_ok = module
         .get("world_facts")
         .and_then(Value::as_array)
@@ -1626,6 +1646,20 @@ fn is_selection_trace(value: &Value) -> bool {
     input_record_ids.iter().any(|id| id.as_str() == Some(selected_record_id))
 }
 
+// One item and its assessments describe one source group (§5.3): the same
+// complete holder reference, target identity (carrier tuple, kind, target_id
+// — never text/about) and assessment context. Ids are compared per item only,
+// because the same `record_id` may legitimately live in another carrier.
+fn is_projection_group_member(item: &Map<String, Value>, record: &Value) -> bool {
+    let item_target = item.get("target");
+    let record_target = record.get("target");
+    ["carrier", "kind", "target_id"].iter().all(|key| {
+        record_target.and_then(|target| target.get(*key))
+            == item_target.and_then(|target| target.get(*key))
+    }) && record.get("holder") == item.get("holder")
+        && record.get("assessment_context") == item.get("assessment_context")
+}
+
 fn is_cognition_projection_item(
     value: &Value,
     placement: Placement,
@@ -1667,19 +1701,53 @@ fn is_cognition_projection_item(
     if (presence == "no_record") != assessments.is_empty() {
         return false;
     }
-    // The current selection trace is required iff view = current and presence
-    // = assessed; recorded-at-time projection has no current selection.
-    if with_selection {
-        item.get("selection").is_some_and(is_selection_trace)
-    } else {
-        item.get("selection").is_none()
+    let record_ids: Vec<&str> = assessments
+        .iter()
+        .filter_map(|record| record.get("record_id").and_then(Value::as_str))
+        .collect();
+    // The item and its assessments describe one source group with distinct
+    // ids, so the trace can name exactly one record.
+    if record_ids.len() != assessments.len()
+        || !assessments
+            .iter()
+            .all(|record| is_projection_group_member(item, record))
+        || !all_distinct(record_ids.clone())
+    {
+        return false;
     }
+    // The current selection trace is required iff view = current and presence
+    // = assessed; recorded-at-time projection has no current selection. Its
+    // candidates are exactly this item's assessments, so the selected id
+    // always names a record the item carries.
+    if with_selection {
+        let Some(trace) = item
+            .get("selection")
+            .filter(|selection| is_selection_trace(selection))
+        else {
+            return false;
+        };
+        let Some(input_ids) = trace.get("input_record_ids").and_then(Value::as_array) else {
+            return false;
+        };
+        let Some(selected) = trace.get("selected_record_id").and_then(Value::as_str) else {
+            return false;
+        };
+        return record_ids
+            .iter()
+            .all(|id| input_ids.iter().any(|input| input.as_str() == Some(*id)))
+            && input_ids
+                .iter()
+                .all(|input| input.as_str().is_some_and(|id| record_ids.contains(&id)))
+            && record_ids.contains(&selected);
+    }
+    item.get("selection").is_none()
 }
 
 /// Wire-shape gate for an attribution-preserving CognitionProjection. Every
-/// assessment must carry the projection's own view, and a current `assessed`
-/// item must carry a selection trace whose `selected_record_id` is one of the
-/// traced `input_record_ids`.
+/// assessment must carry the projection's own view and match its item's
+/// holder, target identity and assessment context. A current `assessed` item
+/// must carry a selection trace whose candidates are exactly that item's
+/// assessment records and whose `selected_record_id` names one of them.
 pub fn validate_cognition_projection(value: &Value) -> SpokeResult<()> {
     let Some(projection) = value.as_object() else {
         return gate(false, "cognition projection must be a non-null plain object");
@@ -2645,6 +2713,13 @@ mod select_tests {
             projection_summary(&projection),
             *expected,
             "vector {id} projection summary mismatch"
+        );
+        assert!(
+            validate_cognition_projection(
+                &serde_json::to_value(&projection).expect("projection serializes")
+            )
+            .is_ok(),
+            "vector {id} projector output must pass the projection gate"
         );
     }
 

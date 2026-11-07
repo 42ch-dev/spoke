@@ -87,7 +87,7 @@ fn is_non_empty_trimmed_string(value: &str) -> bool {
 }
 
 fn is_plain_object(value: &Value) -> bool {
-    value.is_object() && !value.is_null()
+    value.is_object()
 }
 
 fn is_parseable_date_time(value: &str) -> bool {

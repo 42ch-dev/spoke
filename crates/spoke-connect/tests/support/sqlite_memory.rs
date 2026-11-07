@@ -36,16 +36,20 @@ use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use spoke_fixture_memory_engine::classify::{classify_candidate, CandidateMaterial};
+use spoke_fixture_memory_engine::classify::{
+    classify_candidate, content_has_cognition, CandidateMaterial,
+};
 use spoke_fixture_memory_engine::recall::{recall as engine_recall, RecallRecord, RecallRequest as EngineRecall};
 use spoke_fixture_memory_engine::reflect::{assemble_reflection, basis_digests, ReflectionBasis, SourceRef};
 use spoke_fixture_memory_engine::transfer::{
     adopt_grants as transfer_adopt_grants, bundle_digest, chunk_digest, partition_bundle,
-    reassemble, staged_report as transfer_staged_report, verify_staging,
+    reassemble, remap_cognition_references, staged_report as transfer_staged_report,
+    verify_staging, TranslationMaps,
 };
 use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
 use spoke_operations::{
-    is_freeze_allowlisted, jcs_sha256_hex, spoke_reject, validate_grant_issuance,
+    cognition_record_matches_filter, is_freeze_allowlisted, jcs_sha256_hex, spoke_reject,
+    validate_cognition_content, validate_cognition_filter, validate_grant_issuance,
     validate_memory_candidates_list, validate_memory_candidates_review, validate_memory_capture,
     validate_memory_grants_grant, validate_memory_grants_list, validate_memory_imports_stage,
     validate_memory_recall, validate_memory_records_create, validate_memory_records_list,
@@ -54,7 +58,9 @@ use spoke_operations::{
     validate_memory_spaces_list, validate_memory_subjects_fence, GrantRequirement, IssuedGrant,
     MemoryPort, SpokeRejectCode, SpokeResult,
 };
+use spoke_schemas::data::cognition::{CognitionFilter, CognitionRecord, CognitionReference};
 use spoke_schemas::data::memory_candidate::Disposition;
+use spoke_schemas::data::provenance_filter::ProvenanceFilter;
 use spoke_schemas::data::read_selection::ReadSelection;
 use spoke_schemas::data::retained_record::Content;
 use spoke_schemas::{
@@ -107,6 +113,28 @@ fn reject_details<T>(
     details: Value,
 ) -> SpokeResult<T> {
     spoke_reject(code, message, details.as_object().cloned())
+}
+
+/// §14.2: a storage failure proven before any effect committed is the existing
+/// `INTERNAL_ERROR` with `retry_class: retryable` — never a panic, and never a
+/// claim about a mutation that did not happen.
+fn storage_failure<T>(action: &str, error: rusqlite::Error) -> SpokeResult<T> {
+    reject_details(
+        SpokeRejectCode::InternalError,
+        format!("{action}: {error}"),
+        json!({ "retry_class": "retryable" }),
+    )
+}
+
+/// §14.2/§14.3: a mutating write whose commit state cannot be established is
+/// `OUTCOME_UNCERTAIN` with `retry_class: uncertain` — an `execute` error alone
+/// does not prove autocommit left no durable effect.
+fn uncertain_storage_failure<T>(action: &str, error: rusqlite::Error) -> SpokeResult<T> {
+    reject_details(
+        SpokeRejectCode::OutcomeUncertain,
+        format!("{action}: {error}; commit outcome not established"),
+        json!({ "retry_class": "uncertain" }),
+    )
 }
 
 /// Early return for `SpokeResult`: the `?` operator cannot be used on it.
@@ -188,6 +216,36 @@ fn identity_map(chunks: &[Value], field: &str, id_field: &str) -> BTreeMap<Strin
     map
 }
 
+/// §6.2 import/stage: every translated Content cognition carrier must still
+/// pass P1's closed Content guard before it is persisted or activated. The
+/// check is structural only — references are already resolved by §6.3 — and
+/// returns one owner-prefixed error per offending record/candidate.
+fn translated_cognition_errors(bundle: &Value) -> Vec<String> {
+    let mut errors = Vec::new();
+    let mut check = |owner: String, content: &Value| {
+        if let SpokeResult::Reject(reject) = validate_cognition_content(content) {
+            errors.push(format!("{owner}: {}", reject.message));
+        }
+    };
+    for record in bundle["records"].as_array().cloned().unwrap_or_default() {
+        let owner = format!(
+            "record {}",
+            record["record_id"].as_str().unwrap_or("<unknown>")
+        );
+        check(owner, &record["content"]);
+    }
+    for candidate in bundle["candidates"].as_array().cloned().unwrap_or_default() {
+        if let Some(content) = candidate["proposed"].get("content") {
+            let owner = format!(
+                "candidate {}",
+                candidate["candidate_id"].as_str().unwrap_or("<unknown>")
+            );
+            check(owner, content);
+        }
+    }
+    errors
+}
+
 /// Placement selection helpers shared by `records.list`, `recall` and the
 /// reflection group.
 fn selection_contexts(selection: &ReadSelection) -> Vec<String> {
@@ -209,13 +267,106 @@ fn selection_subject_all(selection: &ReadSelection) -> bool {
     matches!(selection, ReadSelection::SubjectAll)
 }
 
+/// `(contexts, shared, subject_all)` — what one selection demands of a grant
+/// (§6.5, §6.12).
+fn selection_requirement(selection: &ReadSelection) -> (Vec<String>, bool, bool) {
+    (
+        selection_contexts(selection),
+        selection_reads_shared(selection),
+        selection_subject_all(selection),
+    )
+}
+
+/// §7.26: a request selection restricts the reflection listing to reflections
+/// whose pinned selection it wholly covers — the same whole-scope rule the
+/// export bundle applies, never bare overlap. `SubjectAll` covers every pin; a
+/// context-limited pin must have all of its contexts and no shared widening
+/// the request refuses.
+fn selection_covers(request: &ReadSelection, pinned: &ReadSelection) -> bool {
+    let (wanted_contexts, wanted_shared, wanted_all) = selection_requirement(request);
+    let (pinned_contexts, pinned_shared, pinned_all) = selection_requirement(pinned);
+    (wanted_all || !pinned_all)
+        && (wanted_shared || !pinned_shared)
+        && (wanted_all
+            || pinned_contexts
+                .iter()
+                .all(|context| wanted_contexts.contains(context)))
+}
+
+/// §6.12/§7.29: does a placement scope fall inside the export selection?
+/// `None` is the whole-subject export (no selection) and admits every
+/// placement of that subject.
+fn selection_admits(selection: Option<&ReadSelection>, scope: &Value) -> bool {
+    let Some(selection) = selection else {
+        return true;
+    };
+    let shared = scope["visibility"].as_str() == Some("shared");
+    match selection {
+        ReadSelection::SubjectAll => true,
+        ReadSelection::SharedOnly => shared,
+        ReadSelection::SelectedContexts { .. } => {
+            (shared && selection_reads_shared(selection))
+                || scope["context_id"]
+                    .as_str()
+                    .map(|context| {
+                        selection_contexts(selection)
+                            .iter()
+                            .any(|wanted| wanted == context)
+                    })
+                    .unwrap_or(false)
+        }
+    }
+}
+
+/// Canonical cognition filter from a request's `cognition_filter` member.
+///
+/// Validation stays C5's `validate_cognition_filter`: an unknown, bare-numeric
+/// or unimplemented predicate rejects the whole request as an unsupported
+/// cognition requirement — never a silent strip.
+fn parse_cognition_filter(request: &Value) -> SpokeResult<Option<CognitionFilter>> {
+    match request.get("cognition_filter") {
+        None => SpokeResult::Ok(None),
+        Some(value) => {
+            tri!(validate_cognition_filter(value));
+            match serde_json::from_value::<CognitionFilter>(value.clone()) {
+                Ok(filter) => SpokeResult::Ok(Some(filter)),
+                Err(error) => reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("cognition_filter: {error}"),
+                ),
+            }
+        }
+    }
+}
+
+/// §7 item 2: a record matches only when at least one of its recorded-at-time
+/// entries satisfies the complete conjunction; different entries never satisfy
+/// different conjuncts jointly. A record with no cognition never matches a
+/// present filter. Stored records were validated at write time, so an entry
+/// that cannot decode is a no-match rather than a panic.
+fn record_matches_cognition(record: &Value, filter: &CognitionFilter) -> bool {
+    record["content"]["cognition"]
+        .as_array()
+        .is_some_and(|entries| {
+            entries.iter().any(|entry| {
+                serde_json::from_value::<CognitionRecord>(entry.clone())
+                    .is_ok_and(|entry| cognition_record_matches_filter(&entry, filter))
+            })
+        })
+}
+
 /// Authorized records for a subject + selection + provenance filter; the
-/// provider filters (placement, tombstone, provenance), the engine ranks.
+/// provider filters (tombstone, placement, provenance, cognition), the engine
+/// ranks. §7 item 1: tombstoned records leave the eligible set before every
+/// other filter, count and page, so only an explicitly authorized admin
+/// `include_tombstoned` display re-admits them.
 fn selected_records(
     space: &Space,
     subject_id: &str,
     selection: &ReadSelection,
     filter: Option<&Value>,
+    cognition_filter: Option<&CognitionFilter>,
+    include_tombstoned: bool,
 ) -> Vec<Value> {
     let mode_contexts = selection_contexts(selection);
     let include_shared = selection_reads_shared(selection);
@@ -223,6 +374,7 @@ fn selected_records(
         .records
         .values()
         .filter(|record| record["subject_id"].as_str() == Some(subject_id))
+        .filter(|record| include_tombstoned || record.get("tombstone").is_none())
         .filter(|record| {
             let scope = &record["scope"];
             let shared = scope["visibility"].as_str() == Some("shared");
@@ -262,6 +414,10 @@ fn selected_records(
                     .unwrap_or(false)
             }
         })
+        .filter(|record| match cognition_filter {
+            None => true,
+            Some(filter) => record_matches_cognition(record, filter),
+        })
         .cloned()
         .collect()
 }
@@ -280,6 +436,12 @@ enum PendingWork {
     Reflection {
         subject_id: String,
         selection: ReadSelection,
+        /// The canonical provenance filter the basis pinned (§7 item 6);
+        /// retained so the stored reflection and its basis keep it.
+        filter: Option<ProvenanceFilter>,
+        /// The canonical cognition filter that pinned the eligible source set;
+        /// retained so the stored reflection and its basis keep it.
+        cognition_filter: Option<CognitionFilter>,
         sources: Vec<(String, u64)>,
         profile_revisions: Vec<(String, u64)>,
     },
@@ -294,12 +456,81 @@ enum PendingWork {
 struct ExportState {
     export_id: String,
     subject_id: Option<String>,
+    /// Coverage the bundle keeps requiring at retrieval (§7.29): the original
+    /// export scope plus the pinned selection of every included reflection.
+    context_ids: Vec<String>,
+    reads_shared: bool,
+    subject_all: bool,
     chunks: Vec<Value>,
     chunk_count: u64,
     total_bytes: u64,
     bundle_digest: String,
     counts: Value,
     created_at_seconds: i64,
+}
+
+/// Authorization requirement of an export bundle. Omitting the selection means
+/// the whole requested scope — the whole subject or space — never a narrowed
+/// context-limited grant (`§7.29`, `§6.5`).
+#[derive(Clone, Serialize, Deserialize)]
+struct ExportScope {
+    context_ids: Vec<String>,
+    reads_shared: bool,
+    subject_all: bool,
+}
+
+impl ExportScope {
+    fn of(selection: Option<&ReadSelection>) -> Self {
+        let Some(selection) = selection else {
+            // Omitted selection = the whole requested scope: every placement
+            // of the subject, or the whole space. Only unrestricted coverage
+            // may read that (`subject_all` also denies context-limited grants).
+            return Self {
+                context_ids: Vec::new(),
+                reads_shared: true,
+                subject_all: true,
+            };
+        };
+        let (context_ids, reads_shared, subject_all) = selection_requirement(selection);
+        Self {
+            context_ids,
+            reads_shared,
+            subject_all,
+        }
+    }
+
+    /// Widen to the pinned selection of one included reflection: its derived
+    /// body discloses that basis, so the reader must cover it too.
+    fn absorb(&mut self, reflection: &Value) {
+        match serde_json::from_value::<ReadSelection>(reflection["selection"].clone()) {
+            Ok(selection) => {
+                let (contexts, reads_shared, subject_all) = selection_requirement(&selection);
+                for context in contexts {
+                    if !self.context_ids.contains(&context) {
+                        self.context_ids.push(context);
+                    }
+                }
+                self.reads_shared |= reads_shared;
+                self.subject_all |= subject_all;
+            }
+            // An unreadable pin cannot be proven covered: require the
+            // unrestricted coverage instead of guessing.
+            Err(_) => {
+                self.reads_shared = true;
+                self.subject_all = true;
+            }
+        }
+    }
+
+    fn requirement<'a>(&'a self, subject_id: Option<&'a str>) -> GrantRequirement<'a> {
+        GrantRequirement {
+            capability: "transfer",
+            subject_id,
+            context_ids: self.context_ids.clone(),
+            reads_shared: self.reads_shared,
+            subject_all: self.subject_all,
+        }
+    }
 }
 
 /// A staged import (`§7.31`): durable chunk accumulation plus the verification
@@ -313,18 +544,53 @@ struct ImportState {
     conflict_policy: String,
     adopt_grants: Vec<Value>,
     subject_renames: BTreeMap<String, String>,
+    /// §6.3 explicit `(from, to)` cognition reference translation pairs
+    /// supplied with the stage request (proof-provider carrier).
+    reference_translations: Vec<(CognitionReference, CognitionReference)>,
     report: Option<Value>,
     bundle: Option<Value>,
     staged_seconds: i64,
     status: String,
 }
 
+/// Wire-shaped `reference_translations` entry (§6.3): the exact full
+/// `(from, to)` cognition reference pair carried by the stage request.
+#[derive(Clone, Debug, Deserialize)]
+struct ReferenceTranslationWire {
+    from: CognitionReference,
+    to: CognitionReference,
+}
+
+/// Provider-private lifecycle evidence for one real receipt (`§6.10`),
+/// keyed by the actual receipt id for keyed AND unkeyed mutations. The
+/// requester is kept verbatim: principal ids are opaque and may legally
+/// contain the U+001F namespace delimiter, so a namespace key cannot be split
+/// back into `(principal, op, key)`.
+#[derive(Clone, Serialize, Deserialize)]
+struct ReceiptEvidence {
+    requester_id: String,
+    /// Receipt retention clock stamp.
+    created_at: String,
+    /// Last known receipt status, retained after the body is evicted
+    /// (MEM-R022): pending work is never reported as committed. `None` while
+    /// the authoritative body exists, so no valid state has two status
+    /// authorities. Optional in the stored shape so a cleared status decodes
+    /// as absent evidence, never as an implicit outcome.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    status: Option<String>,
+}
+
 /// Dedup namespace entry (`§7.0.5`): `(principal, op, idempotency_key)`.
+/// Binding only — the receipt's identity, clock and outcome live in
+/// `ReceiptEvidence`.
 #[derive(Clone, Serialize, Deserialize)]
 struct DedupEntry {
     receipt_id: String,
     digest: String,
-    created_at: String,
+    /// Original export coverage, retained so a same-key replay is authorized
+    /// against the stored scope rather than a later reflection snapshot.
+    #[serde(default)]
+    export_scope: Option<ExportScope>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -361,15 +627,21 @@ struct Space {
     /// Monotonic receipt-id sequence (never rewound by eviction; rides the
     /// document, so snapshots restore it too).
     receipt_sequence: u64,
+    /// Lifecycle evidence per actual receipt id (`§6.10`), required in every
+    /// stored document: a missing map fails decode closed, never defaults.
+    receipt_evidence: BTreeMap<String, ReceiptEvidence>,
+    /// Monotonic record-id sequence shared by every write path that allocates
+    /// a record (create, review outcomes). Never rewound, so gaps and
+    /// tombstones cannot let a later write replace retained content.
+    record_sequence: u64,
     dedup: BTreeMap<String, DedupEntry>,
 }
 
 impl Space {
     fn pending_receipts(&self) -> usize {
-        self.receipts
-            .values()
-            .filter(|receipt| receipt["status"] == "pending")
-            .count()
+        // Outstanding work, not receipt bodies: a pending receipt may be
+        // evicted while its deferred effect is still owed.
+        self.pending.len()
     }
 
     fn touch(&mut self) {
@@ -397,6 +669,13 @@ struct Document {
     clock_offset_seconds: i64,
 }
 
+/// Decodes a stored document; an undecodable one keeps its bytes and fails.
+fn decode_document(raw: &str) -> rusqlite::Result<Document> {
+    serde_json::from_str(raw).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
+    })
+}
+
 /// Provider-private SQLite storage.
 struct Store {
     connection: Connection,
@@ -417,24 +696,31 @@ impl Store {
              );",
         )?;
         let store = Self { connection };
-        if store.read()?.spaces.is_empty() {
+        // Decode whatever is already stored before touching it: an unsupported
+        // document is an error, never an empty state to overwrite.
+        if store.load()?.is_none() {
             store.write(&Document::default())?;
         }
         Ok(store)
     }
 
-    fn read(&self) -> rusqlite::Result<Document> {
+    /// `None` only when no document was ever stored. An existing document that
+    /// does not decode is an error, so callers can never mistake stored bytes
+    /// for absent state.
+    fn load(&self) -> rusqlite::Result<Option<Document>> {
         let mut statement = self
             .connection
             .prepare("SELECT document FROM memory_state WHERE id = 1")?;
         let mut rows = statement.query([])?;
-        match rows.next()? {
-            Some(row) => {
-                let raw: String = row.get(0)?;
-                Ok(serde_json::from_str(&raw).unwrap_or_default())
-            }
-            None => Ok(Document::default()),
-        }
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        let raw: String = row.get(0)?;
+        decode_document(&raw).map(Some)
+    }
+
+    fn read(&self) -> rusqlite::Result<Document> {
+        Ok(self.load()?.unwrap_or_default())
     }
 
     /// One transaction per mutation: the document swap is atomic and durable.
@@ -466,7 +752,7 @@ impl Store {
             return Ok(false);
         };
         let raw: String = row.get(0)?;
-        let document: Document = serde_json::from_str(&raw).unwrap_or_default();
+        let document = decode_document(&raw)?;
         self.write(&document)?;
         Ok(true)
     }
@@ -478,10 +764,12 @@ pub struct SqliteMemoryProvider {
 }
 
 impl SqliteMemoryProvider {
-    pub fn open(path: &Path) -> Self {
-        Self {
-            store: Mutex::new(Store::open(path).expect("open provider database")),
-        }
+    /// Fails closed with the store's own error when an existing document
+    /// cannot be decoded; its bytes are left untouched for the operator.
+    pub fn open(path: &Path) -> rusqlite::Result<Self> {
+        Ok(Self {
+            store: Mutex::new(Store::open(path)?),
+        })
     }
 
     pub fn in_memory() -> Self {
@@ -500,6 +788,20 @@ impl SqliteMemoryProvider {
         let store = self.store.lock().expect("store lock");
         let mut document = store.read().expect("read");
         document.clock_offset_seconds += seconds;
+        store.write(&document).expect("write");
+    }
+
+    /// Harness state control: clear the retained outcome status on every
+    /// receipt evidence record while keeping its identity and clock, the
+    /// evidence shape whose absence is recognized corruption (SR-2).
+    pub fn forget_receipt_evidence_statuses(&self) {
+        let store = self.store.lock().expect("store lock");
+        let mut document = store.read().expect("read");
+        for space in document.spaces.values_mut() {
+            for evidence in space.receipt_evidence.values_mut() {
+                evidence.status = None;
+            }
+        }
         store.write(&document).expect("write");
     }
 
@@ -645,14 +947,130 @@ impl SqliteMemoryProvider {
         store.write(&document).expect("write");
     }
 
+    /// Test seam (private valid-state fixture): persist a receipt body
+    /// directly, for terminal states no public op produces (`failed`). The
+    /// matching lifecycle evidence (identity and clock, no status while the
+    /// body is the status authority) is provisioned with it.
+    pub fn provision_receipt(&self, space_id: &str, receipt: Value) {
+        let store = self.store.lock().expect("store lock");
+        let mut document = store.read().expect("read");
+        let space = document
+            .spaces
+            .get_mut(space_id)
+            .unwrap_or_else(|| panic!("space {space_id} not provisioned"));
+        let receipt_id = receipt["receipt_id"]
+            .as_str()
+            .expect("receipt carries receipt_id")
+            .to_string();
+        space.receipt_evidence.insert(
+            receipt_id.clone(),
+            ReceiptEvidence {
+                requester_id: receipt["requester_principal_id"]
+                    .as_str()
+                    .expect("receipt carries requester_principal_id")
+                    .to_string(),
+                created_at: receipt["created_at"]
+                    .as_str()
+                    .expect("receipt carries created_at")
+                    .to_string(),
+                status: None,
+            },
+        );
+        space.receipts.insert(receipt_id, receipt);
+        store.write(&document).expect("write");
+    }
+
+    /// Test seam: persist a dedup namespace binding for `(principal, op,
+    /// key)`. The receipt's identity/outcome evidence is separate.
+    pub fn provision_dedup_entry(
+        &self,
+        space_id: &str,
+        principal_id: &str,
+        op: &str,
+        key: &str,
+        receipt_id: &str,
+        digest: &str,
+    ) {
+        let store = self.store.lock().expect("store lock");
+        let mut document = store.read().expect("read");
+        let space = document
+            .spaces
+            .get_mut(space_id)
+            .unwrap_or_else(|| panic!("space {space_id} not provisioned"));
+        space.dedup.insert(
+            Self::dedup_namespace(principal_id, op, key),
+            DedupEntry {
+                receipt_id: receipt_id.to_string(),
+                digest: digest.to_string(),
+                export_scope: None,
+            },
+        );
+        store.write(&document).expect("write");
+    }
+
+    /// Test seam (MEM-R022 write invariant): drive the real persistence
+    /// boundary with a receipt that carries no status. Returns the rejection;
+    /// because the mutation only writes on success, no receipt, dedup entry or
+    /// owed work may be persisted.
+    pub fn attempt_statusless_remember(
+        &self,
+        space_id: &str,
+    ) -> Option<spoke_operations::SpokeReject> {
+        let outcome = self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = match Self::space_mut(document, space_id) {
+                SpokeResult::Ok(space) => space,
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            };
+            let receipt = json!({
+                "schema_version": 1,
+                "receipt_id": "rcpt_statusless",
+                "op": "memory.exports.create",
+                "space_id": space_id,
+                "requester_principal_id": "prn_statusless",
+                "payload_digest": "sha256:statusless",
+                "created_at": CLOCK_ORIGIN,
+                "extensions": {},
+            });
+            tri!(Self::remember(
+                space,
+                now,
+                "prn_statusless",
+                "memory.exports.create",
+                "statusless-key",
+                "sha256:statusless",
+                &receipt,
+            ));
+            SpokeResult::Ok(())
+        });
+        match outcome {
+            SpokeResult::Ok(()) => None,
+            SpokeResult::Reject(reject) => Some(reject),
+        }
+    }
+
     /// The provider worker, run separately from any read path (MEM-R011):
     /// completes deferred receipts (reflection generation, async op
-    /// results). Idempotent — a no-op when nothing is pending.
+    /// results). Idempotent — a no-op when nothing is pending. A refused
+    /// settlement is explicit rather than swallowed.
     pub fn run_worker(&self) {
+        if let SpokeResult::Reject(reject) = self.try_run_worker() {
+            panic!("provider worker refused deferred work: {reject:?}");
+        }
+    }
+
+    /// Fallible worker entry: a refused settlement leaves the document
+    /// unwritten (body, owed work and bytes unchanged).
+    pub fn try_run_worker(&self) -> SpokeResult<()> {
         let store = self.store.lock().expect("store lock");
         let mut document = store.read().expect("read state");
-        if Self::complete_pending(&mut document) {
-            store.write(&document).expect("write state");
+        match Self::complete_pending(&mut document) {
+            SpokeResult::Ok(true) => {
+                store.write(&document).expect("write state");
+                SpokeResult::Ok(())
+            }
+            SpokeResult::Ok(false) => SpokeResult::Ok(()),
+            SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
         }
     }
 
@@ -744,8 +1162,9 @@ impl SqliteMemoryProvider {
     }
 
     /// Value-based staging entry point (the trait method and the transfer tests
-    /// share it). Kept separate because the generated `MemoryExportChunk` union
-    /// cannot currently carry a provider chunk — see the Task 4 report finding.
+    /// share it); it returns the provider's own receipt JSON for tests that
+    /// inspect it directly. The typed public boundary is covered separately by
+    /// `MemoryPort::stage_import`, which carries a sealed provider chunk.
     pub fn stage_import_value(
         &self,
         principal: &Principal,
@@ -765,6 +1184,26 @@ impl SqliteMemoryProvider {
             .as_array()
             .cloned()
             .unwrap_or_default();
+        // §6.3 explicit cognition reference translation pairs carried by the
+        // typed stage request (header chunk); absent means no exact pairs.
+        let reference_translations: Vec<(CognitionReference, CognitionReference)> =
+            match request_value.get("reference_translations") {
+                Some(raw) => match serde_json::from_value::<Vec<ReferenceTranslationWire>>(
+                    raw.clone(),
+                ) {
+                    Ok(pairs) => pairs
+                        .into_iter()
+                        .map(|pair| (pair.from, pair.to))
+                        .collect(),
+                    Err(error) => {
+                        return reject(
+                            SpokeRejectCode::InvalidInput,
+                            format!("reference_translations: {error}"),
+                        )
+                    }
+                },
+                None => Vec::new(),
+            };
         let key = text_field(&request_value, "idempotency_key");
         let digest = tri!(request_digest(&request_value));
         let receipt = tri!(self.mutate_value(|document| {
@@ -787,16 +1226,10 @@ impl SqliteMemoryProvider {
                     "memory.imports.stage"
                 ));
             }
-            if Self::replay_conflict(space, &principal_id, "memory.imports.stage", &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) =
-                Self::replay(space, &principal_id, "memory.imports.stage", &key, &digest)
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.imports.stage", &key, &digest)
             {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             let existing = space
                 .imports
@@ -824,6 +1257,7 @@ impl SqliteMemoryProvider {
                         conflict_policy,
                         adopt_grants: adopt,
                         subject_renames: BTreeMap::new(),
+                        reference_translations,
                         report: None,
                         bundle: None,
                         staged_seconds: clock_seconds,
@@ -855,6 +1289,7 @@ impl SqliteMemoryProvider {
                     &import.subject_renames,
                     &identity_map(&import.chunks, "records", "record_id"),
                     &identity_map(&import.chunks, "candidates", "candidate_id"),
+                    &import.reference_translations,
                 );
                 let verified =
                     outcome.verification.bundle_digest_ok && outcome.verification.errors.is_empty();
@@ -868,6 +1303,31 @@ impl SqliteMemoryProvider {
                 let Some(bundle) = outcome.bundle.clone() else {
                     return reject(SpokeRejectCode::ImportConflict, "import produced no bundle");
                 };
+                // §6.2: validate the translated Content cognition before the
+                // import is staged, so an invalid completed record fails
+                // closed here instead of surfacing only at activation.
+                let translated = match remap_cognition_references(
+                    &bundle,
+                    &outcome.maps,
+                    &import.reference_translations,
+                ) {
+                    Ok(translated) => translated,
+                    Err(error) => {
+                        return reject_details(
+                            SpokeRejectCode::ImportConflict,
+                            "translated cognition reference verification failed",
+                            json!({ "errors": [error.to_string()] }),
+                        )
+                    }
+                };
+                let cognition_errors = translated_cognition_errors(&translated);
+                if !cognition_errors.is_empty() {
+                    return reject_details(
+                        SpokeRejectCode::ImportConflict,
+                        "translated cognition failed content validation",
+                        json!({ "errors": cognition_errors }),
+                    );
+                }
                 // Subject collision policy (§7.31).
                 let mut renames: BTreeMap<String, String> = BTreeMap::new();
                 for subject in bundle["subjects"].as_array().cloned().unwrap_or_default() {
@@ -928,7 +1388,7 @@ impl SqliteMemoryProvider {
             let mut receipt =
                 Self::receipt(space, now, "memory.imports.stage", &principal_id, &digest, &key);
             receipt["result"] = result;
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -936,7 +1396,7 @@ impl SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -948,6 +1408,19 @@ impl SqliteMemoryProvider {
     fn next_receipt_id(space: &mut Space) -> String {
         space.receipt_sequence += 1;
         format!("rcpt_sqlite_{:04}", space.receipt_sequence)
+    }
+
+    /// One allocator for every record write. The sequence is monotonic and
+    /// present ids are skipped, so fragment reviews, creates and promotes
+    /// cannot overwrite retained or provisioned records (gaps/tombstones).
+    fn next_record_id(space: &mut Space) -> String {
+        loop {
+            space.record_sequence += 1;
+            let record_id = format!("rec_sqlite_{:04}", space.record_sequence);
+            if !space.records.contains_key(&record_id) {
+                return record_id;
+            }
+        }
     }
 
     /// Record document created by review outcomes and `records.create`; the
@@ -1016,67 +1489,149 @@ impl SqliteMemoryProvider {
         receipt
     }
 
-    /// §7.0.5 replay: same key + same digest returns the original receipt; a
-    /// different digest is a conflict. Callers run authorization first (MEM-R021).
-    fn replay(
-        space: &Space,
+    /// §7.0.5 dedup namespace `(principal, op, idempotency_key)`. Each
+    /// component is length-prefixed so opaque ids and keys that legally carry
+    /// the U+001F delimiter cannot alias another triple: principal `a` with key
+    /// `\u{1f}…` stays distinct from a longer principal with the shorter key.
+    fn dedup_namespace(principal_id: &str, op: &str, key: &str) -> String {
+        format!(
+            "{}:{principal_id}\u{1f}{}:{op}\u{1f}{}:{key}",
+            principal_id.len(),
+            op.len(),
+            key.len()
+        )
+    }
+
+    /// The dedup record for a keyed request, regardless of its digest.
+    fn dedup_entry<'a>(
+        space: &'a Space,
         principal_id: &str,
         op: &str,
         key: &str,
-        digest: &str,
-    ) -> Option<Value> {
+    ) -> Option<&'a DedupEntry> {
         if key.is_empty() {
             return None;
         }
-        let namespace = format!("{principal_id}\u{1f}{op}\u{1f}{key}");
         space
             .dedup
-            .get(&namespace)
-            .filter(|entry| entry.digest == digest)
-            .and_then(|entry| space.receipts.get(&entry.receipt_id).cloned())
+            .get(&Self::dedup_namespace(principal_id, op, key))
     }
 
-    fn replay_conflict(
+    /// MEM-R021/§7.0.5 shared gate for every keyed mutation. Call it after
+    /// current authorization and *before* any fence, CAS or effect check: a
+    /// committed effect is answered from its receipt (or `RECEIPT_EXPIRED`
+    /// from the retained tombstone), never re-evaluated. `Some` is the
+    /// answer the op must return without executing.
+    fn replay_outcome(
         space: &Space,
         principal_id: &str,
         op: &str,
         key: &str,
         digest: &str,
-    ) -> bool {
-        if key.is_empty() {
-            return false;
+    ) -> Option<SpokeResult<Value>> {
+        let entry = Self::dedup_entry(space, principal_id, op, key)?;
+        if entry.digest != digest {
+            return Some(reject(
+                SpokeRejectCode::IdempotencyConflict,
+                "idempotency key reused with a different payload",
+            ));
         }
-        let namespace = format!("{principal_id}\u{1f}{op}\u{1f}{key}");
-        space
-            .dedup
-            .get(&namespace)
-            .map(|entry| entry.digest != digest)
-            .unwrap_or(false)
+        if let Some(receipt) = space.receipts.get(&entry.receipt_id) {
+            return Some(SpokeResult::Ok(receipt.clone()));
+        }
+        // The evidence record outlives the receipt body (MEM-R022). Report the
+        // status the receipt actually held, not an assumed commit.
+        Some(match Self::tombstone_status(space, &entry.receipt_id) {
+            Some(status) => reject_details(
+                SpokeRejectCode::ReceiptExpired,
+                "receipt body evicted; lifecycle evidence retained (MEM-R022)",
+                json!({ "last_known_status": status }),
+            ),
+            // No retained status and no owed work: the evidence lost the
+            // mandatory outcome status, so the historical mutation may or may
+            // not have committed. §14.2 forbids a clean no-effect claim here;
+            // §14.3 classifies it `uncertain`. No new effect is executed.
+            None => reject_details(
+                SpokeRejectCode::OutcomeUncertain,
+                "receipt body evicted with no retained outcome evidence",
+                json!({ "retry_class": "uncertain" }),
+            ),
+        })
     }
 
-    /// §7.0.5: the dedup record outlives the receipt body (MEM-R022), so a
-    /// same-key replay after eviction answers RECEIPT_EXPIRED without
-    /// re-executing the op.
-    fn replay_expired(
+    /// The status the receipt actually held (MEM-R022), from affirmative
+    /// evidence only: the retained evidence status, or owed work that proves a
+    /// `pending` receipt. With neither, the outcome is unproven and `None`
+    /// makes callers fail closed instead of inventing a commit.
+    fn tombstone_status(space: &Space, receipt_id: &str) -> Option<String> {
+        if let Some(status) = space
+            .receipt_evidence
+            .get(receipt_id)
+            .and_then(|evidence| evidence.status.clone())
+        {
+            return Some(status);
+        }
+        if space.pending.contains_key(receipt_id) {
+            return Some("pending".to_string());
+        }
+        None
+    }
+
+    /// MEM-R018/R021: a receipt — body or retained tombstone status — is
+    /// disclosed only to its requester, while that principal still holds a
+    /// live grant, or to a current space admin. Knowing the id grants nothing.
+    fn authorize_receipt_read(
         space: &Space,
+        now: DateTime<Utc>,
         principal_id: &str,
-        op: &str,
-        key: &str,
-        digest: &str,
-    ) -> bool {
-        if key.is_empty() {
-            return false;
+        requester_id: &str,
+    ) -> SpokeResult<()> {
+        if requester_id == principal_id && Self::principal_is_live(space, now, principal_id) {
+            return SpokeResult::Ok(());
         }
-        let namespace = format!("{principal_id}\u{1f}{op}\u{1f}{key}");
-        space
-            .dedup
-            .get(&namespace)
-            .map(|entry| entry.digest == digest)
-            .unwrap_or(false)
+        Self::require(
+            space,
+            now,
+            principal_id,
+            &Self::admin_requirement(),
+            "memory.receipts.get",
+        )
     }
 
-    /// The dedup tombstone carries the receipt's own clock stamp, so
-    /// `receipts.get` ages it against the same current clock.
+    /// MEM-R018: revocation takes effect at admission, and §6.5 treats an
+    /// expired grant as revoked, so a principal left with no live grant in the
+    /// space MUST NOT read receipts.
+    fn principal_is_live(space: &Space, now: DateTime<Utc>, principal_id: &str) -> bool {
+        space.grants.values().any(|grant| {
+            let Ok(grant) = serde_json::from_value::<MemoryGrant>(grant.clone()) else {
+                return false;
+            };
+            let (grantee, grant_space, revoked, expires_at) = match &grant {
+                MemoryGrant::RestrictedGrant(grant) => (
+                    grant.principal_id.as_str(),
+                    grant.space_id.as_str(),
+                    grant.revoked_at.is_some(),
+                    grant.expires_at.as_deref().copied(),
+                ),
+                MemoryGrant::UnrestrictedGrant(grant) => (
+                    grant.principal_id.as_str(),
+                    grant.space_id.as_str(),
+                    grant.revoked_at.is_some(),
+                    grant.expires_at.as_deref().copied(),
+                ),
+            };
+            grantee == principal_id
+                && grant_space == space.space_id
+                && !revoked
+                && !expires_at.is_some_and(|expires_at| expires_at <= now)
+        })
+    }
+
+    /// The lifecycle evidence carries the receipt's own clock stamp, so
+    /// `receipts.get` ages it against the same current clock. Every real
+    /// receipt body persists here — keyed or not (`§7.0.5` exempts ensure from
+    /// keyed dedup, not from persistence); only a non-empty key additionally
+    /// creates the keyed namespace binding.
     fn remember(
         space: &mut Space,
         now: DateTime<Utc>,
@@ -1085,24 +1640,54 @@ impl SqliteMemoryProvider {
         key: &str,
         digest: &str,
         receipt: &Value,
-    ) {
-        if key.is_empty() {
-            return;
+    ) -> SpokeResult<()> {
+        // MEM-R022/§6.10: the evidence must outlive the body with the status
+        // the receipt actually holds. A receipt without one is never persisted
+        // as a valid entry — the mutation fails closed and writes nothing.
+        if receipt["status"].as_str().is_none() {
+            return reject(
+                SpokeRejectCode::InternalError,
+                format!("{op} receipt has no status to retain"),
+            );
         }
-        let namespace = format!("{principal_id}\u{1f}{op}\u{1f}{key}");
         let receipt_id = receipt["receipt_id"]
             .as_str()
             .unwrap_or_default()
             .to_string();
-        space.dedup.insert(
-            namespace,
-            DedupEntry {
-                receipt_id: receipt_id.clone(),
-                digest: digest.to_string(),
+        let namespace = Self::dedup_namespace(principal_id, op, key);
+        space.receipts.insert(receipt_id.clone(), receipt.clone());
+        space.receipt_evidence.insert(
+            receipt_id.clone(),
+            ReceiptEvidence {
+                requester_id: principal_id.to_string(),
                 created_at: now.to_rfc3339_opts(SecondsFormat::Secs, true),
+                status: None,
             },
         );
-        space.receipts.insert(receipt_id, receipt.clone());
+        if !key.is_empty() {
+            space.dedup.insert(
+                namespace,
+                DedupEntry {
+                    receipt_id,
+                    digest: digest.to_string(),
+                    export_scope: None,
+                },
+            );
+        }
+        SpokeResult::Ok(())
+    }
+
+    /// Retain an export's original coverage with its dedup record, so a
+    /// same-key replay is authorized against the stored scope under current
+    /// grants, also after the receipt body was evicted.
+    fn remember_export_scope(space: &mut Space, principal_id: &str, key: &str, scope: &ExportScope) {
+        if key.is_empty() {
+            return;
+        }
+        let namespace = Self::dedup_namespace(principal_id, "memory.exports.create", key);
+        if let Some(entry) = space.dedup.get_mut(&namespace) {
+            entry.export_scope = Some(scope.clone());
+        }
     }
 
     fn profile_key(subject_id: &str, profile_kind: &str) -> String {
@@ -1139,13 +1724,21 @@ impl SqliteMemoryProvider {
     }
 
     /// Current basis digests plus the authorized source pairs.
+    ///
+    /// §7 item 6: the basis pins the provenance filter alongside the selection,
+    /// cognition filter, source id+revision set and profile revisions — a
+    /// `filter: None` shortcut would collapse two distinct provenance views
+    /// with the same sources onto one `state_digest`.
     fn basis_for(
         space: &Space,
         subject_id: &str,
         selection: &ReadSelection,
         filter: Option<&Value>,
+        cognition_filter: Option<&CognitionFilter>,
     ) -> (String, Vec<(String, u64)>, Vec<(String, u64)>) {
-        let records = selected_records(space, subject_id, selection, filter);
+        let records = selected_records(space, subject_id, selection, filter, cognition_filter, false);
+        let provenance_filter: Option<ProvenanceFilter> = filter
+            .and_then(|value| serde_json::from_value(value.clone()).ok());
         let sources: Vec<(String, u64)> = records
             .iter()
             .filter_map(|record| {
@@ -1169,7 +1762,8 @@ impl SqliteMemoryProvider {
             .collect();
         let basis = ReflectionBasis {
             selection,
-            filter: None,
+            filter: provenance_filter.as_ref(),
+            cognition_filter,
             sources: &source_refs,
             profile_revisions: &profile_refs,
         };
@@ -1177,23 +1771,54 @@ impl SqliteMemoryProvider {
         (digests.state_digest, sources, profiles)
     }
 
+    /// Reflections an export may include: in scope and not pinned to a
+    /// tombstoned record (§6.9). Shared by bundle membership and by the
+    /// coverage the bundle requires.
+    fn exportable_reflections<'a>(
+        space: &'a Space,
+        subject_id: Option<&str>,
+    ) -> Vec<&'a Value> {
+        let tombstoned: BTreeSet<&str> = space
+            .records
+            .values()
+            .filter(|record| record.get("tombstone").is_some())
+            .filter_map(|record| record["record_id"].as_str())
+            .collect();
+        space
+            .reflections
+            .values()
+            .filter(|reflection| match subject_id {
+                None => true,
+                Some(subject) => reflection["subject_id"].as_str() == Some(subject),
+            })
+            .filter(|reflection| {
+                let id = reflection["reflection_id"].as_str().unwrap_or_default();
+                space
+                    .reflection_sources
+                    .get(id)
+                    .map(|sources| {
+                        !sources
+                            .iter()
+                            .any(|source| tombstoned.contains(source.as_str()))
+                    })
+                    .unwrap_or(true)
+            })
+            .collect()
+    }
+
     /// `§6.11` logical bundle for an export scope (digest not yet sealed).
     fn export_bundle(
         space: &Space,
         subject_id: Option<&str>,
+        selection: Option<&ReadSelection>,
         include_reflections: bool,
         include_tombstoned: bool,
+        include_profiles: bool,
     ) -> Value {
         let in_scope = |value: &Value| match subject_id {
             None => true,
             Some(subject) => value["subject_id"].as_str() == Some(subject),
         };
-        let tombstoned: Vec<String> = space
-            .records
-            .values()
-            .filter(|record| record.get("tombstone").is_some())
-            .filter_map(|record| record["record_id"].as_str().map(str::to_string))
-            .collect();
         let mut bundle = json!({
             "schema_version": 1,
             "bundle_format_version": 1,
@@ -1216,6 +1841,7 @@ impl SqliteMemoryProvider {
                 .records
                 .values()
                 .filter(|record| in_scope(record))
+                .filter(|record| selection_admits(selection, &record["scope"]))
                 .filter(|record| include_tombstoned || record.get("tombstone").is_none())
                 .cloned()
                 .collect::<Vec<_>>(),
@@ -1223,14 +1849,21 @@ impl SqliteMemoryProvider {
                 .candidates
                 .values()
                 .filter(|candidate| in_scope(candidate))
+                .filter(|candidate| selection_admits(selection, &candidate["capture_scope"]))
                 .cloned()
                 .collect::<Vec<_>>(),
-            "profiles": space
-                .profiles
-                .values()
-                .filter(|profile| in_scope(profile))
-                .cloned()
-                .collect::<Vec<_>>(),
+            "profiles": if include_profiles {
+                space
+                    .profiles
+                    .values()
+                    .filter(|profile| in_scope(profile))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            } else {
+                // §6.5/§7.23: profile disclosure needs shared or unrestricted
+                // coverage; a context-only export never carries it.
+                Vec::new()
+            },
             "receipt_summaries": space
                 .receipts
                 .values()
@@ -1270,20 +1903,8 @@ impl SqliteMemoryProvider {
             "extensions": {},
         });
         if include_reflections {
-            bundle["reflections"] = json!(space
-                .reflections
-                .values()
-                .filter(|reflection| in_scope(reflection))
-                .filter(|reflection| {
-                    let id = reflection["reflection_id"].as_str().unwrap_or_default();
-                    space
-                        .reflection_sources
-                        .get(id)
-                        .map(|sources| !sources.iter().any(|source| tombstoned.contains(source)))
-                        .unwrap_or(true)
-                })
-                .cloned()
-                .collect::<Vec<_>>());
+            bundle["reflections"] =
+                json!(Self::exportable_reflections(space, subject_id));
         }
         // The typed Connect round-trip drops explicit empty arrays (the
         // generated chunk types skip serializing them), which would break the
@@ -1363,8 +1984,17 @@ impl SqliteMemoryProvider {
             .get("filter")
             .filter(|value| !value.is_null())
             .cloned();
-        let (current, _sources, _profiles) =
-            Self::basis_for(space, subject_id, &selection, filter.as_ref());
+        let cognition_filter = reflection
+            .get("cognition_filter")
+            .filter(|value| !value.is_null())
+            .and_then(|value| serde_json::from_value::<CognitionFilter>(value.clone()).ok());
+        let (current, _sources, _profiles) = Self::basis_for(
+            space,
+            subject_id,
+            &selection,
+            filter.as_ref(),
+            cognition_filter.as_ref(),
+        );
         current
             != reflection["basis"]["state_digest"]
                 .as_str()
@@ -1375,18 +2005,34 @@ impl SqliteMemoryProvider {
     /// ranking query, snapshot marker (state epoch) and
     /// `engine_policy_version`. The offset is the pagination position, never
     /// part of the binding.
+    ///
+    /// The operation is also bound: list pages by record id, recall by its
+    /// score/kind ranking and reflection list newest-first, so a cursor from a
+    /// differently ordered op must reject as `CURSOR_INVALID` instead of
+    /// resuming an offset over a set it was never computed for.
     fn cursor_binding(
         space: &Space,
         principal_id: &str,
         subject_id: &str,
+        op: &str,
         request: &Value,
     ) -> Option<String> {
         let bound = json!({
             "principal_id": principal_id,
             "space_id": space.space_id,
             "subject_id": subject_id,
+            "op": op,
             "selection": request["selection"].clone(),
             "filter": request.get("filter").cloned().unwrap_or(Value::Null),
+            // Any selection-affecting member binds the cursor: a changed
+            // cognition filter, kind filter or tombstone visibility must not
+            // resume the same offset over a differently shaped set.
+            "cognition_filter": request.get("cognition_filter").cloned().unwrap_or(Value::Null),
+            "kinds": request.get("kinds").cloned().unwrap_or(Value::Null),
+            "include_tombstoned": request
+                .get("include_tombstoned")
+                .cloned()
+                .unwrap_or(Value::Null),
             // The query ranks the list, so a continuation must resume the
             // same ranking, not the same filter over a new one.
             "query": request.get("query").cloned().unwrap_or(Value::Null),
@@ -1405,10 +2051,11 @@ impl SqliteMemoryProvider {
         space: &Space,
         principal_id: &str,
         subject_id: &str,
+        op: &str,
         request: &Value,
         offset: usize,
     ) -> Option<String> {
-        let binding = Self::cursor_binding(space, principal_id, subject_id, request)?;
+        let binding = Self::cursor_binding(space, principal_id, subject_id, op, request)?;
         Some(format!("c{}:{}:{}", space.state_epoch, offset, binding))
     }
 
@@ -1417,6 +2064,7 @@ impl SqliteMemoryProvider {
         space: &Space,
         principal_id: &str,
         subject_id: &str,
+        op: &str,
         request: &Value,
         cursor: &str,
     ) -> Option<usize> {
@@ -1426,13 +2074,15 @@ impl SqliteMemoryProvider {
         if epoch != space.state_epoch {
             return None;
         }
-        if binding != Self::cursor_binding(space, principal_id, subject_id, request)? {
+        if binding != Self::cursor_binding(space, principal_id, subject_id, op, request)? {
             return None;
         }
         offset.parse().ok()
     }
 
-    /// Admin-shaped requirement: space-wide admin coverage.
+    /// Space-wide admin requirement — the grant-administration ops
+    /// (`memory.grants.*`) and receipt reads. Export authority uses the
+    /// export's own facets instead (§7.29, MEM-R018).
     fn admin_requirement<'a>() -> GrantRequirement<'a> {
         GrantRequirement {
             capability: "admin",
@@ -1444,18 +2094,26 @@ impl SqliteMemoryProvider {
     }
 
     /// Mutation helper for state-only updates: writes the document on success.
+    /// An unreadable store is a proven-before-commit failure (`INTERNAL_ERROR`
+    /// / `retryable`); a failed write cannot prove the commit state, so it is
+    /// `OUTCOME_UNCERTAIN` / `uncertain`. Neither panics.
     fn mutate_unit(
         &self,
         apply: impl FnOnce(&mut Document) -> SpokeResult<()>,
     ) -> SpokeResult<Document> {
         let store = self.store.lock().expect("store lock");
-        let mut document = store.read().expect("read state");
-        Self::evict_receipts(&mut document);
+        let mut document = match store.read() {
+            Ok(document) => document,
+            Err(error) => return storage_failure("read state", error),
+        };
+        if let SpokeResult::Reject(reject) = Self::evict_receipts(&mut document) {
+            return SpokeResult::Reject(reject);
+        }
         match apply(&mut document) {
-            SpokeResult::Ok(()) => {
-                store.write(&document).expect("write state");
-                SpokeResult::Ok(document)
-            }
+            SpokeResult::Ok(()) => match store.write(&document) {
+                Ok(()) => SpokeResult::Ok(document),
+                Err(error) => uncertain_storage_failure("write state", error),
+            },
             SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
         }
     }
@@ -1467,29 +2125,48 @@ impl SqliteMemoryProvider {
         apply: impl FnOnce(&mut Document) -> SpokeResult<T>,
     ) -> SpokeResult<T> {
         let store = self.store.lock().expect("store lock");
-        let mut document = store.read().expect("read state");
-        Self::evict_receipts(&mut document);
+        let mut document = match store.read() {
+            Ok(document) => document,
+            Err(error) => return storage_failure("read state", error),
+        };
+        if let SpokeResult::Reject(reject) = Self::evict_receipts(&mut document) {
+            return SpokeResult::Reject(reject);
+        }
         match apply(&mut document) {
-            SpokeResult::Ok(value) => {
-                store.write(&document).expect("write state");
-                SpokeResult::Ok(value)
-            }
+            SpokeResult::Ok(value) => match store.write(&document) {
+                Ok(()) => SpokeResult::Ok(value),
+                Err(error) => uncertain_storage_failure("write state", error),
+            },
             SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
         }
     }
 
     fn inspect<T>(&self, answer: impl FnOnce(&Document) -> SpokeResult<T>) -> SpokeResult<T> {
         let store = self.store.lock().expect("store lock");
-        let mut document = store.read().expect("read state");
-        Self::evict_receipts(&mut document);
-        store.write(&document).expect("write state");
+        let mut document = match store.read() {
+            Ok(document) => document,
+            Err(error) => return storage_failure("read state", error),
+        };
+        // A read commits no business effect: eviction bookkeeping that cannot
+        // be written is a truthful `retryable` no-effect failure.
+        if let SpokeResult::Reject(reject) = Self::evict_receipts(&mut document) {
+            return SpokeResult::Reject(reject);
+        }
+        if let Err(error) = store.write(&document) {
+            return storage_failure("write state", error);
+        }
         answer(&document)
     }
 
-    /// Evict receipt bodies past `receipt_retention_seconds`; dedup tombstones
-    /// outlive the bodies (MEM-R022), so a replay of an evicted op answers
-    /// `RECEIPT_EXPIRED`.
-    fn evict_receipts(document: &mut Document) {
+    /// Evict receipt bodies past `receipt_retention_seconds`; the lifecycle
+    /// evidence outlives the bodies (MEM-R022), so a replay of an evicted op
+    /// answers `RECEIPT_EXPIRED`. Eviction is checked: a body is removed only
+    /// when truthful outcome evidence survives the same write — the body's own
+    /// status copied to its evidence, a status the evidence already retained,
+    /// or owed work that affirmatively proves `pending`. Otherwise it fails
+    /// closed before any write and keeps the body (no evidence-free tombstone,
+    /// §6.10).
+    fn evict_receipts(document: &mut Document) -> SpokeResult<()> {
         let now = Self::clock(document);
         for space in document.spaces.values_mut() {
             let stale: Vec<String> = space
@@ -1503,16 +2180,87 @@ impl SqliteMemoryProvider {
                 .map(|(id, _)| id.clone())
                 .collect();
             for id in stale {
+                let status = space
+                    .receipts
+                    .get(&id)
+                    .and_then(|receipt| receipt["status"].as_str())
+                    .map(str::to_string);
+                // The evidence map is required, but an individual entry is not
+                // complemented conditionally: the body alone cannot carry its
+                // requester/clock through eviction. A missing entry is a
+                // recognized no-effect failure, never a removable body.
+                let Some(evidence) = space.receipt_evidence.get_mut(&id) else {
+                    return reject_details(
+                        SpokeRejectCode::InternalError,
+                        "receipt body has no lifecycle evidence",
+                        json!({ "retry_class": "retryable" }),
+                    );
+                };
+                let removable = match status {
+                    // The evidence must survive with the body's real status.
+                    Some(status) => {
+                        evidence.status = Some(status);
+                        true
+                    }
+                    // Nothing on the body proves its outcome; retained status
+                    // or durable owed work does. Otherwise deleting the body
+                    // would destroy the last evidence.
+                    None => evidence.status.is_some() || space.pending.contains_key(&id),
+                };
+                if !removable {
+                    return reject_details(
+                        SpokeRejectCode::InternalError,
+                        "receipt body has no retainable outcome evidence",
+                        json!({ "retry_class": "retryable" }),
+                    );
+                }
                 space.receipts.remove(&id);
             }
         }
+        SpokeResult::Ok(())
+    }
+
+    /// A completed receipt keeps its evidence truthful: a replay after the
+    /// body was evicted reports the real outcome, including a deferral that
+    /// only settled after eviction. While the body exists it remains the sole
+    /// status authority, so the evidence is left untouched. The required
+    /// evidence entry is re-checked here, never silently skipped.
+    fn mark_receipt_committed(space: &mut Space, receipt_id: &str) -> SpokeResult<()> {
+        if space.receipts.contains_key(receipt_id) {
+            return SpokeResult::Ok(());
+        }
+        let Some(evidence) = space.receipt_evidence.get_mut(receipt_id) else {
+            return reject_details(
+                SpokeRejectCode::InternalError,
+                "receipt work has no lifecycle evidence",
+                json!({ "retry_class": "retryable" }),
+            );
+        };
+        evidence.status = Some("committed".to_string());
+        SpokeResult::Ok(())
     }
 
     /// Provider worker: complete deferred receipts (reflection generation).
     /// Returns `true` when the document changed. The publish-pinned rule is
     /// structural here: the reflection is assembled from the *pinned* basis, so
     /// a basis that moved meanwhile still publishes and reads stale.
-    fn complete_pending(document: &mut Document) -> bool {
+    ///
+    /// Every owed work item requires its receipt's individual lifecycle
+    /// evidence. Consuming the work without it would silently drop the last
+    /// identity or outcome record, so the worker refuses before any effect and
+    /// the caller writes nothing.
+    fn complete_pending(document: &mut Document) -> SpokeResult<bool> {
+        for space in document.spaces.values() {
+            for receipt_id in space.pending.keys() {
+                if !space.receipt_evidence.contains_key(receipt_id) {
+                    return reject_details(
+                        SpokeRejectCode::InternalError,
+                        "receipt work has no lifecycle evidence",
+                        json!({ "retry_class": "retryable" }),
+                    );
+                }
+            }
+        }
         let mut completed = false;
         for space in document.spaces.values_mut() {
             let work: Vec<(String, PendingWork)> = space
@@ -1527,6 +2275,7 @@ impl SqliteMemoryProvider {
                         receipt["completed_at"] = json!(CLOCK_ORIGIN);
                         receipt["result"] = result;
                     }
+                    tri!(Self::mark_receipt_committed(space, &receipt_id));
                     space.pending.remove(&receipt_id);
                     space.touch();
                     completed = true;
@@ -1535,6 +2284,8 @@ impl SqliteMemoryProvider {
                 let PendingWork::Reflection {
                     subject_id,
                     selection,
+                    filter,
+                    cognition_filter,
                     sources,
                     profile_revisions,
                 } = item
@@ -1554,13 +2305,14 @@ impl SqliteMemoryProvider {
                     .collect();
                 let basis = ReflectionBasis {
                     selection: &selection,
-                    filter: None,
+                    filter: filter.as_ref(),
+                    cognition_filter: cognition_filter.as_ref(),
                     sources: &source_refs,
                     profile_revisions: &profile_refs,
                 };
                 let draft = assemble_reflection(&basis);
                 let reflection_id = format!("refl_sqlite_{:04}", space.reflections.len() + 1);
-                let reflection = json!({
+                let mut reflection = json!({
                     "schema_version": 1,
                     "reflection_id": reflection_id,
                     "space_id": space.space_id,
@@ -1582,6 +2334,12 @@ impl SqliteMemoryProvider {
                     "revision": 1,
                     "extensions": {},
                 });
+                if let Some(filter) = &filter {
+                    reflection["filter"] = json!(filter);
+                }
+                if let Some(filter) = &cognition_filter {
+                    reflection["cognition_filter"] = json!(filter);
+                }
                 space.reflection_sources.insert(
                     reflection_id.clone(),
                     sources.iter().map(|(id, _)| id.clone()).collect(),
@@ -1592,12 +2350,13 @@ impl SqliteMemoryProvider {
                     receipt["completed_at"] = json!(CLOCK_ORIGIN);
                     receipt["result"] = json!({ "reflection_id": reflection_id });
                 }
+                tri!(Self::mark_receipt_committed(space, &receipt_id));
                 space.pending.remove(&receipt_id);
                 space.touch();
                 completed = true;
             }
         }
-        completed
+        SpokeResult::Ok(completed)
     }
 }
 
@@ -1728,7 +2487,8 @@ impl MemoryPort for SqliteMemoryProvider {
             .as_str()
             .unwrap_or_default()
             .to_string();
-        // `memory.subjects.ensure` is exempt from the idempotency-key echo.
+        // `memory.subjects.ensure` is the explicit non-keyed protocol
+        // exception (§7.0.5): no idempotency-key echo and no keyed replay.
         let key = String::new();
         let digest = tri!(request_digest(&request_value));
         let receipt = tri!(self.mutate_value(|document| {
@@ -1748,15 +2508,6 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.subjects.ensure"
             ));
-            if let Some(receipt) = Self::replay(
-                space,
-                &principal_id,
-                "memory.subjects.ensure",
-                &key,
-                &digest,
-            ) {
-                return SpokeResult::Ok(receipt);
-            }
             let created = !space.subjects.contains_key(&subject_id);
             space.subjects.entry(subject_id.clone()).or_insert_with(|| {
                 let mut subject = json!({
@@ -1794,7 +2545,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 "status": subject["status"],
                 "revision": subject["revision"],
             });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -1802,7 +2553,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -1895,16 +2646,10 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.subjects.fence"
             ));
-            if Self::replay_conflict(space, &principal_id, "memory.subjects.fence", &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) =
-                Self::replay(space, &principal_id, "memory.subjects.fence", &key, &digest)
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.subjects.fence", &key, &digest)
             {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             let Some(subject) = space.subjects.get(&subject_id).cloned() else {
                 return reject(SpokeRejectCode::NotFound, "subject not found");
@@ -1963,7 +2708,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 "fenced_contexts": subject["fenced_contexts"],
                 "revision": subject["revision"],
             });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -1971,7 +2716,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -2038,16 +2783,40 @@ impl MemoryPort for SqliteMemoryProvider {
         let receipt = tri!(self.mutate_value(|document| {
             let now = Self::clock(document);
             let space = tri!(Self::space_mut(document, &space_id));
-            if Self::replay_conflict(space, &principal_id, "memory.grants.grant", &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) =
-                Self::replay(space, &principal_id, "memory.grants.grant", &key, &digest)
+            let context_ids: Vec<String> = request_value["context_ids"]
+                .as_array()
+                .map(|contexts| {
+                    contexts
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            // MEM-R018/R021: the granter's *current* admin coverage gates every
+            // answer, replay and conflict included. The issuance expiry bound
+            // is a mutation-time condition, not current authority, so it is not
+            // re-applied to a stored receipt. An unrestricted issuance needs
+            // unrestricted granter coverage, which §6.5 expresses as
+            // `subject_all`.
+            let issued_requirement = GrantRequirement {
+                capability: "admin",
+                subject_id: request_value["subject_id"].as_str(),
+                context_ids: context_ids.clone(),
+                reads_shared: request_value["shared_access"].as_bool().unwrap_or(false),
+                subject_all: context_ids.is_empty(),
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &issued_requirement,
+                "memory.grants.grant"
+            ));
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.grants.grant", &key, &digest)
             {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             // §7.9 non-amplification against the granter's own admin grants.
             let granter_grants: Vec<MemoryGrant> = space
@@ -2067,16 +2836,6 @@ impl MemoryPort for SqliteMemoryProvider {
                 })
                 .unwrap_or_default();
             let capabilities: Vec<&str> = capability_strings.iter().map(String::as_str).collect();
-            let context_ids: Vec<String> = request_value["context_ids"]
-                .as_array()
-                .map(|contexts| {
-                    contexts
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect()
-                })
-                .unwrap_or_default();
             let issued = IssuedGrant {
                 capabilities: &capabilities,
                 subject_id: request_value["subject_id"].as_str(),
@@ -2116,7 +2875,7 @@ impl MemoryPort for SqliteMemoryProvider {
             let mut receipt =
                 Self::receipt(space, now, "memory.grants.grant", &principal_id, &digest, &key);
             receipt["result"] = json!({ "grant_id": grant_id, "revision": 1 });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -2124,7 +2883,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -2165,16 +2924,10 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.grants.revoke"
             ));
-            if Self::replay_conflict(space, &principal_id, "memory.grants.revoke", &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) =
-                Self::replay(space, &principal_id, "memory.grants.revoke", &key, &digest)
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.grants.revoke", &key, &digest)
             {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             let Some(grant) = space.grants.get(&grant_id).cloned() else {
                 return reject(SpokeRejectCode::NotFound, "grant not found");
@@ -2198,7 +2951,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 "revoked": true,
                 "revision": revision + 1,
             });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -2206,7 +2959,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -2234,44 +2987,61 @@ impl MemoryPort for SqliteMemoryProvider {
         self.inspect(|document| {
             let now = Self::clock(document);
             let space = tri!(Self::space(document, &space_id));
-            let Some(receipt) = space.receipts.get(&receipt_id).cloned() else {
-                // Body evicted? The dedup tombstone outlives it (MEM-R022).
-                let tombstone = space
-                    .dedup
-                    .values()
-                    .find(|entry| entry.receipt_id == receipt_id);
-                if let Some(entry) = tombstone {
-                    let created = parse_time(&entry.created_at).unwrap_or(now);
-                    if now - created > Duration::seconds(RECEIPT_RETENTION_SECONDS) {
-                        return reject_details(
-                            SpokeRejectCode::ReceiptExpired,
-                            "receipt body evicted; recovered from the dedup tombstone",
-                            json!({ "last_known_status": "committed" }),
-                        );
-                    }
-                }
-                return reject(SpokeRejectCode::NotFound, "receipt not found");
-            };
-            if receipt["requester_principal_id"] != principal_id.as_str() {
-                let requirement = Self::admin_requirement();
-                tri!(Self::require(
+            if let Some(receipt) = space.receipts.get(&receipt_id).cloned() {
+                // MEM-R018/R021: current authorization gates the answer.
+                tri!(Self::authorize_receipt_read(
                     space,
                     now,
                     &principal_id,
-                    &requirement,
-                    "memory.receipts.get"
+                    receipt["requester_principal_id"]
+                        .as_str()
+                        .unwrap_or_default(),
                 ));
+                let created = parse_time(receipt["created_at"].as_str().unwrap_or(CLOCK_ORIGIN))
+                    .unwrap_or(now);
+                if now - created > Duration::seconds(RECEIPT_RETENTION_SECONDS) {
+                    return reject_details(
+                        SpokeRejectCode::ReceiptExpired,
+                        "receipt body evicted",
+                        json!({ "last_known_status": receipt["status"].clone() }),
+                    );
+                }
+                return reply(json!({ "receipt": receipt }));
             }
-            let created =
-                parse_time(receipt["created_at"].as_str().unwrap_or(CLOCK_ORIGIN)).unwrap_or(now);
+            // Body evicted? The receipt's lifecycle evidence outlives it
+            // (MEM-R022) — and it is disclosed only under the same current
+            // authority, never to anyone who merely knows the id. Unknown ids
+            // stay `NOT_FOUND`.
+            let Some(evidence) = space.receipt_evidence.get(&receipt_id) else {
+                return reject(SpokeRejectCode::NotFound, "receipt not found");
+            };
+            tri!(Self::authorize_receipt_read(
+                space,
+                now,
+                &principal_id,
+                &evidence.requester_id,
+            ));
+            let created = parse_time(&evidence.created_at).unwrap_or(now);
             if now - created > Duration::seconds(RECEIPT_RETENTION_SECONDS) {
-                return reject_details(
-                    SpokeRejectCode::ReceiptExpired,
-                    "receipt body evicted",
-                    json!({ "last_known_status": receipt["status"].clone() }),
-                );
+                return match Self::tombstone_status(space, &receipt_id) {
+                    Some(status) => reject_details(
+                        SpokeRejectCode::ReceiptExpired,
+                        "receipt body evicted; recovered from the lifecycle evidence",
+                        json!({ "last_known_status": status }),
+                    ),
+                    // The evidence lost its mandatory outcome status
+                    // (MEM-R022, §6.10). This read committed no effect and
+                    // can be retried, but it cannot supply a truthful status,
+                    // so it is the existing `INTERNAL_ERROR` / `retryable` and
+                    // never a fabricated `RECEIPT_EXPIRED` (§7.28, §14.2).
+                    None => reject_details(
+                        SpokeRejectCode::InternalError,
+                        "receipt body evicted with no retained outcome evidence",
+                        json!({ "retry_class": "retryable" }),
+                    ),
+                };
             }
-            reply(json!({ "receipt": receipt }))
+            reject(SpokeRejectCode::NotFound, "receipt not found")
         })
     }
 
@@ -2323,6 +3093,13 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.capture"
             ));
+            // MEM-R021: a committed effect resolves from its receipt before a
+            // fence set after it is re-evaluated.
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.capture", &key, &digest)
+            {
+                return outcome;
+            }
             if contexts
                 .iter()
                 .any(|context| space.fenced_contexts(&subject_id).contains(context))
@@ -2330,24 +3107,6 @@ impl MemoryPort for SqliteMemoryProvider {
                 return reject(
                     SpokeRejectCode::SubjectFenced,
                     format!("capture_scope is fenced for {subject_id}"),
-                );
-            }
-            if Self::replay_conflict(space, &principal_id, "memory.capture", &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) =
-                Self::replay(space, &principal_id, "memory.capture", &key, &digest)
-            {
-                return SpokeResult::Ok(receipt);
-            }
-            if Self::replay_expired(space, &principal_id, "memory.capture", &key, &digest) {
-                return reject_details(
-                    SpokeRejectCode::ReceiptExpired,
-                    "receipt body evicted; dedup tombstone retained (MEM-R022)",
-                    json!({ "last_known_status": "committed" }),
                 );
             }
             let content = request_value["content"].clone();
@@ -2360,6 +3119,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 kind: &kind,
                 text: &text,
                 has_structured_content: content.get("structured").is_some(),
+                has_cognition_content: content_has_cognition(&content),
                 occurred_at: None,
                 source_context_count: request_value["source_context_ids"]
                     .as_array()
@@ -2408,7 +3168,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 "candidate_ids": candidate_ids,
                 "classified": classified,
             });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -2416,7 +3176,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -2569,26 +3329,14 @@ impl MemoryPort for SqliteMemoryProvider {
                 &write,
                 "memory.candidates.dismiss"
             ));
-            if Self::replay_conflict(
+            if let Some(outcome) = Self::replay_outcome(
                 space,
                 &principal_id,
                 "memory.candidates.dismiss",
                 &key,
                 &digest,
             ) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) = Self::replay(
-                space,
-                &principal_id,
-                "memory.candidates.dismiss",
-                &key,
-                &digest,
-            ) {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             if candidate["status"] == "consumed" {
                 return reject(
@@ -2635,7 +3383,7 @@ impl MemoryPort for SqliteMemoryProvider {
             space.candidates.insert(candidate_id.clone(), consumed);
             space.touch();
             receipt["result"] = json!({ "candidate_id": candidate_id, "outcome": "dismissed" });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -2643,7 +3391,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -2685,16 +3433,8 @@ impl MemoryPort for SqliteMemoryProvider {
                 .into_iter()
                 .collect();
             // Review outcomes inherit the admitted placement; a fenced scope is
-            // refused before any state changes (MEM-R024).
-            if contexts
-                .iter()
-                .any(|context| space.fenced_contexts(&subject_id).contains(context))
-            {
-                return reject(
-                    SpokeRejectCode::SubjectFenced,
-                    "candidate capture_scope is fenced for this subject",
-                );
-            }
+            // refused before any state changes (MEM-R024) — but only for a new
+            // effect, after MEM-R021 replay resolution.
             let review = GrantRequirement {
                 capability: "review",
                 subject_id: Some(&subject_id),
@@ -2705,7 +3445,7 @@ impl MemoryPort for SqliteMemoryProvider {
             let write = GrantRequirement {
                 capability: "records_write",
                 subject_id: Some(&subject_id),
-                context_ids: contexts,
+                context_ids: contexts.clone(),
                 reads_shared: shared,
                 subject_all: false,
             };
@@ -2723,26 +3463,23 @@ impl MemoryPort for SqliteMemoryProvider {
                 &write,
                 "memory.candidates.review"
             ));
-            if Self::replay_conflict(
+            if let Some(outcome) = Self::replay_outcome(
                 space,
                 &principal_id,
                 "memory.candidates.review",
                 &key,
                 &digest,
             ) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
+                return outcome;
             }
-            if let Some(receipt) = Self::replay(
-                space,
-                &principal_id,
-                "memory.candidates.review",
-                &key,
-                &digest,
-            ) {
-                return SpokeResult::Ok(receipt);
+            if contexts
+                .iter()
+                .any(|context| space.fenced_contexts(&subject_id).contains(context))
+            {
+                return reject(
+                    SpokeRejectCode::SubjectFenced,
+                    "candidate capture_scope is fenced for this subject",
+                );
             }
             if candidate["status"] == "consumed" {
                 return reject(
@@ -2760,6 +3497,37 @@ impl MemoryPort for SqliteMemoryProvider {
             let proposed = candidate["proposed"].clone();
             let decision = request_value["decision"].clone();
             let action = decision["action"].as_str().unwrap_or("drop").to_string();
+            // §6.2: every override/fragment validates independently as
+            // recorded-at-time Content before any state changes. A malformed
+            // carrier surfaces the contract's field-level identity rather
+            // than a bare INVALID_INPUT.
+            if let Some(override_content) = decision.get("content_override") {
+                if let SpokeResult::Reject(failure) = validate_cognition_content(override_content)
+                {
+                    return reject_details(
+                        SpokeRejectCode::InvalidInput,
+                        failure.message,
+                        json!({
+                            "field": "decision.content_override",
+                            "reason": "invalid_cognition_record",
+                        }),
+                    );
+                }
+            }
+            for fragment in decision["fragments"].as_array().cloned().unwrap_or_default() {
+                if let Some(content) = fragment.get("content") {
+                    if let SpokeResult::Reject(failure) = validate_cognition_content(content) {
+                        return reject_details(
+                            SpokeRejectCode::InvalidInput,
+                            failure.message,
+                            json!({
+                                "field": "decision.fragments.content",
+                                "reason": "invalid_cognition_record",
+                            }),
+                        );
+                    }
+                }
+            }
             // Allocate the receipt ONCE and write its id into consumed_by —
             // never allocate separately from the receipt constructor.
             let mut receipt = Self::receipt(
@@ -2784,7 +3552,7 @@ impl MemoryPort for SqliteMemoryProvider {
                     } else {
                         proposed["content"].clone()
                     };
-                    let record_id = format!("rec_sqlite_{:04}", space.records.len() + 1);
+                    let record_id = Self::next_record_id(space);
                     space.records.insert(
                         record_id.clone(),
                         Self::record_document(
@@ -2800,15 +3568,12 @@ impl MemoryPort for SqliteMemoryProvider {
                     record_ids.push(record_id);
                 }
                 "fragment" => {
-                    for (index, fragment) in decision["fragments"]
+                    for fragment in decision["fragments"]
                         .as_array()
                         .cloned()
                         .unwrap_or_default()
-                        .into_iter()
-                        .enumerate()
                     {
-                        let record_id =
-                            format!("rec_sqlite_{:04}", space.records.len() + 1 + index);
+                        let record_id = Self::next_record_id(space);
                         space.records.insert(
                             record_id.clone(),
                             Self::record_document(
@@ -2852,7 +3617,7 @@ impl MemoryPort for SqliteMemoryProvider {
             space.candidates.insert(candidate_id, consumed);
             space.touch();
             receipt["result"] = json!({ "outcome": outcome, "record_ids": record_ids });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -2860,7 +3625,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -2912,6 +3677,11 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.records.create"
             ));
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.records.create", &key, &digest)
+            {
+                return outcome;
+            }
             if contexts
                 .iter()
                 .any(|context| space.fenced_contexts(&subject_id).contains(context))
@@ -2921,18 +3691,7 @@ impl MemoryPort for SqliteMemoryProvider {
                     "placement context is fenced",
                 );
             }
-            if Self::replay_conflict(space, &principal_id, "memory.records.create", &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) =
-                Self::replay(space, &principal_id, "memory.records.create", &key, &digest)
-            {
-                return SpokeResult::Ok(receipt);
-            }
-            let record_id = format!("rec_sqlite_{:04}", space.records.len() + 1);
+            let record_id = Self::next_record_id(space);
             space.records.insert(
                 record_id.clone(),
                 Self::record_document(
@@ -2949,7 +3708,7 @@ impl MemoryPort for SqliteMemoryProvider {
             let mut receipt =
                 Self::receipt(space, now, "memory.records.create", &principal_id, &digest, &key);
             receipt["result"] = json!({ "record_id": record_id, "revision": 1 });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -2957,7 +3716,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -3049,16 +3808,18 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.records.update"
             ));
-            if Self::replay_conflict(space, &principal_id, "memory.records.update", &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) =
-                Self::replay(space, &principal_id, "memory.records.update", &key, &digest)
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.records.update", &key, &digest)
             {
-                return SpokeResult::Ok(receipt);
+                return outcome;
+            }
+            // §6.2: a tombstone retains closed empty content; delete is
+            // terminal, so no update may carry content back in.
+            if record.get("tombstone").is_some() {
+                return reject(
+                    SpokeRejectCode::NotFound,
+                    "record is tombstoned; delete is terminal",
+                );
             }
             let revision = number_field(&record, "revision");
             if revision != expected_revision {
@@ -3081,7 +3842,7 @@ impl MemoryPort for SqliteMemoryProvider {
             let mut receipt =
                 Self::receipt(space, now, "memory.records.update", &principal_id, &digest, &key);
             receipt["result"] = json!({ "record_id": record_id, "revision": revision + 1 });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -3089,7 +3850,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -3133,16 +3894,10 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.records.delete"
             ));
-            if Self::replay_conflict(space, &principal_id, "memory.records.delete", &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) =
-                Self::replay(space, &principal_id, "memory.records.delete", &key, &digest)
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.records.delete", &key, &digest)
             {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             let revision = number_field(&record, "revision");
             if revision != expected_revision {
@@ -3165,7 +3920,7 @@ impl MemoryPort for SqliteMemoryProvider {
             let mut receipt =
                 Self::receipt(space, now, "memory.records.delete", &principal_id, &digest, &key);
             receipt["result"] = json!({ "record_id": record_id, "tombstoned": true });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -3173,7 +3928,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -3205,6 +3960,8 @@ impl MemoryPort for SqliteMemoryProvider {
             subject_all: selection_subject_all(&selection),
         };
         let filter = request_value.get("filter").cloned();
+        let cognition_filter = tri!(parse_cognition_filter(&request_value));
+        let cursor = request_value["cursor"].as_str().map(str::to_string);
         let include_tombstoned = request_value["include_tombstoned"]
             .as_bool()
             .unwrap_or(false);
@@ -3220,10 +3977,52 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.records.list"
             ));
-            let mut records = selected_records(space, &subject_id, &selection, filter.as_ref());
-            if !include_tombstoned {
-                records.retain(|record| record.get("tombstone").is_none());
+            let offset = match cursor.as_deref() {
+                None => 0,
+                Some(cursor) => match Self::cursor_offset(
+                    space,
+                    &principal_id,
+                    &subject_id,
+                    "memory.records.list",
+                    &request_value,
+                    cursor,
+                ) {
+                    Some(offset) => offset,
+                    None => {
+                        return reject(
+                            SpokeRejectCode::CursorInvalid,
+                            "cursor was invalidated by a state or request change",
+                        )
+                    }
+                },
+            };
+            // §7 item 2: `include_tombstoned` is an admin-only display option,
+            // judged against CURRENT authority over this request's own
+            // selection facets — never by the flag's presence in the cursor.
+            // Ordinary record readers keep their tombstone-free view.
+            if include_tombstoned {
+                tri!(Self::require(
+                    space,
+                    now,
+                    &principal_id,
+                    &GrantRequirement {
+                        capability: "admin",
+                        subject_id: Some(&subject_id),
+                        context_ids: selection_contexts(&selection),
+                        reads_shared: selection_reads_shared(&selection),
+                        subject_all: selection_subject_all(&selection),
+                    },
+                    "memory.records.list"
+                ));
             }
+            let mut records = selected_records(
+                space,
+                &subject_id,
+                &selection,
+                filter.as_ref(),
+                cognition_filter.as_ref(),
+                include_tombstoned,
+            );
             if !kinds.is_empty() {
                 records.retain(|record| {
                     record["kind"]
@@ -3239,8 +4038,29 @@ impl MemoryPort for SqliteMemoryProvider {
                     .cmp(right["record_id"].as_str().unwrap_or_default())
             });
             let total_authorized = records.len();
-            records.truncate(limit);
-            reply(json!({ "records": records, "total_authorized": total_authorized }))
+            let page: Vec<Value> = records.into_iter().skip(offset).take(limit).collect();
+            let consumed = offset + page.len();
+            let mut response = json!({
+                "records": page,
+                "total_authorized": total_authorized,
+            });
+            if consumed < total_authorized {
+                let Some(token) = Self::cursor_token(
+                    space,
+                    &principal_id,
+                    &subject_id,
+                    "memory.records.list",
+                    &request_value,
+                    consumed,
+                ) else {
+                    return reject(
+                        SpokeRejectCode::InternalError,
+                        "list cursor binding digest failed",
+                    );
+                };
+                response["next_cursor"] = json!(token);
+            }
+            reply(response)
         })
     }
     async fn promote_record(
@@ -3254,7 +4074,7 @@ impl MemoryPort for SqliteMemoryProvider {
         let record_id = text_field(&request_value, "record_id");
         let key = text_field(&request_value, "idempotency_key");
         let expected_revision = number_field(&request_value, "expected_revision");
-        let scope = request_value["scope"].clone();
+        let scope = request_value["target_scope"].clone();
         let digest = tri!(request_digest(&request_value));
         let receipt = tri!(self.mutate_value(|document| {
             let now = Self::clock(document);
@@ -3283,26 +4103,10 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.records.promote"
             ));
-            if Self::replay_conflict(
-                space,
-                &principal_id,
-                "memory.records.promote",
-                &key,
-                &digest,
-            ) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) = Self::replay(
-                space,
-                &principal_id,
-                "memory.records.promote",
-                &key,
-                &digest,
-            ) {
-                return SpokeResult::Ok(receipt);
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.records.promote", &key, &digest)
+            {
+                return outcome;
             }
             let revision = number_field(&record, "revision");
             if revision != expected_revision {
@@ -3330,7 +4134,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 "revision": revision + 1,
                 "scope": scope,
             });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -3338,7 +4142,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -3370,6 +4174,7 @@ impl MemoryPort for SqliteMemoryProvider {
             subject_all: selection_subject_all(&selection),
         };
         let filter = request_value.get("filter").cloned();
+        let cognition_filter = tri!(parse_cognition_filter(&request_value));
         let query = request_value["query"].as_str().map(str::to_string);
         let max_items = number_field(&request_value, "budget") as usize;
         let max_bytes = request_value["budget"]["max_bytes"]
@@ -3399,6 +4204,7 @@ impl MemoryPort for SqliteMemoryProvider {
                     space,
                     &principal_id,
                     &subject_id,
+                    "memory.recall",
                     &request_value,
                     cursor,
                 ) {
@@ -3411,7 +4217,14 @@ impl MemoryPort for SqliteMemoryProvider {
                     }
                 },
             };
-            let authorized = selected_records(space, &subject_id, &selection, filter.as_ref());
+            let authorized = selected_records(
+                space,
+                &subject_id,
+                &selection,
+                filter.as_ref(),
+                cognition_filter.as_ref(),
+                false,
+            );
             let created_at: DateTime<Utc> = CLOCK_ORIGIN.parse().expect("clock origin parses");
             let engine_inputs: Vec<RecallRecord> = authorized
                 .iter()
@@ -3422,7 +4235,12 @@ impl MemoryPort for SqliteMemoryProvider {
                         record_id: record["record_id"].as_str()?.to_string(),
                         kind: record["kind"].as_str()?.to_string(),
                         content,
-                        created_at,
+                        // §9 tie-break uses the record's own creation time, not
+                        // the provider clock: a distinct `created_at` must rank.
+                        created_at: record["created_at"]
+                            .as_str()
+                            .and_then(|created| created.parse().ok())
+                            .unwrap_or(created_at),
                     })
                 })
                 .collect();
@@ -3469,9 +4287,14 @@ impl MemoryPort for SqliteMemoryProvider {
                 response["overflow_record_id"] = json!(overflow);
             }
             if page.truncated {
-                let Some(token) =
-                    Self::cursor_token(space, &principal_id, &subject_id, &request_value, consumed)
-                else {
+                let Some(token) = Self::cursor_token(
+                    space,
+                    &principal_id,
+                    &subject_id,
+                    "memory.recall",
+                    &request_value,
+                    consumed,
+                ) else {
                     return reject(
                         SpokeRejectCode::InternalError,
                         "recall cursor binding digest failed",
@@ -3572,16 +4395,10 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.profile.update"
             ));
-            if Self::replay_conflict(space, &principal_id, "memory.profile.update", &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) =
-                Self::replay(space, &principal_id, "memory.profile.update", &key, &digest)
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.profile.update", &key, &digest)
             {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             let profile_key = Self::profile_key(&subject_id, &profile_kind);
             let existing = space.profiles.get(&profile_key).cloned();
@@ -3631,7 +4448,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 "profile_kind": profile_kind,
                 "revision": next_revision,
             });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -3639,7 +4456,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -3665,6 +4482,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 }
             };
         let filter = request_value.get("filter").cloned();
+        let cognition_filter = tri!(parse_cognition_filter(&request_value));
         let requirement = GrantRequirement {
             capability: "reflect",
             subject_id: Some(&subject_id),
@@ -3684,7 +4502,13 @@ impl MemoryPort for SqliteMemoryProvider {
             ));
             let missing = Self::missing_required_profiles(space, &subject_id);
             let (state_digest, sources, profiles) =
-                Self::basis_for(space, &subject_id, &selection, filter.as_ref());
+                Self::basis_for(
+                    space,
+                    &subject_id,
+                    &selection,
+                    filter.as_ref(),
+                    cognition_filter.as_ref(),
+                );
             let stale = Self::latest_reflection(space, &subject_id)
                 .map(|reflection| Self::reflection_stale(space, &subject_id, reflection))
                 .unwrap_or(false);
@@ -3723,23 +4547,26 @@ impl MemoryPort for SqliteMemoryProvider {
         let space_id = text_field(&request_value, "space_id");
         let subject_id = text_field(&request_value, "subject_id");
         let limit = request_value["limit"].as_u64().unwrap_or(MAX_PAGE_SIZE) as usize;
-        let requirement = GrantRequirement {
-            capability: "reflect",
-            subject_id: Some(&subject_id),
-            context_ids: Vec::new(),
-            reads_shared: false,
-            subject_all: false,
+        let selection: Option<ReadSelection> = match request_value.get("selection") {
+            None => None,
+            Some(value) => match serde_json::from_value(value.clone()) {
+                Ok(selection) => Some(selection),
+                Err(error) => {
+                    return reject(SpokeRejectCode::InvalidInput, format!("selection: {error}"))
+                }
+            },
         };
+        // §7.26: pauses only reflections generated under the same pinned
+        // provenance filter; it is a membership test, not a cursor nicety.
+        let provenance_filter = request_value.get("filter").cloned();
+        let cognition_filter = tri!(parse_cognition_filter(&request_value));
+        let pinned_filter = cognition_filter
+            .as_ref()
+            .map(|filter| serde_json::to_value(filter).expect("cognition filter serializes"));
+        let cursor = request_value["cursor"].as_str().map(str::to_string);
         self.inspect(|document| {
             let now = Self::clock(document);
             let space = tri!(Self::space(document, &space_id));
-            tri!(Self::require(
-                space,
-                now,
-                &principal_id,
-                &requirement,
-                "memory.reflections.list"
-            ));
             let tombstoned: Vec<String> = space
                 .records
                 .values()
@@ -3750,6 +4577,30 @@ impl MemoryPort for SqliteMemoryProvider {
                 .reflections
                 .values()
                 .filter(|reflection| reflection["subject_id"].as_str() == Some(&subject_id))
+                // §7.26 `selection` restricts membership to reflections the
+                // request's own view wholly covers — never by bare overlap.
+                .filter(|reflection| match &selection {
+                    None => true,
+                    Some(request) => {
+                        serde_json::from_value::<ReadSelection>(reflection["selection"].clone())
+                            .is_ok_and(|pinned| selection_covers(request, &pinned))
+                    }
+                })
+                // §7.26: a supplied provenance filter lists only reflections
+                // generated with that same pinned filter.
+                .filter(|reflection| match &provenance_filter {
+                    None => true,
+                    Some(wanted) => {
+                        reflection.get("filter").filter(|value| !value.is_null())
+                            == Some(wanted)
+                    }
+                })
+                // §7: same for the pinned cognition filter. All present filters
+                // compose by AND, before pages.
+                .filter(|reflection| match &pinned_filter {
+                    None => true,
+                    Some(pinned) => reflection.get("cognition_filter") == Some(pinned),
+                })
                 // Reflections pinned to a tombstoned record are excluded (§6.9).
                 .filter(|reflection| {
                     let id = reflection["reflection_id"].as_str().unwrap_or_default();
@@ -3759,8 +4610,55 @@ impl MemoryPort for SqliteMemoryProvider {
                         .map(|sources| !sources.iter().any(|source| tombstoned.contains(source)))
                         .unwrap_or(true)
                 })
-                .map(|reflection| {
-                    let mut reflection = reflection.clone();
+                .cloned()
+                .collect();
+            // §7.26/§6.5: one current grant covers EACH returned reflection's
+            // own pinned selection (the export-bundle scope rule, so a
+            // context-restricted grant never reads all-subject derived text).
+            // An uncovered pin is a non-member: it neither rejects the request
+            // nor takes a page slot from a covered reflection.
+            reflections.retain(|reflection| {
+                let mut scope = ExportScope {
+                    context_ids: Vec::new(),
+                    reads_shared: false,
+                    subject_all: false,
+                };
+                scope.absorb(reflection);
+                Self::authorized(
+                    space,
+                    now,
+                    &principal_id,
+                    &GrantRequirement {
+                        capability: "reflect",
+                        subject_id: Some(&subject_id),
+                        context_ids: scope.context_ids,
+                        reads_shared: scope.reads_shared,
+                        subject_all: scope.subject_all,
+                    },
+                )
+            });
+            let offset = match cursor.as_deref() {
+                None => 0,
+                Some(cursor) => match Self::cursor_offset(
+                    space,
+                    &principal_id,
+                    &subject_id,
+                    "memory.reflections.list",
+                    &request_value,
+                    cursor,
+                ) {
+                    Some(offset) => offset,
+                    None => {
+                        return reject(
+                            SpokeRejectCode::CursorInvalid,
+                            "cursor was invalidated by a state or request change",
+                        )
+                    }
+                },
+            };
+            let mut reflections: Vec<Value> = reflections
+                .into_iter()
+                .map(|mut reflection| {
                     reflection["stale"] =
                         json!(Self::reflection_stale(space, &subject_id, &reflection));
                     reflection
@@ -3778,8 +4676,27 @@ impl MemoryPort for SqliteMemoryProvider {
                             .cmp(right["reflection_id"].as_str().unwrap_or_default())
                     })
             });
-            reflections.truncate(limit);
-            reply(json!({ "reflections": reflections }))
+            let total = reflections.len();
+            let page: Vec<Value> = reflections.into_iter().skip(offset).take(limit).collect();
+            let consumed = offset + page.len();
+            let mut response = json!({ "reflections": page });
+            if consumed < total {
+                let Some(token) = Self::cursor_token(
+                    space,
+                    &principal_id,
+                    &subject_id,
+                    "memory.reflections.list",
+                    &request_value,
+                    consumed,
+                ) else {
+                    return reject(
+                        SpokeRejectCode::InternalError,
+                        "reflection list cursor binding digest failed",
+                    );
+                };
+                response["next_cursor"] = json!(token);
+            }
+            reply(response)
         })
     }
 
@@ -3805,6 +4722,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 }
             };
         let filter = request_value.get("filter").cloned();
+        let cognition_filter = tri!(parse_cognition_filter(&request_value));
         let digest = tri!(request_digest(&request_value));
         let receipt = tri!(self.mutate_value(|document| {
             let now = Self::clock(document);
@@ -3829,26 +4747,14 @@ impl MemoryPort for SqliteMemoryProvider {
                 &requirement,
                 "memory.reflections.generate"
             ));
-            if Self::replay_conflict(
+            if let Some(outcome) = Self::replay_outcome(
                 space,
                 &principal_id,
                 "memory.reflections.generate",
                 &key,
                 &digest,
             ) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) = Self::replay(
-                space,
-                &principal_id,
-                "memory.reflections.generate",
-                &key,
-                &digest,
-            ) {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             // Admission, fail-closed (§7.27).
             let missing = Self::missing_required_profiles(space, &subject_id);
@@ -3860,7 +4766,13 @@ impl MemoryPort for SqliteMemoryProvider {
                 );
             }
             let (state_digest, sources, profiles) =
-                Self::basis_for(space, &subject_id, &selection, filter.as_ref());
+                Self::basis_for(
+                    space,
+                    &subject_id,
+                    &selection,
+                    filter.as_ref(),
+                    cognition_filter.as_ref(),
+                );
             if sources.is_empty() {
                 return reject(
                     SpokeRejectCode::InsufficientData,
@@ -3893,12 +4805,16 @@ impl MemoryPort for SqliteMemoryProvider {
                 PendingWork::Reflection {
                     subject_id: subject_id.clone(),
                     selection: selection.clone(),
+                    filter: filter
+                        .as_ref()
+                        .and_then(|value| serde_json::from_value::<ProvenanceFilter>(value.clone()).ok()),
+                    cognition_filter: cognition_filter.clone(),
                     sources,
                     profile_revisions: profiles,
                 },
             );
             space.receipts.insert(receipt_id, receipt.clone());
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -3906,7 +4822,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -3939,39 +4855,67 @@ impl MemoryPort for SqliteMemoryProvider {
             let now = Self::clock(document);
             let clock_seconds = document.clock_offset_seconds;
             let space = tri!(Self::space_mut(document, &space_id));
-            let requirement = GrantRequirement {
-                capability: "transfer",
-                subject_id: subject_id.as_deref(),
-                context_ids: selection
-                    .as_ref()
-                    .map(selection_contexts)
-                    .unwrap_or_default(),
-                reads_shared: selection
-                    .as_ref()
-                    .map(selection_reads_shared)
-                    .unwrap_or(subject_id.is_none()),
-                subject_all: selection
-                    .as_ref()
-                    .map(selection_subject_all)
-                    .unwrap_or(false),
+            // Only a matching-digest replay may reuse the export's ORIGINAL
+            // stored coverage: reflections created later must not change that
+            // replay (MEM-R021). A changed payload is authorized for the scope
+            // it actually requests, before any conflict answer is disclosed
+            // (§7.29, MEM-R018).
+            let stored_scope =
+                Self::dedup_entry(space, &principal_id, "memory.exports.create", &key)
+                    .filter(|entry| entry.digest == digest)
+                    .and_then(|entry| entry.export_scope.clone());
+            let scope = match stored_scope {
+                Some(stored) => stored,
+                None => {
+                    let mut scope = ExportScope::of(selection.as_ref());
+                    if include_reflections {
+                        // An included reflection discloses its pinned basis, so
+                        // the same grant must cover it: deny the whole request
+                        // rather than silently dropping a requested requirement
+                        // (§6.5, §7.26).
+                        for reflection in
+                            Self::exportable_reflections(space, subject_id.as_deref())
+                        {
+                            scope.absorb(reflection);
+                        }
+                    }
+                    scope
+                }
             };
             tri!(Self::require(
                 space,
                 now,
                 &principal_id,
-                &requirement,
+                &scope.requirement(subject_id.as_deref()),
                 "memory.exports.create"
             ));
-            if Self::replay_conflict(space, &principal_id, "memory.exports.create", &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
+            // §7.29: `include_tombstoned` is admin-only. It is part of the
+            // CURRENT request's authority, so a changed payload is denied
+            // before any conflict answer, and an admin grant revoked after
+            // admission denies the identical replay too. The admin grant must
+            // cover this export's own facets — subject, selected contexts,
+            // shared visibility and `subject_all` (§6.5) — not an empty
+            // space-wide requirement that both rejects covered scoped admins
+            // and accepts grants disconnected from the export.
+            if include_tombstoned {
+                tri!(Self::require(
+                    space,
+                    now,
+                    &principal_id,
+                    &GrantRequirement {
+                        capability: "admin",
+                        subject_id: subject_id.as_deref(),
+                        context_ids: scope.context_ids.clone(),
+                        reads_shared: scope.reads_shared,
+                        subject_all: scope.subject_all,
+                    },
+                    "memory.exports.create"
+                ));
             }
-            if let Some(receipt) =
-                Self::replay(space, &principal_id, "memory.exports.create", &key, &digest)
+            if let Some(outcome) =
+                Self::replay_outcome(space, &principal_id, "memory.exports.create", &key, &digest)
             {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             // Drain barrier (§7.29): quiescent exports need a frozen, drained
             // space. Export itself stays on the freeze allowlist.
@@ -3985,8 +4929,10 @@ impl MemoryPort for SqliteMemoryProvider {
             let bundle = Self::export_bundle(
                 space,
                 subject_id.as_deref(),
+                selection.as_ref(),
                 include_reflections,
                 include_tombstoned,
+                scope.reads_shared,
             );
             let bundle_digest_value = match bundle_digest(&bundle) {
                 Ok(digest) => digest,
@@ -4020,6 +4966,9 @@ impl MemoryPort for SqliteMemoryProvider {
                 ExportState {
                     export_id: export_id.clone(),
                     subject_id: subject_id.clone(),
+                    context_ids: scope.context_ids.clone(),
+                    reads_shared: scope.reads_shared,
+                    subject_all: scope.subject_all,
                     chunks,
                     chunk_count,
                     total_bytes,
@@ -4055,7 +5004,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 },
             );
             space.receipts.insert(receipt_id, receipt.clone());
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -4063,7 +5012,8 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
+            Self::remember_export_scope(space, &principal_id, &key, &scope);
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -4084,12 +5034,14 @@ impl MemoryPort for SqliteMemoryProvider {
             let Some(export) = space.exports.get(&export_id).cloned() else {
                 return reject(SpokeRejectCode::NotFound, "export not found");
             };
+            // §7.29: retrieval re-checks the *original* export coverage under
+            // the current grant and principal, not just a broad transfer grant.
             let requirement = GrantRequirement {
                 capability: "transfer",
                 subject_id: export.subject_id.as_deref(),
-                context_ids: Vec::new(),
-                reads_shared: true,
-                subject_all: false,
+                context_ids: export.context_ids.clone(),
+                reads_shared: export.reads_shared,
+                subject_all: export.subject_all,
             };
             tri!(Self::require(
                 space,
@@ -4157,26 +5109,14 @@ impl MemoryPort for SqliteMemoryProvider {
                     "memory.imports.activate"
                 ));
             }
-            if Self::replay_conflict(
+            if let Some(outcome) = Self::replay_outcome(
                 space,
                 &principal_id,
                 "memory.imports.activate",
                 &key,
                 &digest,
             ) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) = Self::replay(
-                space,
-                &principal_id,
-                "memory.imports.activate",
-                &key,
-                &digest,
-            ) {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             let Some(import) = space.imports.get(&import_id).cloned() else {
                 return reject(SpokeRejectCode::NotFound, "import not found");
@@ -4206,6 +5146,54 @@ impl MemoryPort for SqliteMemoryProvider {
                     .cloned()
                     .unwrap_or_else(|| source.to_string())
             };
+            // §6.3: translated Content remaps every cognition reference.
+            // Subject renames ride the subject id map (identity elsewhere);
+            // this provider preserves record and candidate ids, so those
+            // maps are identity.
+            let mut subject_id_map: BTreeMap<String, String> = BTreeMap::new();
+            for subject in bundle["subjects"].as_array().cloned().unwrap_or_default() {
+                let source = text_field(&subject, "subject_id");
+                subject_id_map.insert(source.clone(), rename(&source));
+            }
+            let identity_ids = |field: &str, id_field: &str| -> BTreeMap<String, String> {
+                bundle[field]
+                    .as_array()
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| item[id_field].as_str())
+                            .map(|id| (id.to_string(), id.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            let translation_maps = TranslationMaps {
+                subject_id_map,
+                record_id_map: identity_ids("records", "record_id"),
+                candidate_id_map: identity_ids("candidates", "candidate_id"),
+            };
+            let remap_content = |content: &Value| -> SpokeResult<Value> {
+                match remap_cognition_references(
+                    content,
+                    &translation_maps,
+                    &import.reference_translations,
+                ) {
+                    Ok(remapped) => match validate_cognition_content(&remapped) {
+                        SpokeResult::Ok(()) => SpokeResult::Ok(remapped),
+                        SpokeResult::Reject(failure) => reject(
+                            SpokeRejectCode::ImportConflict,
+                            format!(
+                                "translated content.cognition failed validation: {}",
+                                failure.message
+                            ),
+                        ),
+                    },
+                    Err(error) => reject(
+                        SpokeRejectCode::ImportConflict,
+                        format!("cognition reference translation: {error}"),
+                    ),
+                }
+            };
             // Identity remap: §7.31 requires reassignment, not a change of value,
             // so target ids equal source ids and revisions start at 1.
             let mut subjects = 0usize;
@@ -4222,6 +5210,8 @@ impl MemoryPort for SqliteMemoryProvider {
             let mut records = 0usize;
             for record in bundle["records"].as_array().cloned().unwrap_or_default() {
                 let mut record = record;
+                let content = tri!(remap_content(&record["content"]));
+                record["content"] = content;
                 let subject = rename(&text_field(&record, "subject_id"));
                 record["space_id"] = json!(space_id);
                 record["subject_id"] = json!(subject);
@@ -4237,6 +5227,12 @@ impl MemoryPort for SqliteMemoryProvider {
                 candidate["space_id"] = json!(space_id);
                 let subject = rename(&text_field(&candidate, "subject_id"));
                 candidate["subject_id"] = json!(subject);
+                // Pending candidates carry full proposed Content: remap its
+                // cognition references; consumed shells carry none.
+                if let Some(content) = candidate["proposed"].get("content") {
+                    let remapped = tri!(remap_content(content));
+                    candidate["proposed"]["content"] = remapped;
+                }
                 if candidate["status"] == "pending" {
                     candidate["revision"] = json!(1);
                 }
@@ -4404,7 +5400,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 },
             );
             space.receipts.insert(receipt_id, receipt.clone());
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -4412,7 +5408,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -4447,26 +5443,14 @@ impl MemoryPort for SqliteMemoryProvider {
                     "memory.imports.discard"
                 ));
             }
-            if Self::replay_conflict(
+            if let Some(outcome) = Self::replay_outcome(
                 space,
                 &principal_id,
                 "memory.imports.discard",
                 &key,
                 &digest,
             ) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) = Self::replay(
-                space,
-                &principal_id,
-                "memory.imports.discard",
-                &key,
-                &digest,
-            ) {
-                return SpokeResult::Ok(receipt);
+                return outcome;
             }
             let Some(import) = space.imports.get_mut(&import_id) else {
                 return reject(SpokeRejectCode::NotFound, "import not found");
@@ -4491,7 +5475,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
             );
             receipt["result"] = json!({ "import_id": import_id, "discarded": true });
-            Self::remember(
+            tri!(Self::remember(
                 space,
                 now,
                 &principal_id,
@@ -4499,7 +5483,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 &key,
                 &digest,
                 &receipt,
-            );
+            ));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)
@@ -4537,14 +5521,8 @@ impl SqliteMemoryProvider {
             let space = tri!(Self::space_mut(document, &space_id));
             let requirement = Self::admin_requirement();
             tri!(Self::require(space, now, &principal_id, &requirement, op));
-            if Self::replay_conflict(space, &principal_id, op, &key, &digest) {
-                return reject(
-                    SpokeRejectCode::IdempotencyConflict,
-                    "idempotency key reused with a different payload",
-                );
-            }
-            if let Some(receipt) = Self::replay(space, &principal_id, op, &key, &digest) {
-                return SpokeResult::Ok(receipt);
+            if let Some(outcome) = Self::replay_outcome(space, &principal_id, op, &key, &digest) {
+                return outcome;
             }
             if space.revision != expected_revision {
                 return reject(
@@ -4561,7 +5539,7 @@ impl SqliteMemoryProvider {
                 "pending_receipts": space.pending_receipts(),
                 "revision": space.revision,
             });
-            Self::remember(space, now, &principal_id, op, &key, &digest, &receipt);
+            tri!(Self::remember(space, now, &principal_id, op, &key, &digest, &receipt));
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)

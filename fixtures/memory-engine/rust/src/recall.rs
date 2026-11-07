@@ -217,6 +217,7 @@ mod tests {
             record_id: id.to_string(),
             kind: kind.to_string(),
             content: Content {
+                cognition: None,
                 structured: None,
                 text: text.to_string(),
             },
@@ -387,6 +388,63 @@ mod tests {
     }
 
     #[test]
+    fn explicit_empty_cognition_is_emitted_and_budgeted() {
+        // §6.4/§9: an explicit `"cognition":[]` is part of the emitted content
+        // bytes (32) while an absent member measures 17, so presence survives
+        // into the page budget instead of being normalized to absence.
+        let with_empty = Content {
+            cognition: Some(Vec::new()),
+            structured: None,
+            text: "Memory".to_string(),
+        };
+        let absent = Content {
+            cognition: None,
+            structured: None,
+            text: "Memory".to_string(),
+        };
+        assert_eq!(
+            content_serialized_bytes(&with_empty).expect("finite content measures"),
+            32
+        );
+        assert_eq!(
+            content_serialized_bytes(&absent).expect("finite content measures"),
+            17
+        );
+
+        // Same score (fact, no query): the newer absent record ranks first.
+        let records = vec![
+            RecallRecord {
+                record_id: "rec_empty".to_string(),
+                kind: "fact".to_string(),
+                content: with_empty,
+                created_at: at("2026-10-01T00:00:00Z"),
+            },
+            RecallRecord {
+                record_id: "rec_absent".to_string(),
+                kind: "fact".to_string(),
+                content: absent,
+                created_at: at("2026-10-02T00:00:00Z"),
+            },
+        ];
+        // 17 absent bytes fit; the 32-byte present-empty item exceeds the
+        // remaining 31 by one. Measuring it as 17 would wrongly admit both.
+        let page = recall_checked(
+            &records,
+            &RecallRequest {
+                offset: 0,
+                query: None,
+                max_items: 5,
+                max_bytes: Some(48),
+            },
+        );
+        assert_eq!(ids(&page), vec!["rec_absent"]);
+        assert!(page.truncated);
+        // `overflow_record_id` is reserved for an oversized first item; a
+        // deferred later item just truncates the page (§9).
+        assert_eq!(page.overflow_record_id, None);
+    }
+
+    #[test]
     fn numeric_content_budget_uses_the_wire_measure() {
         // I-000035: the §9 item 3 page budget counts the bytes the page emits, so
         // numbers keep the `serde_json` form (`1.0`, `100.0`) and count 44
@@ -395,6 +453,7 @@ mod tests {
             record_id: "rec_numbers".to_string(),
             kind: "fact".to_string(),
             content: Content {
+                cognition: None,
                 structured: Some(serde_json::json!({"n": 1.0, "e": 1e2})),
                 text: String::new(),
             },
@@ -446,33 +505,40 @@ mod tests {
         // (`to_value` → strip null members → `to_vec`), not just lengths.
         let cases = [
             (Content {
+                cognition: None,
                 structured: None,
                 text: "abcd".to_string(),
             }, 15usize),
             (Content {
+                cognition: None,
                 structured: Some(serde_json::json!({"n": 1.0, "e": 1e2})),
                 text: String::new(),
             }, 44),
             (Content {
+                cognition: None,
                 structured: None,
                 text: "hello".to_string(),
             }, 16),
             (Content {
+                cognition: None,
                 structured: Some(serde_json::Value::Null),
                 text: String::new(),
             }, 11),
             // escaping vector (`serialized_escaping_and_overhead…`)
             (Content {
+                cognition: None,
                 structured: None,
                 text: "quote \" and newline \n and unicode — dash".to_string(),
             }, 55),
             // deferred-tail vector (`deferred_tail_is_not_displaced…`)
             (Content {
+                cognition: None,
                 structured: None,
                 text: "abcdefghijklmnopqrs".to_string(),
             }, 30),
             // oversized vector (`oversized_first_item_is_surfaced…`)
             (Content {
+                cognition: None,
                 structured: None,
                 text: "x".repeat(100),
             }, 111),
@@ -509,6 +575,7 @@ mod tests {
             record_id: "rec_null".to_string(),
             kind: "fact".to_string(),
             content: Content {
+                cognition: None,
                 structured: Some(serde_json::Value::Null),
                 text: String::new(),
             },

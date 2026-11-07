@@ -44,6 +44,10 @@ import {
   type SpokeResult,
 } from "@42ch/spoke-operations";
 
+import {
+  CAPABILITY_SPOKE_COGNITION,
+  cognitionRequirementPresent,
+} from "../core/dispatch.js";
 import type { RemoteAdapterState } from "./remote-adapter.js";
 import {
   CAPABILITY_KE_OWNERSHIP,
@@ -327,6 +331,24 @@ export function selectPeerForOp(
       return noCapablePeer(
         op,
         `no peer authority scope key matches "${scopeKey}"`,
+      );
+    }
+  }
+
+  // A cognition-bearing request can only be routed to a peer that declared
+  // the `spoke-cognition` family: the projection/selection must flow between
+  // parties that negotiated it (consumer contract §2.1). The requirement is
+  // read from the op's own declared carrier, never from arbitrary payload
+  // data. Same hard-filter shape as `ke-ownership`; the legacy `l5-mind` flag
+  // never satisfies it.
+  if (cognitionRequirementPresent(op, payload)) {
+    survivors = survivors.filter((candidate) =>
+      candidate.manifest.capabilities.includes(CAPABILITY_SPOKE_COGNITION),
+    );
+    if (survivors.length === 0) {
+      return noCapablePeer(
+        op,
+        `no peer advertises capability "${CAPABILITY_SPOKE_COGNITION}"`,
       );
     }
   }

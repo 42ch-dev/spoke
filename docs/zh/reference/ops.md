@@ -45,7 +45,30 @@ title: 操作线上参考（Ops wire）
 | `timeline_scale` | TimelineScale | L5 层级过滤（`brief`、`narrative`、`moment`） |
 | `fork_id` | ForkId | L5 分支过滤 —— 对 `TimelineEvent.fork_id` 严格相等（`l5-fork`） |
 | `viewpoint` | 字符串 | 读者上下文（`ke-ownership`）—— 读者的 holder KnowledgeEntry `entry_id`；缺省时不指名主体，也不授予私有可见性 |
+| `cognition` | CognitionSelection | 认知细化（`spoke-cognition`）—— 要求已协商的标志，且只提供 `current` 视图；见[认知选择](#cognition-selection-spoke-cognition) |
 | `extensions` | ExtensionMap | 产品作用域查询元数据；协议匹配器忽略它，adapter 原样往返 |
+
+## 认知选择（`spoke-cognition`） {#cognition-selection-spoke-cognition}
+
+`Scope.cognition` 在 `check`、`assemble` 与按作用域读取 KnowledgeEntry / TimelineEvent 的端口调用上携带 `CognitionSelection`。该载体只提供 `current` 视图：`{ view: "current", filter, selection_policy }`。`recorded_at` 形式属于 Memory 来源视图；在此提供会被整体拒绝，而不是返回空投影。
+
+选择在授权之后、投影或任何检查器副作用之前应用：仅当至少一条携带记录满足完整的单记录过滤合取时才保留该 KnowledgeEntry，不携带任何匹配记录的条目被排除。`filter` 是[数据模型参考 §认知](/zh/reference/data-model#cognition-spoke-cognition)所述的封闭语法 —— 每个提供的谓词都在同一条记录上做 AND，谓词绝不跨记录或跨目标连接。
+
+`current` 形式必须提供 `selection_policy`，以 `{ policy_id, policy_version }` 命名产品策略。算法由产品提供；库只校验 `selected_record_id` 属于被追踪的 `input_record_ids`。结果保留归因：每个 item 保留自己的 `holder`、`target` 与 `assessment_context`，保留的分歧绝不取平均或被替换。
+
+未知谓词、未实现的维度或不可用的视图会拒绝整个请求 —— 不静默剥离、不返回部分响应、不回退到未过滤输出：
+
+```json
+{
+  "error": {
+    "code": "invalid_input",
+    "message": "Unsupported cognition requirement",
+    "details": { "reason": "unsupported_cognition_requirement", "field": "scope.cognition.filter.q" }
+  }
+}
+```
+
+携带 `Scope.cognition` 的请求要求已协商的 `spoke-cognition` 标志；协商结果缺少该族时，请求走既有 `capability_missing` 分支，处理器无副作用。参见[协议参考 §认知协商与拒绝](/zh/reference/protocol#cognition-negotiation-and-rejection)。
 
 ## 信封字段表
 
@@ -97,6 +120,8 @@ title: 操作线上参考（Ops wire）
 | `scope` | 组装作用域选择器 |
 | `max_entries` | 可选条目数量提示（协议不强制） |
 | `extensions` | 可选传输元数据 |
+
+当 `scope.cognition` 存在时，`packet.cognition` 是在已授权来源集上选出的 `CognitionProjection` `{ view, items[], extensions }`。每个 item 携带自己的 `holder`、`target`、`assessment_context`、`presence`（`assessed` 或 `no_record`）与 `assessments[]`；`current` 的已评估 item 还携带 `selection: { policy, input_record_ids[], selected_record_id }`。投影在 `max_entries` 截断之前计算 —— 限额只收窄精简的包条目，绝不改变请求了哪些已授权认知 —— 请求不带认知选择时该字段缺省。参见[数据模型参考 §认知](/zh/reference/data-model#cognition-spoke-cognition)。
 
 ## 可选操作（`ke-extraction`）
 
@@ -157,5 +182,6 @@ title: 操作线上参考（Ops wire）
 - [协议参考](/zh/reference/protocol) —— 三列模型与能力标志。
 - [编排操作（orchestrate ops）](/zh/how-to/orchestrate-ops) —— 用真实签名调用每个编排器。
 - [数据模型参考](/zh/reference/data-model) —— 这些信封携带的对象。
+- [认知记录](/zh/reference/data-model#cognition-spoke-cognition) —— 记录形状、`q`、封闭过滤语法与投影。
 - [connect 参考](/zh/reference/connect) —— ops 信封作为不透明 invoke 载荷被包装。
 - [记忆参考](/zh/reference/memory) —— 可选 `spoke-memory` 族的 33 个操作、能力划分与提供方指引。

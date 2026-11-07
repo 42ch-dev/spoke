@@ -12,7 +12,7 @@
 
 **Includes:**
 
-- Data-layer schemas: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, Rule, TimelineEvent, MindState
+- Data-layer schemas: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, Rule, TimelineEvent, MindState, CognitionRecord
 - Ops-layer schemas: `upsert`, extract→promote, `relate`, `check`, `assemble`; optional **`project` / `compute`** under `l2-computable`
 - Generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`, `spoke-operations`)
 - Pure lifecycle helpers plus **adapter ports** and **injection orchestration** (`@42ch/spoke-operations` / `spoke-operations`)
@@ -201,7 +201,8 @@ Reference **FullAdapter** and the committed “Mira at Harbor” graph: [`fixtur
 | **Finding** | Checker output for consistency, style, or analysis |
 | **Rule** | Declarative constraint input to `check` (L6) |
 | **TimelineEvent** | First-class temporal object on the when-axis (L5) |
-| **MindState** | First-class temporal mental-state record on the when-axis (L5, optional `l5-mind`) |
+| **MindState** | First-class temporal mental-state record on the when-axis (L5, optional `spoke-cognition` capability) |
+| **CognitionRecord** | Standard Belief / epistemic / Perception records carried on the holder KnowledgeEntry under `modules.cognition` (`spoke-cognition`) |
 | **AssemblePacket** | Wire context-assembly payload (slim entries for downstream LLM prompts) |
 | **HostCapabilityManifest** | Host roles, capabilities, and owned `namespaces[]` for in-process collaboration |
 | **Extensions** | Product-specific bag on every data object (`extensions.<namespace>`) |
@@ -222,7 +223,7 @@ Products that need programmable KnowledgeEntry body state may declare **`l2-comp
 
 Products that need fork-scoped timeline queries may declare **`l5-fork`**. Products that exchange cross-product functional dialects (lore activation, knowledge packs, assemble placement / activation trace) may declare **`narrative-modules`**: an optional `modules` (`ModuleMap`) bag on KnowledgeEntry, AssemblePacket, and TimelineEvent carries these dialects, and adapters round-trip unknown module namespaces verbatim. Domain Profile handbooks define the inner shapes.
 
-Products that interchange "who believes / wants / feels what at time t" may declare **`l5-mind`**: an optional `MindState` temporal record (snapshot / delta over the when-axis) and `modules.observation` on `TimelineEvent.modules`. The settled home of mental fields and belief labels is the holder KnowledgeEntry `modules.mental` / `modules.belief` (`narrative-modules` bag); `MindState` is strictly derivative, never a second authority. Mental-state engines stay product-owned. Opt-in, not `spoke-baseline`.
+Products that interchange "who knows, believes, perceives, wants, or feels what at time t" may declare **`spoke-cognition`**: one family (a single flag, no subflags) for standard, attributable cognition records. A host serves it through `modules.cognition` on the holder KnowledgeEntry — `records[]` of Belief, epistemic (knowledge, ignorance, undetermined) and Perception records plus narrated `world_facts[]` — and every completed Belief, epistemic and Perception record carries a declared foundational `q` for its identified cognitive assertion, with optional distinct `metrics` (`b`, `p`, `f`, `k`, `r`). Cognitive selection rides `Scope.cognition`: a closed filter grammar (`holder`, target identity, assessment context/fork, category, state, `q` range, and present/absent categorical predicates), plus an attribution-preserving projection that retains disagreements and traces the identified current-view selection. `MindState` projects the same holder-side records as a derivative temporal view. Memory hosts carry recorded-at-time cognition in `Content.cognition` and filter it with `cognition_filter`. Declare the flag in `HostCapabilityManifest.capabilities` only when every mandatory rule for the surfaces you actually serve is implemented; unsupported requirements are rejected explicitly. Mental-state engines stay product-owned. Opt-in, not `spoke-baseline`. Detail: [Data model — Cognition](https://spoke.42ch.dev/reference/data-model#cognition-spoke-cognition).
 
 Products that need signed cross-process interaction may declare **`spoke-connect`**. Composed adapter aliases: `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`.
 
@@ -238,6 +239,7 @@ Baseline integrators use core schemas; optional capabilities are opt-in. Detail:
 - Extension and module map merge and round-trip preservation (`mergeExtensionMaps` / `mergeModuleMaps`, `preserveExtensionMaps` / `preserveModuleMaps`)
 - Finding / KnowledgeEntry `status` transition helpers
 - Promote acceptance, upsert/relate, and MindState wire-shape validators (`validateMindState` / `validate_mind_state`)
+- Cognition wire-shape gates and selection/projection helpers (`validateCognitionRecord` / `validate_cognition_record`, `validateCognitionModule`, `validateObservationModule`, `validateCognitionFilter`, `validateCognitionSelection`, `validateCognitionProjection`, `selectCognitionRecords`, `projectCognitionRecords`)
 - AssemblePacket builders from KnowledgeEntries
 - Unified `SpokeResult` / `SpokeRejectCode` on reject paths
 
@@ -253,6 +255,7 @@ Detail: [Orchestrate operations](https://spoke.42ch.dev/how-to/orchestrate-ops).
 | Nine layers and capability levels | [Concepts](https://spoke.42ch.dev/explanation/concepts) |
 | Data objects and open vocabulary | [Data model](https://spoke.42ch.dev/reference/data-model) |
 | MindState | [MindState reference](https://spoke.42ch.dev/reference/mind-state) |
+| Cognition records, filters, projections | [Data model — Cognition](https://spoke.42ch.dev/reference/data-model#cognition-spoke-cognition) |
 | Ops request/response envelopes | [Ops wire](https://spoke.42ch.dev/reference/ops) |
 | Operations library behavior | [Orchestrate operations](https://spoke.42ch.dev/how-to/orchestrate-ops) |
 | Core / modules / extensions | [Data model](https://spoke.42ch.dev/reference/data-model) |

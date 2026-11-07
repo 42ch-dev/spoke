@@ -10,6 +10,8 @@
 //! The gate is evaluated against `negotiated_capabilities`, not the remote
 //! manifest alone and not unsigned hello `extensions`.
 
+use serde_json::Value;
+
 /// Baseline capability: required by the baseline core ops.
 pub const CAPABILITY_SPOKE_BASELINE: &str = "spoke-baseline";
 /// Optional capability: required by the compute-family core ops.
@@ -32,6 +34,73 @@ pub const CAPABILITY_SPOKE_MEMORY_REFLECTION: &str = "spoke-memory-reflection";
 /// Optional memory sub-flag: required by `memory.exports.*` and
 /// `memory.imports.*`.
 pub const CAPABILITY_SPOKE_MEMORY_TRANSFER: &str = "spoke-memory-transfer";
+/// Optional capability: the `spoke-cognition` family (one flag, no
+/// subflags). Not an op requirement — no core-table row names it. A request
+/// that *declares* a cognition requirement (see
+/// [`cognition_requirement_present`]) additionally needs this flag in the
+/// negotiated set; the payload-dependent conjunct lives at the dispatch
+/// boundary next to `ke-ownership`. The legacy `l5-mind` flag is never read
+/// as this family.
+pub const CAPABILITY_SPOKE_COGNITION: &str = "spoke-cognition";
+
+/// Ops whose registered request carries a `Scope` and therefore the
+/// `Scope.cognition` selection slot (`common.schema.json` → `Scope`,
+/// referenced by `assemble-request` / `check-request` and the three remote
+/// Scope ops).
+const SCOPE_COGNITION_OPS: [&str; 5] = [
+    "check",
+    "assemble",
+    "port.scope.list_knowledge_entries",
+    "port.scope.list_timeline_events",
+    "port.fork.list_timeline_events",
+];
+
+/// Memory ops whose registered request declares the `cognition_filter` slot
+/// (`memory-recall-request`, `memory-records-list-request`,
+/// `memory-reflections-{generate,list,state}-request`).
+const COGNITION_FILTER_OPS: [&str; 5] = [
+    "memory.recall",
+    "memory.records.list",
+    "memory.reflections.generate",
+    "memory.reflections.list",
+    "memory.reflections.state",
+];
+
+/// The request field path that declares a cognition requirement **for this
+/// op**, or `None` when the request carries none. Both slots come from the
+/// registered request schemas: only the actual standard carrier of the
+/// dispatched operation can demand cognition, so collapsed/inspected data on
+/// any other op — a tool's `arguments`, unrelated product metadata, an opaque
+/// `extensions` member — stays ordinary payload data and never becomes a
+/// synthetic requirement.
+///
+/// Declared-location predicate only: no trimming, normalization, registry
+/// lookup or recursive search. A present JSON `null` counts as present
+/// (malformed, never "absent").
+#[must_use]
+pub fn cognition_requirement_field(op: &str, payload: &Value) -> Option<&'static str> {
+    if SCOPE_COGNITION_OPS.contains(&op)
+        && payload
+            .get("scope")
+            .and_then(Value::as_object)
+            .is_some_and(|scope| scope.contains_key("cognition"))
+    {
+        return Some("scope.cognition");
+    }
+    if COGNITION_FILTER_OPS.contains(&op) && payload.get("cognition_filter").is_some() {
+        return Some("cognition_filter");
+    }
+    None
+}
+
+/// Whether `op`'s payload declares a `spoke-cognition` requirement. The
+/// dispatch boundary then requires [`CAPABILITY_SPOKE_COGNITION`] in the
+/// negotiated set; ordinary payloads without the op's carrier members are
+/// untouched.
+#[must_use]
+pub fn cognition_requirement_present(op: &str, payload: &Value) -> bool {
+    cognition_requirement_field(op, payload).is_some()
+}
 
 /// The minimum capability required to dispatch `op`, per the protocol v1
 /// core-op table. Product-defined `op` values return `None` — their required
@@ -122,6 +191,7 @@ pub fn token_authorizes_op(required: Option<&str>, token_capabilities: &[String]
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn caps(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
@@ -458,6 +528,112 @@ mod tests {
         for op in MEMORY_REFLECTION_OPS.iter().chain(&MEMORY_TRANSFER_OPS) {
             assert!(dispatch_allowed(op, &all), "{op}");
             assert!(token_authorizes_op(required_capability(op), &all), "{op}");
+        }
+    }
+
+    #[test]
+    fn cognition_requirement_field_names_the_op_declared_wire_location() {
+        // Parity with the TS `cognitionRequirementField` golden vectors: the
+        // slot comes from the registered request schema of the dispatched op.
+        assert_eq!(
+            cognition_requirement_field(
+                "check",
+                &json!({"scope": {"scope_id": "s", "cognition": {"view": "current"}}})
+            ),
+            Some("scope.cognition")
+        );
+        assert_eq!(
+            cognition_requirement_field(
+                "port.scope.list_knowledge_entries",
+                &json!({"scope": {"scope_id": "s", "cognition": {"view": "current"}}})
+            ),
+            Some("scope.cognition")
+        );
+        assert_eq!(
+            cognition_requirement_field(
+                "memory.records.list",
+                &json!({"cognition_filter": {"state": {"eq": "known"}}})
+            ),
+            Some("cognition_filter")
+        );
+        // Present JSON null is a requirement (malformed), never "absent".
+        assert_eq!(
+            cognition_requirement_field("memory.recall", &json!({"cognition_filter": null})),
+            Some("cognition_filter")
+        );
+        // The slots are disjoint per op, so an unrelated member can never
+        // stand in front of the op's real requirement.
+        assert_eq!(
+            cognition_requirement_field(
+                "memory.records.list",
+                &json!({"cognition": {}, "cognition_filter": {"q_min": 0.5}})
+            ),
+            Some("cognition_filter")
+        );
+    }
+
+    #[test]
+    fn ordinary_payloads_declare_no_cognition_requirement() {
+        assert!(!cognition_requirement_present("upsert", &json!({})));
+        assert!(!cognition_requirement_present(
+            "port.scope.list_knowledge_entries",
+            &json!({"scope": {"scope_id": "s", "viewpoint": "kb_mira"}})
+        ));
+        assert!(!cognition_requirement_present("port.finding.put", &json!({"findings": []})));
+        // A non-object `scope` cannot carry the declared member.
+        assert!(!cognition_requirement_present(
+            "check",
+            &json!({"scope": "s"})
+        ));
+        assert!(!cognition_requirement_present("check", &json!({"scope": null})));
+        // Only the ACTUAL carrier of the dispatched op demands cognition:
+        // tool arguments, a Memory `cognition_filter` on a Scope op, an
+        // opaque `cognition` on any other op are ordinary payload data.
+        assert!(!cognition_requirement_present(
+            "tools.math.add",
+            &json!({"arguments": {}, "cognition": "tool metadata"})
+        ));
+        assert!(!cognition_requirement_present(
+            "port.scope.list_knowledge_entries",
+            &json!({"scope": {"scope_id": "s"}, "cognition_filter": {"state": {"eq": "known"}}})
+        ));
+        assert!(!cognition_requirement_present(
+            "upsert",
+            &json!({"cognition": {"view": "recorded_at"}})
+        ));
+        assert!(!cognition_requirement_present(
+            "memory.records.list",
+            &json!({"scope": {"scope_id": "s", "cognition": {"view": "current"}}})
+        ));
+        // A Memory content write's `content.cognition` is written data, not a
+        // request requirement; its placement `scope` is unrelated payload too.
+        assert!(!cognition_requirement_present(
+            "memory.records.create",
+            &json!({
+                "content": {"cognition": {"records": []}},
+                "scope": {"space_id": "s", "subject_id": "sub"},
+            })
+        ));
+        // Present JSON null IS a requirement (malformed, never "absent").
+        assert!(cognition_requirement_present(
+            "check",
+            &json!({"scope": {"scope_id": "s", "cognition": null}})
+        ));
+    }
+
+    #[test]
+    fn legacy_l5_mind_never_satisfies_the_cognition_family() {
+        // The family is granted only by its own flag: `l5-mind` is an
+        // unrelated legacy flag and the pure intersection never maps it.
+        let legacy = caps(&[CAPABILITY_SPOKE_BASELINE, "l5-mind"]);
+        assert!(!cognition_requirement_present("check", &json!({})));
+        assert!(!legacy.iter().any(|cap| cap == CAPABILITY_SPOKE_COGNITION));
+        // No op row names the family either: the requirement is payload-only.
+        for op in [
+            "upsert", "check", "assemble", "extract", "port.scope.list_knowledge_entries",
+            "memory.records.list", "memory.recall",
+        ] {
+            assert_ne!(required_capability(op), Some(CAPABILITY_SPOKE_COGNITION), "{op}");
         }
     }
 }

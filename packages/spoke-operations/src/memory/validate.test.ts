@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -58,6 +62,15 @@ function expectLimit(
   expect(result.ok).toBe(false);
   expect(result.code).toBe("INVALID_INPUT");
   expect(result.details?.limit).toBe(limit);
+}
+
+function expectInvalidCognition(
+  result: { ok: boolean; code?: string; details?: Record<string, unknown> },
+): void {
+  expect(result.ok).toBe(false);
+  expect(result.code).toBe("INVALID_INPUT");
+  expect(result.details?.field).toBe("content.cognition");
+  expect(result.details?.reason).toBe("invalid_cognition_record");
 }
 
 describe("isFreezeAllowlisted (§8.2)", () => {
@@ -456,5 +469,113 @@ describe("content byte limits (§7.1)", () => {
       idempotency_key: "k1",
     } as MemoryRecordsCreateRequest;
     expectLimit(validateMemoryRecordsCreate(request, 1024), "max_content_bytes");
+  });
+});
+
+// Shared cross-language C8 lifecycle vectors: the TS measure and validators
+// must observe the same exact canonical admission bytes and the same
+// accept/reject outcome as the Rust suite for every content-admission vector.
+const lifecycleVectors = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../fixtures/cognition/memory-lifecycle-vectors.json",
+    ),
+    "utf8",
+  ),
+) as { vectors: LifecycleVector[] };
+
+interface LifecycleVector {
+  id: string;
+  shape: string;
+  content: { text: string; cognition?: unknown[] };
+  canonical_bytes: number;
+  max_content_bytes: number;
+  expected: "accept" | "reject";
+  reason?: "max_content_bytes" | "invalid_cognition_record";
+}
+
+describe("cognition lifecycle shared admission vectors (C8)", () => {
+  const admission = lifecycleVectors.vectors.filter(
+    (vector) => vector.shape === "content-admission",
+  );
+  // The handoff from P1/T1 L2 requires a valid non-empty recorded-at-time
+  // carrier: every admission vector must exercise the real boundary.
+  expect(admission.length).toBeGreaterThanOrEqual(5);
+  const valid = admission.find((vector) => vector.id === "lifecycle-admission-cognition-valid");
+  expect(valid?.content.cognition?.length).toBeGreaterThan(0);
+
+  it.each(admission.map((vector) => [vector.id, vector] as const))(
+    "%s measures the exact shared canonical bytes",
+    (_id, vector) => {
+      expect(contentSerializedBytes(vector.content)).toBe(vector.canonical_bytes);
+    },
+  );
+
+  it.each(admission.map((vector) => [vector.id, vector] as const))(
+    "%s admits or rejects exactly like Rust",
+    (_id, vector) => {
+      const request = {
+        space_id: "sp_1",
+        subject_id: "s1",
+        content: vector.content,
+        capture_scope: { visibility: "shared" },
+        idempotency_key: "k1",
+      } as MemoryCaptureRequest;
+      const result = validateMemoryCapture(request, vector.max_content_bytes);
+      if (vector.expected === "accept") {
+        expect(result.ok).toBe(true);
+        return;
+      }
+      expect(result.ok).toBe(false);
+      expect(result.code).toBe("INVALID_INPUT");
+      if (vector.reason === "max_content_bytes") {
+        expect(result.details?.limit).toBe("max_content_bytes");
+      } else {
+        // The cognition guard runs before byte admission: even when the same
+        // content is over budget, the malformed carrier rejects on the field
+        // with the contract's invalid_cognition_record identity.
+        expect(vector.canonical_bytes).toBeGreaterThan(vector.max_content_bytes);
+        expect(result.details?.field).toBe("content.cognition");
+        expect(result.details?.reason).toBe("invalid_cognition_record");
+      }
+    },
+  );
+
+  it("guard wins over an over-budget admission on create and update", () => {
+    // Structurally complete record, only the view is wrong, and the same
+    // content exceeds the supplied budget: the cognition rejection must win.
+    const complete = valid!.content.cognition![0] as Record<string, unknown>;
+    const malformed = {
+      text: "fine",
+      cognition: [{ ...complete, view: "current" }],
+    };
+    const budget = contentSerializedBytes(malformed) - 1;
+    expect(budget).toBeGreaterThan(0);
+    const create = {
+      space_id: "sp_1",
+      subject_id: "s1",
+      kind: "note",
+      content: malformed,
+      scope: { visibility: "shared" },
+      idempotency_key: "k1",
+    } as MemoryRecordsCreateRequest;
+    expectInvalidCognition(validateMemoryRecordsCreate(create, budget));
+
+    const update = {
+      space_id: "sp_1",
+      record_id: "r1",
+      content: malformed,
+      expected_revision: 1,
+      idempotency_key: "k1",
+    } as unknown as MemoryRecordsUpdateRequest;
+    expectInvalidCognition(validateMemoryRecordsUpdate(update, budget));
+  });
+
+  it("explicit empty cognition is measured as supplied", () => {
+    // The admission budget bounds the complete caller wire value: an
+    // explicitly present empty array is 32 bytes, distinct from omission.
+    expect(contentSerializedBytes({ text: "Memory" })).toBe(17);
+    expect(contentSerializedBytes({ text: "Memory", cognition: [] })).toBe(32);
   });
 });

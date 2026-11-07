@@ -27,6 +27,10 @@
       "$ref": "https://spoke42.invalid/schemas/data/provenance-filter.schema.json",
       "description": "Optional provenance filter; combines with selection by AND."
     },
+    "cognition_filter": {
+      "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionFilter",
+      "description": "Optional recorded-at-time cognition hard filter; a record matches only if at least one Content.cognition entry satisfies the complete conjunction. Binds cursor identity; composes with selection and provenance filter by AND."
+    },
     "kinds": {
       "type": "array",
       "items": {

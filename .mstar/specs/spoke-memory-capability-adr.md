@@ -155,7 +155,7 @@ The family's locked semantics are normative in [`spoke-memory.md`](spoke-memory.
 
 | Decision basis | Repository evidence |
 |----------------|---------------------|
-| Optional families already exist outside baseline (`spoke-connect`, `l2-computable`, `ke-extraction`, `l5-mind`, `ke-ownership`, `narrative-modules`) | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) §Optional flags; [`spoke-protocol.md`](spoke-protocol.md) |
+| Optional families already exist outside baseline (`spoke-connect`, `l2-computable`, `ke-extraction`, `spoke-cognition`, `ke-ownership`, `narrative-modules`) | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) §Optional flags; [`spoke-protocol.md`](spoke-protocol.md) |
 | Standalone optional port precedent (`ExtractionPort`, not in `BaselinePorts` / `FullPorts`) | `crates/spoke-operations/src/adapter/ports.rs`; [`ke-extraction-adr.md`](ke-extraction-adr.md) §2.1 |
 | Capability gate fails closed; rows per op | `crates/spoke-connect/src/core/dispatch.rs` (`CAPABILITY_SPOKE_MEMORY`, `…_REFLECTION`, `…_TRANSFER`); TypeScript parity in `packages/spoke-connect-ts/tests/dispatch.test.ts` |
 | Serving seam mirrors the extraction precedent | `crates/spoke-connect/src/remote/serve_ports.rs` (`RemoteMemoryService`, `MemoryPortService`, `MemoryAdmission`, `RemoteServePortsComposite::with_memory`) |
@@ -163,7 +163,7 @@ The family's locked semantics are normative in [`spoke-memory.md`](spoke-memory.
 | Durable payload-bound idempotency is new for this family; baseline `idempotency_key` carries no server semantics | `schemas/ops/upsert-request.schema.json`; family contract §7.0.5 |
 | OCC precedent (`expected_revision` conditional writes) | `packages/spoke-operations/src/adapter/ports.ts`, `crates/spoke-operations/src/adapter/ports.rs` |
 | Content-free receipt + dedup tombstone pattern | `schemas/data/memory-receipt.schema.json`; family contract §6.10, §14.3 |
-| Author/derivative split precedent (authority vs derived record) | [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md) §Ownership boundary (`modules.mental` authority vs `MindState` derivative) |
+| Author/derivative split precedent (authority vs derived record) | [`spoke-cognition-family-adr.md`](spoke-cognition-family-adr.md) §Authority and ownership (`modules.cognition` authority vs `MindState` derivative) |
 | Schema conventions: draft-07, closed objects, required `extensions`, `<op>-request`/`<op>-response` pairing, one type per file | [`schemas/README.md`](../../schemas/README.md); `EXPECTED_SCHEMA_COUNT` in `tooling/codegen/assert-schema-count.mjs` |
 | Transfer verification is algorithmic, not storage-bound | `fixtures/memory-engine/rust/src/transfer.rs` (`bundle_digest`, `chunk_digest`, `partition_bundle`, `reassemble`, `verify_reassembly`, `build_translation_maps`, `adopt_grants`, `staged_report`) |
 | Manifest carrier needs no new field | `schemas/data/host-capability-manifest.schema.json` `capabilities[]` |
@@ -190,5 +190,5 @@ The family's locked semantics are normative in [`spoke-memory.md`](spoke-memory.
 | [`spoke-ops.md`](spoke-ops.md) | Op wire families; error envelope attachment |
 | [`spoke-connect.md`](spoke-connect.md) | Connect envelopes carrying `memory.*` payloads |
 | [`ke-extraction-adr.md`](ke-extraction-adr.md) | Optional family + standalone port precedent |
-| [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md) | Authority vs derivative split precedent |
+| [`spoke-cognition-family-adr.md`](spoke-cognition-family-adr.md) | Authority vs derivative split precedent |
 | [`schemas/README.md`](../../schemas/README.md) | Schema inventory and authoring rules |

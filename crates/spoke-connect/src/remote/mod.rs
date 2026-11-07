@@ -126,3 +126,24 @@ pub(crate) fn validate_scope_declaration(
         .map(Some)
         .map_err(|error| invalid(error.to_string()))
 }
+
+/// The baseline shape verdict for a payload that also declares the optional
+/// `Scope.cognition` selection: the same declared-`Scope` gate with that one
+/// member removed.
+///
+/// Used only after the full decode already failed on such a payload, to decide
+/// whether the failure belongs to the baseline Scope (which keeps its original
+/// shape-first denial) or to the new optional subtree, whose raw §2.2
+/// diagnosis then answers instead. Same generated `Scope` decode — no second
+/// schema, no re-implemented member list.
+pub(crate) fn baseline_scope_shape(op: &str, payload: &Value) -> Result<(), SpokeReject> {
+    let Some(scope) = payload.get("scope").and_then(Value::as_object) else {
+        return validate_scope_declaration(op, payload).map(|_| ());
+    };
+    if !scope.contains_key("cognition") {
+        return validate_scope_declaration(op, payload).map(|_| ());
+    }
+    let mut baseline = scope.clone();
+    baseline.remove("cognition");
+    validate_scope_declaration(op, &serde_json::json!({ "scope": baseline })).map(|_| ())
+}

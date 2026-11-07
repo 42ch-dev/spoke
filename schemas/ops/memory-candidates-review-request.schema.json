@@ -50,7 +50,7 @@
             },
             "content_override": {
               "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
-              "description": "Optional content override; defaults to the candidate content."
+              "description": "Optional content override; defaults to the candidate content. Every override/fragment validates independently (including any cognition entries); review + records_write grants and immutable capture_scope remain."
             }
           },
           "additionalProperties": false,
@@ -84,7 +84,8 @@
                     "title": "Kind"
                   },
                   "content": {
-                    "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+                    "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
+                    "description": "Fragment content; validates independently (including any cognition entries)."
                   }
                 },
                 "additionalProperties": false,

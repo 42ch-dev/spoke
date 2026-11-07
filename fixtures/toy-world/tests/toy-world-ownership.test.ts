@@ -4,7 +4,6 @@ import { join } from "node:path";
 import {
   filterKnowledgeEntriesByScope,
   getKnowledgeEntryOwner,
-  knowledgeEntryMatchesScope,
   knowledgeEntryVisibleToViewpoint,
 } from "@42ch/spoke-operations";
 import type {
@@ -25,6 +24,19 @@ import {
 function loadFixture<T>(filename: string): T {
   const raw = readFileSync(join(FIXTURES_ROOT, filename), "utf8");
   return JSON.parse(raw) as T;
+}
+
+/** Run the public served-list filter and unwrap; a rejection fails the test. */
+function filteredEntryIds(
+  knowledgeEntries: KnowledgeEntry[],
+  scope: Scope,
+): string[] {
+  const filtered = filterKnowledgeEntriesByScope(knowledgeEntries, scope);
+  expect(filtered.ok).toBe(true);
+  if (!filtered.ok) {
+    throw new Error(`unexpected scope rejection: ${filtered.code}`);
+  }
+  return filtered.value.map((entry) => entry.entry_id);
 }
 
 describe("fixtures/toy-world ke-ownership samples", () => {
@@ -90,12 +102,13 @@ describe("fixtures/toy-world ke-ownership samples", () => {
     expect(knowledgeEntryVisibleToViewpoint(privateReading, mira.entry_id)).toBe(
       true,
     );
-    expect(knowledgeEntryMatchesScope(privateReading, request.scope)).toBe(true);
-    expect(
-      filterKnowledgeEntriesByScope(candidates, request.scope).map(
-        (entry) => entry.entry_id,
-      ),
-    ).toEqual([privateReading.entry_id, harbor.entry_id]);
+    expect(filteredEntryIds([privateReading], request.scope)).toEqual([
+      privateReading.entry_id,
+    ]);
+    expect(filteredEntryIds(candidates, request.scope)).toEqual([
+      privateReading.entry_id,
+      harbor.entry_id,
+    ]);
 
     // Foreign viewpoint over the identical fixture: only the field-absent
     // baseline entry is shared; the owner-private reading drops out.
@@ -104,13 +117,10 @@ describe("fixtures/toy-world ke-ownership samples", () => {
     expect(
       knowledgeEntryVisibleToViewpoint(privateReading, foreignHolder),
     ).toBe(false);
-    expect(knowledgeEntryMatchesScope(privateReading, foreignScope)).toBe(false);
     expect(knowledgeEntryVisibleToViewpoint(harbor, foreignHolder)).toBe(true);
-    expect(
-      filterKnowledgeEntriesByScope(candidates, foreignScope).map(
-        (entry) => entry.entry_id,
-      ),
-    ).toEqual([harbor.entry_id]);
+    expect(filteredEntryIds(candidates, foreignScope)).toEqual([
+      harbor.entry_id,
+    ]);
   });
 
   it("keeps unknown disclosure vocabulary schema-valid and not implicitly shared", () => {
@@ -134,11 +144,6 @@ describe("fixtures/toy-world ke-ownership samples", () => {
     expect(
       knowledgeEntryVisibleToViewpoint(unknownDisclosure, "circle-of-trust"),
     ).toBe(false);
-    expect(
-      knowledgeEntryMatchesScope(unknownDisclosure, request.scope),
-    ).toBe(false);
-    expect(
-      filterKnowledgeEntriesByScope([unknownDisclosure], request.scope),
-    ).toEqual([]);
+    expect(filteredEntryIds([unknownDisclosure], request.scope)).toEqual([]);
   });
 });

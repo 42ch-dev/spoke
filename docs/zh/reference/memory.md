@@ -16,8 +16,8 @@ title: 记忆（Memory）
 | 记忆关于谁 | `Subject` —— 稳定不透明 `subject_id` 加可选带命名空间的 `kind`；扁平，一条记录一个主体 |
 | 谁可以做什么 | `MemoryGrant` —— 能力集 + 可选 subject 范围 + 可选 `context_ids` + `shared_access` + 到期时间 |
 | 捕获与审核 | `memory.capture` → `MemoryCandidate`（不可变的 `capture_scope`、咨询性 `classification`）→ `memory.candidates.review` / `.dismiss` |
-| 保留记忆 | `RetainedRecord` —— 不受信 `content`（`text` + 可选不透明 `structured`）、放置 `scope`、来源、`revision`、可选 `tombstone` |
-| 读取记忆 | `ReadSelection`（放置模式）+ `ProvenanceFilter`（来源上下文投影）+ `memory.recall` 预算与截断 |
+| 保留记忆 | `RetainedRecord` —— 不受信 `content`（`text` + 可选不透明 `structured` + 可选记录时 `cognition`）、放置 `scope`、来源、`revision`、可选 `tombstone` |
+| 读取记忆 | `ReadSelection`（放置模式）+ `ProvenanceFilter`（来源上下文投影）+ 可选 `cognition_filter` + `memory.recall` 预算与截断 |
 | 作者基准 | `ProfileDocument` —— 受信的作者维护内容种类（`personality`、`preferences`） |
 | 派生综合 | `Reflection` —— 基于固定基准生成，`stale` 在读取时计算 |
 | 操作结果 | `MemoryReceipt` —— 持久、载荷绑定、无内容（`committed` / `pending` / `failed`） |
@@ -73,6 +73,18 @@ title: 记忆（Memory）
 
 读操作返回其载荷；每个变更操作返回 `MemoryReceipt`。只有反思生成、导出创建、暂存末块与导入激活可能报告 `pending`，完成情况通过 `memory.receipts.get` 观察。
 
+## 认知内容与过滤（`spoke-cognition`）
+
+`Content.cognition` 是完整、封闭的标准认知记录的可选数组。每个条目携带 `view: "recorded_at"`，并保留自己的归因、基准与时间；缺失表示未记录任何标准认知 —— 成员缺省绝不会被序列化为 `[]`，而显式出现的空数组是合法值，作为独立线上值保留，既非缺省所产生，也不与非空数组等价 —— 墓碑化内容仅为 `{ "text": "" }`，不含 `structured` 或 `cognition` 成员。原始文本、`structured` 或候选材料绝不会仅因放置而升格为完成的标准认知。
+
+已记录认知按内容校验，而不是按授权校验：每个存在的成员都必须是 `view: "recorded_at"` 的封闭记录。该检查在 `memory.capture` 以及 `memory.records.create` / `.update` 的字节准入检查之前运行；畸形成员以操作层 `INVALID_INPUT` 在 `content.cognition` 上拒绝请求，并带 `details.reason: "invalid_cognition_record"`，这与不受支持的认知需求所用的分发层 `invalid_input` 线上码不同。非空认知数组计入捕获分类；既有内容字节预算计量每个显式存在的成员而非将其丢弃 —— `[]` 携带自己的准入字节。候选审核默认使用捕获时的提议内容：`promote` 决定可提供新的 `content_override`，`fragment` 决策携带各片段的新 `content`，两者都按同一 recorded-at-time 规则在任何状态变更前独立校验，且覆盖内容优先于提议内容。审核仍要求覆盖候选 `capture_scope` 的既有 `review` 与 `records_write` 授权、逐字继承该作用域，且待审不授予任何权限。
+
+`cognition_filter`（`CognitionFilter`）在恰好五个请求上被接受 —— `memory.recall`、`memory.records.list`、`memory.reflections.state`、`memory.reflections.list` 与 `memory.reflections.generate` —— 并要求已协商的 `spoke-cognition` 标志。它是针对记录时内容的硬过滤：授权先行，既有授权覆盖仍然门控该调用；在合格集合之上，仅当某记录的至少一条 `Content.cognition` 条目满足完整合取时才匹配。它与 `selection` 及来源 `filter` 以 AND 组合，绑定游标身份（任何状态或授权变化以 `CURSOR_INVALID` 使游标失效），并在计数、排序、分页限额与字节预算之前应用。`memory.records.list` 在该留存集合上报告 `total_authorized`，`memory.recall` 只在其内排序与截断。该过滤既不扩大也不替代既有授权，也不增加 OR、文本相似、排序输入或默认截断。
+
+三个反思请求接受同一过滤器并将其固定。`memory.reflections.generate` 将其写入 `Reflection.cognition_filter` 并纳入反思基准：基准身份覆盖该过滤器以及已授权记录 id 与 revision 集合、画像 revision 与引擎策略身份，因此过滤器或来源集变化会改变 `state_digest`，反思随即读为陈旧。`memory.reflections.list` 按固定过滤器匹配，`memory.reflections.state` 将其纳入返回的摘要。缺省即没有固定过滤器。
+
+未知谓词或未实现的维度会在分发边界以 `invalid_input` 线上码加 `details.reason: "unsupported_cognition_requirement"` 拒绝整个请求，与[认知选择](/zh/reference/ops#cognition-selection-spoke-cognition)一致。线上形状见[数据模型参考 §认知](/zh/reference/data-model#cognition-spoke-cognition)。
+
 ## 数据模型
 
 | 模型 | 角色 |
@@ -125,5 +137,6 @@ const port: MemoryPort = {
 
 - [协议参考](/zh/reference/protocol) —— 三列模型、能力标志与 schema 清单。
 - [操作线上参考](/zh/reference/ops) —— 基线与可选操作族、`ErrorEnvelope`、共享规则。
+- [认知记录](/zh/reference/data-model#cognition-spoke-cognition) —— `Content.cognition` 承载的标准记录、过滤语法与反思基准。
 - [核心概念](/zh/explanation/concepts) —— 记忆如何与既定知识并列。
 - [实现 Adapter](/zh/how-to/implement-adapter) —— 按能力划分的 port 族，含可选记忆提供方。

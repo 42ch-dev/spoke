@@ -30,7 +30,8 @@
       "title": "Kind"
     },
     "content": {
-      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
+      "description": "Every Content.cognition entry is validated; existing records_write/placement/CAS/idempotency rules apply unchanged."
     },
     "scope": {
       "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/PlacementScope"

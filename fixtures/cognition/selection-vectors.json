@@ -1,0 +1,3072 @@
+{
+  "vectors": [
+    {
+      "id": "conjunction-one-record-all-arms",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_disagree",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_2" },
+          "assessor_role": "external_judgment",
+          "basis": { "kind": "prior", "description": "independent prior" },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T10:00:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.4, "assertion": "belief_attribution", "method": "independent_review", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "epistemic",
+          "record_id": "rec_epi_known",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "product_assessment",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:10:00Z",
+          "view": "current",
+          "state": "known",
+          "criterion": { "criterion_id": "crit_knowledge_binary" },
+          "classification_policy": { "policy_id": "pol_knowledge", "policy_version": "v1" },
+          "q": { "value": 1, "assertion": "knowledge_criterion", "method": "criterion_check", "calibration": "calibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "perception",
+          "record_id": "rec_perc",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" },
+            "target_id": "t_episode_1",
+            "kind": "episode",
+            "text": "Ana moves the marble"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:00:30Z",
+          "view": "current",
+          "episode": { "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" },
+          "content": { "scene": "box_to_basket" },
+          "q": { "value": 0.8, "assertion": "actual_capture", "method": "sensor_fusion", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "target": {
+          "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+          "target_id": "t_proposition_1",
+          "kind": "proposition"
+        },
+        "assessment_context": { "context_id": "ctx_main", "fork_id": { "eq": "fork_alpha" } },
+        "category": "belief",
+        "order": 1,
+        "truth": { "eq": "True" },
+        "access": { "eq": "Private" },
+        "representation": { "eq": "Explicit" },
+        "content_type": { "eq": "Identity/Relation" },
+        "source": { "eq": "Perception" },
+        "belief_context": { "eq": "Neutral" },
+        "q": { "min": 0.8, "max": 1 }
+      },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "reference-cross-system-same-bare-id-filter",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_sysb",
+          "holder": { "kind": "principal", "namespace": "system_b", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_b", "id": "ke_9" },
+            "target_id": "t_proposition_9",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_b", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_b", "id": "ke_9" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" } },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "target-identity-carrier-kind-target-id",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_kind_question",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "question"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_carrier_ke2",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_2" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_2" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": {
+        "target": {
+          "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+          "target_id": "t_proposition_1",
+          "kind": "proposition"
+        }
+      },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "context-identity-exact-fork",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_fork_beta",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_beta" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "assessment_context": { "context_id": "ctx_main", "fork_id": { "eq": "fork_alpha" } } },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "context-identity-context-id-matches-any-fork",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_fork_beta",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_beta" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "assessment_context": { "context_id": "ctx_main" } },
+      "expected": { "matched_record_ids": ["rec_full", "rec_fork_beta"] }
+    },
+    {
+      "id": "truth-absent-matches-missing-excludes-present",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "truth": { "absent": true } },
+      "expected": { "matched_record_ids": ["rec_bare"] }
+    },
+    {
+      "id": "truth-eq-matches-present-excludes-missing",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "truth": { "eq": "True" } },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "truth-eq-unknown-excludes-missing-truth",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_unknown_truth",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "Unknown",
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "truth": { "eq": "Unknown" } },
+      "expected": { "matched_record_ids": ["rec_unknown_truth"] }
+    },
+    {
+      "id": "access-absent-matches-missing-excludes-present",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "access": "Private",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "access": { "absent": true } },
+      "expected": { "matched_record_ids": ["rec_bare"] }
+    },
+    {
+      "id": "access-eq-matches-present-excludes-missing",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "access": "Shared",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "access": { "eq": "Shared" } },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "representation-absent-matches-missing-excludes-present",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "representation": "Explicit",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "representation": { "absent": true } },
+      "expected": { "matched_record_ids": ["rec_bare"] }
+    },
+    {
+      "id": "representation-eq-matches-present-excludes-missing",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "representation": "Implicit",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "representation": { "eq": "Implicit" } },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "content-type-absent-matches-missing-excludes-present",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "content_type": "Location",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "content_type": { "absent": true } },
+      "expected": { "matched_record_ids": ["rec_bare"] }
+    },
+    {
+      "id": "content-type-eq-matches-present-excludes-missing",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "content_type": "Identity/Relation",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "content_type": { "eq": "Identity/Relation" } },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "source-absent-matches-missing-excludes-present",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "source": "Testimony",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "source": { "absent": true } },
+      "expected": { "matched_record_ids": ["rec_bare"] }
+    },
+    {
+      "id": "source-eq-matches-present-excludes-missing",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "source": "Narration",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "source": { "eq": "Narration" } },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "belief-context-absent-matches-missing-excludes-present",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "context": "Deceptive",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "belief_context": { "absent": true } },
+      "expected": { "matched_record_ids": ["rec_bare"] }
+    },
+    {
+      "id": "belief-context-eq-matches-present-excludes-missing",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "context": "Temporal",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "category": "belief", "belief_context": { "eq": "Temporal" } },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "q-range-inclusive-min-max-uncalibrated",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_q_075",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "prior", "description": "declared subjective prior" },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.75, "assertion": "belief_attribution", "method": "declared_prior", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_q_050",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "prior", "description": "declared subjective prior" },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "declared_prior", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_q_100",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 1, "assertion": "belief_attribution", "method": "criterion_check", "calibration": "calibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "q": { "min": 0.75, "max": 1 } },
+      "expected": { "matched_record_ids": ["rec_q_075", "rec_q_100"] }
+    },
+    {
+      "id": "q-range-single-bound-inclusive",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_q_050",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "prior", "description": "declared subjective prior" },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "declared_prior", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_q_075",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "prior", "description": "declared subjective prior" },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.75, "assertion": "belief_attribution", "method": "declared_prior", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "q": { "min": 0.75 } },
+      "expected": { "matched_record_ids": ["rec_q_075"] }
+    },
+    {
+      "id": "state-eq-excludes-non-epistemic-records",
+      "case": "select",
+      "records": [
+        {
+          "kind": "epistemic",
+          "record_id": "rec_epi_known",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "product_assessment",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:10:00Z",
+          "view": "current",
+          "state": "known",
+          "criterion": { "criterion_id": "crit_knowledge_binary" },
+          "classification_policy": { "policy_id": "pol_knowledge", "policy_version": "v1" },
+          "q": { "value": 1, "assertion": "knowledge_criterion", "method": "criterion_check", "calibration": "calibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "state": "known" },
+      "expected": { "matched_record_ids": ["rec_epi_known"] }
+    },
+    {
+      "id": "cross-record-conjunction-never-joins",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_carol",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "carol" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_2" },
+            "target_id": "t_proposition_2",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "prior", "description": "declared subjective prior" },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.1, "assertion": "belief_attribution", "method": "declared_prior", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" }, "q": { "max": 0.2 } },
+      "expected": { "matched_record_ids": [] }
+    },
+    {
+      "id": "equal-text-different-target-id-no-merge",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_text_twin",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_2",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "target": { "target_id": "t_proposition_1" } },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "order-eq-excludes-non-belief-records",
+      "case": "select",
+      "records": [
+        {
+          "kind": "epistemic",
+          "record_id": "rec_epi_known",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "product_assessment",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:10:00Z",
+          "view": "current",
+          "state": "known",
+          "criterion": { "criterion_id": "crit_knowledge_binary" },
+          "classification_policy": { "policy_id": "pol_knowledge", "policy_version": "v1" },
+          "q": { "value": 1, "assertion": "knowledge_criterion", "method": "criterion_check", "calibration": "calibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "order": 1 },
+      "expected": { "matched_record_ids": ["rec_full"] }
+    },
+    {
+      "id": "unsupported-bare-numeric-q-filter",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "q_min": 0.5 },
+      "expected": { "error": "INVALID_INPUT" }
+    },
+    {
+      "id": "unsupported-metric-filter-requirement",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "metrics": { "b": { "min": 0.5 } } },
+      "expected": { "error": "INVALID_INPUT" }
+    },
+    {
+      "id": "current-policy-trace-retains-disagreements",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_disagree",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_2" },
+          "assessor_role": "external_judgment",
+          "basis": { "kind": "prior", "description": "independent prior" },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T10:00:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.4, "assertion": "belief_attribution", "method": "independent_review", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_sysb",
+          "holder": { "kind": "principal", "namespace": "system_b", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_b", "id": "ke_9" },
+            "target_id": "t_proposition_9",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_b", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_b", "id": "ke_9" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_mem",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "memory_record", "namespace": "system_a", "id": "mem_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "memory_record", "namespace": "system_a", "id": "mem_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "q": { "value": 0.7, "assertion": "belief_attribution", "method": "recorded_recall", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "current",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "assessment_context": { "context_id": "ctx_main" }
+        },
+        "selection_policy": { "policy_id": "pol_current_view", "policy_version": "v2" }
+      },
+      "policy_selected_record_id": "rec_disagree",
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", "fork_alpha"],
+            "assessments": ["rec_full", "rec_disagree"],
+            "selected": "rec_disagree",
+            "policy": ["pol_current_view", "v2"],
+            "input_record_ids": ["rec_full", "rec_disagree"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "current-selected-id-must-be-input",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "current",
+        "filter": { "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" } },
+        "selection_policy": { "policy_id": "pol_current_view", "policy_version": "v2" }
+      },
+      "policy_selected_record_id": "rec_not_among_inputs",
+      "expected": { "error": "INVALID_INPUT" }
+    },
+    {
+      "id": "current-projection-requires-policy",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "current",
+        "filter": { "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" } },
+        "selection_policy": { "policy_id": "pol_current_view", "policy_version": "v2" }
+      },
+      "policy_selected_record_id": null,
+      "expected": { "error": "INVALID_INPUT" }
+    },
+    {
+      "id": "recorded-at-projection-needs-no-policy",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_mem",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "memory_record", "namespace": "system_a", "id": "mem_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "memory_record", "namespace": "system_a", "id": "mem_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "q": { "value": 0.7, "assertion": "belief_attribution", "method": "recorded_recall", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": { "view": "recorded_at", "filter": { "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" } } },
+      "policy_selected_record_id": "rec_mem",
+      "expected": {
+        "view": "recorded_at",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["memory_record", "system_a", "mem_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", "fork_alpha"],
+            "assessments": ["rec_mem"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "no-record-emitted-under-exact-source-rule",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_other_ctx",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_other", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "current",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition"
+          },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": { "eq": "fork_beta" } }
+        },
+        "selection_policy": { "policy_id": "pol_current_view", "policy_version": "v2" }
+      },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "no_record",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_never_recorded"],
+            "context": ["ctx_main", "fork_beta"],
+            "assessments": [],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "no-record-suppressed-when-source-record-excluded-by-optional-predicates",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_at_key",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "current",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition"
+          },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": { "eq": "fork_alpha" } },
+          "category": "perception",
+          "q": { "max": 0.5 }
+        },
+        "selection_policy": { "policy_id": "pol_current_view", "policy_version": "v2" }
+      },
+      "policy_selected_record_id": null,
+      "expected": { "view": "current", "items": [] }
+    },
+    {
+      "id": "no-record-not-emitted-when-partially-addressed",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "current",
+        "filter": { "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" } },
+        "selection_policy": { "policy_id": "pol_current_view", "policy_version": "v2" }
+      },
+      "policy_selected_record_id": "rec_full",
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", "fork_alpha"],
+            "assessments": ["rec_full"],
+            "selected": "rec_full",
+            "policy": ["pol_current_view", "v2"],
+            "input_record_ids": ["rec_full"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "belief-access-absent-excludes-non-belief-records",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "epistemic",
+          "record_id": "rec_epi_known",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "product_assessment",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:10:00Z",
+          "view": "current",
+          "state": "known",
+          "criterion": { "criterion_id": "crit_knowledge_binary" },
+          "classification_policy": { "policy_id": "pol_knowledge", "policy_version": "v1" },
+          "q": { "value": 1, "assertion": "knowledge_criterion", "method": "criterion_check", "calibration": "calibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "perception",
+          "record_id": "rec_perc_access",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" },
+            "target_id": "t_episode_1",
+            "kind": "episode",
+            "text": "Ana moves the marble"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:00:30Z",
+          "view": "current",
+          "episode": { "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" },
+          "content": { "scene": "box_to_basket" },
+          "q": { "value": 0.8, "assertion": "actual_capture", "method": "sensor_fusion", "calibration": "uncalibrated" },
+          "extensions": {  },
+          "access": { "line_of_sight": true, "modality": ["vision"] }
+        }
+      ],
+      "filter": { "access": { "absent": true } },
+      "expected": { "matched_record_ids": ["rec_bare"] }
+    },
+    {
+      "id": "belief-truth-absent-excludes-non-belief-records",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_bare",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        },
+        {
+          "kind": "epistemic",
+          "record_id": "rec_epi_known",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "product_assessment",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:10:00Z",
+          "view": "current",
+          "state": "known",
+          "criterion": { "criterion_id": "crit_knowledge_binary" },
+          "classification_policy": { "policy_id": "pol_knowledge", "policy_version": "v1" },
+          "q": { "value": 1, "assertion": "knowledge_criterion", "method": "criterion_check", "calibration": "calibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "perception",
+          "record_id": "rec_perc_access",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" },
+            "target_id": "t_episode_1",
+            "kind": "episode",
+            "text": "Ana moves the marble"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:00:30Z",
+          "view": "current",
+          "episode": { "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" },
+          "content": { "scene": "box_to_basket" },
+          "q": { "value": 0.8, "assertion": "actual_capture", "method": "sensor_fusion", "calibration": "uncalibrated" },
+          "extensions": {  },
+          "access": { "line_of_sight": true, "modality": ["vision"] }
+        }
+      ],
+      "filter": { "truth": { "absent": true } },
+      "expected": { "matched_record_ids": ["rec_bare"] }
+    },
+    {
+      "id": "context-identity-missing-fork-record-matches-context-id",
+      "case": "select",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_no_fork",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "q": { "value": 0.5, "assertion": "belief_attribution", "method": "direct_report", "calibration": "unknown" },
+          "extensions": {  }
+        }
+      ],
+      "filter": { "assessment_context": { "context_id": "ctx_main" } },
+      "expected": { "matched_record_ids": ["rec_full", "rec_no_fork"] }
+    },
+    {
+      "id": "select-empty-authorized-source-ordinary-empty",
+      "case": "select",
+      "records": [],
+      "filter": {  },
+      "expected": { "matched_record_ids": [] }
+    },
+    {
+      "id": "no-record-not-emitted-without-context-predicate",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "current",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition"
+          }
+        },
+        "selection_policy": { "policy_id": "pol_current_view", "policy_version": "v2" }
+      },
+      "policy_selected_record_id": null,
+      "expected": { "view": "current", "items": [] }
+    },
+    {
+      "id": "empty-source-ordinary-empty-projection",
+      "case": "project",
+      "records": [],
+      "selection": { "view": "recorded_at", "filter": {  } },
+      "policy_selected_record_id": null,
+      "expected": { "view": "recorded_at", "items": [] }
+    },
+    {
+      "id": "non-matching-predicates-ordinary-empty-projection",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_full",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": { "view": "recorded_at", "filter": { "q": { "min": 0.95 } } },
+      "policy_selected_record_id": null,
+      "expected": { "view": "recorded_at", "items": [] }
+    },
+    {
+      "id": "no-record-emitted-for-exact-absent-fork",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_fork_alpha",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "current",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition"
+          },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": { "absent": true } }
+        },
+        "selection_policy": { "policy_id": "pol_current_view", "policy_version": "v2" }
+      },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "no_record",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_never_recorded"],
+            "context": ["ctx_main", null],
+            "assessments": [],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "absent-fork-filter-assesses-only-no-fork-record",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_no_fork",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_fork_alpha",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "q": { "value": 0.8, "assertion": "belief_attribution", "method": "independent_review", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "recorded_at",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": { "absent": true } }
+        }
+      },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "recorded_at",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", null],
+            "assessments": ["rec_no_fork"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "wildcard-fork-filter-matches-every-fork-and-no-fork",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_fork_alpha",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_fork_beta",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_beta" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_no_fork",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_ctx_other",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_other", "fork_id": "fork_other" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "recorded_at",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "assessment_context": { "context_id": "ctx_main" }
+        }
+      },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "recorded_at",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", "fork_alpha"],
+            "assessments": ["rec_fork_alpha"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          },
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", "fork_beta"],
+            "assessments": ["rec_fork_beta"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          },
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", null],
+            "assessments": ["rec_no_fork"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "projection-filtered-other-context-retains-its-attribution",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_other",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_other", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "recorded_at",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessment_context": { "context_id": "ctx_other", "fork_id": { "eq": "fork_alpha" } }
+        }
+      },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "recorded_at",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_other", "fork_alpha"],
+            "assessments": ["rec_other"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "projection-exact-fork-retains-its-attribution",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_fork_beta",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_beta" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "recorded_at",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition"
+          },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": { "eq": "fork_beta" } }
+        }
+      },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "recorded_at",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", "fork_beta"],
+            "assessments": ["rec_fork_beta"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "no-record-addressed-context-not-misattributed",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_main_alpha",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "current",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition"
+          },
+          "assessment_context": { "context_id": "ctx_other", "fork_id": { "eq": "fork_alpha" } }
+        },
+        "selection_policy": { "policy_id": "pol_current_view", "policy_version": "v2" }
+      },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "no_record",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_never_recorded"],
+            "context": ["ctx_other", "fork_alpha"],
+            "assessments": [],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "projection-multi-context-selection-retains-every-context",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_fork_alpha",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_other",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_other", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "recorded_at",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": { "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" } }
+        }
+      },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "recorded_at",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", "fork_alpha"],
+            "assessments": ["rec_fork_alpha"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          },
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_other", "fork_alpha"],
+            "assessments": ["rec_other"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "no-record-not-emitted-for-wildcard-fork-address",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_alpha",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "recorded_at",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition"
+          },
+          "assessment_context": { "context_id": "ctx_main" }
+        }
+      },
+      "policy_selected_record_id": null,
+      "expected": { "view": "recorded_at", "items": [] }
+    },
+    {
+      "id": "no-record-emitted-for-exact-fork-absent-source",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_no_fork",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "recorded_at",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition"
+          },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": { "eq": "fork_alpha" } }
+        }
+      },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "recorded_at",
+        "items": [
+          {
+            "presence": "no_record",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_never_recorded"],
+            "context": ["ctx_main", "fork_alpha"],
+            "assessments": [],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "absent-fork-empty-source-emits-no-record",
+      "case": "project",
+      "records": [],
+      "selection": {
+        "view": "recorded_at",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_never_recorded",
+            "kind": "proposition"
+          },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": { "absent": true } }
+        }
+      },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "recorded_at",
+        "items": [
+          {
+            "presence": "no_record",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_never_recorded"],
+            "context": ["ctx_main", null],
+            "assessments": [],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "context-wildcard-omitted-retains-every-context",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_a_no_fork",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_a" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_a_alpha",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_a", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_b_beta",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_b", "fork_id": "fork_beta" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "recorded_at",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": { "view": "recorded_at", "filter": { "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" } } },
+      "policy_selected_record_id": null,
+      "expected": {
+        "view": "recorded_at",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_a", null],
+            "assessments": ["rec_a_no_fork"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          },
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_a", "fork_alpha"],
+            "assessments": ["rec_a_alpha"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          },
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_b", "fork_beta"],
+            "assessments": ["rec_b_beta"],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "current-policy-traced-per-compound-group",
+      "case": "project",
+      "records": [
+        {
+          "kind": "belief",
+          "record_id": "rec_alpha_1",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_alpha_2",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_nofork_1",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        },
+        {
+          "kind": "belief",
+          "record_id": "rec_nofork_2",
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "target": {
+            "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+            "target_id": "t_proposition_1",
+            "kind": "proposition",
+            "text": "Ana keeps the marble in the box"
+          },
+          "assessor": { "kind": "principal", "namespace": "system_a", "id": "assessor_1" },
+          "assessor_role": "holder_self_report",
+          "basis": { "kind": "evidence", "evidence": [{ "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" }] },
+          "assessment_context": { "context_id": "ctx_main" },
+          "effective_at": "2026-07-23T09:00:00Z",
+          "assessed_at": "2026-07-23T09:05:00Z",
+          "view": "current",
+          "order": 1,
+          "truth": "True",
+          "access": "Private",
+          "representation": "Explicit",
+          "content_type": "Identity/Relation",
+          "source": "Perception",
+          "context": "Neutral",
+          "q": { "value": 0.9, "assertion": "belief_attribution", "method": "direct_report", "calibration": "uncalibrated" },
+          "extensions": {  }
+        }
+      ],
+      "selection": {
+        "view": "current",
+        "filter": {
+          "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+          "assessment_context": { "context_id": "ctx_main" }
+        },
+        "selection_policy": { "policy_id": "pol_current_view", "policy_version": "v2" }
+      },
+      "policy_selects": "first_input",
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", "fork_alpha"],
+            "assessments": ["rec_alpha_1", "rec_alpha_2"],
+            "selected": "rec_alpha_1",
+            "policy": ["pol_current_view", "v2"],
+            "input_record_ids": ["rec_alpha_1", "rec_alpha_2"]
+          },
+          {
+            "presence": "assessed",
+            "holder": ["principal", "system_a", "alice"],
+            "target": [["knowledge_entry", "system_a", "ke_1"], "proposition", "t_proposition_1"],
+            "context": ["ctx_main", null],
+            "assessments": ["rec_nofork_1", "rec_nofork_2"],
+            "selected": "rec_nofork_1",
+            "policy": ["pol_current_view", "v2"],
+            "input_record_ids": ["rec_nofork_1", "rec_nofork_2"]
+          }
+        ]
+      }
+    }
+  ]
+}

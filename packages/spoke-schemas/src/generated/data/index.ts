@@ -5,6 +5,7 @@
  */
 
 export type { AssemblePacket } from './assemble-packet';
+export type { CognitionRecord } from './cognition';
 export type { Finding } from './finding';
 export type { HostCapabilityManifest } from './host-capability-manifest';
 export type { KnowledgeEntry } from './knowledge-entry';

@@ -43,6 +43,10 @@
       "$ref": "https://spoke42.invalid/schemas/data/provenance-filter.schema.json",
       "description": "Pinned provenance filter; absent = none."
     },
+    "cognition_filter": {
+      "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionFilter",
+      "description": "Pinned cognition filter; absent = none. Included in the ReflectionBasis digest object (state_digest changes when it or the source set changes); composes with selection and provenance filter by AND."
+    },
     "basis": {
       "type": "object",
       "required": ["source_set_digest", "record_count", "profile_revisions", "state_digest"],

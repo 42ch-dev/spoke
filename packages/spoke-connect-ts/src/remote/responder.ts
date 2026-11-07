@@ -68,6 +68,8 @@ import {
   spokeOk,
   spokeReject,
   toErrorEnvelope,
+  validateCognitionFilter,
+  validateCognitionSelection,
   type BaselinePorts,
   type ComputablePort,
   type ForkTimelineQueryPort,
@@ -90,7 +92,13 @@ import {
   verifyInvokeRequestAuth,
   verifyInvokeResponseAuth,
 } from "../core/envelope-auth.js";
-import { requiredCapability } from "../core/dispatch.js";
+import {
+  CAPABILITY_SPOKE_COGNITION,
+  cognitionRequirementField,
+  cognitionRequirementPresent,
+  requiredCapability,
+  WIRE_INVALID_INPUT,
+} from "../core/dispatch.js";
 import { CoreError } from "../core/error.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../core/hello.js";
 import { generateNonce, NonceStore } from "../core/nonce.js";
@@ -180,6 +188,16 @@ function mapErrorEnvelope(error: ErrorEnvelope): SpokeReject {
       ...(error.details ?? {}),
     });
   }
+  // Dispatch-layer validation verdict (consumer contract §2.2): the host
+  // spelled the wire code in the Connect dispatch vocabulary, which is not a
+  // `SpokeRejectCode` literal. Map it to the internal `INVALID_INPUT` and
+  // preserve the verdict's `details` verbatim — `fromErrorEnvelope`'s
+  // unknown-code branch would replace the message and drop `reason`/`field`.
+  if (error.code === WIRE_INVALID_INPUT) {
+    return spokeReject(SpokeRejectCode.INVALID_INPUT, error.message, {
+      ...(error.details ?? {}),
+    });
+  }
   return fromErrorEnvelope(error);
 }
 
@@ -252,6 +270,76 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const UNSUPPORTED_COGNITION_MESSAGE = "Unsupported cognition requirement";
+
+const UNAVAILABLE_COGNITION_VIEW_MESSAGE =
+  "Unsupported cognition requirement: recorded-at-time source is unavailable";
+
+/**
+ * Raw unsupported-requirement diagnosis (consumer contract §2.2 / data
+ * contract §5.2).
+ *
+ * Runs on the RAW payload — before any typed decode could drop or rename an
+ * unknown predicate — and rejects the whole request through the dispatch
+ * envelope `code = WIRE_INVALID_INPUT` with `details.reason =
+ * "unsupported_cognition_requirement"` and `details.field` set to the actual
+ * request path. Returns the message and field for that envelope; the caller
+ * stamps the wire code, which is not the ops-protocol `SpokeRejectCode`
+ * spelling (consumer contract §2.2). The closed grammar itself stays C5's
+ * `validateCognitionFilter` / `validateCognitionSelection`, which also names
+ * the failing member relative to the validated value; this module only
+ * prefixes the carrier location, so no second predicate grammar exists here.
+ *
+ * Only the dispatched op's declared carrier is inspected
+ * (`cognitionRequirementField`), so unrelated payload data is never judged.
+ * The cognition carriers serve current-authority KE sources only: the
+ * `recorded_at` placement is a Memory source view, so it is an unavailable
+ * requested view on these carriers — not an empty result (consumer contract
+ * §1, data contract §5.2).
+ */
+function unsupportedCognitionRequirement(
+  op: string,
+  payload: Record<string, unknown>,
+): { message: string; field: string } | null {
+  const location = cognitionRequirementField(op, payload);
+  if (location === undefined) {
+    return null;
+  }
+  const scope = payload.scope;
+  const value =
+    location === "cognition_filter"
+      ? payload.cognition_filter
+      : isJsonObject(scope)
+        ? scope.cognition
+        : undefined;
+  // C5 is the single grammar and names the failing member relative to the
+  // validated value; this boundary only prefixes the carrier location.
+  const validated =
+    location === "cognition_filter"
+      ? validateCognitionFilter(value)
+      : validateCognitionSelection(value);
+  if (validated.ok) {
+    return location !== "cognition_filter" &&
+      isJsonObject(value) &&
+      value.view === "recorded_at"
+      ? {
+          message: UNAVAILABLE_COGNITION_VIEW_MESSAGE,
+          field: `${location}.view`,
+        }
+      : null;
+  }
+  const relative = validated.details?.field;
+  return {
+    message: UNSUPPORTED_COGNITION_MESSAGE,
+    field:
+      typeof relative === "string"
+        ? relative.startsWith("[")
+          ? `${location}${relative}`
+          : `${location}.${relative}`
+        : location,
+  };
+}
+
 function scopePayloadReject(op: string, detail: string): SpokeReject {
   return spokeReject(
     SpokeRejectCode.INVALID_INPUT,
@@ -262,6 +350,7 @@ function scopePayloadReject(op: string, detail: string): SpokeReject {
 
 const SCOPE_WIRE_KEYS = new Set([
   "scope_id",
+  "cognition",
   "entry_ids",
   "entry_types",
   "timeline_event_ids",
@@ -1194,6 +1283,11 @@ export class ConnectResponder {
         });
         return;
       }
+      // The payload-dependent cognition gate lives inside the two
+      // cognition-carrying branches (`#dispatchPortInvoke` /
+      // `#dispatchMemoryInvoke`), after their own op/ownership denials and
+      // before any typed decode, provider probe or handler call: a tool's
+      // arguments or an unrelated product payload never reach it.
       if (doc.op === "extract") {
         await this.#dispatchExtractInvoke(doc);
         return;
@@ -1231,6 +1325,50 @@ export class ConnectResponder {
     }
     const required = PORT_OP_CAPABILITY_REQUIREMENTS[op];
     if (required === undefined || !negotiated.includes(required)) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Payload-dependent cognition gate (consumer contract §2.1/§2.2), shared by
+   * the two cognition-carrying serving branches.
+   *
+   * `true` means the request may be served; `false` means the deny envelope
+   * was already sent and the caller must stop — no typed decode, probe or
+   * provider call. The gate runs on the RAW payload and only inspects the
+   * op's declared carrier, so a tool's arguments or unrelated product data
+   * are never judged. The family comes from the both-sided hello
+   * intersection (`l5-mind` never grants it); an unsupported requirement
+   * rejects the whole request with its exact request field path.
+   */
+  async #cognitionGate(
+    doc: ConnectInvokeRequest,
+    payload: Record<string, unknown>,
+    negotiated: readonly string[],
+  ): Promise<boolean> {
+    if (!cognitionRequirementPresent(doc.op, payload)) {
+      return true;
+    }
+    if (!negotiated.includes(CAPABILITY_SPOKE_COGNITION)) {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "capability_missing",
+        message: `op ${doc.op} requires capability ${CAPABILITY_SPOKE_COGNITION} for its declared cognition requirement`,
+        extensions: {},
+      });
+      return false;
+    }
+    const unsupported = unsupportedCognitionRequirement(doc.op, payload);
+    if (unsupported !== null) {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: WIRE_INVALID_INPUT,
+        message: unsupported.message,
+        details: {
+          reason: "unsupported_cognition_requirement",
+          field: unsupported.field,
+        },
+        extensions: {},
+      });
       return false;
     }
     return true;
@@ -1460,6 +1598,22 @@ export class ConnectResponder {
    * face is the documented dispatch-deny branch.
    */
   async #dispatchMemoryInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const session = this.#session;
+    if (session === null) {
+      return;
+    }
+    // Payload-dependent cognition gate (consumer contract §2.1/§2.2) on the
+    // raw payload: before the service probe and any provider call, so a
+    // denied requirement has no memory side effect.
+    if (
+      !(await this.#cognitionGate(
+        doc,
+        isJsonObject(doc.payload) ? doc.payload : {},
+        session.negotiated_capabilities,
+      ))
+    ) {
+      return;
+    }
     const ports = this.#ports;
     const invoke = ports?.invoke;
     if (ports === undefined || typeof invoke !== "function") {
@@ -1526,12 +1680,20 @@ export class ConnectResponder {
       return;
     }
     const payload = doc.payload as Record<string, unknown>;
+    const negotiated = session.negotiated_capabilities;
+    // Declared Scope shape keeps its original first-denial position, before
+    // the F2 ownership conjunct. It validates the baseline Scope wire keys
+    // only — the cognition subtree is judged by the §2.2 diagnosis below — so
+    // a malformed baseline Scope still answers its existing input failure
+    // first even when ownership is also missing.
     const scopeReject = validateScopeOpPayload(doc.op, payload);
     if (scopeReject !== null) {
       await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(scopeReject));
       return;
     }
-    const negotiated = session.negotiated_capabilities;
+    // F2 ownership conjunct next: the original first-denial wins over a
+    // delivered cognition requirement, and the router filters the same way
+    // before it considers the family.
     if (
       scopeOpRequiresOwnershipCapability(doc.op, payload) &&
       !negotiated.includes(CAPABILITY_KE_OWNERSHIP)
@@ -1541,6 +1703,19 @@ export class ConnectResponder {
         message: `op ${doc.op} requires capability ${CAPABILITY_KE_OWNERSHIP} for its declared viewpoint`,
         extensions: {},
       });
+      return;
+    }
+    // Payload-dependent cognition gate (consumer contract §2.1/§2.2) on the
+    // raw payload: after the original shape/ownership denials and before the
+    // provider is probed or called, so a denied requirement has no side
+    // effect and an unsupported one keeps its exact request field path.
+    if (
+      !(await this.#cognitionGate(
+        doc,
+        isJsonObject(payload) ? payload : {},
+        negotiated,
+      ))
+    ) {
       return;
     }
     const ports = this.#ports;

@@ -15,7 +15,7 @@ SPOKE 以**线上术语**定义词汇 —— 下面的每个概念都是协议�
 | **L2 正文** | 封闭 `body`：summary、tags、标量 `attributes`（`l2-computable` 下另有可选 `state` / `computable`） |
 | **L3 溯源** | SourceAnchor 指针 |
 | **L4 图** | 类型化有向 Relation（可选 `revision` OCC） |
-| **L5 时间** | TimelineEvent when 轴 + 投影层级 `brief` / `narrative` / `moment`（`l5-fork` 下可选 Fork；`l5-mind` 下可选 `MindState` 心智状态记录） |
+| **L5 时间** | TimelineEvent when 轴 + 投影层级 `brief` / `narrative` / `moment`（`l5-fork` 下可选 Fork；`spoke-cognition` 下可选 `MindState` 心智状态记录） |
 | **L6 约束** | Rule 声明式 `check` 输入 |
 | **L7 Finding** | 检查器输出 + 状态生命周期 |
 | **L8 上下文** | AssemblePacket 线上形状（组装本身留在产品侧） |
@@ -26,7 +26,7 @@ SPOKE 以**线上术语**定义词汇 —— 下面的每个概念都是协议�
 
 - **`l2-computable`** —— computable 知识状态及其历史，以及 `project` / `compute` ops。
 - **`l5-fork`** —— 时间轴上的世界历史分支元数据。
-- **`l5-mind`** —— `MindState`，when 轴上严格派生的时间心智状态记录 —— 见 [MindState 参考](/zh/reference/mind-state)。
+- **`spoke-cognition`** —— 标准可归因认知的单一家族：携带必填 `q` 的 `modules.cognition` 记录（信念、epistemic 的 knowledge/ignorance/undetermined、感知）、`Scope.cognition` 过滤与归因保真投影、时间轴上的 `modules.observation`、记忆 `Content.cognition`，以及派生的 `MindState` 时间视图 —— 见 [MindState 参考](/zh/reference/mind-state)与[认知记录](/zh/reference/data-model#cognition-spoke-cognition)。
 - **`narrative-modules`** —— 面向跨产品功能方言的可选 `modules` 字段袋。
 - **`ke-extraction`** —— 可选 `extract` 操作：被引用的源材料进、`provisional` 候选 KnowledgeEntry 出。
 - **`ke-ownership`** —— KnowledgeEntry 信封上的归属与披露，以及 `Scope.viewpoint` 读取方选择器。
@@ -41,7 +41,7 @@ connect 家族的会话生命周期、信封认证与能力路由在 [Connect �
 
 - KnowledgeEntry 上的本体 `entry_type: "event"` 标签与 L5 `TimelineEvent` when 轴对象 —— 一个本地概念可映射到其中一类或两类线上形状。
 - 本体 `entry_type: "rule"` 标签与 L6 `Rule` 检查器输入 —— Rule 是声明式输入，Finding 是检查器输出。
-- 本体 `entry_type: "character"` / 画像 `mind` 标签与 L5 `MindState` 时间记录 —— 标签对知识节点分类；`MindState` 是持有者心智字段（`modules.mental` / `modules.belief` 为既定归宿）的严格派生快照 / 增量。
+- 本体 `entry_type: "character"` / 画像 `mind` 标签与 L5 `MindState` 时间记录 —— 标签对知识节点分类；`MindState` 呈现持有者心智状态的派生快照 / 增量，而持有者的 `modules.cognition` 记录与 `modules.mental` 字段承载权威值。
 
 名称保持分离，使 `check` / `assemble` 选择器保持无歧义。
 
@@ -61,13 +61,15 @@ connect 家族的会话生命周期、信封认证与能力路由在 [Connect �
 
 这一划分带来三个结果。情感以 `content.structured` 内部的不透明约定承载（例如 `{"affect":{"valence":0.6}}`），因此情绪分类学保持为产品策略。作者画像（`ProfileDocument`）承载精炼的作者基准，记录承载具体经历，反思则是跨记录的派生综合 —— 三层各司其职。提供方替换是一套线上流程：带版本与摘要的导出/导入，配以操作者定时的切换，全程保持单一权威。
 
+标准认知以明确的方式跨越两个族：持有者 KnowledgeEntry 在 `modules.cognition` 中承载当前权威，保留记录在 `Content.cognition` 中保存其记录时点视图，并经 `cognition_filter` 过滤。两种放置各自保留归因与时间。
+
 ## 开放词汇与 Domain Profile
 
 核心对象保持封闭信封（`additionalProperties: false`），而核心词汇保持**开放**：`entry_type`、`relation_type` 与 statuses 都是带记录在案核心列表的开放字符串，而非封闭枚举。Domain Profile 在这些开放字符串之上发布本体词汇 —— beat 映射、lore 激活、知识包 —— 产品以开放字符串与 `extensions.<namespace>` 表达画像专属类型。见[领域画像（Domain Profiles）](/zh/explanation/domain-profiles)。
 
 ## 选择器与扩展点
 
-- **Scope** —— `check` / `assemble` 的共享 ops 选择器：必填不透明 `scope_id` 加可选细化（`entry_ids`、`entry_types`、`timeline_scale`、`fork_id`、`viewpoint` 等）；`viewpoint` 是 `ke-ownership` 读取方选择器。
+- **Scope** —— `check` / `assemble` 的共享 ops 选择器：必填不透明 `scope_id` 加可选细化（`entry_ids`、`entry_types`、`timeline_scale`、`fork_id`、`viewpoint`、`cognition` 等）；`viewpoint` 是 `ke-ownership` 读取方选择器，`cognition` 是 `spoke-cognition` 的选择/投影载体。
 - **Extensions** —— 每个持久对象上的 `extensions.<namespace>` 产品字段袋；adapter 原样往返未知 namespace。
 - **Modules** —— KnowledgeEntry、AssemblePacket 与 TimelineEvent 上的可选 `modules.*` 字段袋（能力标志 `narrative-modules`），用于跨产品功能方言。
 
@@ -80,5 +82,6 @@ connect 家族的会话生命周期、信封认证与能力路由在 [Connect �
 - [协议参考](/zh/reference/protocol) —— schema 清单、扩展契约、能力标志。
 - [数据模型参考](/zh/reference/data-model) —— 每层对应的字段表。
 - [领域画像（Domain Profiles）](/zh/explanation/domain-profiles) —— 已发布的开放字符串词汇。
-- [MindState 参考](/zh/reference/mind-state) —— L5 时间心智状态记录（`l5-mind`）。
+- [MindState 参考](/zh/reference/mind-state) —— 派生 L5 时间视图（`spoke-cognition`）。
+- [认知记录](/zh/reference/data-model#cognition-spoke-cognition) —— `q`、指标、过滤语法与投影规则。
 - [记忆参考](/zh/reference/memory) —— 可选 `spoke-memory` 族，以及它如何与既定知识并列。

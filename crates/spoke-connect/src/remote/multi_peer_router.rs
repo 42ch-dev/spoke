@@ -50,7 +50,10 @@ use spoke_schemas::{
 
 use super::remote_adapter::{RemoteAdapter, RemoteAdapterState};
 use super::requires_ownership_capability;
-use crate::core::{CAPABILITY_KE_EXTRACTION, CAPABILITY_KE_OWNERSHIP};
+use crate::core::{
+    cognition_requirement_present, CAPABILITY_KE_EXTRACTION, CAPABILITY_KE_OWNERSHIP,
+    CAPABILITY_SPOKE_COGNITION,
+};
 
 /// The router's own identity when the consumer configures none (contract §8).
 const DEFAULT_ROUTER_HOST_ID: &str = "multi-peer-router";
@@ -314,6 +317,28 @@ pub fn select_peer_for_op(
             return SpokeResult::Reject(no_capable_peer(
                 op,
                 format!("no peer authority scope key matches \"{scope_key}\""),
+            ));
+        }
+    }
+
+    // Cognition requirement (consumer contract §2.1): a request carrying the
+    // op's declared cognition selection/filter may only be routed to a peer
+    // that declared the `spoke-cognition` family — the projection must flow
+    // between parties that negotiated it. Filtered last so every original
+    // hard filter keeps its first-denial; the legacy `l5-mind` flag never
+    // satisfies it, and unrelated payload data never demands it.
+    if cognition_requirement_present(op, payload) {
+        survivors.retain(|candidate| {
+            candidate
+                .manifest
+                .capabilities
+                .iter()
+                .any(|c| c == CAPABILITY_SPOKE_COGNITION)
+        });
+        if survivors.is_empty() {
+            return SpokeResult::Reject(no_capable_peer(
+                op,
+                format!("no peer advertises capability \"{CAPABILITY_SPOKE_COGNITION}\""),
             ));
         }
     }
@@ -2059,6 +2084,158 @@ mod tests {
             SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-alpha"),
             SpokeResult::Reject(reject) => panic!("must select peer-alpha: {reject:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn ke_remote_router_hard_filters_a_cognition_request_on_the_family() {
+        // Both peers serve the Scope op; only `peer-omega` advertises the
+        // `spoke-cognition` family. A cognition-bearing request must exclude
+        // the family-less peer (hard filter, consumer contract §2.1).
+        let plain = SelectablePeer {
+            peer_id: "peer-alpha".to_string(),
+            manifest: manifest("h-alpha", &["spoke-baseline"]),
+        };
+        let cognition = SelectablePeer {
+            peer_id: "peer-omega".to_string(),
+            manifest: manifest("h-omega", &["spoke-baseline", "spoke-cognition"]),
+        };
+        let scope_op = "port.scope.list_knowledge_entries";
+        let selection = select_peer_for_op(
+            &[plain.clone(), cognition.clone()],
+            scope_op,
+            &json!({
+                "scope": {
+                    "scope_id": "s1",
+                    "cognition": {
+                        "view": "current",
+                        "filter": {"q_min": 0.5},
+                        "selection_policy": {"policy_id": "p", "policy_version": "v1"},
+                    },
+                },
+            }),
+        );
+        match selection {
+            SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-omega"),
+            SpokeResult::Reject(reject) => panic!("must select peer-omega: {reject:?}"),
+        }
+
+        // Without a cognition requirement the filter is inert — the family is
+        // an additional conjunct, never a replacement capability.
+        let baseline_only = select_peer_for_op(
+            &[plain, cognition],
+            scope_op,
+            &json!({ "scope": { "scope_id": "s1" } }),
+        );
+        match baseline_only {
+            SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-alpha"),
+            SpokeResult::Reject(reject) => panic!("must select peer-alpha: {reject:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ke_remote_router_reads_the_cognition_requirement_from_the_op_carrier_only() {
+        // Unrelated payload data is ordinary: a tool request carrying a
+        // top-level `cognition` member routes to a peer that never declared
+        // the family — only the dispatched op's registered carrier can demand
+        // it.
+        let tool_peer = SelectablePeer {
+            peer_id: "peer-tool".to_string(),
+            manifest: manifest("h-tool", &["spoke-baseline", "tools.echo.echo"]),
+        };
+        let routed = select_peer_for_op(
+            &[tool_peer],
+            "tools.echo.echo",
+            &json!({ "arguments": {}, "cognition": "tool metadata" }),
+        );
+        match routed {
+            SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-tool"),
+            SpokeResult::Reject(reject) => panic!("unrelated data must not demand the family: {reject:?}"),
+        }
+
+        // A Memory `cognition_filter` is not a Scope-op carrier either.
+        let scope_peer = SelectablePeer {
+            peer_id: "peer-scope".to_string(),
+            manifest: manifest("h-scope", &["spoke-baseline"]),
+        };
+        let routed = select_peer_for_op(
+            &[scope_peer],
+            "port.scope.list_knowledge_entries",
+            &json!({
+                "scope": { "scope_id": "s1" },
+                "cognition_filter": { "state": { "eq": "known" } },
+            }),
+        );
+        match routed {
+            SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-scope"),
+            SpokeResult::Reject(reject) => panic!("a memory filter is not a scope carrier: {reject:?}"),
+        }
+
+        // Ownership keeps its original first-denial over the cognition
+        // requirement: both filters would reject this peer, and the reported
+        // gap is `ke-ownership`.
+        let cognition_only = SelectablePeer {
+            peer_id: "peer-cognition".to_string(),
+            manifest: manifest("h-cognition", &["spoke-baseline", "spoke-cognition"]),
+        };
+        let denied = select_peer_for_op(
+            &[cognition_only],
+            "port.scope.list_knowledge_entries",
+            &json!({
+                "scope": {
+                    "scope_id": "s1",
+                    "viewpoint": "kb_holder_1",
+                    "cognition": {"view": "current", "filter": {}},
+                },
+            }),
+        );
+        match denied {
+            SpokeResult::Ok(selected) => panic!("must reject, selected {}", selected.peer_id),
+            SpokeResult::Reject(reject) => assert!(
+                reject.message.contains("ke-ownership"),
+                "ownership is filtered first: {reject:?}"
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn ke_remote_router_rejects_no_capable_peer_for_cognition_without_the_family() {
+        // The peer serves the op capability (and carries a legacy `l5-mind`
+        // flag), but never the cognition family: the request has no capable
+        // peer — the legacy flag is not a substitute.
+        let legacy = SelectablePeer {
+            peer_id: "peer-alpha".to_string(),
+            manifest: manifest("h-alpha", &["spoke-baseline", "l5-mind"]),
+        };
+        let selection = select_peer_for_op(
+            &[legacy],
+            "port.scope.list_knowledge_entries",
+            &json!({
+                "scope": {
+                    "scope_id": "s1",
+                    "cognition": {"view": "current", "filter": {}},
+                },
+            }),
+        );
+        match selection {
+            SpokeResult::Ok(selected) => panic!("must reject, selected {}", selected.peer_id),
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert!(
+                    reject.message.contains("spoke-cognition"),
+                    "{reject:?}"
+                );
+            }
+        }
+        // A Memory `cognition_filter` carries the same requirement.
+        let selection = select_peer_for_op(
+            &[SelectablePeer {
+                peer_id: "peer-mem".to_string(),
+                manifest: manifest("h-mem", &["spoke-baseline", "spoke-memory"]),
+            }],
+            "memory.records.list",
+            &json!({ "cognition_filter": {"state": {"eq": "known"}} }),
+        );
+        assert!(matches!(selection, SpokeResult::Reject(_)));
     }
 
     #[tokio::test]

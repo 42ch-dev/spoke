@@ -1282,6 +1282,84 @@ describe("ke remote", () => {
     expect(exhausted.details?.wire_code).toBe("no_capable_peer");
   });
 
+  it("hard-filters the cognition family from the op's declared carrier only", () => {
+    const plainPeer: SelectablePeer = {
+      peerId: "peer-plain",
+      manifest: {
+        ...schemaConformantManifest(),
+        host_id: "peer-plain",
+        capabilities: ["spoke-baseline"],
+      },
+    };
+    const cognitionPeer: SelectablePeer = {
+      peerId: "peer-cognition",
+      manifest: {
+        ...schemaConformantManifest(),
+        host_id: "peer-cognition",
+        capabilities: ["spoke-baseline", "spoke-cognition"],
+      },
+    };
+    const selection = {
+      scope: {
+        scope_id: "router-cognition",
+        cognition: {
+          view: "current",
+          filter: {},
+          selection_policy: { policy_id: "policy_t3", policy_version: "v1" },
+        },
+      },
+    };
+    const denied = selectPeerForOp(
+      [plainPeer],
+      "port.scope.list_knowledge_entries",
+      selection,
+    );
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.details?.wire_code).toBe("no_capable_peer");
+    }
+    const served = selectPeerForOp(
+      [plainPeer, cognitionPeer],
+      "port.scope.list_knowledge_entries",
+      selection,
+    );
+    expect(served.ok).toBe(true);
+    if (served.ok) {
+      expect(served.value.peerId).toBe("peer-cognition");
+    }
+
+    // Ownership is filtered before the family: a viewpoint-bearing request
+    // with a cognition selection names ke-ownership as the missing capability.
+    const ownershipFirst = selectPeerForOp(
+      [cognitionPeer],
+      "port.scope.list_knowledge_entries",
+      { ...selection, scope: { ...selection.scope, viewpoint: "kb_mira" } },
+    );
+    expect(ownershipFirst.ok).toBe(false);
+    if (!ownershipFirst.ok) {
+      expect(ownershipFirst.message).toContain("ke-ownership");
+    }
+
+    // Unrelated payload data is ordinary: a tool request carrying a
+    // top-level `cognition` member routes to a peer without the family.
+    const toolPeer: SelectablePeer = {
+      peerId: "peer-tool",
+      manifest: {
+        ...schemaConformantManifest(),
+        host_id: "peer-tool",
+        capabilities: ["spoke-baseline", "tools.echo.echo"],
+      },
+    };
+    const routed = selectPeerForOp([toolPeer], "tools.echo.echo", {
+      arguments: {},
+      cognition: "tool metadata",
+    });
+    expect(routed.ok).toBe(true);
+    if (routed.ok) {
+      expect(routed.value.peerId).toBe("peer-tool");
+    }
+  });
+
   it("includes extract in the hard capability map without a preferred role", async () => {
     const payload = { run_id: "r1", sources: [{ schema_version: 1, source_id: "s", extensions: {} }] };
     const capable: SelectablePeer = {

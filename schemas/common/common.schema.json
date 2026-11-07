@@ -120,6 +120,10 @@
           "minLength": 1,
           "description": "Optional reader context: non-empty holder-KE entry_id consumed by ownership-aware operations. Capability-flagged (ke-ownership); opt-in. Check and assemble share this Scope carrier; scope_id stays opaque and is never parsed for viewpoint. A missing viewpoint names no subject and grants no private visibility; entry, entry_type, and source refinements compose with the disclosure predicate by AND."
         },
+        "cognition": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionSelection",
+          "description": "Optional cognitive selection (spoke-cognition); capability-flagged, requires the negotiated spoke-cognition flag. Absent = no cognitive refinement."
+        },
         "extensions": {
           "$ref": "#/definitions/ExtensionMap",
           "description": "Optional product-scoped scope/query metadata (ExtensionMap). Consumers layer product filters here (e.g. branch/search limits). Protocol matchers ignore extensions; adapters round-trip unknown namespaces verbatim."
@@ -233,7 +237,8 @@
       "properties": {
         "path": {
           "type": "string",
-          "description": "Dot-path or JSON Pointer to the changed field within modules.mental or modules.belief."
+          "pattern": "^/modules/mental/[^/]+(/.*)?$|^/modules/cognition/(records|world_facts)/.+$",
+          "description": "RFC 6901 JSON Pointer with one of these exact roots: /modules/mental/<field>... for any of the nine mental fields; /modules/cognition/records/... for derivative standard cognition; /modules/cognition/world_facts/... for narrated-world facts. No dot-path and no path targeting the MindState itself as authority."
         },
         "previous": {
           "$ref": "#/definitions/OpaqueJson"
@@ -243,7 +248,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Field-level change record for temporal-delta presentation of mental-state changes; presentation only, not authoritative state. Authoritative values live on the holder KnowledgeEntry under modules.mental / modules.belief."
+      "description": "Field-level change record for temporal-delta presentation of mental-state changes; presentation only, not authoritative state. Authoritative values live on the holder KnowledgeEntry under modules.mental / modules.cognition."
     }
   }
 }

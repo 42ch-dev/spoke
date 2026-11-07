@@ -1,6 +1,8 @@
 //! Scope matching and filtering helpers.
 
-use crate::cognition::{cognition_record_matches_filter, validate_cognition_module};
+use crate::cognition::{
+    cognition_record_matches_filter, validate_cognition_module, validate_cognition_selection,
+};
 use crate::knowledge_entry::knowledge_entry_visible_to_viewpoint;
 use crate::result::{spoke_ok, spoke_ok_unit, SpokeReject, SpokeRejectCode, SpokeResult};
 use serde_json::{Map, Value};
@@ -232,17 +234,45 @@ fn cognition_record_view(record: &CognitionRecord) -> &CognitiveView {
 /// source view, so it is unavailable here rather than an ordinary empty
 /// result: the request rejects before any source output or checker/finding
 /// side effect. `field_path` is the request's JSON path to the selection.
+///
+/// The existing selection grammar gate runs here too: generated Rust keeps
+/// the selection typed, so a decodable but closed-grammar-invalid predicate
+/// (`{absent: false}`, a `q` range with no bound) would otherwise match
+/// nothing and silently succeed.
 pub fn assert_supported_cognition_selection(
     selection: Option<&spoke_schemas::CognitionSelection>,
     field_path: &str,
 ) -> SpokeResult<()> {
+    let Some(selection) = selection else {
+        return spoke_ok_unit();
+    };
+
+    // Generated Rust re-declares the cognition family per wire module; the
+    // established canonical-import rule converts at this boundary.
+    let wire = match serde_json::to_value(selection) {
+        Ok(wire) => wire,
+        Err(_) => return SpokeResult::Reject(unsupported_cognition_requirement(field_path)),
+    };
+    if let SpokeResult::Reject(reject) = validate_cognition_selection(&wire) {
+        let relative = reject
+            .details
+            .as_ref()
+            .and_then(|details| details.get("field"))
+            .and_then(Value::as_str);
+        let field = match relative {
+            // A rendered non-identifier member already carries its brackets.
+            Some(relative) if relative.starts_with('[') => format!("{field_path}{relative}"),
+            Some(relative) => format!("{field_path}.{relative}"),
+            None => field_path.to_owned(),
+        };
+        return SpokeResult::Reject(unsupported_cognition_requirement(&field));
+    }
+
     match selection {
-        None | Some(spoke_schemas::CognitionSelection::Current { .. }) => spoke_ok_unit(),
-        Some(spoke_schemas::CognitionSelection::RecordedAt { .. }) => {
-            SpokeResult::Reject(unsupported_cognition_requirement(&format!(
-                "{field_path}.view"
-            )))
-        }
+        spoke_schemas::CognitionSelection::Current { .. } => spoke_ok_unit(),
+        spoke_schemas::CognitionSelection::RecordedAt { .. } => SpokeResult::Reject(
+            unsupported_cognition_requirement(&format!("{field_path}.view")),
+        ),
     }
 }
 
@@ -1167,6 +1197,60 @@ mod tests {
             }
             SpokeResult::Ok(_) => panic!("recorded-at view must reject"),
         }
+    }
+
+    /// Some closed-grammar violations are decodable in the typed filter
+    /// (`{absent: false}` on a categorical predicate, a `q` range with no
+    /// bound), so the served filter must reject the whole call at the actual
+    /// Scope field path instead of silently matching nothing — including when
+    /// the authorized source is empty.
+    #[test]
+    fn served_scope_filter_rejects_grammar_invalid_typed_cognition_filters() {
+        let current_selection = |filter: Value| -> Scope {
+            serde_json::from_value(json!({
+                "scope_id": "world_1",
+                "cognition": {
+                    "view": "current",
+                    "filter": filter,
+                    "selection_policy": { "policy_id": "pol_scope", "policy_version": "v1" }
+                }
+            }))
+            .expect("typed filter shape decodes")
+        };
+
+        for (filter, field) in [
+            (
+                json!({ "truth": { "absent": false } }),
+                "scope.cognition.filter.truth.absent",
+            ),
+            (json!({ "q": {} }), "scope.cognition.filter.q"),
+        ] {
+            let scope = current_selection(filter);
+            for entries in [Vec::new(), vec![cognition_entry(false)]] {
+                match filter_knowledge_entries_by_scope(&entries, &scope) {
+                    SpokeResult::Reject(reject) => {
+                        assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                        let details = reject.details.expect("details");
+                        assert_eq!(
+                            details.get("reason").and_then(Value::as_str),
+                            Some("unsupported_cognition_requirement")
+                        );
+                        assert_eq!(
+                            details.get("field").and_then(Value::as_str),
+                            Some(field)
+                        );
+                    }
+                    SpokeResult::Ok(_) => panic!("{field} must reject, not match"),
+                }
+            }
+        }
+
+        // Valid controls: an unrefined Scope and a grammar-valid `absent: true`
+        // predicate still serve the baseline (truth-absent) belief entry.
+        let entries = [cognition_entry(false)];
+        assert_eq!(authorized_scope_entries(&entries, &base_scope()).len(), 1);
+        let absent_true = current_selection(json!({ "truth": { "absent": true } }));
+        assert_eq!(authorized_scope_entries(&entries, &absent_true).len(), 1);
     }
 
     // === P2/T2 authorization-first cognition carriers ===

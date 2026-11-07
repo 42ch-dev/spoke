@@ -323,7 +323,7 @@ Deepen families (§5–§11), computable validators (§12), and body attribute r
 | `filterKnowledgeEntriesByScope(knowledgeEntries, scope)` | Filter list by the KnowledgeEntry scope predicate after authorization/disclosure | Pure |
 | `timelineEventMatchesScope(timelineEvent, scope)` | TimelineEvent passes optional `Scope` refinements | Pure |
 | `filterTimelineEventsByScope(timelineEvents, scope)` | Filter list by `timelineEventMatchesScope` | Pure |
-| `assertSupportedCognitionSelection(selection)` | Reject an unsupported/unavailable cognition selection (`unsupported_cognition_requirement` + `field`) | Pure |
+| `assertSupportedCognitionSelection(selection, fieldPath)` | Reject an unsupported/unavailable cognition selection (`unsupported_cognition_requirement` + `field`) | Pure |
 | `cognitionRecordsOfAuthorizedEntries(entries)` / Rust `cognition_records_of_authorized_entry(entry)` and `cognition_records_of_authorized_entries(entries)` | Extract only closed `modules.cognition` records; reject a malformed carrier as `invalid_cognition_record` | Pure |
 
 **`Scope` wire shape:** [`spoke-ops.md` §Scope](spoke-ops.md#scope-shared--check--assemble). `scope_id` is required on wire but **not interpreted** by these helpers — caller pre-scopes collections by product binding.
@@ -339,6 +339,8 @@ Deepen families (§5–§11), computable validators (§12), and body attribute r
 | `source_id` | `knowledgeEntry.source_anchor?.source_id === scope.source_id` |
 | `viewpoint` | `knowledgeEntryVisibleToViewpoint(knowledgeEntry, scope.viewpoint)` — `ke-ownership` disclosure predicate; an entry without `disclosure` always passes, `owner-private` requires an exact owner match and fails without a viewpoint (or a malformed private entry), and unknown disclosure values fail for every viewpoint |
 | `cognition` | Validate the closed selection, then apply it to closed holder records after authorization; entries without carried cognition do not match. Current view uses the injected product policy; exact filter/projection rules are in [`spoke-cognition-data-contract.md`](spoke-cognition-data-contract.md) §5 |
+
+**Cognition selection rejection:** the closed selection grammar runs on the typed selection before any record matching, so a decodable but grammar-invalid filter (`{absent: false}` on a categorical or fork predicate, a `q` range with no bound) rejects the whole call as `unsupported_cognition_requirement` with `field` at the actual request path (e.g. `scope.cognition.filter.truth.absent`) — even when the authorized source is empty and no record could reveal it. An unavailable `recorded_at` view rejects at `<fieldPath>.view`.
 
 Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
 

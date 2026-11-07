@@ -13,9 +13,9 @@ import {
 // (schemas/data/cognition.schema.json). These guards check required/variant
 // fields, closed/open keys, enums, reference/tuple shape, target-chain/order
 // consistency, non-empty evidence/prior basis, category/assertion/metric
-// compatibility, view placement, filter grammar and projection selection
-// trace only. They never resolve references, judge evidence sufficiency,
-// compute probabilities or perform I/O.
+// compatibility, view placement, filter grammar and projection group/trace
+// consistency only. They never resolve references, judge evidence
+// sufficiency, compute probabilities or perform I/O.
 
 /**
  * Placement of a standard record: holder-side current authority
@@ -929,11 +929,31 @@ export function validateCognitionRecord(value: unknown): value is CognitionRecor
   return validatePlacedRecord(value);
 }
 
+// `record_id` is unique within one carrier (§3) and nowhere else, so the same
+// id may still identify different records in another carrier.
+function hasDistinctRecordIds(records: readonly CognitionRecord[]): boolean {
+  return new Set(records.map((record) => record.record_id)).size === records.length;
+}
+
+// One carrier's record list: every entry is a placed record of that carrier's
+// view and the ids are distinct, so the trace can name one record.
+function validateCarrierRecords(
+  value: unknown,
+  view: "current" | "recorded_at",
+): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (record: unknown) => validateCognitionRecord(record) && record.view === view,
+    ) &&
+    hasDistinctRecordIds(value as CognitionRecord[])
+  );
+}
+
 export function validateCognitionContent(value: unknown): boolean {
-  return isPlainObject(value) && (!("cognition" in value) ||
-    (Array.isArray(value.cognition) && value.cognition.every(
-      (record: unknown) => validateCognitionRecord(record) && record.view === "recorded_at",
-    )));
+  return isPlainObject(value) &&
+    (!("cognition" in value) ||
+      validateCarrierRecords(value.cognition, "recorded_at"));
 }
 
 function isWorldFactRecord(value: unknown): boolean {
@@ -985,10 +1005,7 @@ export function validateCognitionModule(value: unknown): boolean {
     return false;
   }
   return (
-    Array.isArray(value.records) &&
-    value.records.every((record) =>
-      validateCognitionRecord(record) && record.view === "current",
-    ) &&
+    validateCarrierRecords(value.records, "current") &&
     Array.isArray(value.world_facts) &&
     value.world_facts.every(isWorldFactRecord) &&
     isExtensionMap(value.extensions)
@@ -1336,6 +1353,32 @@ function isSelectionTrace(value: unknown): boolean {
   );
 }
 
+// One item and its assessments describe one source group (§5.3): the same
+// complete holder reference, target identity (carrier tuple, kind, target_id
+// — never text/about) and assessment context. Ids are compared per item only,
+// because the same `record_id` may legitimately live in another carrier.
+function isSameGroupMember(
+  item: Record<string, unknown>,
+  record: CognitionRecord,
+): boolean {
+  const holder = item.holder as Record<string, unknown>;
+  const target = item.target as Record<string, unknown>;
+  const carrier = target.carrier as Record<string, unknown>;
+  const context = item.assessment_context as Record<string, unknown>;
+  return (
+    holder.kind === record.holder.kind &&
+    holder.namespace === record.holder.namespace &&
+    holder.id === record.holder.id &&
+    carrier.kind === record.target.carrier.kind &&
+    carrier.namespace === record.target.carrier.namespace &&
+    carrier.id === record.target.carrier.id &&
+    target.kind === record.target.kind &&
+    target.target_id === record.target.target_id &&
+    context.context_id === record.assessment_context.context_id &&
+    context.fork_id === record.assessment_context.fork_id
+  );
+}
+
 function isCognitionProjectionItem(
   value: unknown,
   placement: CognitionPlacement,
@@ -1360,10 +1403,31 @@ function isCognitionProjectionItem(
   if ((value.presence === "no_record") !== (value.assessments.length === 0)) {
     return false;
   }
+  const assessments = value.assessments as CognitionRecord[];
+  const recordIds = assessments.map((record) => record.record_id);
+  if (
+    !hasDistinctRecordIds(assessments) ||
+    !assessments.every((record) => isSameGroupMember(value, record))
+  ) {
+    return false;
+  }
   // The current selection trace is required iff view = current and presence
-  // = assessed; recorded-at-time projection has no current selection.
+  // = assessed; recorded-at-time projection has no current selection. Its
+  // candidates are exactly this item's assessments, so the selected id always
+  // names a record the item carries.
   if (withSelection) {
-    return value.selection !== undefined && isSelectionTrace(value.selection);
+    if (value.selection === undefined || !isSelectionTrace(value.selection)) {
+      return false;
+    }
+    const trace = value.selection as {
+      input_record_ids: string[];
+      selected_record_id: string;
+    };
+    return (
+      recordIds.every((id) => trace.input_record_ids.includes(id)) &&
+      trace.input_record_ids.every((id) => recordIds.includes(id)) &&
+      recordIds.includes(trace.selected_record_id)
+    );
   }
   return value.selection === undefined;
 }
@@ -1372,8 +1436,10 @@ function isCognitionProjectionItem(
  * Wire-shape gate for an attribution-preserving CognitionProjection. Every
  * assessment must carry the projection's own view (current projections carry
  * current-view records; recorded-at-time projections carry recorded-at-time
- * records), and a current `assessed` item must carry a selection trace whose
- * `selected_record_id` is one of the traced `input_record_ids`.
+ * records) and match its item's holder, target identity and assessment
+ * context. A current `assessed` item must carry a selection trace whose
+ * candidates are exactly that item's assessment records and whose
+ * `selected_record_id` names one of them.
  */
 export function validateCognitionProjection(value: unknown): boolean {
   if (!isPlainObject(value) || !hasOnlyKeys(value, PROJECTION_KEYS)) {

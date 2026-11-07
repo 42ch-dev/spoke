@@ -139,6 +139,7 @@ import {
   verifySessionAuth,
   type InvokeRequestSignInput,
 } from "../core/envelope-auth.js";
+import { WIRE_INVALID_INPUT } from "../core/dispatch.js";
 import { CoreError } from "../core/error.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../core/hello.js";
 import { generateNonce, NonceStore } from "../core/nonce.js";
@@ -273,6 +274,16 @@ function mapErrorEnvelope(error: ErrorEnvelope): SpokeReject {
   // `details.kind` surfaced verbatim.
   if (error.code === "auth_failed") {
     return spokeReject(SpokeRejectCode.INTERNAL_ERROR, error.message, {
+      ...(error.details ?? {}),
+    });
+  }
+  // Dispatch-layer validation verdict (consumer contract §2.2): the host
+  // spelled the wire code in the Connect dispatch vocabulary, which is not a
+  // `SpokeRejectCode` literal. Map it to the internal `INVALID_INPUT` and
+  // preserve the verdict's `details` verbatim — `fromErrorEnvelope`'s
+  // unknown-code branch would replace the message and drop `reason`/`field`.
+  if (error.code === WIRE_INVALID_INPUT) {
+    return spokeReject(SpokeRejectCode.INVALID_INPUT, error.message, {
       ...(error.details ?? {}),
     });
   }

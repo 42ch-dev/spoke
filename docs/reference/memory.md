@@ -16,8 +16,8 @@ The family is optional. A host claims it by declaring `spoke-memory` in `HostCap
 | Who memory is about | `Subject` — stable opaque `subject_id` plus optional namespaced `kind`; flat, one subject per record |
 | Who may do what | `MemoryGrant` — capability set + optional subject scope + optional `context_ids` + `shared_access` + expiry |
 | Capture and review | `memory.capture` → `MemoryCandidate` (immutable `capture_scope`, advisory `classification`) → `memory.candidates.review` / `.dismiss` |
-| Retained memory | `RetainedRecord` — untrusted `content` (`text` + optional opaque `structured`), placement `scope`, provenance, `revision`, optional `tombstone` |
-| Reading memory | `ReadSelection` (placement modes) + `ProvenanceFilter` (source-context projection) + `memory.recall` budget/truncation |
+| Retained memory | `RetainedRecord` — untrusted `content` (`text` + optional opaque `structured` + optional recorded-at-time `cognition`), placement `scope`, provenance, `revision`, optional `tombstone` |
+| Reading memory | `ReadSelection` (placement modes) + `ProvenanceFilter` (source-context projection) + optional `cognition_filter` + `memory.recall` budget/truncation |
 | Authored basis | `ProfileDocument` — trusted author-maintained content kinds (`personality`, `preferences`) |
 | Derived synthesis | `Reflection` — generated over a pinned basis, `stale` computed at read time |
 | Outcomes | `MemoryReceipt` — durable, payload-bound, content-free (`committed` / `pending` / `failed`) |
@@ -73,6 +73,18 @@ A host declaring a sub-flag also declares `spoke-memory`; a host serving only `s
 
 Read ops return their payload; every mutating op returns a `MemoryReceipt`. Only reflection generation, export creation, the final staging chunk, and import activation may report `pending`, and completion is observed through `memory.receipts.get`.
 
+## Cognition content and filters (`spoke-cognition`)
+
+`Content.cognition` is an optional array of complete, closed standard cognition records. Every entry carries `view: "recorded_at"` and keeps its own attribution, basis and times; absence records that no standard cognition was recorded — an absent member is never serialized as `[]`, while an explicitly present empty array is a valid value preserved as a distinct wire value, neither produced by omission nor interchangeable with a non-empty array — and tombstoned content stays `{ "text": "" }` with no structured or cognition members. Raw text, `structured` or candidate material is never promoted to completed standard cognition by placement alone.
+
+Recorded cognition is validated as content, not as an authorization grant: every present member must be a closed record with `view: "recorded_at"`. The check runs on `memory.capture` and on `memory.records.create` / `.update` before the byte admission check, and a malformed member rejects the request with the operations-layer `INVALID_INPUT` on `content.cognition` and `details.reason: "invalid_cognition_record"`, distinct from the dispatch-layer `invalid_input` wire code of an unsupported cognition requirement. A non-empty cognition array counts toward the capture classification, and the existing content byte budget measures every explicitly present member rather than dropping it — `[]` carries its own admission bytes. Candidate review defaults to the captured proposed content: a `promote` decision may supply a new `content_override` and a `fragment` decision carries new fragment `content`, each validated independently by the same recorded-at-time rule before any state changes, with the override taking precedence over the proposed content. Review still requires its existing `review` and `records_write` grants covering the candidate's `capture_scope`, inherits that scope verbatim, and pending review confers no authority.
+
+`cognition_filter` (a `CognitionFilter`) is accepted on exactly five requests — `memory.recall`, `memory.records.list`, `memory.reflections.state`, `memory.reflections.list` and `memory.reflections.generate` — and requires the negotiated `spoke-cognition` flag. It is a hard filter over recorded-at-time content: authorization runs first and existing grant coverage still gates the call; given the eligible set, a record matches only when at least one of its `Content.cognition` entries satisfies the complete conjunction. It composes with `selection` and the provenance `filter` by AND, binds cursor identity (any state or grant change invalidates the cursor with `CURSOR_INVALID`), and applies before counts, ranking, page limits and byte budgets. `memory.records.list` reports `total_authorized` over that surviving set, and `memory.recall` ranks and truncates only within it. The filter never widens or replaces an existing grant and adds no OR, text similarity, ranking input or default cutoff.
+
+The three reflection requests accept the same filter and pin it. `memory.reflections.generate` writes it to `Reflection.cognition_filter` and into the reflection basis: the basis identity covers the filter together with the authorized record id and revision set, profile revisions and engine policy identity, so a changed filter or source set changes `state_digest` and the reflection reads stale. `memory.reflections.list` matches on the pinned filter, and `memory.reflections.state` includes it in the digest it returns. Absent means no pinned filter.
+
+An unknown predicate or unimplemented dimension rejects the whole request at the dispatch boundary with the `invalid_input` wire code and `details.reason: "unsupported_cognition_requirement"`, exactly as in [Cognition selection](/reference/ops#cognition-selection-spoke-cognition). Wire shapes are in [Data model reference §Memory cognition](/reference/data-model#memory-cognition).
+
 ## Data models
 
 | Model | Role |
@@ -125,5 +137,6 @@ Wire-level detail lives in the spec corpus (SSOT); this page links to it rather 
 
 - [Protocol reference](/reference/protocol) — the three columns, capability flags, and schema inventory.
 - [Ops wire reference](/reference/ops) — baseline and optional op families, `ErrorEnvelope`, shared rules.
+- [Cognition records](/reference/data-model#cognition-spoke-cognition) — the standard records carried in `Content.cognition`, the filter grammar and reflection basis.
 - [Concepts](/explanation/concepts) — how memory sits beside canonical knowledge.
 - [Implement an adapter](/how-to/implement-adapter) — the port families per capability, including the optional memory provider.

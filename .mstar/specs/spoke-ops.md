@@ -76,6 +76,7 @@ Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-
 | `timeline_scale` | no | `TimelineScale` | L5 tier filter (`brief` / `narrative` / `moment`) |
 | `fork_id` | no | `ForkId` | L5 branch filter — strict equality on `TimelineEvent.fork_id` (`l5-fork`); events without `fork_id` do not match |
 | `viewpoint` | no | string | Reader context (`ke-ownership`), not an authorization credential: non-empty holder KnowledgeEntry `entry_id`. The core disclosure predicate admits an `owner-private` KnowledgeEntry only when `viewpoint` exactly equals its `owner`; absent `viewpoint` names no subject and grants no private visibility, and an entry without `disclosure` stays visible regardless of viewpoint. Comparison is exact (no normalization, no holder lookup); `TimelineEvent` matching ignores it. Normative decision: [`ke-ownership-disclosure-adr.md`](ke-ownership-disclosure-adr.md); behavior table: [`spoke-data-model.md`](spoke-data-model.md) §Ownership governance (`ke-ownership` optional). |
+| `cognition` | no | `CognitionSelection` | Closed current or recorded-at-time cognition selector (`spoke-cognition`). Predicates AND on one record using full reference/target/context identity; current selection names an injected product policy. Authorization precedes selection and projection. Exact grammar: [`spoke-cognition-data-contract.md`](spoke-cognition-data-contract.md) §5. |
 | `extensions` | no | `ExtensionMap` | Product-scoped scope/query metadata (e.g. product filters such as branch/search limits). Protocol matchers ignore it; adapters round-trip unknown namespaces verbatim. Product data lives under `extensions.<product>`; functional dialects belong in `modules.*` on KnowledgeEntry / AssemblePacket — see [`spoke-extension-modules.md`](spoke-extension-modules.md). Optional on `Scope` (unlike required `extensions` on durable data objects such as `KnowledgeEntry`). |
 
 **Mapping rule:** when a product needs `world_id`, `book_id`, or similar, it MUST use one of:
@@ -260,7 +261,8 @@ v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product p
 2. **Products MAY** place compute metadata under `AssemblePacket.extensions.<namespace>` — adapters MUST preserve unknown keys.
 3. **`AssemblePacket` MAY** carry optional `modules` (`ModuleMap`) — capability-flagged (`narrative-modules`); packet-level functional dialects (`placement`, `activation_trace`, …) live here; inner shapes handbook-defined ([`assemble-module-recipes.md`](assemble-module-recipes.md); bag authority [`spoke-extension-modules.md`](spoke-extension-modules.md)). Absent and empty `modules` are valid.
 4. **Conformance in v0.1** means a product can emit or consume a valid `AssemblePacket` on the wire, not that it runs assembly the same way as another product.
-5. **No `assemble` "engine" schema** — there is no `AssembleComputeRequest` or pipeline config in v0.1.
+5. **Optional cognition projection:** when `Scope.cognition` is present under `spoke-cognition`, `AssemblePacket.cognition` carries the attribution-preserving projection computed from authorized entries before `max_entries` truncation. Per-item `assessment_context` and current-policy trace are preserved; no protocol selection algorithm is implied. See [`spoke-cognition-consumer-contract.md`](spoke-cognition-consumer-contract.md).
+6. **No `assemble` "engine" schema** — there is no `AssembleComputeRequest` or pipeline config in v0.1.
 
 ---
 
@@ -322,7 +324,7 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 ## Acceptance (ops layer)
 
 - [ ] Each **baseline** operation above has request + response schemas under `schemas/ops/`
-- [x] Optional `project` / `compute` (`l2-computable`), `extract` (`ke-extraction`), and the 33-op `spoke-memory` family documented (72 optional op schema files; protocol inventory **113** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
+- [x] Optional `project` / `compute` (`l2-computable`), `extract` (`ke-extraction`), and the 33-op `spoke-memory` family documented (72 optional op schema files; protocol inventory **114** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
 - [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 baseline + 3 optional: `project`, `compute`, `extract` + the 33-op `spoke-memory` family)
 - [ ] `assemble` response `$ref`s `AssemblePacket` from the data layer
 - [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by **all** ops response schemas (R3)

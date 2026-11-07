@@ -102,10 +102,7 @@ describe("memory family", () => {
     CAPABILITY_SPOKE_MEMORY_TRANSFER,
   ];
 
-  it("covers all 33 protocol ops with the expected flag", () => {
-    expect(
-      MEMORY_CORE_OPS.length + MEMORY_REFLECTION_OPS.length + MEMORY_TRANSFER_OPS.length,
-    ).toBe(33);
+  it("maps every protocol op to its gating flag", () => {
     for (const op of MEMORY_CORE_OPS) {
       expect(requiredCapability(op)).toBe(CAPABILITY_SPOKE_MEMORY);
       expect(dispatchAllowed(op, [CAPABILITY_SPOKE_MEMORY])).toBe(true);

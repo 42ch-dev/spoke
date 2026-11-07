@@ -143,7 +143,7 @@ export interface ExtensionValue {
   [k: string]: unknown | undefined;
 }
 /**
- * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries per-entry functional dialects (e.g. modules.activation). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.
+ * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries per-entry functional dialects (e.g. modules.activation). modules.cognition carries the closed CognitionModule (current actor standard records + world facts; capability-flagged spoke-cognition); modules.mental remains open with beliefs derivative-only. Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.
  */
 export interface ModuleMap {
   [k: string]:

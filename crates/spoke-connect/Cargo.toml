@@ -14,10 +14,14 @@ exclude = ["bindings/**", "examples/**"]
 
 [dependencies]
 spoke-schemas = { version = "0.15.2", path = "../spoke-schemas" }
-# RemoteAdapter (the `remote-adapter` feature) implements the operations
-# BaselinePorts + SpokeResult types; optional so default connect builds stay
-# lean (TS equivalent: the `./remote` subpath export).
-spoke-operations = { version = "0.15.2", path = "../spoke-operations", optional = true }
+# The C5 closed cognition grammar + `SpokeReject`/`SpokeResult` vocabulary.
+# Required (not feature-gated): the generic node dispatch rejects an
+# unsupported cognition requirement before running its handler, so the raw
+# diagnosis shared with the responder must compile in every connect build —
+# the same crate is what keeps that diagnosis from re-implementing the
+# grammar. The `remote-adapter` feature still gates the remote module
+# (BaselinePorts proxy; TS equivalent: the `./remote` subpath export).
+spoke-operations = { version = "0.15.2", path = "../spoke-operations" }
 # Loopback smoke host (RemoteAdapter FFI binding smokes; `ffi-smoke-host` only).
 libp2p.workspace = true
 serde.workspace = true
@@ -42,9 +46,10 @@ uniffi = { version = "0.32.0", optional = true }
 default = []
 # RemoteAdapter + message-oriented Transport (opt-in): the remote module
 # implements the async BaselinePorts by proxying port.* ops over a connect
-# session (contract §9 — feature-gated so default connect builds do not
-# depend on spoke-operations; TS equivalent is the `./remote` subpath).
-remote-adapter = ["dep:spoke-operations"]
+# session (contract §9; TS equivalent is the `./remote` subpath export). The
+# operations crate itself is a plain dependency (see above) — this feature
+# gates the remote module, not the cognition grammar.
+remote-adapter = []
 # Loopback smoke host FFI (binding smokes only — NOT implied by remote-adapter or ffi).
 ffi-smoke-host = ["remote-adapter"]
 # Exports the sync-core facade through uniffi (see src/ffi.rs). Non-default:

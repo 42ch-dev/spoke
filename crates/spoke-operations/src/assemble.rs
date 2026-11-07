@@ -1,14 +1,20 @@
 //! AssemblePacket builders.
 
+use crate::cognition::{project_cognition_records, CurrentViewPolicy};
 use crate::extensions::ExtensionMap;
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
+use crate::scope::{assert_supported_cognition_selection, cognition_records_of_authorized_entries};
 use crate::util::{
     body_wire_from_entry_wire, extract_snippet_from_body_wire, knowledge_entry_body_to_json,
     validate_assemble_body_wire,
 };
 use serde_json::{Map, Value};
 use spoke_schemas::assemble_packet::{
-    AssembleEntry, AssembleEntryCanonicalName, AssemblePacket, ExtensionKey,
+    AssembleEntry, AssembleEntryCanonicalName, AssemblePacket,
+    CognitionProjection as PacketedCognitionProjection, ExtensionKey,
+};
+use spoke_schemas::data::cognition::{
+    CognitionProjection as CognitionProjectionWire, CognitionSelection as CognitionSelectionWire,
 };
 use spoke_schemas::knowledge_entry::KnowledgeEntry;
 use std::collections::HashMap;
@@ -66,6 +72,25 @@ impl KnowledgeEntryForAssemble {
     #[must_use]
     pub fn entry(&self) -> &KnowledgeEntry {
         &self.entry
+    }
+}
+
+/// Convert between the generated per-module re-declarations of one wire shape.
+fn wire_convert<T, U>(value: &T) -> SpokeResult<U>
+where
+    T: serde::Serialize,
+    U: serde::de::DeserializeOwned,
+{
+    let converted = serde_json::to_value(value)
+        .ok()
+        .and_then(|wire| serde_json::from_value(wire).ok());
+    match converted {
+        Some(converted) => spoke_ok(converted),
+        None => spoke_reject(
+            SpokeRejectCode::InvalidPacketInput,
+            "cognition wire conversion failed",
+            None,
+        ),
     }
 }
 
@@ -146,9 +171,14 @@ pub fn knowledge_entry_to_assemble_entry(
 /// Input for `build_assemble_packet`.
 pub struct BuildAssemblePacketInput<'a> {
     pub packet_id: &'a str,
+    /// Already scope-authorized entries: disclosure filtering happens before cognition.
     pub knowledge_entries: &'a [KnowledgeEntryForAssemble],
     pub extensions: Option<&'a ExtensionMap>,
     pub max_entries: Option<usize>,
+    /// Optional derivative cognitive selection applied to the authorized set.
+    pub cognition_selection: Option<&'a spoke_schemas::CognitionSelection>,
+    /// Required exactly for a current assessed projection; never a built-in policy.
+    pub current_view_policy: Option<&'a dyn CurrentViewPolicy>,
 }
 
 /// Build a wire-valid `AssemblePacket` from KnowledgeEntries (order-preserving truncate only).
@@ -184,12 +214,54 @@ pub fn build_assemble_packet(
         None => entries,
     };
 
+    // Optional derivative cognitive projection over the authorized source set.
+    // Computed before `max_entries` truncation: the limit narrows the slim
+    // context entries, never which authorized cognition was requested.
+    let cognition: Option<PacketedCognitionProjection> = match input.cognition_selection {
+        None => None,
+        Some(selection) => {
+            // This carrier supplies current cognition only; an unavailable view
+            // rejects the whole build instead of returning a false empty result.
+            if let SpokeResult::Reject(reject) =
+                assert_supported_cognition_selection(Some(selection), "cognition_selection")
+            {
+                return SpokeResult::Reject(reject);
+            }
+
+            // Generated Rust re-declares the cognition family per wire module;
+            // the established canonical-import rule converts at this boundary.
+            let selection: CognitionSelectionWire = match wire_convert(selection) {
+                SpokeResult::Ok(selection) => selection,
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            };
+            let authorized_entries: Vec<&KnowledgeEntry> = input
+                .knowledge_entries
+                .iter()
+                .map(KnowledgeEntryForAssemble::entry)
+                .collect();
+            let records = match cognition_records_of_authorized_entries(&authorized_entries) {
+                SpokeResult::Ok(records) => records,
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            };
+            let projection: CognitionProjectionWire =
+                match project_cognition_records(&records, &selection, input.current_view_policy) {
+                    SpokeResult::Ok(projection) => projection,
+                    SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+                };
+            match wire_convert(&projection) {
+                SpokeResult::Ok(projection) => Some(projection),
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            }
+        }
+    };
+
     let extensions = match extension_map_to_packet(input.extensions.unwrap_or(&HashMap::new())) {
         SpokeResult::Ok(extensions) => extensions,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
     spoke_ok(AssemblePacket {
+        cognition,
         entries: truncated_entries,
         extensions,
         modules: HashMap::new(),
@@ -301,6 +373,8 @@ mod tests {
             knowledge_entries: std::slice::from_ref(&entry),
             extensions: None,
             max_entries: None,
+            cognition_selection: None,
+            current_view_policy: None,
         });
 
         assert!(result.is_ok());
@@ -322,6 +396,8 @@ mod tests {
             knowledge_entries: std::slice::from_ref(&entry),
             extensions: None,
             max_entries: None,
+            cognition_selection: None,
+            current_view_policy: None,
         });
 
         assert!(result.is_reject());
@@ -393,6 +469,8 @@ mod tests {
             knowledge_entries: &[],
             extensions: None,
             max_entries: None,
+            cognition_selection: None,
+            current_view_policy: None,
         });
 
         assert!(result.is_ok());
@@ -429,6 +507,8 @@ mod tests {
             knowledge_entries: &entries,
             extensions: None,
             max_entries: Some(2),
+            cognition_selection: None,
+            current_view_policy: None,
         });
 
         assert!(result.is_ok());
@@ -451,6 +531,8 @@ mod tests {
             knowledge_entries: &[],
             extensions: Some(&extensions),
             max_entries: None,
+            cognition_selection: None,
+            current_view_policy: None,
         });
 
         assert!(result.is_ok());
@@ -476,6 +558,8 @@ mod tests {
             knowledge_entries: &[],
             extensions: Some(&extensions),
             max_entries: None,
+            cognition_selection: None,
+            current_view_policy: None,
         });
 
         assert!(result.is_reject());
@@ -491,11 +575,164 @@ mod tests {
             knowledge_entries: &[],
             extensions: None,
             max_entries: None,
+            cognition_selection: None,
+            current_view_policy: None,
         });
 
         assert!(result.is_reject());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::InvalidPacketInput);
         }
+    }
+    // === P2/T2 cognition availability and projection source set ===
+
+    use crate::cognition::CurrentViewPolicy;
+    use spoke_schemas::data::cognition::CognitionRecord as SchemaRecord;
+
+    struct FirstInputPolicy;
+
+    impl CurrentViewPolicy for FirstInputPolicy {
+        fn select(&self, assessments: &[&SchemaRecord]) -> Option<String> {
+            assessments.first().map(|record| match record {
+                SchemaRecord::BeliefRecord(record) => record.record_id.to_string(),
+                SchemaRecord::EpistemicAssessment(record) => record.record_id.to_string(),
+                SchemaRecord::PerceptionRecord(record) => record.record_id.to_string(),
+            })
+        }
+    }
+
+    fn cognition_record_json(entry_id: &str, record_id: &str) -> Value {
+        json!({
+            "kind": "belief",
+            "record_id": record_id,
+            "holder": { "kind": "knowledge_entry", "namespace": "world_a", "id": entry_id },
+            "target": {
+                "carrier": { "kind": "knowledge_entry", "namespace": "world_a", "id": "kb_box" },
+                "target_id": "t_marble",
+                "kind": "proposition",
+                "text": "Mira hides the marble"
+            },
+            "assessor": { "kind": "principal", "namespace": "world_a", "id": "assessor_self" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+                "kind": "evidence",
+                "evidence": [{ "kind": "knowledge_entry", "namespace": "world_a", "id": "kb_box" }]
+            },
+            "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+            "effective_at": "2026-07-23T09:00:00Z",
+            "assessed_at": "2026-07-23T09:05:00Z",
+            "view": "current",
+            "order": 1,
+            "q": {
+                "value": 0.9,
+                "assertion": "belief_attribution",
+                "method": "direct_report",
+                "calibration": "uncalibrated"
+            },
+            "extensions": {}
+        })
+    }
+
+    fn cognition_entry(entry_id: &str, record_id: &str) -> KnowledgeEntryForAssemble {
+        entry_from_wire(json!({
+            "schema_version": 1,
+            "entry_id": entry_id,
+            "entry_type": "character",
+            "canonical_name": entry_id,
+            "status": "confirmed",
+            "body": {},
+            "extensions": {},
+            "modules": {
+                "cognition": {
+                    "records": [cognition_record_json(entry_id, record_id)],
+                    "world_facts": [],
+                    "extensions": {}
+                }
+            }
+        }))
+    }
+
+    fn cognition_selection(view: &str) -> spoke_schemas::CognitionSelection {
+        let wire = if view == "current" {
+            json!({
+                "view": view,
+                "filter": {},
+                "selection_policy": { "policy_id": "pol_first", "policy_version": "v1" }
+            })
+        } else {
+            json!({ "view": view, "filter": {} })
+        };
+        serde_json::from_value(wire).expect("cognition selection deserializes")
+    }
+
+    #[test]
+    fn recorded_at_view_rejects_instead_of_empty_projection() {
+        let entry = cognition_entry("kb_a", "rec_a");
+        let selection = cognition_selection("recorded_at");
+
+        let result = build_assemble_packet(BuildAssemblePacketInput {
+            packet_id: "pkt_recorded",
+            knowledge_entries: std::slice::from_ref(&entry),
+            extensions: None,
+            max_entries: None,
+            cognition_selection: Some(&selection),
+            current_view_policy: None,
+        });
+
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                let details = reject.details.expect("unsupported requirement details");
+                assert_eq!(
+                    details.get("reason").and_then(Value::as_str),
+                    Some("unsupported_cognition_requirement")
+                );
+                assert_eq!(
+                    details.get("field").and_then(Value::as_str),
+                    Some("cognition_selection.view")
+                );
+            }
+            SpokeResult::Ok(_) => panic!("unavailable recorded_at view must reject"),
+        }
+    }
+
+    #[test]
+    fn projection_covers_authorized_source_set_before_limit() {
+        let entries = vec![
+            cognition_entry("kb_a", "rec_a"),
+            cognition_entry("kb_b", "rec_b"),
+        ];
+        let selection = cognition_selection("current");
+        let policy = FirstInputPolicy;
+
+        let result = build_assemble_packet(BuildAssemblePacketInput {
+            packet_id: "pkt_limit",
+            knowledge_entries: &entries,
+            extensions: None,
+            max_entries: Some(1),
+            cognition_selection: Some(&selection),
+            current_view_policy: Some(&policy),
+        });
+
+        let SpokeResult::Ok(packet) = result else {
+            panic!("limited packet must succeed");
+        };
+        assert_eq!(packet.entries.len(), 1);
+        let projection = packet.cognition.expect("projection over the source set");
+        assert_eq!(projection.items.len(), 2);
+        assert_eq!(
+            projection.items[0]
+                .selection
+                .as_ref()
+                .map(|selection| selection.selected_record_id.as_str()),
+            Some("rec_a")
+        );
+        assert_eq!(
+            projection.items[1]
+                .selection
+                .as_ref()
+                .map(|selection| selection.selected_record_id.as_str()),
+            Some("rec_b")
+        );
     }
 }

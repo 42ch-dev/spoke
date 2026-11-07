@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import {
   FIXTURE_SCHEMA_MAP,
   FIXTURES_ROOT,
+  SCHEMA_IDS,
   compileSchemaValidator,
   createSchemaValidator,
 } from "./schema-validator.js";
@@ -30,6 +31,28 @@ function loadFixture<T>(filename: string): T {
   const raw = readFileSync(join(FIXTURES_ROOT, filename), "utf8");
   return JSON.parse(raw) as T;
 }
+
+/** Run the public served-list filter and unwrap; a rejection fails the test. */
+function filteredEntryIds(
+  knowledgeEntries: KnowledgeEntry[],
+  scope: Scope,
+): string[] {
+  const filtered = filterKnowledgeEntriesByScope(knowledgeEntries, scope);
+  expect(filtered.ok).toBe(true);
+  if (!filtered.ok) {
+    throw new Error(`unexpected scope rejection: ${filtered.code}`);
+  }
+  return filtered.value.map((entry) => entry.entry_id);
+}
+
+const cognitionVectors = JSON.parse(
+  readFileSync(join(FIXTURES_ROOT, "../cognition/validator-vectors.json"), "utf8"),
+) as {
+  vectors: { id: string; shape: string; expected: string; input: unknown }[];
+};
+const observationHostVectors = cognitionVectors.vectors.filter(
+  (vector) => vector.shape === "timeline-event-observation" && vector.expected === "accept",
+);
 
 describe("fixtures/toy-world schema conformance", () => {
   const ajv = createSchemaValidator();
@@ -172,6 +195,15 @@ describe("fixtures/toy-world schema conformance", () => {
     // (derivative, never a second authority).
     expect(post.snapshot).toEqual(pre.snapshot);
     expect(post.deltas).toEqual([]);
+    // The pre-transfer state records Bo's belief formation with an RFC 6901
+    // JSON Pointer delta rooted at /modules/mental/<field> (C4); the
+    // post-transfer state retains no delta — explicit empty, not missing.
+    expect(pre.deltas).toEqual([
+      {
+        path: "/modules/mental/beliefs",
+        next: { ref: "kb_tw_bo", count: 2 },
+      },
+    ]);
     expect(Date.parse(post.occurred_at!)).toBeGreaterThan(
       Date.parse(pre.occurred_at!),
     );
@@ -180,11 +212,13 @@ describe("fixtures/toy-world schema conformance", () => {
   it("illustrates modules.observation on the hidden-transfer TimelineEvent", () => {
     const transfer = loadFixture<TimelineEvent>("evt_tw_hidden_transfer.json");
     const observation = transfer.modules?.observation as
-      | { observers?: string[]; access?: Record<string, unknown> }
+      | { observers?: unknown[]; access?: Record<string, unknown> }
       | undefined;
 
     expect(transfer.modules?.observation).toEqual({
-      observers: ["kb_tw_ana"],
+      observers: [
+        { kind: "knowledge_entry", namespace: "toy_world", id: "kb_tw_ana" },
+      ],
       access: {
         line_of_sight: true,
         hearing_range: true,
@@ -195,8 +229,72 @@ describe("fixtures/toy-world schema conformance", () => {
     // Bo is absent from observers (he left the room) — the false-belief
     // absence mechanic, not a consistency bug.
     expect(transfer.participant_entry_ids).toEqual(["kb_tw_ana", "kb_tw_marble"]);
-    expect(observation?.observers).toEqual(["kb_tw_ana"]);
-    expect(observation?.observers).not.toContain("kb_tw_bo");
+    expect(observation?.observers).toHaveLength(1);
+    expect(observation?.observers?.[0]).toMatchObject({ id: "kb_tw_ana" });
+    const observerIds = (observation?.observers ?? []).map((observer) =>
+      observer && typeof observer === "object" && "id" in observer
+        ? observer.id
+        : undefined,
+    );
+    expect(observerIds).toEqual(["kb_tw_ana"]);
+  });
+
+  it.each(observationHostVectors)("validates shared TimelineEvent host $id", ({ input }) => {
+    const timelineEvent = compileSchemaValidator(ajv, SCHEMA_IDS.timelineEvent);
+    expect(timelineEvent(input), JSON.stringify(timelineEvent.errors)).toBe(true);
+  });
+
+  it("keeps missing, explicit-empty and actual-capture observation distinct", () => {
+    const timelineEvent = compileSchemaValidator(ajv, SCHEMA_IDS.timelineEvent);
+    const observationModule = compileSchemaValidator(
+      ajv,
+      `${SCHEMA_IDS.cognition}#/definitions/ObservationModule`,
+    );
+    const cognitionRecord = compileSchemaValidator(ajv, SCHEMA_IDS.cognition);
+
+    // Missing module = no observation metadata: the event itself stays valid
+    // without modules.observation (other events carry none).
+    const transfer = loadFixture<TimelineEvent>("evt_tw_hidden_transfer.json");
+    const modules = { ...(transfer.modules as Record<string, unknown>) };
+    delete modules.observation;
+    expect(timelineEvent({ ...transfer, modules })).toBe(true);
+    expect(modules).not.toHaveProperty("observation");
+    // Present module validates through its own definition.
+    expect(
+      observationModule(
+        (transfer.modules as Record<string, unknown>).observation,
+      ),
+    ).toBe(true);
+    // observers: [] = explicitly no could-perceive observers, still distinct
+    // from a missing module.
+    expect(observationModule({ observers: [] })).toBe(true);
+    // A Perception record = actual capture: Ana actually captured the
+    // transfer, which mere event access never creates; it validates against
+    // the cognition record schema on its own.
+    const capture = loadFixture<{ kind: string; q: { assertion: string } }>(
+      "cognition_tw_hidden_transfer.json",
+    );
+    expect(cognitionRecord(capture)).toBe(true);
+    expect(capture.kind).toBe("perception");
+    expect(capture.q.assertion).toBe("actual_capture");
+    // The module requires the observers key.
+    expect(observationModule({})).toBe(false);
+    expect(observationModule({ observers: ["kb_tw_ana"] })).toBe(false);
+  });
+
+  it("pins QRange legal one/both-bound shapes and rejected boundary inputs", () => {
+    const qRange = compileSchemaValidator(
+      ajv,
+      `${SCHEMA_IDS.cognition}#/definitions/QRange`,
+    );
+
+    expect(qRange({ min: 0.2, max: 0.8 })).toBe(true);
+    expect(qRange({ min: 0.2 })).toBe(true);
+    expect(qRange({ max: 0.8 })).toBe(true);
+    expect(qRange({})).toBe(false);
+    expect(qRange({ min: "0.2" })).toBe(false);
+    expect(qRange({ min: 1.2 })).toBe(false);
+    expect(qRange({ min: 0.2, unknown: 1 })).toBe(false);
   });
 
   it("illustrates l5-fork wire fields on storm-delay TimelineEvent", () => {
@@ -329,17 +427,15 @@ describe("fixtures/toy-world schema conformance", () => {
     const mira = loadFixture<KnowledgeEntry>("kb_tw_mira.json");
     const harbor = loadFixture<KnowledgeEntry>("kb_tw_harbor.json");
 
-    const filtered = filterKnowledgeEntriesByScope([mira, harbor], scope);
-    expect(filtered.map((entry) => entry.entry_id)).toEqual([mira.entry_id]);
+    const filtered = filteredEntryIds([mira, harbor], scope);
+    expect(filtered).toEqual([mira.entry_id]);
 
     // Same core selection as an extensions-less scope.
     const coreOnly: Scope = {
       scope_id: scope.scope_id,
       entry_types: scope.entry_types,
     };
-    expect(
-      filterKnowledgeEntriesByScope([mira, harbor], coreOnly).map((entry) => entry.entry_id),
-    ).toEqual([mira.entry_id]);
+    expect(filteredEntryIds([mira, harbor], coreOnly)).toEqual([mira.entry_id]);
 
     // extensions are preserved verbatim — matchers neither consume nor alter them.
     const snapshot = scope.extensions;
@@ -352,5 +448,111 @@ describe("fixtures/toy-world schema conformance", () => {
       toy: { branch_id: "fork_tw_storm_branch" },
       nexus: { text_search: "harbor", limit: 10 },
     });
+  });
+
+  it("serves Scope.cognition through the public list filter over toy-world entries", () => {
+    const mira = loadFixture<KnowledgeEntry>("kb_tw_mira.json");
+    const harbor = loadFixture<KnowledgeEntry>("kb_tw_harbor.json");
+    const scopeId = "toy-scope-001";
+
+    const withCognition = (
+      entry: KnowledgeEntry,
+      recordId: string,
+    ): KnowledgeEntry => ({
+      ...entry,
+      modules: {
+        cognition: {
+          records: [
+            {
+              kind: "belief",
+              record_id: recordId,
+              holder: {
+                kind: "knowledge_entry",
+                namespace: "toy",
+                id: mira.entry_id,
+              },
+              target: {
+                carrier: {
+                  kind: "knowledge_entry",
+                  namespace: "toy",
+                  id: harbor.entry_id,
+                },
+                target_id: "t_harbor_berth",
+                kind: "proposition",
+              },
+              assessor: {
+                kind: "principal",
+                namespace: "toy",
+                id: "assessor_tw",
+              },
+              assessor_role: "holder_self_report",
+              basis: {
+                kind: "evidence",
+                evidence: [
+                  {
+                    kind: "knowledge_entry",
+                    namespace: "toy",
+                    id: harbor.entry_id,
+                  },
+                ],
+              },
+              assessment_context: { context_id: "ctx_tw" },
+              effective_at: "2026-07-23T09:00:00Z",
+              assessed_at: "2026-07-23T09:05:00Z",
+              view: "current",
+              order: 1,
+              q: {
+                value: 0.9,
+                assertion: "belief_attribution",
+                method: "direct_report",
+                calibration: "uncalibrated",
+              },
+              extensions: {},
+            },
+          ],
+          world_facts: [],
+          extensions: {},
+        },
+      },
+    });
+
+    const selection = {
+      view: "current" as const,
+      filter: {
+        holder: { kind: "knowledge_entry", namespace: "toy", id: mira.entry_id },
+      },
+      selection_policy: { policy_id: "pol_tw", policy_version: "v1" },
+    };
+
+    // Baseline without cognition is unchanged.
+    expect(filteredEntryIds([mira, harbor], { scope_id: scopeId })).toEqual([
+      mira.entry_id,
+      harbor.entry_id,
+    ]);
+
+    // A current selection filters on carried cognition after authorization.
+    expect(
+      filteredEntryIds(
+        [withCognition(mira, "rec_tw_mira"), harbor],
+        { scope_id: scopeId, cognition: selection },
+      ),
+    ).toEqual([mira.entry_id]);
+
+    // The recorded-at source is unavailable here: reject at the Scope field
+    // path instead of silently returning the baseline set.
+    const recordedAt = filterKnowledgeEntriesByScope(
+      [withCognition(mira, "rec_tw_mira")],
+      {
+        scope_id: scopeId,
+        cognition: { view: "recorded_at", filter: selection.filter },
+      },
+    );
+    expect(recordedAt.ok).toBe(false);
+    if (!recordedAt.ok) {
+      expect(recordedAt.details).toMatchObject({
+        reason: "unsupported_cognition_requirement",
+        field: "scope.cognition.view",
+      });
+    }
   });
 });

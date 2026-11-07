@@ -15,6 +15,7 @@ use std::fmt;
 
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
+use spoke_schemas::data::cognition::CognitionReference;
 
 /// Fixed array order for chunk partitioning and reassembly (§6.13, decision D8).
 pub const BUNDLE_ARRAY_FIELDS: [&str; 7] = [
@@ -84,6 +85,7 @@ pub enum TransferError {
     UnexpectedHeader(u64),
     BundleDigestMismatch,
     MissingMapping { kind: &'static str, id: String },
+    AmbiguousMapping { kind: &'static str, id: String },
 }
 
 impl fmt::Display for TransferError {
@@ -122,6 +124,12 @@ impl fmt::Display for TransferError {
             }
             Self::MissingMapping { kind, id } => {
                 write!(formatter, "{kind} {id} has no target assignment")
+            }
+            Self::AmbiguousMapping { kind, id } => {
+                write!(
+                    formatter,
+                    "{kind} {id} occurs under multiple namespaces; an id-only map is ambiguous, exact reference pairs are required"
+                )
             }
         }
     }
@@ -865,6 +873,317 @@ pub fn remap_candidate_consumed_by(
     Ok(candidate)
 }
 
+/// The seven wire reference kinds (spoke-cognition). A JSON object is treated
+/// as a `CognitionReference` exactly when it carries these three members with
+/// a known kind — cognition records themselves use `belief`/`epistemic`/
+/// `perception` kinds and can never be mistaken for a reference.
+const REFERENCE_KINDS: [&str; 7] = [
+    "knowledge_entry",
+    "timeline_event",
+    "memory_record",
+    "memory_subject",
+    "principal",
+    "world",
+    "external",
+];
+
+fn reference_shape(value: &Value) -> Option<(&'static str, &str, &str)> {
+    let object = value.as_object()?;
+    // Closed reference identity: only the three members are a reference. An
+    // object carrying extra product keys is not translated (and is left for
+    // the Content guard to reject) rather than rewritten into a clean tuple.
+    if object.len() != 3 {
+        return None;
+    }
+    let kind = object.get("kind")?.as_str()?;
+    let kind = REFERENCE_KINDS.iter().find(|known| **known == kind)?;
+    let namespace = object.get("namespace")?.as_str()?;
+    let id = object.get("id")?.as_str()?;
+    Some((kind, namespace, id))
+}
+
+/// Fail-closed §6.3 resolution for one reference occurrence.
+struct ReferenceResolver<'a> {
+    maps: &'a TranslationMaps,
+    /// Exact `(from, to)` pairs serialized to wire `Value`s; a pair matches
+    /// only the complete `(kind, namespace, id)` tuple, never a bare id.
+    pairs: Vec<(Value, Value)>,
+    /// Bare id → number of distinct namespaces it occurs under in the value
+    /// being translated (drives the id-map ambiguity rule).
+    namespace_counts: BTreeMap<String, usize>,
+}
+
+impl ReferenceResolver<'_> {
+    fn translate(&self, value: &Value) -> Result<Value, TransferError> {
+        let Some((kind, namespace, id)) = reference_shape(value) else {
+            return Ok(value.clone());
+        };
+        for (from, to) in &self.pairs {
+            if from == value {
+                return Ok(to.clone());
+            }
+        }
+        // Id maps apply only to an id change within an unchanged namespace.
+        let map = match kind {
+            "memory_subject" => &self.maps.subject_id_map,
+            "memory_record" => &self.maps.record_id_map,
+            // knowledge_entry / timeline_event / principal / world have no id
+            // map: with no exact pair no identity component changes and the
+            // complete namespace-bearing identity is preserved. External
+            // references may remain unchanged only when no pair is supplied.
+            _ => return Ok(value.clone()),
+        };
+        match map.get(id) {
+            Some(target) => {
+                if self.namespace_counts.get(id).copied().unwrap_or(0) > 1 {
+                    return Err(TransferError::AmbiguousMapping { kind, id: id.to_string() });
+                }
+                Ok(json!({
+                    "kind": kind,
+                    "namespace": namespace,
+                    "id": target,
+                }))
+            }
+            None => Err(TransferError::MissingMapping {
+                kind,
+                id: id.to_string(),
+            }),
+        }
+    }
+}
+
+/// Visit the typed cognition reference positions of transferred content.
+///
+/// `value` is either a `Content` (`cognition` member) or a reassembled bundle
+/// (`records[*].content`, `candidates[*].proposed.content`). Only the exact
+/// §6.3 carrier positions are visited: target carrier/`about`, holder,
+/// assessor, episode, basis evidence and metric assessor/basis. Opaque
+/// members — `structured`, Perception `content`, target `text`, `extensions`
+/// and unknown keys — are never scanned, so a product object that merely
+/// looks like a reference is not translated or rejected.
+fn visit_cognition_references<'a>(value: &'a Value, visit: &mut impl FnMut(&'a Value)) {
+    if let Some(cognition) = value.get("cognition").and_then(Value::as_array) {
+        for record in cognition {
+            visit_record_references(record, visit);
+        }
+        return;
+    }
+    if let Some(records) = value.get("records").and_then(Value::as_array) {
+        for record in records {
+            if let Some(content) = record.get("content") {
+                visit_cognition_references(content, visit);
+            }
+        }
+    }
+    if let Some(candidates) = value.get("candidates").and_then(Value::as_array) {
+        for candidate in candidates {
+            if let Some(content) = candidate
+                .get("proposed")
+                .and_then(|proposed| proposed.get("content"))
+            {
+                visit_cognition_references(content, visit);
+            }
+        }
+    }
+}
+
+fn visit_record_references<'a>(record: &'a Value, visit: &mut impl FnMut(&'a Value)) {
+    let Some(object) = record.as_object() else {
+        return;
+    };
+    for field in ["holder", "assessor", "episode"] {
+        if let Some(reference) = object.get(field) {
+            visit(reference);
+        }
+    }
+    if let Some(target) = object.get("target") {
+        visit_target_references(target, visit);
+    }
+    if let Some(basis) = object.get("basis") {
+        visit_basis_references(basis, visit);
+    }
+    if let Some(metrics) = object.get("metrics").and_then(Value::as_object) {
+        for metric in metrics.values() {
+            let Some(metric) = metric.as_object() else {
+                continue;
+            };
+            if let Some(assessor) = metric.get("assessor") {
+                visit(assessor);
+            }
+            if let Some(basis) = metric.get("basis") {
+                visit_basis_references(basis, visit);
+            }
+        }
+    }
+}
+
+fn visit_target_references<'a>(target: &'a Value, visit: &mut impl FnMut(&'a Value)) {
+    let Some(object) = target.as_object() else {
+        return;
+    };
+    if let Some(carrier) = object.get("carrier") {
+        visit(carrier);
+    }
+    if let Some(about) = object.get("about") {
+        visit_target_references(about, visit);
+    }
+}
+
+fn visit_basis_references<'a>(basis: &'a Value, visit: &mut impl FnMut(&'a Value)) {
+    if let Some(evidence) = basis.get("evidence").and_then(Value::as_array) {
+        for reference in evidence {
+            visit(reference);
+        }
+    }
+}
+
+fn translate_cognition_references_in_place(
+    value: &mut Value,
+    resolver: &ReferenceResolver<'_>,
+) -> Result<(), TransferError> {
+    if let Some(cognition) = value.get_mut("cognition").and_then(Value::as_array_mut) {
+        for record in cognition {
+            translate_record_references(record, resolver)?;
+        }
+        return Ok(());
+    }
+    if let Some(records) = value.get_mut("records").and_then(Value::as_array_mut) {
+        for record in records {
+            if let Some(content) = record.get_mut("content") {
+                translate_cognition_references_in_place(content, resolver)?;
+            }
+        }
+    }
+    if let Some(candidates) = value.get_mut("candidates").and_then(Value::as_array_mut) {
+        for candidate in candidates {
+            if let Some(content) = candidate
+                .get_mut("proposed")
+                .and_then(|proposed| proposed.get_mut("content"))
+            {
+                translate_cognition_references_in_place(content, resolver)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn translate_record_references(
+    record: &mut Value,
+    resolver: &ReferenceResolver<'_>,
+) -> Result<(), TransferError> {
+    let Some(object) = record.as_object_mut() else {
+        return Ok(());
+    };
+    for field in ["holder", "assessor", "episode"] {
+        if let Some(reference) = object.get_mut(field) {
+            *reference = resolver.translate(reference)?;
+        }
+    }
+    if let Some(target) = object.get_mut("target") {
+        translate_target_references(target, resolver)?;
+    }
+    if let Some(basis) = object.get_mut("basis") {
+        translate_basis_references(basis, resolver)?;
+    }
+    if let Some(metrics) = object.get_mut("metrics").and_then(Value::as_object_mut) {
+        for metric in metrics.values_mut() {
+            let Some(metric) = metric.as_object_mut() else {
+                continue;
+            };
+            if let Some(assessor) = metric.get_mut("assessor") {
+                *assessor = resolver.translate(assessor)?;
+            }
+            if let Some(basis) = metric.get_mut("basis") {
+                translate_basis_references(basis, resolver)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn translate_target_references(
+    target: &mut Value,
+    resolver: &ReferenceResolver<'_>,
+) -> Result<(), TransferError> {
+    let Some(object) = target.as_object_mut() else {
+        return Ok(());
+    };
+    if let Some(carrier) = object.get_mut("carrier") {
+        *carrier = resolver.translate(carrier)?;
+    }
+    if let Some(about) = object.get_mut("about") {
+        translate_target_references(about, resolver)?;
+    }
+    Ok(())
+}
+
+fn translate_basis_references(
+    basis: &mut Value,
+    resolver: &ReferenceResolver<'_>,
+) -> Result<(), TransferError> {
+    if let Some(evidence) = basis.get_mut("evidence").and_then(Value::as_array_mut) {
+        for reference in evidence {
+            *reference = resolver.translate(reference)?;
+        }
+    }
+    Ok(())
+}
+
+fn reference_resolver<'a>(
+    maps: &'a TranslationMaps,
+    reference_translations: &'a [(CognitionReference, CognitionReference)],
+    value: &Value,
+) -> Result<ReferenceResolver<'a>, TransferError> {
+    let mut pairs = Vec::with_capacity(reference_translations.len());
+    for (from, to) in reference_translations {
+        pairs.push((
+            serde_json::to_value(from)
+                .map_err(|_| TransferError::UnexpectedType("reference translation source"))?,
+            serde_json::to_value(to)
+                .map_err(|_| TransferError::UnexpectedType("reference translation target"))?,
+        ));
+    }
+    let mut namespaces: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    visit_cognition_references(value, &mut |reference| {
+        if let Some((_, namespace, id)) = reference_shape(reference) {
+            namespaces
+                .entry(id.to_string())
+                .or_default()
+                .insert(namespace.to_string());
+        }
+    });
+    let namespace_counts = namespaces
+        .into_iter()
+        .map(|(id, set)| (id, set.len()))
+        .collect();
+    Ok(ReferenceResolver {
+        maps,
+        pairs,
+        namespace_counts,
+    })
+}
+
+/// §6.3 cognition reference translation over transferred content. Exact
+/// `(from, to)` pairs translate the complete reference tuple (including a
+/// namespace change) and always win over id maps; `memory_subject` /
+/// `memory_record` references otherwise use the id maps for an id change
+/// within an unchanged namespace — a missing assignment and an ambiguous
+/// bare id both fail closed, never silently preserve a source id as a
+/// target id. Only the typed cognition reference positions named by §6.3 are
+/// translated (records, target carrier/`about`, holders, assessors, basis
+/// evidence, metric attribution/basis and episode references); opaque
+/// content, extensions and unknown members are never scanned.
+pub fn remap_cognition_references(
+    value: &Value,
+    maps: &TranslationMaps,
+    reference_translations: &[(CognitionReference, CognitionReference)],
+) -> Result<Value, TransferError> {
+    let resolver = reference_resolver(maps, reference_translations, value)?;
+    let mut translated = value.clone();
+    translate_cognition_references_in_place(&mut translated, &resolver)?;
+    Ok(translated)
+}
+
 /// Grants adopted by explicit `adopt_grants`: returns the adopted summaries and
 /// the number that were dropped (§7.31, MEM-R025).
 pub fn adopt_grants(bundle: &Value, adopt: &[&str]) -> Result<(Vec<Value>, usize), TransferError> {
@@ -898,11 +1217,18 @@ pub struct StagedOutcome {
 }
 
 /// Verify staged chunks and reference translation in one pass.
+///
+/// `reference_translations` carries the explicit §6.3 `(from, to)`
+/// `CognitionReference` pairs for complete reference translations; every
+/// cognition reference occurring in the reassembled bundle must resolve
+/// through an exact pair or the id maps — an unresolved or ambiguous
+/// reference adds a verification error and the staging fails closed.
 pub fn verify_staging(
     chunks: &[Value],
     subject_renames: &BTreeMap<String, String>,
     record_ids: &BTreeMap<String, String>,
     candidate_ids: &BTreeMap<String, String>,
+    reference_translations: &[(CognitionReference, CognitionReference)],
 ) -> StagedOutcome {
     let reassembly = reassemble_verified(chunks);
     let mut errors: Vec<String> = reassembly.errors.iter().map(ToString::to_string).collect();
@@ -911,6 +1237,9 @@ pub fn verify_staging(
             let (maps, translation_errors) =
                 build_translation_maps(bundle, subject_renames, record_ids, candidate_ids);
             errors.extend(translation_errors.iter().map(ToString::to_string));
+            if let Err(error) = remap_cognition_references(bundle, &maps, reference_translations) {
+                errors.push(error.to_string());
+            }
             maps
         }
         None => TranslationMaps::default(),
@@ -1707,7 +2036,7 @@ mod tests {
         records.insert("rec_a".to_string(), "rec_a_target".to_string());
         let (_, candidates) = complete_assignments();
 
-        let outcome = verify_staging(&chunks, &BTreeMap::new(), &records, &candidates);
+        let outcome = verify_staging(&chunks, &BTreeMap::new(), &records, &candidates, &[]);
         assert!(outcome.verification.bundle_digest_ok);
         assert!(outcome
             .verification
@@ -1717,7 +2046,7 @@ mod tests {
         assert!(outcome.bundle.is_some());
 
         let (all_records, all_candidates) = complete_assignments();
-        let outcome = verify_staging(&chunks, &BTreeMap::new(), &all_records, &all_candidates);
+        let outcome = verify_staging(&chunks, &BTreeMap::new(), &all_records, &all_candidates, &[]);
         assert!(outcome.verification.bundle_digest_ok);
         assert!(outcome.verification.errors.is_empty());
     }
@@ -1781,5 +2110,208 @@ mod tests {
         assert_eq!(report["grants_dropped"], json!(1));
         assert_eq!(report["verification"]["bundle_digest_ok"], json!(true));
         assert_eq!(report["verification"]["errors"], json!([]));
+    }
+
+    fn ref_value(kind: &str, namespace: &str, id: &str) -> Value {
+        json!({"kind": kind, "namespace": namespace, "id": id})
+    }
+
+    fn maps(subjects: &[(&str, &str)], records: &[(&str, &str)]) -> TranslationMaps {
+        TranslationMaps {
+            subject_id_map: subjects
+                .iter()
+                .map(|(from, to)| ((*from).to_string(), (*to).to_string()))
+                .collect(),
+            record_id_map: records
+                .iter()
+                .map(|(from, to)| ((*from).to_string(), (*to).to_string()))
+                .collect(),
+            candidate_id_map: BTreeMap::new(),
+        }
+    }
+
+    fn pair(from: Value, to: Value) -> (CognitionReference, CognitionReference) {
+        (
+            serde_json::from_value(from).expect("pair source parses"),
+            serde_json::from_value(to).expect("pair target parses"),
+        )
+    }
+
+    #[test]
+    fn cognition_lifecycle_reference_id_map_keeps_namespace() {
+        let content = json!({
+            "text": "Memory",
+            "cognition": [
+                {"holder": ref_value("memory_subject", "spc_source", "subj_a")},
+            ],
+        });
+        let translated = remap_cognition_references(
+            &content,
+            &maps(&[("subj_a", "subj_b")], &[]),
+            &[],
+        )
+        .expect("id map translates");
+        assert_eq!(
+            translated["cognition"][0]["holder"],
+            ref_value("memory_subject", "spc_source", "subj_b")
+        );
+    }
+
+    #[test]
+    fn cognition_lifecycle_reference_record_id_map() {
+        let content = json!({
+            "cognition": [
+                {"basis": {"kind": "evidence", "evidence": [
+                    ref_value("memory_record", "mem", "rec_a"),
+                ]}},
+            ],
+        });
+        let translated = remap_cognition_references(
+            &content,
+            &maps(&[], &[("rec_a", "rec_b")]),
+            &[],
+        )
+        .expect("record id map translates");
+        assert_eq!(
+            translated["cognition"][0]["basis"]["evidence"][0],
+            ref_value("memory_record", "mem", "rec_b")
+        );
+    }
+
+    #[test]
+    fn cognition_lifecycle_reference_exact_pair_wins_and_changes_namespace() {
+        let content = json!({
+            "cognition": [
+                {"holder": ref_value("memory_subject", "mem_source", "subj_a")},
+            ],
+        });
+        let translated = remap_cognition_references(
+            &content,
+            &maps(&[("subj_a", "subj_mapped")], &[]),
+            &[pair(
+                ref_value("memory_subject", "mem_source", "subj_a"),
+                ref_value("memory_subject", "mem_target", "subj_pair"),
+            )],
+        )
+        .expect("exact pair translates the complete tuple");
+        assert_eq!(
+            translated["cognition"][0]["holder"],
+            ref_value("memory_subject", "mem_target", "subj_pair")
+        );
+    }
+
+    #[test]
+    fn cognition_lifecycle_reference_missing_assignment_fails_closed() {
+        let content = json!({
+            "cognition": [
+                {"holder": ref_value("memory_subject", "mem", "subj_a")},
+            ],
+        });
+        let error = remap_cognition_references(&content, &maps(&[], &[]), &[])
+            .expect_err("unmapped subject reference rejects");
+        assert!(matches!(
+            error,
+            TransferError::MissingMapping { kind: "memory_subject", .. }
+        ));
+    }
+
+    #[test]
+    fn cognition_lifecycle_reference_ambiguous_bare_id_fails_closed() {
+        let content = json!({
+            "cognition": [
+                {"holder": ref_value("memory_subject", "mem_one", "subj_a")},
+                {"assessor": ref_value("memory_subject", "mem_two", "subj_a")},
+            ],
+        });
+        let error = remap_cognition_references(
+            &content,
+            &maps(&[("subj_a", "subj_b")], &[]),
+            &[],
+        )
+        .expect_err("ambiguous id-only map rejects");
+        assert!(matches!(
+            error,
+            TransferError::AmbiguousMapping { kind: "memory_subject", .. }
+        ));
+    }
+
+    #[test]
+    fn cognition_lifecycle_reference_cross_system_same_bare_id() {
+        // system_a/alice and system_b/alice neither match on bare id nor
+        // inherit each other's mapping: the pair translates exactly the
+        // system_a reference, the id map never applies to external
+        // references, and the system_b reference is preserved unchanged.
+        let content = json!({
+            "cognition": [
+                {"holder": ref_value("external", "system_a", "alice")},
+                {"assessor": ref_value("external", "system_b", "alice")},
+            ],
+        });
+        let translated = remap_cognition_references(
+            &content,
+            &maps(&[("alice", "alice_renamed")], &[]),
+            &[pair(
+                ref_value("external", "system_a", "alice"),
+                ref_value("external", "system_c", "alice"),
+            )],
+        )
+        .expect("exact pair translates only its own full reference");
+        assert_eq!(
+            translated["cognition"][0]["holder"],
+            ref_value("external", "system_c", "alice")
+        );
+        assert_eq!(
+            translated["cognition"][1]["assessor"],
+            ref_value("external", "system_b", "alice")
+        );
+    }
+
+    #[test]
+    fn cognition_lifecycle_reference_unpaired_non_memory_kinds_preserved() {
+        let content = json!({
+            "cognition": [
+                {"holder": ref_value("knowledge_entry", "system_a", "ke_alice")},
+                {"target": {"about": ref_value("world", "system_a", "w_main")}},
+            ],
+        });
+        let translated =
+            remap_cognition_references(&content, &maps(&[], &[]), &[]).expect("preserved");
+        assert_eq!(
+            translated["cognition"][0]["holder"],
+            ref_value("knowledge_entry", "system_a", "ke_alice")
+        );
+        assert_eq!(
+            translated["cognition"][1]["target"]["about"],
+            ref_value("world", "system_a", "w_main")
+        );
+    }
+
+    #[test]
+    fn cognition_lifecycle_verify_staging_rejects_unresolved_reference() {
+        let mut bundle = sealed_bundle();
+        let mut record = record("rec_cog", "delta");
+        // `subj_missing` is not a bundled subject, so no assignment exists.
+        record["content"] = json!({
+            "text": "Memory",
+            "cognition": [
+                {"holder": ref_value("memory_subject", "mem", "subj_missing")},
+            ],
+        });
+        bundle["records"]
+            .as_array_mut()
+            .expect("records array")
+            .push(record);
+        let bundle = seal(bundle);
+        let chunks = partition_bundle(&bundle, 1200).expect("partitions");
+        let (records, candidates) = complete_assignments();
+        let mut records = records;
+        records.insert("rec_cog".to_string(), "rec_cog_target".to_string());
+
+        let outcome = verify_staging(&chunks, &BTreeMap::new(), &records, &candidates, &[]);
+        assert!(outcome
+            .verification
+            .errors
+            .iter()
+            .any(|error| error.contains("subj_missing")));
     }
 }

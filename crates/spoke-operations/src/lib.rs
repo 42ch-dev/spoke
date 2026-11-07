@@ -4,6 +4,7 @@ mod adapter;
 mod assemble;
 mod body;
 mod computable;
+mod cognition;
 mod extensions;
 mod error;
 mod finding;
@@ -44,14 +45,19 @@ pub use knowledge_entry::{
     transition_knowledge_entry_status, AssertUniqueActiveKnowledgeEntryInput,
 };
 pub use mind_state::validate_mind_state;
+pub use cognition::{
+    cognition_record_matches_filter, project_cognition_records, select_cognition_records,
+    validate_cognition_content, validate_cognition_filter, validate_cognition_module,
+    validate_cognition_projection, validate_cognition_record, validate_cognition_selection,
+    validate_observation_module, CurrentViewPolicy,
+};
 pub use occ::assert_revision_match;
 pub use promote::{apply_promote_acceptance, validate_promote_request, validate_promote_request_wire};
 pub use relate::{validate_relate_request, RelateMode, ValidateRelateRequestContext};
 pub use scope::{
-    filter_knowledge_entries_by_scope, filter_knowledge_entries_by_scope_view,
-    filter_timeline_events_by_scope, filter_timeline_events_by_scope_view,
-    knowledge_entry_matches_scope, knowledge_entry_matches_scope_view, ScopeMatchView,
-    timeline_event_matches_scope, timeline_event_matches_scope_view,
+    assert_supported_cognition_selection, cognition_records_of_authorized_entries,
+    cognition_records_of_authorized_entry, filter_knowledge_entries_by_scope,
+    filter_timeline_events_by_scope, timeline_event_matches_scope,
 };
 pub use timeline::{
     filter_timeline_events_by_moment_scale, order_timeline_events_by_ids,

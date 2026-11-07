@@ -157,7 +157,7 @@
         "source_set_digest": "0000632c01b4c98a57d4f7dec7352a6b4abc567201f761fa11ac489680e47e64",
         "record_count": 3,
         "profile_revisions": { "personality": 1 },
-        "state_digest": "9075378e7426f532f9d02e9bf0e4cee88b847f2de4c8dbfefd2998a4d46df65d"
+        "state_digest": "f380938079f70efa59006d40fb3ca44bf7dd1fac7215ad8e0470b2c60bfac97c"
       },
       "body": {
         "format": "markdown",
@@ -198,6 +198,6 @@
       "revision": 1
     }
   ],
-  "digest": "7d31421ff8fcc9b3ad5e4413be02fc971c6aba2464b69462793ffdbb8af6f028",
+  "digest": "9ad335f47ffbaf8fa6d4ee11f975deb7a9b5a3c5e1ab931054254fd35eb11c74",
   "extensions": {}
 }

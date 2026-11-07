@@ -26,6 +26,10 @@
     "filter": {
       "$ref": "https://spoke42.invalid/schemas/data/provenance-filter.schema.json"
     },
+    "cognition_filter": {
+      "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionFilter",
+      "description": "Optional recorded-at-time cognition hard filter; included in the state digest identity. Composes with selection and provenance filter by AND."
+    },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
       "description": "Optional transport metadata."

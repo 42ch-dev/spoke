@@ -137,6 +137,13 @@
         "structured": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
           "description": "Optional opaque structured content. Product semantics (e.g. affect) ride here — there is no affect wire field."
+        },
+        "cognition": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json"
+          },
+          "description": "Optional recorded-at-time standard cognition (every entry has view = \"recorded_at\"); absent when no standard cognition was recorded — absent is never serialized as an empty array. Raw text/structured/candidate material is not promoted to completed standard cognition by placement alone. Tombstoned Content remains {text: \"\"} only, with no structured or cognition."
         }
       },
       "additionalProperties": false,

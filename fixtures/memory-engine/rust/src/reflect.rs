@@ -1,6 +1,7 @@
 //! Deterministic reflection basis digests, staleness, and assembly (§7.25–7.27).
 
 use serde_json::{json, Map, Value};
+use spoke_schemas::data::cognition::CognitionFilter;
 use spoke_schemas::data::provenance_filter::ProvenanceFilter;
 use spoke_schemas::data::read_selection::ReadSelection;
 
@@ -17,6 +18,9 @@ pub struct SourceRef<'a> {
 pub struct ReflectionBasis<'a> {
     pub selection: &'a ReadSelection,
     pub filter: Option<&'a ProvenanceFilter>,
+    /// The canonical cognition filter that pinned the eligible source set
+    /// (§7); included in the `state_digest` object.
+    pub cognition_filter: Option<&'a CognitionFilter>,
     /// Authorized source records; order-independent.
     pub sources: &'a [SourceRef<'a>],
     /// Profile kind → revision.
@@ -102,6 +106,9 @@ fn digest_object(basis: &ReflectionBasis<'_>, policy_version: &str) -> Value {
     json!({
         "engine_policy_version": policy_version,
         "filter": basis.filter.map_or(Value::Null, |filter| json!(filter)),
+        "cognition_filter": basis
+            .cognition_filter
+            .map_or(Value::Null, |filter| json!(filter)),
         "profile_revisions": profile_revisions,
         "selection": json!(basis.selection),
         "sources": source_entries(basis),
@@ -170,6 +177,7 @@ mod tests {
         let basis = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &source_refs,
             profile_revisions: &profiles,
         };
@@ -193,12 +201,13 @@ mod tests {
         let basis = ReflectionBasis {
             selection: &selection,
             filter: Some(&provenance),
+            cognition_filter: None,
             sources: &source_refs,
             profile_revisions: &profiles,
         };
         assert_eq!(
             basis_digests(&basis).state_digest,
-            "257cfe0189524b049508a95d76484e797e2e1d75fd24eecb3610d72bd5ef47cc"
+            "ffb00471953c3116930fb4250a07e91362d7f550a094852cb9ac3f9146c9fdad"
         );
     }
 
@@ -213,12 +222,14 @@ mod tests {
         let left = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &forward_refs,
             profile_revisions: &profiles,
         };
         let right = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &reversed_refs,
             profile_revisions: &profiles,
         };
@@ -243,6 +254,7 @@ mod tests {
         let pinned = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &base_refs,
             profile_revisions: &base_profiles,
         };
@@ -256,6 +268,7 @@ mod tests {
         let added = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &added_refs,
             profile_revisions: &base_profiles,
         };
@@ -267,6 +280,7 @@ mod tests {
         let bumped = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &bumped_refs,
             profile_revisions: &base_profiles,
         };
@@ -278,6 +292,7 @@ mod tests {
         let removed = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &empty_refs,
             profile_revisions: &base_profiles,
         };
@@ -288,6 +303,7 @@ mod tests {
         let profile_moved = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &base_refs,
             profile_revisions: &bumped_profiles,
         };
@@ -297,6 +313,7 @@ mod tests {
         let selection_moved = ReflectionBasis {
             selection: &other_selection,
             filter: None,
+            cognition_filter: None,
             sources: &base_refs,
             profile_revisions: &base_profiles,
         };
@@ -306,6 +323,7 @@ mod tests {
         let filter_moved = ReflectionBasis {
             selection: &selection,
             filter: Some(&provenance),
+            cognition_filter: None,
             sources: &base_refs,
             profile_revisions: &base_profiles,
         };
@@ -321,6 +339,7 @@ mod tests {
         let basis = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &source_refs,
             profile_revisions: &profiles,
         };
@@ -339,6 +358,7 @@ mod tests {
         let basis = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &source_refs,
             profile_revisions: &profiles,
         };
@@ -363,16 +383,58 @@ mod tests {
         let basis = ReflectionBasis {
             selection: &selection,
             filter: None,
+            cognition_filter: None,
             sources: &source_refs,
             profile_revisions: &profiles,
         };
         let expected: Value = json!({
             "engine_policy_version": ENGINE_POLICY_VERSION,
             "filter": Value::Null,
+            "cognition_filter": Value::Null,
             "profile_revisions": {"personality": 3},
             "selection": {"mode": "shared_only"},
             "sources": [{"record_id": "rec_a", "revision": 1}],
         });
         assert_eq!(digest_object(&basis, ENGINE_POLICY_VERSION), expected);
+    }
+
+    #[test]
+    fn cognition_filter_changes_the_state_digest_not_the_source_set() {
+        let selection = shared_only();
+        let records = vec![("rec_a", 1u64)];
+        let source_refs = sources(&records);
+        let profiles = vec![("personality", 1u64)];
+        let filter_a: CognitionFilter =
+            serde_json::from_value(json!({"q": {"min": 0.5}})).expect("filter a");
+        let filter_b: CognitionFilter =
+            serde_json::from_value(json!({"q": {"min": 0.25}})).expect("filter b");
+        let unfiltered = basis_digests(&ReflectionBasis {
+            selection: &selection,
+            filter: None,
+            cognition_filter: None,
+            sources: &source_refs,
+            profile_revisions: &profiles,
+        });
+        let pinned_a = basis_digests(&ReflectionBasis {
+            selection: &selection,
+            filter: None,
+            cognition_filter: Some(&filter_a),
+            sources: &source_refs,
+            profile_revisions: &profiles,
+        });
+        let pinned_b = basis_digests(&ReflectionBasis {
+            selection: &selection,
+            filter: None,
+            cognition_filter: Some(&filter_b),
+            sources: &source_refs,
+            profile_revisions: &profiles,
+        });
+        assert_ne!(unfiltered.state_digest, pinned_a.state_digest);
+        assert_ne!(pinned_a.state_digest, pinned_b.state_digest);
+        assert_eq!(
+            unfiltered.source_set_digest, pinned_a.source_set_digest,
+            "the source-set digest stays record id + revision"
+        );
+        assert_eq!(pinned_a.source_set_digest, pinned_b.source_set_digest);
     }
 }

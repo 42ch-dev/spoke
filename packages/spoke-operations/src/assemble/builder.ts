@@ -1,11 +1,21 @@
 import type {
   AssemblePacket,
+  CognitionSelection,
   ExtensionMap,
   KnowledgeEntry,
 } from "@42ch/spoke-schemas";
 
+import {
+  projectCognitionRecords,
+  type CognitionProjection,
+  type CurrentViewPolicy,
+} from "../cognition/select.js";
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";
+import {
+  assertSupportedCognitionSelection,
+  cognitionRecordsOfAuthorizedEntries,
+} from "../scope/match.js";
 
 type AssembleEntry = AssemblePacket["entries"][number];
 
@@ -90,9 +100,12 @@ export function knowledgeEntryToAssembleEntry(
 
 export type BuildAssemblePacketInput = {
   packetId: string;
+  /** Already scope-authorized entries: disclosure filtering happens before cognition. */
   knowledgeEntries: KnowledgeEntry[];
   extensions?: ExtensionMap;
   maxEntries?: number;
+  cognitionSelection?: CognitionSelection;
+  currentViewPolicy?: CurrentViewPolicy;
 };
 
 /**
@@ -101,7 +114,14 @@ export type BuildAssemblePacketInput = {
 export function buildAssemblePacket(
   input: BuildAssemblePacketInput,
 ): SpokeResult<AssemblePacket> {
-  const { packetId, knowledgeEntries, extensions, maxEntries } = input;
+  const {
+    packetId,
+    knowledgeEntries,
+    extensions,
+    maxEntries,
+    cognitionSelection,
+    currentViewPolicy,
+  } = input;
 
   if (typeof packetId !== "string" || packetId.trim().length === 0) {
     return spokeReject(
@@ -132,10 +152,42 @@ export function buildAssemblePacket(
   const truncatedEntries =
     maxEntries === undefined ? entries : entries.slice(0, maxEntries);
 
+  // Optional derivative cognitive projection over the authorized source set.
+  // It is computed before `max_entries` truncation: the limit narrows the slim
+  // context entries, never which authorized cognition was requested.
+  let cognition: CognitionProjection | undefined;
+  if (cognitionSelection !== undefined) {
+    // This carrier supplies current cognition only; an unavailable view rejects
+    // the whole build instead of returning a false empty projection.
+    const supported = assertSupportedCognitionSelection(
+      cognitionSelection,
+      "cognitionSelection",
+    );
+    if (!supported.ok) {
+      return supported;
+    }
+
+    const recordsResult = cognitionRecordsOfAuthorizedEntries(knowledgeEntries);
+    if (!recordsResult.ok) {
+      return recordsResult;
+    }
+
+    const projectionResult = projectCognitionRecords(
+      recordsResult.value,
+      cognitionSelection,
+      currentViewPolicy,
+    );
+    if (!projectionResult.ok) {
+      return projectionResult;
+    }
+    cognition = projectionResult.value;
+  }
+
   return spokeOk({
     schema_version: DEFAULT_SCHEMA_VERSION,
     packet_id: packetId,
     entries: truncatedEntries,
     extensions: extensions ?? {},
+    ...(cognition === undefined ? {} : { cognition }),
   });
 }

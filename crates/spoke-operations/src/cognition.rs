@@ -1648,8 +1648,9 @@ fn is_selection_trace(value: &Value) -> bool {
 
 // One item and its assessments describe one source group (§5.3): the same
 // complete holder reference, target identity (carrier tuple, kind, target_id
-// — never text/about) and assessment context. Ids are compared per item only,
-// because the same `record_id` may legitimately live in another carrier.
+// — never text/about) and assessment context. Record ids are never compared
+// here: an item aggregates records from separate carriers, and a `record_id`
+// is unique only within its own carrier (§3).
 fn is_projection_group_member(item: &Map<String, Value>, record: &Value) -> bool {
     let item_target = item.get("target");
     let record_target = record.get("target");
@@ -1705,13 +1706,13 @@ fn is_cognition_projection_item(
         .iter()
         .filter_map(|record| record.get("record_id").and_then(Value::as_str))
         .collect();
-    // The item and its assessments describe one source group with distinct
-    // ids, so the trace can name exactly one record.
+    // The item and its assessments describe one source group. Duplicate ids
+    // reject inside a carrier only (carrier_records_valid); two carriers may
+    // each contribute the same local id to one item.
     if record_ids.len() != assessments.len()
         || !assessments
             .iter()
             .all(|record| is_projection_group_member(item, record))
-        || !all_distinct(record_ids.clone())
     {
         return false;
     }
@@ -2570,7 +2571,45 @@ mod select_tests {
             .clone()
     }
 
+    // A project vector may describe its records as separate carriers. Each
+    // carrier passes its own public guard before its records reach the
+    // projector, so a shared id proves carrier-local identity rather than one
+    // carrier's duplicate.
     fn vector_records(vector: &Value) -> Vec<CognitionRecord> {
+        if let Some(carriers) = vector.get("carriers").and_then(Value::as_array) {
+            let id = vector.get("id").and_then(Value::as_str).expect("vector id");
+            let mut records = Vec::new();
+            for carrier in carriers {
+                let shape = carrier
+                    .get("shape")
+                    .and_then(Value::as_str)
+                    .expect("carrier shape");
+                let input = carrier.get("input").expect("carrier input");
+                let (valid, list) = match shape {
+                    "cognition-module" => (
+                        validate_cognition_module(input).is_ok(),
+                        input.get("records"),
+                    ),
+                    "cognition-content" => (
+                        validate_cognition_content(input).is_ok(),
+                        input.get("cognition"),
+                    ),
+                    other => panic!("vector {id} has unsupported carrier shape {other}"),
+                };
+                assert!(
+                    valid,
+                    "vector {id} {shape} carrier must pass its carrier guard"
+                );
+                let list = list.and_then(Value::as_array).unwrap_or_else(|| {
+                    panic!("vector {id} {shape} carrier must carry a record array")
+                });
+                records.extend(list.iter().map(|record| {
+                    serde_json::from_value::<CognitionRecord>(record.clone())
+                        .expect("carrier record must deserialize as CognitionRecord")
+                }));
+            }
+            return records;
+        }
         vector
             .get("records")
             .and_then(Value::as_array)
@@ -2720,6 +2759,20 @@ mod select_tests {
             )
             .is_ok(),
             "vector {id} projector output must pass the projection gate"
+        );
+        // The producer's projection reaches MindState verbatim; that carrier
+        // adds no second identity rule.
+        assert!(
+            crate::mind_state::validate_mind_state(&json!({
+                "schema_version": 1,
+                "mind_state_id": "mind_shared_vectors",
+                "holder_entry_id": "ke_holder",
+                "deltas": [],
+                "cognition": projection,
+                "extensions": {},
+            }))
+            .is_ok(),
+            "vector {id} projection must pass the MindState carrier"
         );
     }
 

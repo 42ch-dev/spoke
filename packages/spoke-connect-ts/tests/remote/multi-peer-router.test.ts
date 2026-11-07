@@ -656,6 +656,53 @@ describe("selectPeerForOp fork gate row (port.fork.list_timeline_events → l5-f
   });
 });
 
+describe("selectPeerForOp host peer-manifest row (port.host.list_peer_manifests → spoke-baseline)", () => {
+  it("selects the baseline-capable peer instead of rejecting the op as unknown", () => {
+    // The responder serves this op and `RemoteAdapter` forwards it, so the
+    // selection row must resolve through the same product catalogue. The
+    // router's own `listPeerHostCapabilityManifests` aggregates locally, so
+    // the row is inert for that method — a consumer uses the pure selector
+    // before reaching a peer's adapter (same shape as the `extract` row).
+    const baseline: SelectablePeer = {
+      peerId: "peer-alpha",
+      manifest: manifest({ host_id: "h-alpha" }),
+    };
+    const computable: SelectablePeer = {
+      peerId: "peer-beta",
+      manifest: manifest({ host_id: "h-beta", capabilities: ["l2-computable"] }),
+    };
+    const selection = selectPeerForOp(
+      [computable, baseline],
+      "port.host.list_peer_manifests",
+      {},
+    );
+    expect(selection.ok).toBe(true);
+    if (selection.ok) {
+      expect(selection.value.peerId).toBe("peer-alpha");
+    }
+  });
+
+  it("keeps an unauthorized peer denied as a capability miss, never an unknown op", () => {
+    const computable: SelectablePeer = {
+      peerId: "peer-beta",
+      manifest: manifest({ host_id: "h-beta", capabilities: ["l2-computable"] }),
+    };
+    const selection = selectPeerForOp(
+      [computable],
+      "port.host.list_peer_manifests",
+      {},
+    );
+    expect(selection.ok).toBe(false);
+    if (!selection.ok) {
+      expect(selection.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(selection.details?.kind).toBe("no_capable_peer");
+      expect(selection.message).toContain(
+        'no peer advertises capability "spoke-baseline"',
+      );
+    }
+  });
+});
+
 describe("selectPeerForOp role preference (§3 step 5)", () => {
   const plain: SelectablePeer = {
     peerId: "peer-a",

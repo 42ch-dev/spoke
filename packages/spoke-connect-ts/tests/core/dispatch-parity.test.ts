@@ -4,6 +4,9 @@ import {
   CAPABILITY_L2_COMPUTABLE,
   CAPABILITY_SPOKE_BASELINE,
   CAPABILITY_SPOKE_COGNITION,
+  CAPABILITY_SPOKE_MEMORY,
+  CAPABILITY_SPOKE_MEMORY_REFLECTION,
+  CAPABILITY_SPOKE_MEMORY_TRANSFER,
   cognitionRequirementField,
   cognitionRequirementPresent,
   dispatchAllowed,
@@ -140,6 +143,97 @@ describe("ke remote", () => {
     expect(
       tokenAuthorizesOp(requiredCapability("extract"), [CAPABILITY_SPOKE_BASELINE]),
     ).toBe(false);
+  });
+});
+
+// Memory family (SPOKE memory protocol §4.1/§13) token grants — parity twin
+// of the Rust `core::dispatch::tests` memory block. Three flags gate disjoint
+// op groups, and the token grant is a second, independent boundary next to
+// the negotiated set: a grant carrying only a sibling flag never authorizes a
+// row. The op lists stay explicit so a per-row drift between the languages
+// fails one of the two suites.
+describe("memory family token grants (parity with dispatch.rs)", () => {
+  const MEMORY_CORE_OPS = [
+    "memory.describe",
+    "memory.spaces.list",
+    "memory.spaces.freeze",
+    "memory.spaces.unfreeze",
+    "memory.subjects.ensure",
+    "memory.subjects.get",
+    "memory.subjects.fence",
+    "memory.grants.list",
+    "memory.grants.grant",
+    "memory.grants.revoke",
+    "memory.capture",
+    "memory.candidates.list",
+    "memory.candidates.get",
+    "memory.candidates.dismiss",
+    "memory.candidates.review",
+    "memory.records.create",
+    "memory.records.get",
+    "memory.records.update",
+    "memory.records.delete",
+    "memory.records.list",
+    "memory.records.promote",
+    "memory.recall",
+    "memory.profile.get",
+    "memory.profile.update",
+    "memory.receipts.get",
+  ];
+  const MEMORY_REFLECTION_OPS = [
+    "memory.reflections.state",
+    "memory.reflections.list",
+    "memory.reflections.generate",
+  ];
+  const MEMORY_TRANSFER_OPS = [
+    "memory.exports.create",
+    "memory.exports.get",
+    "memory.imports.stage",
+    "memory.imports.activate",
+    "memory.imports.discard",
+  ];
+
+  const GROUPS = [
+    {
+      ops: MEMORY_CORE_OPS,
+      flag: CAPABILITY_SPOKE_MEMORY,
+      siblings: [
+        CAPABILITY_SPOKE_MEMORY_REFLECTION,
+        CAPABILITY_SPOKE_MEMORY_TRANSFER,
+      ],
+    },
+    {
+      ops: MEMORY_REFLECTION_OPS,
+      flag: CAPABILITY_SPOKE_MEMORY_REFLECTION,
+      siblings: [
+        CAPABILITY_SPOKE_MEMORY,
+        CAPABILITY_SPOKE_MEMORY_TRANSFER,
+      ],
+    },
+    {
+      ops: MEMORY_TRANSFER_OPS,
+      flag: CAPABILITY_SPOKE_MEMORY_TRANSFER,
+      siblings: [
+        CAPABILITY_SPOKE_MEMORY,
+        CAPABILITY_SPOKE_MEMORY_REFLECTION,
+      ],
+    },
+  ];
+
+  it("authorizes each memory op only for its own gating flag", () => {
+    for (const group of GROUPS) {
+      for (const op of group.ops) {
+        expect(tokenAuthorizesOp(requiredCapability(op), [group.flag]), op).toBe(
+          true,
+        );
+        for (const sibling of group.siblings) {
+          expect(
+            tokenAuthorizesOp(requiredCapability(op), [sibling]),
+            op,
+          ).toBe(false);
+        }
+      }
+    }
   });
 });
 

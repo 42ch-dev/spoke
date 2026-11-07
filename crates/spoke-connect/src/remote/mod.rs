@@ -49,6 +49,43 @@ pub use transport::{
     loopback_transport_pair, LoopbackTransport, LoopbackTransportPair, Transport, TransportError,
 };
 
+// ── `port.*` capability map (D4 catalogue) ────────────────────────────────
+//
+// One product map, two readers: the responder's serve gate and the router's
+// selection table. Core keeps its op-only table (`core::dispatch`, which
+// answers `None` for `port.*` deliberately), so the product rows live here
+// once instead of being re-declared per surface.
+
+/// Required capability for a `port.*` op of the D4 catalogue (frozen
+/// contract §5.2), or `None` for an op outside it. Every baseline row
+/// requires `spoke-baseline`; the optional families require their negotiated
+/// family capability (`l2-computable` / `l5-fork`).
+///
+/// This is the requirement only — each surface keeps its own evaluation and
+/// failure shape (serve-gate deny vs. selection reject), and neither surface
+/// gains an op the other does not have.
+pub(crate) fn port_op_requirement(op: &str) -> Option<&'static str> {
+    match op {
+        "port.knowledge.get" => Some("spoke-baseline"),
+        "port.knowledge.put" => Some("spoke-baseline"),
+        "port.relation.get" => Some("spoke-baseline"),
+        "port.relation.put" => Some("spoke-baseline"),
+        "port.scope.list_knowledge_entries" => Some("spoke-baseline"),
+        "port.scope.list_timeline_events" => Some("spoke-baseline"),
+        "port.finding.put" => Some("spoke-baseline"),
+        "port.rule.list" => Some("spoke-baseline"),
+        "port.host.list_peer_manifests" => Some("spoke-baseline"),
+        // Optional families (D4 catalogue): project / compute require the
+        // `l2-computable` family capability; the fork timeline query
+        // requires `l5-fork` — all evaluated against the negotiated
+        // capabilities (both-hello intersection).
+        "port.computable.project" => Some("l2-computable"),
+        "port.computable.compute" => Some("l2-computable"),
+        "port.fork.list_timeline_events" => Some("l5-fork"),
+        _ => None,
+    }
+}
+
 // ── `ke-ownership` conditional requirement (frozen F2) ─────────────────────
 //
 // One conclusion, three differently shaped integration sites: the responder

@@ -95,7 +95,8 @@ use crate::remote::remote_adapter::{
 use crate::remote::serve_ports::RemoteServePorts;
 use crate::remote::transport::Transport;
 use crate::remote::{
-    baseline_scope_shape, requires_ownership_capability, validate_scope_declaration,
+    baseline_scope_shape, port_op_requirement, requires_ownership_capability,
+    validate_scope_declaration,
 };
 use crate::runtime::generate_request_id;
 
@@ -111,33 +112,6 @@ const SESSION_ID_PREFIX: &str = "connect-responder-session-";
 /// Session-lifecycle labels (frozen contract §4 labels; identical to
 /// [`crate::remote::RemoteAdapterState`] — one state vocabulary).
 pub type ConnectResponderState = crate::remote::RemoteAdapterState;
-
-/// Product `op_capability_requirements` map (D4): every baseline `port.*`
-/// op requires `spoke-baseline`; the optional families require their
-/// negotiated family capability (`l2-computable` / `l5-fork`). The core
-/// `required_capability` table returns `None` for `port.*`, so WITHOUT this
-/// map every port invoke would be denied `op_unsupported`.
-fn port_op_requirement(op: &str) -> Option<&'static str> {
-    match op {
-        "port.knowledge.get" => Some("spoke-baseline"),
-        "port.knowledge.put" => Some("spoke-baseline"),
-        "port.relation.get" => Some("spoke-baseline"),
-        "port.relation.put" => Some("spoke-baseline"),
-        "port.scope.list_knowledge_entries" => Some("spoke-baseline"),
-        "port.scope.list_timeline_events" => Some("spoke-baseline"),
-        "port.finding.put" => Some("spoke-baseline"),
-        "port.rule.list" => Some("spoke-baseline"),
-        "port.host.list_peer_manifests" => Some("spoke-baseline"),
-        // Optional families (D4 catalogue): project / compute require the
-        // `l2-computable` family capability; the fork timeline query
-        // requires `l5-fork` — all evaluated against the negotiated
-        // capabilities (both-hello intersection) by `gate_allows`.
-        "port.computable.project" => Some("l2-computable"),
-        "port.computable.compute" => Some("l2-computable"),
-        "port.fork.list_timeline_events" => Some("l5-fork"),
-        _ => None,
-    }
-}
 
 /// The agreed capability subset of the two signed hellos: the plain
 /// intersection in local-manifest order (mirror of the TS

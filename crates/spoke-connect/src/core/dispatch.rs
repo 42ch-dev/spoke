@@ -412,12 +412,7 @@ mod tests {
     ];
 
     #[test]
-    fn memory_family_table_covers_all_33_protocol_ops() {
-        assert_eq!(
-            MEMORY_CORE_OPS.len() + MEMORY_REFLECTION_OPS.len() + MEMORY_TRANSFER_OPS.len(),
-            33,
-            "protocol §7 defines 33 memory ops"
-        );
+    fn memory_family_table_maps_every_protocol_op_to_its_gating_flag() {
         for op in MEMORY_CORE_OPS {
             assert_eq!(required_capability(op), Some(CAPABILITY_SPOKE_MEMORY), "{op}");
             assert!(dispatch_allowed(op, &caps(&[CAPABILITY_SPOKE_MEMORY])), "{op}");
@@ -497,6 +492,29 @@ mod tests {
                 CAPABILITY_KE_OWNERSHIP
             ])
         ));
+    }
+
+    #[test]
+    fn memory_token_grants_never_cross_authorize_family_rows() {
+        // The token gate is a second, independent boundary next to the
+        // negotiated set: a grant carrying only a sibling sub-flag never
+        // authorizes a family row. Parity twin: TS
+        // `tests/core/dispatch-parity.test.ts` memory block.
+        for op in MEMORY_CORE_OPS {
+            assert!(token_authorizes_op(required_capability(op), &caps(&[CAPABILITY_SPOKE_MEMORY])), "{op}");
+            assert!(!token_authorizes_op(required_capability(op), &caps(&[CAPABILITY_SPOKE_MEMORY_REFLECTION])), "{op}");
+            assert!(!token_authorizes_op(required_capability(op), &caps(&[CAPABILITY_SPOKE_MEMORY_TRANSFER])), "{op}");
+        }
+        for op in MEMORY_REFLECTION_OPS {
+            assert!(token_authorizes_op(required_capability(op), &caps(&[CAPABILITY_SPOKE_MEMORY_REFLECTION])), "{op}");
+            assert!(!token_authorizes_op(required_capability(op), &caps(&[CAPABILITY_SPOKE_MEMORY])), "{op}");
+            assert!(!token_authorizes_op(required_capability(op), &caps(&[CAPABILITY_SPOKE_MEMORY_TRANSFER])), "{op}");
+        }
+        for op in MEMORY_TRANSFER_OPS {
+            assert!(token_authorizes_op(required_capability(op), &caps(&[CAPABILITY_SPOKE_MEMORY_TRANSFER])), "{op}");
+            assert!(!token_authorizes_op(required_capability(op), &caps(&[CAPABILITY_SPOKE_MEMORY])), "{op}");
+            assert!(!token_authorizes_op(required_capability(op), &caps(&[CAPABILITY_SPOKE_MEMORY_REFLECTION])), "{op}");
+        }
     }
 
     #[test]

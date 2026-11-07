@@ -43,6 +43,7 @@ import {
   validateMemorySpacesList,
   validateMemorySubjectsFence,
 } from "./validate.js";
+import { validateCognitionContent } from "../cognition/validate.js";
 
 const MAX_PAGE = 100;
 
@@ -577,5 +578,45 @@ describe("cognition lifecycle shared admission vectors (C8)", () => {
     // explicitly present empty array is 32 bytes, distinct from omission.
     expect(contentSerializedBytes({ text: "Memory" })).toBe(17);
     expect(contentSerializedBytes({ text: "Memory", cognition: [] })).toBe(32);
+  });
+
+  it("undefined cognition is absence; null, malformed and duplicate still reject", () => {
+    // Real recorded-at-time carrier from these shared admission vectors.
+    const populated = valid!.content;
+    // Ordinary optional-spread output keeps the key with `undefined`.
+    const spread = { ...populated, cognition: undefined };
+
+    expect(validateCognitionContent(populated)).toBe(true);
+    expect(validateCognitionContent(spread)).toBe(true);
+    expect(contentSerializedBytes(spread)).toBe(
+      contentSerializedBytes({ text: populated.text }),
+    );
+
+    const capture = {
+      space_id: "sp_1",
+      subject_id: "s1",
+      content: spread,
+      capture_scope: { visibility: "shared" },
+      idempotency_key: "k1",
+    } as MemoryCaptureRequest;
+    expect(validateMemoryCapture(capture, 1024).ok).toBe(true);
+
+    expect(validateCognitionContent({ text: "Memory", cognition: [] })).toBe(true);
+    expect(validateCognitionContent({ text: "Memory", cognition: null })).toBe(false);
+    expect(
+      validateCognitionContent({
+        ...populated,
+        cognition: [...populated.cognition!, populated.cognition![0]],
+      }),
+    ).toBe(false);
+    expectInvalidCognition(
+      validateMemoryCapture(
+        {
+          ...capture,
+          content: { text: "Memory", cognition: [{ view: "recorded_at" }] },
+        } as MemoryCaptureRequest,
+        1024,
+      ),
+    );
   });
 });

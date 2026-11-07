@@ -951,8 +951,10 @@ function validateCarrierRecords(
 }
 
 export function validateCognitionContent(value: unknown): boolean {
+  // In-process spreads keep the key with value `undefined`; that is the
+  // absent state, like every sibling optional member. Explicit `null` is not.
   return isPlainObject(value) &&
-    (!("cognition" in value) ||
+    (value.cognition === undefined ||
       validateCarrierRecords(value.cognition, "recorded_at"));
 }
 

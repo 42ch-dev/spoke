@@ -48,6 +48,8 @@ title: 操作线上参考（Ops wire）
 | `cognition` | CognitionSelection | 认知细化（`spoke-cognition`）—— 要求已协商的标志，且只提供 `current` 视图；见[认知选择](#cognition-selection-spoke-cognition) |
 | `extensions` | ExtensionMap | 产品作用域查询元数据；协议匹配器忽略它，adapter 原样往返 |
 
+列表细化（`entry_ids`、`entry_types`、`timeline_event_ids`）按存在性匹配：省略的列表视为缺失并匹配全部；显式给出的列表——包括 `[]`——会收窄结果，因此 `[]` 不匹配任何条目。
+
 ## 认知选择（`spoke-cognition`） {#cognition-selection-spoke-cognition}
 
 `Scope.cognition` 在 `check`、`assemble` 与按作用域读取 KnowledgeEntry / TimelineEvent 的端口调用上携带 `CognitionSelection`。该载体只提供 `current` 视图：`{ view: "current", filter, selection_policy }`。`recorded_at` 形式属于 Memory 来源视图；在此提供会被整体拒绝，而不是返回空投影。

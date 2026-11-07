@@ -2471,6 +2471,156 @@ mod tests {
         let _ = (entry, event, rule, request);
     }
 
+    /// Served check keeps an explicitly present `[]` as a refinement that
+    /// matches nothing: the request decode, the wire conversion into the typed
+    /// Scope and the served filters must not widen it to an omitted wildcard.
+    /// Covers all three Scope lists plus their non-empty form.
+    #[test]
+    fn orchestrate_check_preserves_explicit_empty_scope_refinements() {
+        let entry = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_check_empty",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        }));
+        let event = timeline_event(json!({
+            "schema_version": 1,
+            "timeline_event_id": "te_empty",
+            "canonical_name": "Arrival",
+            "extensions": {}
+        }));
+        let mut store = MemoryStore::default();
+        store.entries.insert(entry.entry_id.clone(), entry);
+        store.events.push(event);
+        let ports = MemoryBaselinePorts::new(store);
+
+        let supplied = |scope: Value| -> (usize, usize) {
+            let request = check_request(json!({ "scope": scope }));
+            let mut seen = (0usize, 0usize);
+            let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
+                seen = (input.entries.len(), input.events.len());
+                spoke_ok(Vec::new())
+            }));
+            assert!(result.is_ok());
+            seen
+        };
+
+        // Omitted lists are wildcards; present-empty matches nothing; a
+        // non-empty list is the AND refinement.
+        assert_eq!(supplied(json!({ "scope_id": "world_1" })), (1, 1));
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "entry_ids": [] })),
+            (0, 1)
+        );
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "entry_ids": ["kb_check_empty"] })),
+            (1, 1)
+        );
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "entry_types": [] })),
+            (0, 1)
+        );
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "entry_types": ["character"] })),
+            (1, 1)
+        );
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "timeline_event_ids": [] })),
+            (1, 0)
+        );
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "timeline_event_ids": ["te_empty"] })),
+            (1, 1)
+        );
+    }
+
+    /// An explicit `[]` never widens the authorization boundary: it blocks
+    /// entries the viewpoint admits, and a non-empty refinement still cannot
+    /// pull in an entry the disclosure predicate withholds.
+    #[test]
+    fn orchestrate_check_explicit_scope_refinements_keep_disclosure_precedence() {
+        let ports = MemoryBaselinePorts::new(store_with_entries(viewpoint_entries()));
+
+        let supplied = |scope: Value| -> Vec<String> {
+            let request = check_request(json!({ "scope": scope }));
+            let mut supplied = Vec::new();
+            let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
+                supplied = sorted_entry_ids(&input.entries);
+                spoke_ok(Vec::new())
+            }));
+            assert!(result.is_ok());
+            supplied
+        };
+
+        // The viewpoint admits kb_mine; the explicit empty refinement matches nothing.
+        assert!(supplied(json!({
+            "scope_id": "world_1",
+            "viewpoint": "kb_mira",
+            "entry_ids": [],
+        }))
+        .is_empty());
+        // The refinement names an owner-private holder, but the foreign
+        // viewpoint withholds it.
+        assert!(supplied(json!({
+            "scope_id": "world_1",
+            "viewpoint": "kb_rival",
+            "entry_ids": ["kb_mine"],
+        }))
+        .is_empty());
+        // A non-empty refinement intersects the authorized set.
+        assert_eq!(
+            supplied(json!({
+                "scope_id": "world_1",
+                "viewpoint": "kb_mira",
+                "entry_ids": ["kb_mine", "kb_theirs"],
+            })),
+            ["kb_mine"]
+        );
+    }
+
+    /// The assemble request carries its own generated Scope copy; the served
+    /// packet builder must observe the same present-empty semantics.
+    #[test]
+    fn orchestrate_assemble_preserves_explicit_empty_entry_refinement() {
+        let entry = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_assemble_empty",
+            "entry_type": "character",
+            "canonical_name": "Assemble Hero",
+            "status": "provisional",
+            "body": { "summary": "Context snippet" },
+            "extensions": {}
+        }));
+        let ports = MemoryBaselinePorts::with_entry(entry);
+
+        let packet_ids = |scope: Value| -> Vec<String> {
+            let request = assemble_request(json!({ "scope": scope }));
+            match pollster::block_on(orchestrate_assemble(&ports, request, None)) {
+                SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) => packet
+                    .entries
+                    .iter()
+                    .map(|entry| entry.entry_id.clone())
+                    .collect(),
+                SpokeResult::Ok(_) | SpokeResult::Reject(_) => {
+                    panic!("expected assemble success")
+                }
+            }
+        };
+
+        assert_eq!(
+            packet_ids(json!({ "scope_id": "world_1" })),
+            ["kb_assemble_empty"]
+        );
+        assert!(packet_ids(json!({ "scope_id": "world_1", "entry_ids": [] })).is_empty());
+        assert_eq!(
+            packet_ids(json!({ "scope_id": "world_1", "entry_ids": ["kb_assemble_empty"] })),
+            ["kb_assemble_empty"]
+        );
+    }
+
     #[test]
     fn orchestrate_check_lets_embedded_rules_win_by_rule_id_over_refs() {
         let entry = ke(json!({

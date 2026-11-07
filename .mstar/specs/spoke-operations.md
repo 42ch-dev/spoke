@@ -328,6 +328,8 @@ Deepen families (§5–§11), computable validators (§12), and body attribute r
 
 **`Scope` wire shape:** [`spoke-ops.md` §Scope](spoke-ops.md#scope-shared--check--assemble). `scope_id` is required on wire but **not interpreted** by these helpers — caller pre-scopes collections by product binding.
 
+**Array presence:** an omitted list is absent and matches everything; an explicitly present list — including `[]` — is a refinement, so a present-empty list matches nothing. The distinction survives JSON → typed → served processing: Rust carries these arrays as `Option<Vec<String>>` on the shared `Scope` and on the `CheckRequest`/`AssembleRequest` copies, and TypeScript keeps `undefined` versus `[]`.
+
 **KnowledgeEntry refinements (AND when present on `scope`):**
 
 | Refinement | Match rule |
@@ -350,7 +352,7 @@ Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
 
 Ignored on TimelineEvent: `entry_ids`, `entry_types`, `source_id`, `parent_fork_id`, `viewpoint`.
 
-**Tests must cover:** each refinement on its carrier type (including the `ke-ownership` `viewpoint` disclosure predicate on KnowledgeEntry: shared, own private, foreign private, absent viewpoint, unknown disclosure, and AND with another refinement), empty refinement pass-through, combined AND.
+**Tests must cover:** each refinement on its carrier type (including the `ke-ownership` `viewpoint` disclosure predicate on KnowledgeEntry: shared, own private, foreign private, absent viewpoint, unknown disclosure, and AND with another refinement), the omitted wildcard versus present-empty no-match for `entry_ids` / `entry_types` / `timeline_event_ids` through the typed and served paths, and combined AND.
 
 ---
 
@@ -619,7 +621,7 @@ Pure reads over caller-supplied `KnowledgeEntry` values for the optional `ke-own
 - Comparison is exact string equality; identifiers are not normalized, and no holder lookup, type inference, belief evaluation, or audience expansion occurs.
 - The predicate **fails closed**: an `owner-private` entry with an empty or missing `owner` is excluded, and unknown non-empty disclosure values are excluded rather than reinterpreted as shared.
 - Calling this surface is the caller's opt-in; consumers holding field-absent data keep baseline behavior.
-- Composition lives in §8 Scope match: `knowledgeEntryMatchesScope` / `knowledge_entry_matches_scope` (and the wire-aware Rust variant `knowledge_entry_matches_scope_view`) call the predicate with `scope.viewpoint`, so check, assemble, and the fork variants observe the same result. No parallel ownership-filter family exists.
+- Composition lives in §8 Scope match: `knowledgeEntryPassesScopeAuthorization` / `knowledge_entry_passes_scope_authorization` call the predicate with `scope.viewpoint`, so check, assemble, and the fork variants observe the same result. No parallel ownership-filter family exists.
 
 **Out of scope:** identity registries, audience sets, view composition, authentication / authorization, storage lifecycle and concurrency, and product visibility policy.
 

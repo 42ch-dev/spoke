@@ -31,7 +31,7 @@ Signed-hello manifest intersection remains authoritative. TypeScript `negotiated
 
 The existing operation/capability table is unchanged: baseline KnowledgeEntry and assemble operations retain `spoke-baseline`; Memory operations retain `spoke-memory` and its existing subflags. A payload-dependent guard adds the cognition requirement only when a cognitive selection/filter/projection is present. Capability-token grants and operation dispatch gates still apply independently.
 
-When the family is absent, a request requiring it receives the existing `capability_missing` dispatch branch without handler side effects. Routing offers cognition-bearing requests only to peers declaring the family. Ordinary records without optional cognitive fields remain ordinary data and do not trigger the error.
+When the family is absent, a request requiring it receives the existing `capability_missing` dispatch branch without handler side effects. Routing offers cognition-bearing requests only to peers declaring the family. Ordinary records without optional cognitive fields remain ordinary data and do not trigger the error. A requirement is present only when the declared carrier actually holds the family member: a `Scope` that is not a JSON object — or an object without `cognition` — declares no requirement, so a malformed `Scope` answers its baseline shape failure (`INVALID_INPUT`) first and never becomes this capability verdict.
 
 ### 2.2 Unsupported requirements
 
@@ -43,13 +43,13 @@ After schema decoding, an unknown predicate, known-but-unimplemented view/dimens
   "message": "Unsupported cognition requirement",
   "details": {
     "reason": "unsupported_cognition_requirement",
-    "field": "<JSON path to the requirement>"
+    "field": "<carrier-relative path to the requirement>"
   },
   "extensions": {}
 }
 ```
 
-No silent stripping, ignored conjunction, partial response or unfiltered fallback is permitted. Valid fork wildcard, exact-fork, exact-no-fork and multi-context selections are served rather than narrowed by caller context. Invalid record data uses `details.reason = "invalid_cognition_record"`; missing optional data is not an error. Existing `fromErrorEnvelope` maps this branch to `INVALID_INPUT`; no ABI error type is added.
+No silent stripping, ignored conjunction, partial response or unfiltered fallback is permitted. The `field` value is relative to the API's declared carrier root: the request JSON path for the wire carriers (`scope.cognition`, or `cognition_filter` on Memory operations, each followed by the failing member) and the builder's own parameter name when the direct assemble builder receives the selection (`cognitionSelection` in TypeScript, `cognition_selection` in Rust). Valid fork wildcard, exact-fork, exact-no-fork and multi-context selections are served rather than narrowed by caller context. Invalid record data uses `details.reason = "invalid_cognition_record"`; missing optional data is not an error. Existing `fromErrorEnvelope` maps this branch to `INVALID_INPUT`; no ABI error type is added.
 
 ### 2.3 Compatibility boundary
 

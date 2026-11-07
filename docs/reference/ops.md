@@ -48,6 +48,8 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 | `cognition` | CognitionSelection | Cognitive refinement (`spoke-cognition`) — requires the negotiated flag and serves the `current` view only; see [Cognition selection](#cognition-selection-spoke-cognition) |
 | `extensions` | ExtensionMap | Product-scoped query metadata; protocol matchers ignore it, adapters round-trip it |
 
+List refinements (`entry_ids`, `entry_types`, `timeline_event_ids`) match by presence: an omitted list is absent and matches everything, while an explicitly present list — including `[]` — restricts the result, so `[]` matches nothing.
+
 ## Cognition selection (`spoke-cognition`)
 
 `Scope.cognition` carries a `CognitionSelection` on `check`, `assemble` and the scoped KnowledgeEntry / TimelineEvent reads. This carrier serves the `current` view only: `{ view: "current", filter, selection_policy }`. The `recorded_at` form belongs to the Memory source view; supplying it here rejects the whole request instead of returning an empty projection.

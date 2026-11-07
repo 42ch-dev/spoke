@@ -57,8 +57,7 @@ pub use relate::{validate_relate_request, RelateMode, ValidateRelateRequestConte
 pub use scope::{
     assert_supported_cognition_selection, cognition_records_of_authorized_entries,
     cognition_records_of_authorized_entry, filter_knowledge_entries_by_scope,
-    filter_timeline_events_by_scope, filter_timeline_events_by_scope_view,
-    timeline_event_matches_scope, timeline_event_matches_scope_view, ScopeMatchView,
+    filter_timeline_events_by_scope, timeline_event_matches_scope,
 };
 pub use timeline::{
     filter_timeline_events_by_moment_scale, order_timeline_events_by_ids,

@@ -336,7 +336,7 @@ All predicates AND on one record with the same holder/target/context. Reference 
 
 ### 5.2 Unsupported versus missing
 
-Unknown predicates, known-but-unimplemented views/dimensions/metric filters and unavailable source views reject the whole request with `invalid_input`, `details.reason = "unsupported_cognition_requirement"` and the requirement's JSON path in `details.field`. No filter is stripped and no partial/unfiltered success is returned. Invalid completed records instead use `details.reason = "invalid_cognition_record"`.
+Unknown predicates, known-but-unimplemented views/dimensions/metric filters and unavailable source views reject the whole request with `invalid_input`, `details.reason = "unsupported_cognition_requirement"` and the requirement's carrier-relative path in `details.field`. No filter is stripped and no partial/unfiltered success is returned. Invalid completed records instead use `details.reason = "invalid_cognition_record"`.
 
 Absent optional fields, absent observation metadata and no matching records are ordinary missing data, not unsupported features. `no_record` follows only §5.3.
 

@@ -71,7 +71,7 @@ Frozen public signatures:
 | `getKnowledgeEntryOwner(entry: KnowledgeEntry): string \| undefined` | `get_knowledge_entry_owner(entry: &KnowledgeEntry) -> Option<&str>` |
 | `knowledgeEntryVisibleToViewpoint(entry: KnowledgeEntry, viewpoint?: string): boolean` | `knowledge_entry_visible_to_viewpoint(entry: &KnowledgeEntry, viewpoint: Option<&str>) -> bool` |
 
-Place these helpers with the existing KnowledgeEntry helpers. Reuse the predicate in existing `knowledgeEntryMatchesScope` / `knowledge_entry_matches_scope_view`; reuse existing list filters rather than adding a parallel ownership-filter family. The Rust predicate borrows the identifier and entry; no cloning or additional allocation is required. Check/assemble and fork variants already consume scope filtering and must observe the same result.
+Place these helpers with the existing KnowledgeEntry helpers. Reuse the predicate in the existing `knowledgeEntryPassesScopeAuthorization` (TypeScript) / `knowledge_entry_passes_scope_authorization` (Rust, crate-internal); reuse existing list filters rather than adding a parallel ownership-filter family. The Rust predicate borrows the identifier and entry; no cloning or additional allocation is required. Check/assemble and fork variants already consume scope filtering and must observe the same result.
 
 ### 2.2 Capability boundary
 

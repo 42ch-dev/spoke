@@ -1355,8 +1355,9 @@ function isSelectionTrace(value: unknown): boolean {
 
 // One item and its assessments describe one source group (§5.3): the same
 // complete holder reference, target identity (carrier tuple, kind, target_id
-// — never text/about) and assessment context. Ids are compared per item only,
-// because the same `record_id` may legitimately live in another carrier.
+// — never text/about) and assessment context. Record ids are never compared
+// here: an item aggregates records from separate carriers, and a `record_id`
+// is unique only within its own carrier (§3).
 function isSameGroupMember(
   item: Record<string, unknown>,
   record: CognitionRecord,
@@ -1405,10 +1406,9 @@ function isCognitionProjectionItem(
   }
   const assessments = value.assessments as CognitionRecord[];
   const recordIds = assessments.map((record) => record.record_id);
-  if (
-    !hasDistinctRecordIds(assessments) ||
-    !assessments.every((record) => isSameGroupMember(value, record))
-  ) {
+  // Duplicate ids reject inside a carrier only (validateCarrierRecords); two
+  // carriers may each contribute the same local id to one item.
+  if (!assessments.every((record) => isSameGroupMember(value, record))) {
     return false;
   }
   // The current selection trace is required iff view = current and presence

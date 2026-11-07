@@ -10,13 +10,18 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import { SpokeRejectCode } from "../result.js";
+import { validateMindState } from "../mind-state/validate.js";
 import {
   cognitionRecordMatchesFilter,
   projectCognitionRecords,
   selectCognitionRecords,
   type CognitionProjection,
 } from "./select.js";
-import { validateCognitionProjection } from "./validate.js";
+import {
+  validateCognitionContent,
+  validateCognitionModule,
+  validateCognitionProjection,
+} from "./validate.js";
 
 // Shared cross-language cognition selection contract (TS ↔ Rust): both
 // suites execute every vector id from this single file and must observe the
@@ -34,7 +39,8 @@ const vectorFile = JSON.parse(
 interface SelectionVector {
   id: string;
   case: "select" | "project";
-  records: CognitionRecord[];
+  records?: CognitionRecord[];
+  carriers?: CarrierInput[];
   filter?: CognitionFilter;
   selection?: CognitionSelection;
   policy_selected_record_id?: string | null;
@@ -43,6 +49,40 @@ interface SelectionVector {
     | { matched_record_ids: string[] }
     | { error: string }
     | ProjectionExpectation;
+}
+
+// A project vector may describe its records as separate carriers. Each carrier
+// is validated by its own public guard before its records reach the projector,
+// so shared local ids prove carrier-local identity rather than one carrier's
+// duplicate.
+interface CarrierInput {
+  shape: "cognition-module" | "cognition-content";
+  input: { records?: CognitionRecord[]; cognition?: CognitionRecord[] };
+}
+
+function carrierRecords(carrier: CarrierInput): CognitionRecord[] {
+  if (carrier.shape === "cognition-module") {
+    return validateCognitionModule(carrier.input)
+      ? (carrier.input.records ?? [])
+      : [];
+  }
+  return validateCognitionContent(carrier.input)
+    ? (carrier.input.cognition ?? [])
+    : [];
+}
+
+function vectorRecords(vector: SelectionVector): CognitionRecord[] {
+  if (vector.carriers === undefined) {
+    return vector.records ?? [];
+  }
+  return vector.carriers.flatMap((carrier) => {
+    const records = carrierRecords(carrier);
+    expect(
+      records.length > 0,
+      `${vector.id} ${carrier.shape} carrier must pass its carrier guard`,
+    ).toBe(true);
+    return records;
+  });
 }
 
 interface ProjectionExpectation {
@@ -99,9 +139,10 @@ function projectionSummary(projection: CognitionProjection): ProjectionExpectati
 }
 
 function runVector(vector: SelectionVector): void {
+  const records = vectorRecords(vector);
   if (vector.case === "select") {
     const result = selectCognitionRecords(
-      vector.records,
+      records,
       vector.filter as CognitionFilter,
     );
     if ("error" in vector.expected) {
@@ -134,7 +175,7 @@ function runVector(vector: SelectionVector): void {
         ? undefined
         : { select: () => policyId };
   const result = projectCognitionRecords(
-    vector.records,
+    records,
     vector.selection as CognitionSelection,
     policy,
   );
@@ -151,6 +192,19 @@ function runVector(vector: SelectionVector): void {
       vector.expected,
     );
     expect(validateCognitionProjection(result.value), vector.id).toBe(true);
+    // The producer's projection reaches MindState verbatim; that carrier adds
+    // no second identity rule.
+    expect(
+      validateMindState({
+        schema_version: 1,
+        mind_state_id: "mind_shared_vectors",
+        holder_entry_id: "ke_holder",
+        deltas: [],
+        cognition: result.value,
+        extensions: {},
+      }),
+      vector.id,
+    ).toBe(true);
   }
 }
 

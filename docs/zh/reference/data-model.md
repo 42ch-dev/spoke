@@ -17,7 +17,7 @@ title: 数据模型参考
 | `SourceSpan` | `{ start, end }`（start 含、end 不含） | 源工件内的区间 |
 | `TimelineScale` | 开放字符串；核心列表 `brief`、`narrative`、`moment` | L5 投影层级 |
 | `ForkId` | 字符串 ≥ 1 字符 | 不透明世界历史分支标识（`l5-fork`） |
-| `Scope` | 对象；必填 `scope_id`；可选 `viewpoint`（`ke-ownership`）、`cognition`（`spoke-cognition`） | 共享 ops 选择器 —— 见[操作线上参考](/zh/reference/ops)、[归属治理](#归属治理-ke-ownership)与[认知](#认知-spoke-cognition) |
+| `Scope` | 对象；必填 `scope_id`；可选 `viewpoint`（`ke-ownership`）、`cognition`（`spoke-cognition`） | 共享 ops 选择器 —— 见[操作线上参考](/zh/reference/ops)、[归属治理](#归属治理-ke-ownership)与[认知](#cognition-spoke-cognition) |
 | `BodyAttribute` | `{ trait_type, value, display_type?, max_value? }` | ERC721 风格特征项；数组层允许重复 `trait_type` |
 | `ComputableFieldMap` | 字段名到域值的开放映射 | `body.state` 与 `body.computable` 共用（`l2-computable`） |
 | `ComputableLogEntry` | `{ logged_at, entry_id, changes[] }` + 可选 `session_id` / `message` | computable 字段变化的 moment 尺度呈现（`l2-computable`） |

@@ -35,7 +35,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", 
 futures = "0.3"
 serde_jcs = "0.2"
 base64 = "0.22"
-ed25519-dalek = "2"
+ed25519-dalek = "3"
 getrandom = "0.4"
 uuid = { version = "1", features = ["v4"] }
 # FFI facade only — pulled in by the non-default `ffi` feature so default
@@ -84,7 +84,7 @@ libp2p-identity = "0.3"
 x25519-dalek = "3"
 # RemoteAdapter loopback interop test: the host serves a reference
 # ToyWorldAdapter, and the dial fixture derives peer ids from raw seeds.
-ed25519-dalek = "2"
+ed25519-dalek = "3"
 # Loopback host emits schema-v2 signed post-hello envelopes (session
 # snapshot + invoke responses) with the same RFC 8785 JCS canonicalization
 # the core `authenticate_*` helpers use (envelope-auth contract §3/§5).

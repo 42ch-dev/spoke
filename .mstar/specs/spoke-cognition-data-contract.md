@@ -373,7 +373,7 @@ A filter exactly addresses a source key only when it supplies the complete holde
 
 ### 6.1 Recorded-at-time carrier and Content states
 
-`Content` has optional `cognition?: CognitionRecord[]`, with every entry `view = "recorded_at"`. Three wire states are distinct: absent, explicitly present `[]`, and non-empty. Explicit `null` is invalid. Present `[]` is preserved and included in byte accounting, but is not cognition substance for classification and cannot keep a contentless candidate alive. Placement alone never converts raw material into completed cognition.
+`Content` has optional `cognition?: CognitionRecord[]`, with every entry `view = "recorded_at"`. Three wire states are distinct: absent, explicitly present `[]`, and non-empty. In the in-process TypeScript API a key present with value `undefined` is the absent state, as for every other optional member. Explicit `null` is invalid. Present `[]` is preserved and included in byte accounting, but is not cognition substance for classification and cannot keep a contentless candidate alive. Placement alone never converts raw material into completed cognition.
 
 Updates preserve original holder, assessor, criterion/policy, basis/evidence, context, `effective_at` and `assessed_at`. Reassessment appends a separately identified and attributed recorded-at-time assessment; it neither rewrites retained attribution nor mutates/synchronizes holder-side current authority.
 

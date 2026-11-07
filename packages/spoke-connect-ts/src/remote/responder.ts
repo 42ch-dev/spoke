@@ -207,8 +207,12 @@ function mapErrorEnvelope(error: ErrorEnvelope): SpokeReject {
  * negotiated family capability (`l2-computable` / `l5-fork`). The core
  * `requiredCapability` table returns `undefined` for `port.*`, so WITHOUT
  * this map every port invoke would be denied `op_unsupported`.
+ *
+ * Exported because the multi-peer router selects peers for the same
+ * catalogue and must read the same rows — one product map, two readers, so
+ * routing cannot drift from serving.
  */
-const PORT_OP_CAPABILITY_REQUIREMENTS: Record<string, string> = {
+export const PORT_OP_CAPABILITY_REQUIREMENTS: Readonly<Record<string, string>> = {
   "port.knowledge.get": "spoke-baseline",
   "port.knowledge.put": "spoke-baseline",
   "port.relation.get": "spoke-baseline",

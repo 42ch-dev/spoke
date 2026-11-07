@@ -51,6 +51,7 @@ import {
 import type { RemoteAdapterState } from "./remote-adapter.js";
 import {
   CAPABILITY_KE_OWNERSHIP,
+  PORT_OP_CAPABILITY_REQUIREMENTS,
   scopeOpRequiresOwnershipCapability,
 } from "./responder.js";
 
@@ -60,14 +61,13 @@ const DEFAULT_ROUTER_HOST_ID = "multi-peer-router";
 // ── Locked op → selection-input tables (contract §2 / §3) ────────────────
 
 /**
- * Required capability per op family (contract §2 — locked). Orchestrated
- * baseline families and the `port.*` baseline ops require `spoke-baseline`;
- * the computable families require `l2-computable`; the fork timeline family
- * requires `l5-fork`. Product-defined ops are product-documented and have
- * no row here; selection REJECTS ops outside this table
- * (`no_capable_peer`) — an op with no gate must not fall through ungated
- * (QC2 S-1). The router's fixed six-family surface only ever queries the
- * `port.*` rows (mirrors the RemoteAdapter `PORT_OPS` catalogue).
+ * Required capability per orchestrated op family (contract §2 — locked).
+ * The `port.*` rows are deliberately not repeated here: selection reads the
+ * responder's product catalogue (`PORT_OP_CAPABILITY_REQUIREMENTS`), so
+ * routing and serving share one map instead of drifting. Product-defined ops
+ * are product-documented and have no row; selection REJECTS ops outside both
+ * tables (`no_capable_peer`) — an op with no gate must not fall through
+ * ungated (QC2 S-1).
  */
 const REQUIRED_CAPABILITY: Readonly<Record<string, string>> = {
   // Orchestrated op families.
@@ -79,21 +79,6 @@ const REQUIRED_CAPABILITY: Readonly<Record<string, string>> = {
   project: "l2-computable",
   compute: "l2-computable",
   extract: "ke-extraction",
-  // port.* baseline ops.
-  "port.knowledge.get": "spoke-baseline",
-  "port.knowledge.put": "spoke-baseline",
-  "port.relation.get": "spoke-baseline",
-  "port.relation.put": "spoke-baseline",
-  "port.scope.list_knowledge_entries": "spoke-baseline",
-  "port.scope.list_timeline_events": "spoke-baseline",
-  "port.finding.put": "spoke-baseline",
-  "port.rule.list": "spoke-baseline",
-  // Optional l2-computable / l5-fork port ops (not delegated by the
-  // baseline surface — the rows exist so the ops are capability-mapped,
-  // never ungated; mirrors the inert computable rows).
-  "port.computable.project": "l2-computable",
-  "port.computable.compute": "l2-computable",
-  "port.fork.list_timeline_events": "l5-fork",
 };
 
 /**
@@ -114,7 +99,8 @@ const PREFERRED_ROLE: Readonly<Record<string, string>> = {
  * rule — the selection table gains the same widening as core dispatch):
  * a `tools.<ns>.<tool_id>` op is self-describing — the required capability
  * IS the op string itself (no registry, no umbrella flag); every other op
- * resolves through the locked table above. Ops outside both resolve to
+ * resolves through the orchestrated families above, then the D4 `port.*`
+ * catalogue the responder's serve gate reads. Ops outside both resolve to
  * `undefined` and are rejected outright by selection (no ungated
  * fall-through, QC2 S-1).
  */
@@ -122,7 +108,7 @@ function requiredCapability(op: string): string | undefined {
   if (op.startsWith("tools.")) {
     return op;
   }
-  return REQUIRED_CAPABILITY[op];
+  return REQUIRED_CAPABILITY[op] ?? PORT_OP_CAPABILITY_REQUIREMENTS[op];
 }
 
 // ── Payload-derived selection inputs (contract §2 / §3) ──────────────────

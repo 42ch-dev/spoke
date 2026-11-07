@@ -10,6 +10,7 @@ import type {
   CheckRequest,
   KnowledgeEntry,
   MindState,
+  Scope,
 } from "@42ch/spoke-schemas";
 import { describe, expect, it } from "vitest";
 

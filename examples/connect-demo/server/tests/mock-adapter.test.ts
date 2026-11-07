@@ -15,7 +15,7 @@
  * - `getHostCapabilityManifest` returns the server manifest.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   ExtractRequest,
@@ -558,6 +558,123 @@ describe("scope filtering", () => {
     if (byIds.ok) {
       expect(byIds.value).toHaveLength(1);
       expect(byIds.value[0].entry_id).toBe("demo-harbor/location/harbor");
+    }
+  });
+
+  it("rejects an unavailable cognition view instead of serving the baseline set", async () => {
+    const adapter = new MockAdapter();
+    const rejected = await adapter.listKnowledgeEntries({
+      scope_id: DEMO_SCOPE_ID,
+      cognition: {
+        view: "recorded_at",
+        filter: {
+          holder: {
+            kind: "knowledge_entry",
+            namespace: DEMO_SCOPE_ID,
+            id: DEMO_SHARED_ENTRY_ID,
+          },
+        },
+      },
+    });
+
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) {
+      expect(rejected.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(rejected.details).toMatchObject({
+        reason: "unsupported_cognition_requirement",
+        field: "scope.cognition.view",
+      });
+    }
+  });
+
+  it("rejects an unavailable cognition requirement before any source read on served and foreign scopes", async () => {
+    const engine = new MockEngine();
+    const sourceRead = vi.spyOn(engine, "listKnowledgeEntries");
+    const adapter = new MockAdapter(engine);
+
+    // Foreign scope: the preflight rejects instead of serving an empty page.
+    const foreign = await adapter.listKnowledgeEntries({
+      scope_id: "other-scope",
+      cognition: {
+        view: "recorded_at",
+        filter: {
+          holder: {
+            kind: "knowledge_entry",
+            namespace: DEMO_SCOPE_ID,
+            id: DEMO_SHARED_ENTRY_ID,
+          },
+        },
+      },
+    });
+    expectRejected(foreign, SpokeRejectCode.INVALID_INPUT);
+    if (!foreign.ok) {
+      expect(foreign.details).toMatchObject({
+        reason: "unsupported_cognition_requirement",
+        field: "scope.cognition.view",
+      });
+    }
+
+    // Served scope: an unknown predicate rejects before the engine list read.
+    const unknownRequirement = await adapter.listKnowledgeEntries({
+      scope_id: DEMO_SCOPE_ID,
+      cognition: {
+        view: "current",
+        filter: { q_min: 0.5 },
+        selection_policy: { policy_id: "pol_demo", policy_version: "v1" },
+      },
+    } as unknown as Scope);
+    expectRejected(unknownRequirement, SpokeRejectCode.INVALID_INPUT);
+    if (!unknownRequirement.ok) {
+      expect(unknownRequirement.details).toMatchObject({
+        reason: "unsupported_cognition_requirement",
+        field: "scope.cognition",
+      });
+    }
+
+    // A valid foreign scope without a cognition selection stays an ordinary
+    // empty page, still without touching the source.
+    const baselineForeign = await adapter.listKnowledgeEntries({
+      scope_id: "other-scope",
+    });
+    expect(baselineForeign.ok).toBe(true);
+    if (baselineForeign.ok) {
+      expect(baselineForeign.value).toEqual([]);
+    }
+    expect(sourceRead).not.toHaveBeenCalled();
+
+    // Control: a served baseline list does read the source, so the spy above
+    // is a real observation.
+    await adapter.listKnowledgeEntries({ scope_id: DEMO_SCOPE_ID });
+    expect(sourceRead).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies a current cognition selection while the no-cognition query stays unchanged", async () => {
+    const adapter = new MockAdapter();
+    const baseline = await adapter.listKnowledgeEntries({
+      scope_id: DEMO_SCOPE_ID,
+    });
+    const selected = await adapter.listKnowledgeEntries({
+      scope_id: DEMO_SCOPE_ID,
+      cognition: {
+        view: "current",
+        filter: {
+          holder: {
+            kind: "knowledge_entry",
+            namespace: DEMO_SCOPE_ID,
+            id: DEMO_SHARED_ENTRY_ID,
+          },
+        },
+        selection_policy: { policy_id: "pol_demo", policy_version: "v1" },
+      },
+    });
+
+    expect(baseline.ok).toBe(true);
+    expect(selected.ok).toBe(true);
+    if (baseline.ok && selected.ok) {
+      expect(baseline.value.length).toBeGreaterThan(0);
+      // No seeded carrier holds cognition, so the selection matches nothing;
+      // it never falls back to the unfiltered baseline.
+      expect(selected.value).toEqual([]);
     }
   });
 });

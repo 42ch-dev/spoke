@@ -402,6 +402,8 @@ The conjunct is **additional, never a replacement**: a viewpoint-bearing Scope o
 
 A payload that declares the Scope location with a `viewpoint` of any other value type (JSON `null`, number, array, object, or `""`), or that omits / misdeclares the Scope for a Scope-bearing op, is malformed: the receiving host answers `INVALID_INPUT` before any host call — validation, not a capability verdict, and never a baseline success.
 
+**Conditional capability requirement — cognition selection/filter/projection (`spoke-cognition`).** A request whose payload carries a `Scope.cognition` selection, a Memory `cognition_filter`, or a cognition projection requirement adds one payload-dependent conjunct: `negotiated_capabilities` MUST also contain `spoke-cognition`. The conjunct is additional to the operation's row capability (`spoke-baseline`, or the applicable `spoke-memory` flag), never a replacement, and it is evaluated at the same remote dispatch boundary as the viewpoint conjunct. An unnegotiated cognition requirement answers the existing dispatch-deny branch (`op_unsupported` / `capability_missing`) with no handler side effect. Ordinary KnowledgeEntry, AssemblePacket or Memory payloads without the optional cognition members remain ordinary data and never trigger this requirement.
+
 Product-defined `op` values MUST document their required capability name(s). The gate is evaluated against **`negotiated_capabilities`**, not against the remote manifest alone and not against unsigned hello `extensions`.
 
 Sequence and correlation checks (§[Session-core state machine](#session-core-state-machine)) apply before or with this gate; a failed sequence check also produces no handler side effect.
@@ -769,6 +771,7 @@ The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenti
 | [`spoke-ops.md`](spoke-ops.md) | Ops wire + error envelope (wrapped as opaque invoke payloads) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers; adapter ports; `HostManifestPort` |
 | [`spoke-memory.md`](spoke-memory.md) | `spoke-memory` family — 33 `memory.*` ops riding these envelopes, capability split, `MEM-R019`/`MEM-R020` fallback prohibition |
+| [`spoke-cognition-consumer-contract.md`](spoke-cognition-consumer-contract.md) | `spoke-cognition` negotiation/rejection and public connect exports |
 | [`schemas/README.md`](../../schemas/README.md) | Connect schema files under `schemas/connect/` |
 | [`crates/spoke-connect/README.md`](../../crates/spoke-connect/README.md) | Rust reference (libp2p transport + Path B uniffi binding surface) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Connect envelope family / Session (connect) / peer_id vocabulary |

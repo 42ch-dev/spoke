@@ -57,6 +57,29 @@
           },
           "description": "Chunk 0 only. Only listed grants are created on the target and only when the staging principal coverage subsumes them; unlisted grants are dropped and none is auto-activated (MEM-R025)."
         },
+        "reference_translations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference",
+                "description": "Source cognition reference; matches only the complete (kind, namespace, id) tuple."
+              },
+              "to": {
+                "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference",
+                "description": "Target cognition reference; may change any identity component, including the namespace."
+              }
+            },
+            "additionalProperties": false,
+            "title": "ReferenceTranslation"
+          },
+          "description": "Chunk 0 only. Exact §6.3 cognition reference translation pairs applied to every typed reference position in transferred Content before activation; absent means only the existing id maps apply."
+        },
         "idempotency_key": {
           "type": "string",
           "minLength": 1,

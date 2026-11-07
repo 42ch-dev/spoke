@@ -20,14 +20,15 @@ use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use spoke_fixture_memory_engine::classify::{classify_candidate, CandidateMaterial};
 use spoke_fixture_memory_engine::recall::{recall, RecallRecord, RecallRequest};
-use spoke_fixture_memory_engine::reflect::{is_stale, ReflectionBasis, SourceRef};
+use spoke_fixture_memory_engine::reflect::{basis_digests, is_stale, ReflectionBasis, SourceRef};
 use spoke_fixture_memory_engine::transfer::{
     adopt_grants, partition_bundle, reassemble, staged_report, verify_reassembly, verify_staging,
 };
 use spoke_operations::{
-    is_freeze_allowlisted, jcs_sha256_hex, validate_memory_subjects_fence, SpokeRejectCode,
-    SpokeResult,
+    cognition_record_matches_filter, is_freeze_allowlisted, jcs_sha256_hex,
+    validate_cognition_filter, validate_memory_subjects_fence, SpokeRejectCode, SpokeResult,
 };
+use spoke_schemas::data::cognition::{CognitionFilter, CognitionRecord};
 use spoke_schemas::data::provenance_filter::ProvenanceFilter;
 use spoke_schemas::data::read_selection::ReadSelection;
 use spoke_schemas::data::retained_record::Content;
@@ -324,6 +325,13 @@ fn with_basis<T>(spec: &Value, run: impl FnOnce(&ReflectionBasis<'_>) -> T) -> T
         None | Some(Value::Null) => None,
         Some(value) => Some(serde_json::from_value(value.clone()).expect("basis filter")),
     };
+    let cognition_filter: Option<spoke_schemas::data::cognition::CognitionFilter> =
+        match spec.get("cognition_filter") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                serde_json::from_value(value.clone()).expect("basis cognition_filter"),
+            ),
+        };
     let sources_json = spec["sources"].as_array().expect("basis sources");
     let source_ids: Vec<String> = sources_json
         .iter()
@@ -364,6 +372,7 @@ fn with_basis<T>(spec: &Value, run: impl FnOnce(&ReflectionBasis<'_>) -> T) -> T
     let basis = ReflectionBasis {
         selection: &selection,
         filter: filter.as_ref(),
+        cognition_filter: cognition_filter.as_ref(),
         sources: &refs,
         profile_revisions: &profile_refs,
     };
@@ -533,7 +542,7 @@ fn run_staging_import(case: &Case<'_>) -> Value {
     let record_ids = string_map(input.get("record_ids"));
     let candidate_ids = string_map(input.get("candidate_ids"));
 
-    let outcome = verify_staging(&chunks, &renames, &record_ids, &candidate_ids);
+    let outcome = verify_staging(&chunks, &renames, &record_ids, &candidate_ids, &[]);
     let adopt_strings = string_list(&input["adopt_grants"]);
     let adopt: Vec<&str> = adopt_strings.iter().map(String::as_str).collect();
     let (adopted, dropped) = adopt_grants(&bundle, &adopt).expect("adopt_grants");
@@ -629,6 +638,9 @@ fn run_classification(case: &Case<'_>) -> Value {
         has_structured_content: material_json["has_structured_content"]
             .as_bool()
             .expect("has_structured_content"),
+        has_cognition_content: material_json["has_cognition_content"]
+            .as_bool()
+            .unwrap_or(false),
         occurred_at: material_json["occurred_at"].as_str().map(parse_timestamp),
         source_context_count: material_json["source_context_count"]
             .as_u64()
@@ -1274,4 +1286,411 @@ fn conformance_engine_cases_pass() {
             );
         }
     }
+}
+
+/// Shared cross-language Memory cognition lifecycle vectors (C8): one
+/// language-neutral set consumed here (reference engine) and by the TS/Rust
+/// validator suites and the SQLite provider tests. Admission vectors pin the
+/// exact canonical byte count both measures must produce plus the guard
+/// outcome; classification vectors pin cognition-as-content; transfer vectors
+/// pin fail-closed reference translation, including the cross-system same
+/// bare-id case. An unknown vector shape is a failure, never a skip.
+#[test]
+fn cognition_lifecycle_vectors_pass() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cognition/memory-lifecycle-vectors.json");
+    let raw = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let file: Value =
+        serde_json::from_str(&raw).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let vectors = file["vectors"]
+        .as_array()
+        .expect("memory-lifecycle-vectors.json carries a vectors array");
+
+    for vector in vectors {
+        let id = vector["id"].as_str().expect("vector id");
+        match vector["shape"].as_str().expect("vector shape") {
+            "content-admission" => {
+                let content = vector["content"].clone();
+                // Admission measures the complete wire Content value; an
+                // explicitly present empty cognition array is part of it.
+                let measured = spoke_operations::content_serialized_bytes(&content);
+                assert_eq!(
+                    measured,
+                    vector["canonical_bytes"].as_u64().expect("canonical_bytes") as usize,
+                    "{id}: canonical admission bytes"
+                );
+                let guard_ok =
+                    spoke_operations::validate_cognition_content(&vector["content"]).is_ok();
+                match vector["expected"].as_str().expect("expected") {
+                    "accept" => assert!(guard_ok, "{id}: cognition guard accepts"),
+                    "reject" => match vector["reason"].as_str().expect("reason") {
+                        "max_content_bytes" => {
+                            // The carrier itself is valid; the admission
+                            // budget is what rejects. The typed request must
+                            // reach the same rejection: an explicitly present
+                            // empty array is part of its re-serialized bytes.
+                            assert!(guard_ok, "{id}: cognition guard accepts");
+                            let max = vector["max_content_bytes"].as_u64().unwrap_or(0) as usize;
+                            assert!(
+                                measured > max,
+                                "{id}: over-budget content exceeds the admission limit"
+                            );
+                            let capture: spoke_schemas::MemoryCaptureRequest =
+                                serde_json::from_value(json!({
+                                    "space_id": "sp_1",
+                                    "subject_id": "s1",
+                                    "content": content,
+                                    "capture_scope": {"visibility": "shared"},
+                                    "idempotency_key": "k1",
+                                }))
+                                .expect("valid capture request");
+                            assert_eq!(
+                                spoke_operations::content_serialized_bytes(&capture.content),
+                                measured,
+                                "{id}: typed admission bytes"
+                            );
+                            match spoke_operations::validate_memory_capture(&capture, max) {
+                                SpokeResult::Reject(reject) => assert_eq!(
+                                    reject.code,
+                                    SpokeRejectCode::InvalidInput,
+                                    "{id}: admission reject code"
+                                ),
+                                SpokeResult::Ok(()) => {
+                                    panic!("{id}: expected the typed admission boundary to reject")
+                                }
+                            }
+                        }
+                        "invalid_cognition_record" => {
+                            assert!(!guard_ok, "{id}: cognition guard rejects");
+                        }
+                        other => panic!("{id}: unknown reason {other:?}"),
+                    },
+                    other => panic!("{id}: unknown expected {other:?}"),
+                }
+            }
+            "candidate-classification" => {
+                // When the vector carries the actual wire cognition member,
+                // derive presence from it instead of trusting the flag: an
+                // explicitly present empty array is not content.
+                let derived_presence = vector.get("content_cognition").map(|present| {
+                    spoke_fixture_memory_engine::classify::content_has_cognition(&json!({
+                        "text": vector["text"].clone(),
+                        "cognition": present.clone(),
+                    }))
+                });
+                let material = CandidateMaterial {
+                    kind: vector["kind"].as_str().expect("kind"),
+                    text: vector["text"].as_str().expect("text"),
+                    has_structured_content: vector["has_structured_content"]
+                        .as_bool()
+                        .expect("has_structured_content"),
+                    has_cognition_content: derived_presence.unwrap_or_else(|| {
+                        vector["has_cognition_content"]
+                            .as_bool()
+                            .expect("has_cognition_content")
+                    }),
+                    occurred_at: None,
+                    source_context_count: 0,
+                    anchor_count: 0,
+                };
+                let classification = classify_candidate(&material);
+                assert_eq!(
+                    serde_json::to_value(classification.disposition).expect("disposition"),
+                    json!(vector["expected_disposition"].as_str().expect("expected_disposition")),
+                    "{id}: disposition"
+                );
+            }
+            "reference-translation" => {
+                let maps = spoke_fixture_memory_engine::transfer::TranslationMaps {
+                    subject_id_map: string_map(vector.get("subject_id_map")),
+                    record_id_map: string_map(vector.get("record_id_map")),
+                    candidate_id_map: string_map(vector.get("candidate_id_map")),
+                };
+                let pairs: Vec<(
+                    spoke_schemas::data::cognition::CognitionReference,
+                    spoke_schemas::data::cognition::CognitionReference,
+                )> = serde_json::from_value(vector["reference_translations"].clone())
+                    .unwrap_or_else(|error| panic!("{id}: reference_translations parse: {error}"));
+                let outcome = spoke_fixture_memory_engine::transfer::remap_cognition_references(
+                    &vector["content"],
+                    &maps,
+                    &pairs,
+                );
+                match vector["expected"].as_str().expect("expected") {
+                    "accept" => {
+                        let translated = outcome.unwrap_or_else(|error| panic!("{id}: {error}"));
+                        assert_eq!(
+                            translated,
+                            vector["expected_content"].clone(),
+                            "{id}: translated content"
+                        );
+                    }
+                    "reject" => {
+                        let error = outcome.err().unwrap_or_else(|| {
+                            panic!("{id}: expected a translation failure")
+                        });
+                        let needle = vector["error_contains"].as_str().expect("error_contains");
+                        assert!(
+                            error.to_string().contains(needle),
+                            "{id}: error {error} contains {needle:?}"
+                        );
+                    }
+                    other => panic!("{id}: unknown expected {other:?}"),
+                }
+            }
+            other => panic!("{id}: unknown vector shape {other:?}"),
+        }
+    }
+}
+
+/// Eligible source refs for one vector filter, by record id + revision.
+fn query_vector_sources<'a>(
+    records: &'a [Value],
+    filter: &CognitionFilter,
+) -> Vec<SourceRef<'a>> {
+    records
+        .iter()
+        .filter(|record| {
+            record["content"]["cognition"]
+                .as_array()
+                .is_some_and(|entries| {
+                    entries.iter().any(|entry| {
+                        serde_json::from_value::<CognitionRecord>(entry.clone())
+                            .is_ok_and(|entry| cognition_record_matches_filter(&entry, filter))
+                    })
+                })
+        })
+        .map(|record| SourceRef {
+            record_id: record["record_id"].as_str().expect("record_id"),
+            revision: record["revision"].as_u64().expect("revision"),
+        })
+        .collect()
+}
+
+/// Shared C9 query vectors: one authorized cognition-filtered source set,
+/// consumed by this reference runner and by the typed SQLite Memory provider.
+/// The runner derives eligibility with the canonical C5 matcher (one entry must
+/// satisfy the whole conjunction), then ranks/budgets the eligible set with the
+/// reference recall engine; both consumers assert the same exact ids, counts,
+/// pages, overflow and basis relations.
+#[test]
+fn cognition_query_vectors_pass() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../cognition/memory-query-vectors.json");
+    let raw = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let file: Value =
+        serde_json::from_str(&raw).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let records = file["records"]
+        .as_array()
+        .expect("memory-query-vectors.json carries records");
+    let parsed_filter = |value: &Value| {
+        assert!(
+            validate_cognition_filter(value).is_ok(),
+            "vector filter must pass the canonical C5 grammar: {value}"
+        );
+        serde_json::from_value::<CognitionFilter>(value.clone()).expect("vector filter parses")
+    };
+    let record_entries = |record: &Value| -> Vec<CognitionRecord> {
+        record["content"]["cognition"]
+            .as_array()
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|entry| {
+                        serde_json::from_value(entry.clone()).expect("vector cognition entry")
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    // The typed provider derives `eligible_ids` from its id-sorted index, so
+    // sort this file-order derivation to the shared id-ascending expectation.
+    let eligible_ids = |filter: &CognitionFilter| -> Vec<String> {
+        let mut ids: Vec<String> = records
+            .iter()
+            .filter(|record| {
+                record_entries(record)
+                    .iter()
+                    .any(|entry| cognition_record_matches_filter(entry, filter))
+            })
+            .map(|record| {
+                record["record_id"]
+                    .as_str()
+                    .expect("record_id")
+                    .to_string()
+            })
+            .collect();
+        ids.sort();
+        ids
+    };
+    let ids = |expect: &Value| -> Vec<String> {
+        expect["eligible_ids"]
+            .as_array()
+            .expect("eligible_ids")
+            .iter()
+            .map(|id| id.as_str().expect("id").to_string())
+            .collect()
+    };
+
+    let queries = file["queries"].as_array().expect("queries");
+    let mut pages: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for query in queries {
+        let id = query["id"].as_str().expect("query id");
+        let expect = &query["expect"];
+        let filter = query.get("filter").map(parsed_filter);
+        let recall_records: Vec<RecallRecord> = records
+            .iter()
+            .filter(|record| match &filter {
+                None => true,
+                Some(filter) => record_entries(record)
+                    .iter()
+                    .any(|entry| cognition_record_matches_filter(entry, filter)),
+            })
+            .map(|record| RecallRecord {
+                record_id: record["record_id"]
+                    .as_str()
+                    .expect("record_id")
+                    .to_string(),
+                kind: record["kind"].as_str().expect("kind").to_string(),
+                content: serde_json::from_value(record["content"].clone()).expect("content"),
+                created_at: parse_timestamp(record["created_at"].as_str().expect("created_at")),
+            })
+            .collect();
+        if let Some(filter) = &filter {
+            assert_eq!(eligible_ids(filter), ids(expect), "{id}: eligible ids");
+            assert_eq!(
+                recall_records.len() as u64,
+                expect["total_authorized"]
+                    .as_u64()
+                    .expect("total_authorized"),
+                "{id}: eligible size"
+            );
+        }
+        let offset = query
+            .get("after")
+            .and_then(Value::as_str)
+            .map(|previous| pages.get(previous).expect("previous page").len())
+            .unwrap_or(0);
+        let budget = &query["budget"];
+        let page = recall(
+            &recall_records,
+            &RecallRequest {
+                query: None,
+                offset,
+                max_items: budget["max_items"].as_u64().expect("max_items") as usize,
+                max_bytes: budget["max_bytes"].as_u64().map(|bytes| bytes as usize),
+            },
+        )
+        .expect("recall succeeds");
+        let page_ids: Vec<String> = page
+            .records
+            .iter()
+            .map(|record| record.record_id.clone())
+            .collect();
+        assert_eq!(json!(page_ids), expect["page_ids"], "{id}: page ids");
+        assert_eq!(
+            page.truncated,
+            expect["truncated"].as_bool().unwrap_or(false),
+            "{id}: truncated"
+        );
+        assert_eq!(
+            page.overflow_record_id,
+            expect.get("overflow_record_id").and_then(Value::as_str),
+            "{id}: overflow"
+        );
+        if expect.get("total_authorized").is_some() {
+            assert_eq!(
+                page.total_authorized as u64,
+                expect["total_authorized"].as_u64().expect("total_authorized"),
+                "{id}: total_authorized"
+            );
+        }
+        pages.insert(id, page_ids);
+    }
+
+    // Reflection basis: filter identity changes the state digest, while the
+    // source-set digest stays id + revision (equal only for an equal set).
+    let reflection = &file["reflection"];
+    let filters = &reflection["filters"];
+    let expect = &reflection["expect"];
+    let narrow = parsed_filter(&filters["narrow"]);
+    let same_sources = parsed_filter(&filters["same_sources"]);
+    let disjoint = parsed_filter(&filters["disjoint"]);
+    assert_eq!(
+        eligible_ids(&narrow),
+        expect["narrow_eligible_ids"]
+            .as_array()
+            .expect("narrow_eligible_ids")
+            .iter()
+            .map(|id| id.as_str().expect("id").to_string())
+            .collect::<Vec<_>>(),
+        "narrow eligibility"
+    );
+    assert_eq!(eligible_ids(&same_sources), eligible_ids(&narrow));
+    assert_eq!(
+        eligible_ids(&disjoint),
+        expect["disjoint_eligible_ids"]
+            .as_array()
+            .expect("disjoint_eligible_ids")
+            .iter()
+            .map(|id| id.as_str().expect("id").to_string())
+            .collect::<Vec<_>>(),
+        "disjoint eligibility"
+    );
+
+    let selection: ReadSelection =
+        serde_json::from_value(reflection["selection"].clone()).expect("reflection selection");
+    let profile_revisions: Vec<(String, u64)> = reflection["profile_revisions"]
+        .as_object()
+        .expect("profile_revisions")
+        .iter()
+        .map(|(kind, revision)| (kind.clone(), revision.as_u64().expect("revision")))
+        .collect();
+    let profile_refs: Vec<(&str, u64)> = profile_revisions
+        .iter()
+        .map(|(kind, revision)| (kind.as_str(), *revision))
+        .collect();
+    let narrow_sources = query_vector_sources(records, &narrow);
+    let same_sources_refs = query_vector_sources(records, &same_sources);
+    let disjoint_sources = query_vector_sources(records, &disjoint);
+    let narrow_digests = basis_digests(&ReflectionBasis {
+        selection: &selection,
+        filter: None,
+        cognition_filter: Some(&narrow),
+        sources: &narrow_sources,
+        profile_revisions: &profile_refs,
+    });
+    let same_digests = basis_digests(&ReflectionBasis {
+        selection: &selection,
+        filter: None,
+        cognition_filter: Some(&same_sources),
+        sources: &same_sources_refs,
+        profile_revisions: &profile_refs,
+    });
+    let disjoint_digests = basis_digests(&ReflectionBasis {
+        selection: &selection,
+        filter: None,
+        cognition_filter: Some(&disjoint),
+        sources: &disjoint_sources,
+        profile_revisions: &profile_refs,
+    });
+    assert_eq!(
+        narrow_digests.source_set_digest, same_digests.source_set_digest,
+        "an identical eligible set keeps the id + revision digest"
+    );
+    assert_ne!(
+        narrow_digests.source_set_digest, disjoint_digests.source_set_digest,
+        "a different eligible set changes the source-set digest"
+    );
+    assert_ne!(
+        narrow_digests.state_digest, same_digests.state_digest,
+        "the filter identity is pinned even when the source set matches"
+    );
+    assert_ne!(narrow_digests.state_digest, disjoint_digests.state_digest);
+    assert_eq!(
+        expect["state_digest_changes"].as_bool(),
+        Some(true),
+        "vector expectation sanity"
+    );
 }

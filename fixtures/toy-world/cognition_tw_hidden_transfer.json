@@ -1,0 +1,46 @@
+{
+  "kind": "perception",
+  "record_id": "cog_tw_ana_perceives_hidden_transfer",
+  "holder": { "kind": "knowledge_entry", "namespace": "toy_world", "id": "kb_tw_ana" },
+  "target": {
+    "carrier": { "kind": "timeline_event", "namespace": "toy_world", "id": "evt_tw_hidden_transfer" },
+    "target_id": "tgt_tw_marble_move",
+    "kind": "perceived_content",
+    "text": "Ana moves the marble from the box to the basket."
+  },
+  "assessor": { "kind": "knowledge_entry", "namespace": "toy_world", "id": "kb_tw_ana" },
+  "assessor_role": "holder_self_report",
+  "basis": {
+    "kind": "evidence",
+    "evidence": [
+      { "kind": "timeline_event", "namespace": "toy_world", "id": "evt_tw_hidden_transfer" }
+    ],
+    "acquisition": "Perception"
+  },
+  "assessment_context": { "context_id": "ctx_tw_false_belief" },
+  "effective_at": "2026-07-23T09:10:00Z",
+  "assessed_at": "2026-07-23T09:10:00Z",
+  "view": "current",
+  "episode": { "kind": "timeline_event", "namespace": "toy_world", "id": "evt_tw_hidden_transfer" },
+  "content": {
+    "object": "marble",
+    "from": "box",
+    "to": "basket"
+  },
+  "access": {
+    "line_of_sight": true,
+    "hearing_range": true,
+    "modality": ["visual", "auditory"]
+  },
+  "q": {
+    "value": 1,
+    "assertion": "actual_capture",
+    "method": "toy_world_direct_capture",
+    "calibration": "unknown"
+  },
+  "extensions": {
+    "toy": {
+      "story": "false-belief-box-basket"
+    }
+  }
+}

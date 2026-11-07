@@ -5662,6 +5662,44 @@ async fn ke_remote_scope_viewpoint_with_ownership_negotiated_reaches_the_provide
 }
 
 #[tokio::test]
+async fn ke_remote_scope_present_empty_refinements_reach_the_provider_unchanged() {
+    let recording = Arc::new(RecordingScopePorts::new());
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["ke-ownership"],
+        responder_capabilities: vec!["ke-ownership"],
+        baseline: Some(Arc::clone(&recording)),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let scope: Scope = serde_json::from_value(json!({
+        "scope_id": "toy-scope-001",
+        "entry_ids": [],
+        "entry_types": [],
+        "timeline_event_ids": [],
+    }))
+    .expect("valid Scope");
+
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Ok(_) => {}
+        SpokeResult::Reject(reject) => {
+            panic!("the served scope read must not deny: {reject:?}")
+        }
+    }
+
+    // The responder's typed decode must not widen an explicitly present `[]`
+    // to an omitted list before the provider sees it.
+    let received = recording.scopes();
+    assert_eq!(received.len(), 1, "the provider must be reached exactly once");
+    assert_eq!(received[0]["entry_ids"], json!([]));
+    assert_eq!(received[0]["entry_types"], json!([]));
+    assert_eq!(received[0]["timeline_event_ids"], json!([]));
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
 async fn ke_remote_scope_viewpoint_without_a_negotiated_ownership_capability_is_refused() {
     // Either hello omitting `ke-ownership` leaves it out of the negotiated
     // intersection — the request must fail loudly instead of silently

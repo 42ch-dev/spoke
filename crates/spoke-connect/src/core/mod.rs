@@ -38,8 +38,9 @@ pub use capability_token::{
 };
 pub use correlate::{check_response_correlation, Correlation};
 pub use dispatch::{
-    dispatch_allowed, required_capability, token_authorizes_op, CAPABILITY_KE_EXTRACTION,
-    CAPABILITY_KE_OWNERSHIP, CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE,
+    cognition_requirement_field, cognition_requirement_present, dispatch_allowed,
+    required_capability, token_authorizes_op, CAPABILITY_KE_EXTRACTION, CAPABILITY_KE_OWNERSHIP,
+    CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE, CAPABILITY_SPOKE_COGNITION,
     CAPABILITY_SPOKE_MEMORY, CAPABILITY_SPOKE_MEMORY_REFLECTION, CAPABILITY_SPOKE_MEMORY_TRANSFER,
 };
 pub use error::{CoreError, CoreInvokeError};

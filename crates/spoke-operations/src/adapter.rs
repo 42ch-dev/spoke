@@ -271,6 +271,7 @@ mod parity_export_checklist {
             let _ = orchestrate_assemble(
                 &ports,
                 wire(serde_json::json!({ "scope": { "scope_id": "parity" } })),
+                None,
             );
             let _ = orchestrate_project(
                 &ports,
@@ -303,6 +304,7 @@ mod parity_export_checklist {
                 wire(serde_json::json!({
                     "scope": { "scope_id": "parity", "fork_id": "fork_a" }
                 })),
+                None,
             );
         }
 

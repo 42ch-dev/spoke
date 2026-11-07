@@ -69,7 +69,7 @@
             }
           },
           "additionalProperties": false,
-          "description": "Full proposed content; removed from the shell on consumption (§6.7 scrub).",
+          "description": "Full proposed content; removed from the shell on consumption (§6.7 scrub). Carries the same Content shape as retained records: optional cognition counts as content for classification and budgets; pending review confers no authority.",
           "title": "Proposed"
         },
         "provenance": {

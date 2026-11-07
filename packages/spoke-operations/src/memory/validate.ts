@@ -34,6 +34,7 @@ import type {
   MemorySubjectsFenceRequest,
 } from "@42ch/spoke-schemas";
 
+import { validateCognitionContent } from "../cognition/validate.js";
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 
 type Details = Record<string, unknown>;
@@ -68,9 +69,12 @@ const utf8Encoder = new TextEncoder();
  * `content` value — field name, quotes, escaping, and `structured` included.
  *
  * Canonical form: a member explicitly `null` is absent, matching the Rust
- * generated serializer (`Option::None` is skipped). Numbers use
- * `JSON.stringify`'s ECMAScript form, which the Rust measure shares through
- * RFC 8785 JCS.
+ * generated serializer (`Option::None` is skipped). Every other member is
+ * measured exactly as supplied, including an explicitly present empty
+ * `cognition` array: the caller's wire value is what the admission budget
+ * bounds, and silently dropping the member would admit bytes the request
+ * still carries. Numbers use `JSON.stringify`'s ECMAScript form, which the
+ * Rust measure shares through RFC 8785 JCS.
  */
 export function contentSerializedBytes(content: Content): number {
   const canonical = Object.fromEntries(
@@ -82,6 +86,24 @@ export function contentSerializedBytes(content: Content): number {
 interface Content {
   text: string;
   structured?: unknown;
+  cognition?: unknown;
+}
+
+/**
+ * C5 entry-point guard (§6.1): every present `Content.cognition` entry must
+ * be a closed standard cognition record with `view = "recorded_at"`. Called
+ * before byte admission so a malformed carrier fails `INVALID_INPUT` on the
+ * field, never on the budget.
+ */
+function checkCognitionContent(content: Content): SpokeResult<void> {
+  if (!validateCognitionContent(content)) {
+    return invalidInput(
+      "content.cognition",
+      "Content cognition entries must be recorded-at-time records",
+      { reason: "invalid_cognition_record" },
+    );
+  }
+  return spokeOk();
 }
 
 function checkContentLimit(byteLen: number, maxContentBytes: number): SpokeResult<void> {
@@ -193,8 +215,12 @@ export function validateMemoryCapture(
   request: MemoryCaptureRequest,
   maxContentBytes: number,
 ): SpokeResult<void> {
+  const cognitionCheck = checkCognitionContent(request.content as Content);
+  if (!cognitionCheck.ok) {
+    return cognitionCheck;
+  }
   return checkContentLimit(
-    contentSerializedBytes(request.content),
+    contentSerializedBytes(request.content as Content),
     maxContentBytes,
   );
 }
@@ -246,8 +272,12 @@ export function validateMemoryRecordsCreate(
   request: MemoryRecordsCreateRequest,
   maxContentBytes: number,
 ): SpokeResult<void> {
+  const cognitionCheck = checkCognitionContent(request.content as Content);
+  if (!cognitionCheck.ok) {
+    return cognitionCheck;
+  }
   return checkContentLimit(
-    contentSerializedBytes(request.content),
+    contentSerializedBytes(request.content as Content),
     maxContentBytes,
   );
 }
@@ -273,8 +303,12 @@ export function validateMemoryRecordsUpdate(
   if (update.content === undefined) {
     return spokeOk();
   }
+  const cognitionCheck = checkCognitionContent(update.content as Content);
+  if (!cognitionCheck.ok) {
+    return cognitionCheck;
+  }
   return checkContentLimit(
-    contentSerializedBytes(update.content),
+    contentSerializedBytes(update.content as Content),
     maxContentBytes,
   );
 }

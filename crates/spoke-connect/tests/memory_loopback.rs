@@ -31,9 +31,13 @@ use memory_host::{
     not_served, reject, wire, MemoryHost, Store, DEFAULT_SPACE as SPACE, DEFAULT_SUBJECT as SUBJECT,
 };
 
+#[path = "support/sqlite_memory.rs"]
+mod sqlite_memory;
+use sqlite_memory::SqliteMemoryProvider;
+
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -47,7 +51,9 @@ use spoke_connect::remote::{
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
 use spoke_operations::{
-    jcs_sha256_hex, BaselinePorts, MemoryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    cognition_record_matches_filter, jcs_sha256_hex, validate_cognition_record, BaselinePorts,
+    FindingPort, HostManifestPort, KnowledgeEntryPort, MemoryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::{ConnectHello, ConnectSession};
 use spoke_schemas::{
@@ -74,6 +80,7 @@ use spoke_schemas::{
     MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
     MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
     MemorySubjectsGetResponse, Principal,
+    Finding, KnowledgeEntry, Relation, Rule, Scope, TimelineEvent,
 };
 
 const OTHER_SPACE: &str = "spc_other";
@@ -1724,6 +1731,1857 @@ async fn memory_loopback_reports_an_uncertain_outcome_when_the_admitted_task_pan
     let details = failed.details.expect("uncertain carries details");
     assert_eq!(details["retry_class"], "uncertain", "{details:?}");
     assert_eq!(details["kind"], "panic", "{details:?}");
+
+    responder.close();
+    client.close();
+}
+
+// ── C8 combined-host no-KE boundary (P3/T1) ───────────────────────────────
+
+/// Order-independent snapshot of the seeded ToyWorld KE authority as observed
+/// through the very `RemoteAdapter` that drives the Memory lifecycle.
+async fn knowledge_entry_state(client: &RemoteAdapter, scope: &Scope) -> Value {
+    let mut entries: Vec<KnowledgeEntry> = expect_ok(client.list_knowledge_entries(scope).await);
+    entries.sort_by(|left, right| left.entry_id.as_str().cmp(right.entry_id.as_str()));
+    serde_json::to_value(entries).expect("KE snapshot serializes")
+}
+
+async fn assert_knowledge_entries_unchanged(
+    client: &RemoteAdapter,
+    scope: &Scope,
+    expected: &Value,
+    stage: &str,
+) {
+    let actual = knowledge_entry_state(client, scope).await;
+    assert_eq!(
+        &actual, expected,
+        "Memory stage `{stage}` changed the consumer-visible KE authority"
+    );
+}
+
+/// C8 state boundary: with the real `SqliteMemoryProvider` and the seeded
+/// `ToyWorldAdapter` behind one combined host, every Memory lifecycle stage
+/// must leave the complete KnowledgeEntry state exactly unchanged.
+#[tokio::test]
+async fn sqlite_cognition_lifecycle_leaves_knowledge_entries_unchanged() {
+    // The reviewed C8 provider, provisioned with the loopback space/subject and
+    // one unrestricted admin grant for the authenticated peer's principal.
+    let provider = Arc::new(SqliteMemoryProvider::in_memory());
+    provider.provision_space(SPACE, "memory-loopback-host", &[]);
+    provider.provision_subject(SPACE, SUBJECT, None);
+    let principal = client_principal();
+    provider.provision_grant(
+        SPACE,
+        json!({
+            "schema_version": 1,
+            "grant_id": "grt_loopback_no_ke_admin",
+            "space_id": SPACE,
+            "principal_id": principal.principal_id,
+            "capabilities": ["admin"],
+            "created_at": "2026-07-23T05:36:00Z",
+            "revision": 1,
+            "extensions": {},
+        }),
+    );
+    let port: Arc<dyn MemoryPort + Send + Sync> = provider.clone();
+    let memory: Arc<dyn RemoteMemoryService> = Arc::new(MemoryPortService::new(port, admission()));
+
+    let (responder, pair) = start_host(Some(memory), &MEMORY_CAPABILITIES).await;
+    let client = dial(pair, &memory_manifest("test-client", &MEMORY_CAPABILITIES)).await;
+
+    // Cross-store oracle: the belief is attributed to the seeded ToyWorld
+    // knowledge entry, so any Memory-driven KE synchronization is observable.
+    let scope: Scope = serde_json::from_value(json!({ "scope_id": "no-ke-boundary" }))
+        .expect("valid Scope");
+    let expected = knowledge_entry_state(&client, &scope).await;
+    let baseline = expected.as_array().expect("KE snapshot array");
+    assert!(
+        !baseline.is_empty(),
+        "the seeded KE authority must be non-empty: {expected}"
+    );
+    assert!(
+        baseline
+            .iter()
+            .any(|entry| entry["entry_id"] == json!("kb_tw_mira")),
+        "the seeded holder entry must be part of the oracle: {expected}"
+    );
+
+    let vector_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/cognition/memory-lifecycle-vectors.json"
+    );
+    let vectors: Value = serde_json::from_str(
+        &std::fs::read_to_string(vector_path).expect("lifecycle vectors readable"),
+    )
+    .expect("lifecycle vectors parse");
+    let admission_vector = vectors["vectors"]
+        .as_array()
+        .expect("vectors array")
+        .iter()
+        .find(|vector| vector["id"] == "lifecycle-admission-cognition-valid")
+        .expect("valid cognition lifecycle vector present");
+    let holder =
+        json!({ "kind": "knowledge_entry", "namespace": "toy_world", "id": "kb_tw_mira" });
+    let mut content = admission_vector["content"].clone();
+    content["cognition"][0]["holder"] = holder.clone();
+    content["cognition"][0]["assessor"] = holder.clone();
+    let original_assessment = content["cognition"][0].clone();
+
+    // Capture: classified and pending, never a KnowledgeEntry.
+    let captured = expect_ok(
+        client
+            .capture(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "content": content.clone(),
+                    "capture_scope": { "visibility": "context", "context_id": CONTEXT },
+                    "source_context_ids": [CONTEXT],
+                    "kind_hint": "fact",
+                    "idempotency_key": "no-ke-cap-1",
+                }))
+                .expect("capture request"),
+            )
+            .await,
+    );
+    let captured = wire(&captured);
+    assert_eq!(captured["status"], json!("committed"));
+    let candidate_id = captured["result"]["candidate_ids"][0]
+        .as_str()
+        .expect("candidate id")
+        .to_string();
+    assert_knowledge_entries_unchanged(&client, &scope, &expected, "capture").await;
+
+    // Review: the only candidate → record path, still no KE.
+    let reviewed = expect_ok(
+        client
+            .review_candidate(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "candidate_id": candidate_id,
+                    "expected_revision": 1,
+                    "decision": { "action": "promote", "kind": "fact" },
+                    "idempotency_key": "no-ke-review-1",
+                }))
+                .expect("review request"),
+            )
+            .await,
+    );
+    let reviewed = wire(&reviewed);
+    assert_eq!(reviewed["result"]["outcome"], json!("promoted"));
+    let record_id = reviewed["result"]["record_ids"][0]
+        .as_str()
+        .expect("record id")
+        .to_string();
+    assert_knowledge_entries_unchanged(&client, &scope, &expected, "review").await;
+
+    // Recorded-at-time update: the original assessment is retained verbatim and
+    // a second, identically attributed reassessment is appended.
+    let mut reassessment = original_assessment.clone();
+    reassessment["record_id"] = json!("rec_belief_mem_2");
+    reassessment["assessed_at"] = json!("2026-07-24T06:05:00Z");
+    reassessment["q"]["value"] = json!(0.4);
+    let updated_content = json!({
+        "text": content["text"].clone(),
+        "cognition": [original_assessment.clone(), reassessment],
+    });
+    let updated = expect_ok(
+        client
+            .update_record(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": record_id,
+                    "expected_revision": 1,
+                    "content": updated_content.clone(),
+                    "idempotency_key": "no-ke-update-1",
+                }))
+                .expect("update request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&updated)["result"]["revision"], json!(2));
+    assert_knowledge_entries_unchanged(&client, &scope, &expected, "recorded-at update").await;
+
+    // Placement promotion: revision advances, content is untouched.
+    let promoted = expect_ok(
+        client
+            .promote_record(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": record_id,
+                    "expected_revision": 2,
+                    "target_scope": { "visibility": "shared" },
+                    "idempotency_key": "no-ke-promote-1",
+                }))
+                .expect("promote request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&promoted)["result"]["revision"], json!(3));
+    assert_knowledge_entries_unchanged(&client, &scope, &expected, "placement promote").await;
+
+    // Retained read: the two-assessment content survives the placement move.
+    let record = expect_ok(
+        client
+            .get_record(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": record_id,
+                }))
+                .expect("get request"),
+            )
+            .await,
+    );
+    let record = wire(&record)["record"].clone();
+    assert_eq!(record["content"], updated_content);
+    assert_eq!(record["revision"], json!(3));
+    assert_knowledge_entries_unchanged(&client, &scope, &expected, "retained read").await;
+
+    // Full retirement scrubs Memory content and still leaves every KE intact.
+    let deleted = expect_ok(
+        client
+            .delete_record(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": record_id,
+                    "expected_revision": 3,
+                    "idempotency_key": "no-ke-delete-1",
+                }))
+                .expect("delete request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&deleted)["result"]["tombstoned"], json!(true));
+    assert_knowledge_entries_unchanged(&client, &scope, &expected, "delete").await;
+
+    // Export creation, then every export chunk read.
+    let created = expect_ok(
+        client
+            .create_export(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "include_tombstoned": true,
+                    "require_quiescent": false,
+                    "idempotency_key": "no-ke-export-1",
+                }))
+                .expect("export request"),
+            )
+            .await,
+    );
+    let receipt_id = wire(&created)["receipt_id"]
+        .as_str()
+        .expect("export receipt id")
+        .to_string();
+    assert_knowledge_entries_unchanged(&client, &scope, &expected, "export creation").await;
+
+    // Deferred receipt completion uses the provider's test-support worker, not
+    // a read path (MEM-R011).
+    let completed = provider
+        .poll_receipt_value(SPACE, &receipt_id)
+        .expect("export receipt present");
+    assert_eq!(completed["status"], json!("committed"), "{completed}");
+    let export_id = completed["result"]["export_id"]
+        .as_str()
+        .expect("export id")
+        .to_string();
+    let chunk_count = completed["result"]["chunk_count"]
+        .as_u64()
+        .expect("chunk count");
+    assert!(chunk_count >= 1, "the export must carry at least one chunk");
+    for ordinal in 0..chunk_count {
+        let chunk = expect_ok(
+            client
+                .get_export(
+                    &principal,
+                    serde_json::from_value(json!({
+                        "space_id": SPACE,
+                        "export_id": export_id,
+                        "chunk_ordinal": ordinal,
+                    }))
+                    .expect("export chunk request"),
+                )
+                .await,
+        );
+        assert!(wire(&chunk)["chunk"].is_object(), "chunk {ordinal}");
+        assert_knowledge_entries_unchanged(&client, &scope, &expected, "export chunk read").await;
+    }
+
+    responder.close();
+    client.close();
+}
+
+// ── spoke-cognition public-session vectors (consumer contract §2) ─────────
+
+/// The shared negotiation/requirement vectors — the SAME file the TypeScript
+/// suite and the responder unit tests consume, so both languages agree on the
+/// host manifests, payloads and exact rejection fields.
+const COGNITION_FIXTURE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../packages/spoke-connect-ts/tests/fixtures/cognition-negotiation.json"
+));
+
+const COGNITION_SCOPE_OP: &str = "port.scope.list_knowledge_entries";
+
+fn cognition_manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
+    serde_json::from_value(json!({
+        "schema_version": 1,
+        "host_id": host_id,
+        "roles": ["data-store"],
+        "capabilities": capabilities,
+        "namespaces": ["world_a"],
+        "extensions": {},
+    }))
+    .expect("valid manifest")
+}
+
+fn fixture_capabilities(host: &Value) -> Vec<String> {
+    host.get("capabilities")
+        .and_then(Value::as_array)
+        .expect("host capabilities")
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
+}
+
+fn capability_refs(capabilities: &[String]) -> Vec<&str> {
+    capabilities.iter().map(String::as_str).collect()
+}
+
+fn expected_entry_ids(case: &Value) -> Vec<String> {
+    case.get("expect_entry_ids")
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Counting KE-only source over the shared fixture entries. A denied
+/// requirement must leave `scope_reads` at zero; a served selection reaches
+/// it exactly once and answers the entries whose current-view standard
+/// cognition satisfies the selection through the shared C6 matcher — a
+/// discriminating result, never an unconditional echo.
+struct CognitionKeSource {
+    entries: Vec<Value>,
+    scope_reads: AtomicUsize,
+    returned_entry_ids: Mutex<Vec<String>>,
+}
+
+impl CognitionKeSource {
+    fn new(entries: Vec<Value>) -> Self {
+        Self {
+            entries,
+            scope_reads: AtomicUsize::new(0),
+            returned_entry_ids: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Apply the requested current-view selection with the shared C6 matcher.
+    /// An absent selection returns the whole source (no cognitive refinement);
+    /// absent optional record members are never read as zero.
+    fn select(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+        let scope_json = match serde_json::to_value(scope) {
+            Ok(scope_json) => scope_json,
+            Err(error) => {
+                return reject(
+                    SpokeRejectCode::InternalError,
+                    format!("scope serialize failed: {error}"),
+                )
+            }
+        };
+        let Some(selection) = scope_json.get("cognition") else {
+            return self.matching_entries(|_| true);
+        };
+        let current = selection.get("view").and_then(Value::as_str) == Some("current");
+        let filter: spoke_schemas::data::cognition::CognitionFilter =
+            match selection.get("filter").cloned() {
+                Some(filter) => match serde_json::from_value(filter) {
+                    Ok(filter) => filter,
+                    Err(error) => {
+                        return reject(
+                            SpokeRejectCode::InvalidInput,
+                            format!("fixture filter: {error}"),
+                        )
+                    }
+                },
+                None => return reject(SpokeRejectCode::InvalidInput, "missing filter"),
+            };
+        self.matching_entries(|entry| {
+            current
+                && fixture_entry_records(entry)
+                    .iter()
+                    .any(|record| cognition_record_matches_filter(record, &filter))
+        })
+    }
+
+    fn matching_entries(
+        &self,
+        keep: impl Fn(&Value) -> bool,
+    ) -> SpokeResult<Vec<KnowledgeEntry>> {
+        let mut selected = Vec::new();
+        let mut ids = Vec::new();
+        for entry in &self.entries {
+            if !keep(entry) {
+                continue;
+            }
+            match serde_json::from_value::<KnowledgeEntry>(entry.clone()) {
+                Ok(entry) => {
+                    ids.push(entry.entry_id.clone());
+                    selected.push(entry);
+                }
+                Err(error) => {
+                    return reject(
+                        SpokeRejectCode::InternalError,
+                        format!("fixture entry decode failed: {error}"),
+                    )
+                }
+            }
+        }
+        *self.returned_entry_ids.lock().expect("returned lock") = ids;
+        SpokeResult::Ok(selected)
+    }
+}
+
+/// A fixture entry's `modules.cognition.records`, each validated by the C5
+/// record gate before it is read as a typed record.
+fn fixture_entry_records(entry: &Value) -> Vec<spoke_schemas::CognitionRecord> {
+    let Some(records) = entry
+        .pointer("/modules/cognition/records")
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    records
+        .iter()
+        .map(|record| {
+            assert!(
+                validate_cognition_record(record).is_ok(),
+                "fixture record fails C5: {record}"
+            );
+            serde_json::from_value(record.clone()).expect("validated fixture record")
+        })
+        .collect()
+}
+
+#[async_trait]
+impl KnowledgeEntryPort for CognitionKeSource {
+    async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+        reject(
+            SpokeRejectCode::KnowledgeEntryNotFound,
+            format!("fixture has no entry {entry_id}"),
+        )
+    }
+
+    async fn put_knowledge_entry(
+        &self,
+        entry: KnowledgeEntry,
+        _expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        SpokeResult::Ok(entry)
+    }
+}
+
+#[async_trait]
+impl RelationPort for CognitionKeSource {
+    async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+        reject(
+            SpokeRejectCode::RelationNotFound,
+            format!("fixture has no relation {relation_id}"),
+        )
+    }
+
+    async fn put_relation(
+        &self,
+        relation: Relation,
+        _expected_base_revision: Option<u64>,
+    ) -> SpokeResult<Relation> {
+        SpokeResult::Ok(relation)
+    }
+}
+
+#[async_trait]
+impl ScopeQueryPort for CognitionKeSource {
+    async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.scope_reads.fetch_add(1, Ordering::SeqCst);
+        self.select(scope)
+    }
+
+    async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+        SpokeResult::Ok(Vec::new())
+    }
+}
+
+#[async_trait]
+impl FindingPort for CognitionKeSource {
+    async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+        SpokeResult::Ok(findings)
+    }
+}
+
+#[async_trait]
+impl RuleQueryPort for CognitionKeSource {
+    async fn list_rules(&self, _rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+        SpokeResult::Ok(Vec::new())
+    }
+}
+
+#[async_trait]
+impl HostManifestPort for CognitionKeSource {
+    async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+        SpokeResult::Ok(cognition_manifest("cognition-ke-source", &[]))
+    }
+
+    async fn list_peer_host_capability_manifests(
+        &self,
+    ) -> SpokeResult<Vec<HostCapabilityManifest>> {
+        SpokeResult::Ok(Vec::new())
+    }
+}
+
+/// Counting memory face with decodable success bodies. A denied requirement
+/// must leave `invokes` at zero, so the Memory boundary itself is observable;
+/// the served probe answers a decodable page or receipt.
+#[derive(Default)]
+struct CognitionMemoryService {
+    invokes: AtomicUsize,
+    last_payload: Mutex<Option<Value>>,
+}
+
+impl CognitionMemoryService {
+    fn committed_receipt(op: &str, idempotency_key: &str) -> Value {
+        json!({
+            "schema_version": 1,
+            "receipt_id": "rcpt_cognition_public_proof",
+            "op": op,
+            "space_id": SPACE,
+            "requester_principal_id": "prn_cognition_public_proof",
+            "idempotency_key": idempotency_key,
+            "payload_digest": "0".repeat(64),
+            "status": "committed",
+            "result": { "record_id": "rec_cognition_public_proof", "revision": 1 },
+            "created_at": "2026-10-28T09:20:00Z",
+            "completed_at": "2026-10-28T09:20:00Z",
+            "extensions": {},
+        })
+    }
+}
+
+#[async_trait]
+impl RemoteMemoryService for CognitionMemoryService {
+    async fn invoke(&self, _peer_id: &str, op: &str, payload: Value) -> SpokeResult<Value> {
+        self.invokes.fetch_add(1, Ordering::SeqCst);
+        *self.last_payload.lock().expect("payload lock") = Some(payload.clone());
+        match op {
+            "memory.records.create" => SpokeResult::Ok(Self::committed_receipt(
+                op,
+                payload
+                    .get("idempotency_key")
+                    .and_then(Value::as_str)
+                    .unwrap_or("cognition-public-proof"),
+            )),
+            _ => SpokeResult::Ok(json!({ "records": [], "total_authorized": 0 })),
+        }
+    }
+}
+
+/// Start a responder whose ports face carries the counting KE source and the
+/// counting memory service, over a real loopback pair.
+async fn start_cognition_host(
+    source: Arc<CognitionKeSource>,
+    memory: Arc<CognitionMemoryService>,
+    capabilities: &[&str],
+) -> (Arc<ConnectResponder>, LoopbackTransportPair) {
+    let pair = loopback_transport_pair();
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let ports = RemoteServePortsComposite::new(source, None, None).with_memory(memory);
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(ports);
+    let responder = connect_responder(ConnectResponderOptions {
+        transport: Arc::new(pair.server.clone()),
+        identity: RemoteIdentity { seed: seed_host() },
+        manifest: cognition_manifest("cognition-vector-host", capabilities),
+        allowlist: vec![peer_id_client.clone()],
+        peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
+        ports: Some(ports),
+        invoke_timeout_ms: None,
+    })
+    .await;
+    (responder, pair)
+}
+
+/// The typed client path sends exactly `{ "scope": <Scope> }`. A payload with
+/// any other top-level member is not representable on that path (the typed
+/// request would drop the member), so it MUST take the raw signed session
+/// instead — the top-level `cognition` positive is the discriminating case.
+fn typed_scope(payload: &Value) -> Option<Scope> {
+    if payload.as_object()?.len() != 1 {
+        return None;
+    }
+    let scope = payload.get("scope")?;
+    let decoded: Scope = serde_json::from_value(scope.clone()).ok()?;
+    (serde_json::to_value(&decoded).ok()? == *scope).then_some(decoded)
+}
+
+fn typed_memory_list(payload: &Value) -> Option<MemoryRecordsListRequest> {
+    let request: MemoryRecordsListRequest = serde_json::from_value(payload.clone()).ok()?;
+    (serde_json::to_value(&request).ok()? == *payload).then_some(request)
+}
+
+/// Every shared served vector through the REAL public boundary: a signed
+/// loopback handshake between `connect_responder` (the independent Rust
+/// responder) and a raw signed-session invoke carrying the fixture payload
+/// EXACTLY — including the malformed Scope and Memory data the generated
+/// request types cannot represent. Asserts the host's exact raw lowercase
+/// wire code plus `reason`/`field`, and that the specific KE/Memory boundary
+/// counters stay at their expected value (zero on every denial).
+#[tokio::test]
+async fn cognition_shared_vectors_answer_on_the_public_responder_session() {
+    let fixture: Value = serde_json::from_str(COGNITION_FIXTURE).expect("fixture json");
+    let hosts = fixture.get("hosts").expect("fixture hosts");
+    let entries = fixture
+        .get("ke_entries")
+        .and_then(Value::as_array)
+        .expect("fixture ke_entries")
+        .clone();
+    let cases = fixture
+        .get("cases")
+        .and_then(Value::as_array)
+        .expect("fixture cases");
+    // The two C7 field-path negatives are the only machine-checked proof of the
+    // escaped §2.2 field contract; a dropped row must fail by case identity.
+    for (case_id, field) in [
+        (
+            "scope_carrier_empty_member_keeps_its_path",
+            "scope.cognition.filter[\"\"]",
+        ),
+        (
+            "memory_carrier_delimiter_member_keeps_its_path",
+            "cognition_filter.q[\"a.b\"]",
+        ),
+    ] {
+        let case = cases
+            .iter()
+            .find(|case| {
+                case.get("kind").and_then(Value::as_str) == Some("served")
+                    && case.get("id").and_then(Value::as_str) == Some(case_id)
+            })
+            .unwrap_or_else(|| panic!("load-bearing served vector missing: {case_id}"));
+        assert_eq!(
+            case["expect"]["field"].as_str(),
+            Some(field),
+            "{case_id}: escaped wire field"
+        );
+        assert_eq!(
+            case["expect_provider_calls"].as_u64(),
+            Some(0),
+            "{case_id}: a denial reaches no provider"
+        );
+    }
+    for case in cases {
+        if case.get("kind").and_then(Value::as_str) != Some("served") {
+            continue;
+        }
+        let case_id = case.get("id").and_then(Value::as_str).expect("case id");
+        let host = hosts
+            .get(case.get("host").and_then(Value::as_str).expect("host"))
+            .expect("host entry");
+        let client = hosts
+            .get(case.get("client").and_then(Value::as_str).expect("client"))
+            .expect("client entry");
+        let host_capabilities = fixture_capabilities(host);
+        let client_capabilities = fixture_capabilities(client);
+        let op = case.get("op").and_then(Value::as_str).expect("op");
+        let payload = case.get("payload").expect("payload").clone();
+        let expected = case.get("expect").expect("expect");
+        let expected_calls = case
+            .get("expect_provider_calls")
+            .and_then(Value::as_u64)
+            .expect("expect_provider_calls");
+
+        let source = Arc::new(CognitionKeSource::new(entries.clone()));
+        let memory = Arc::new(CognitionMemoryService::default());
+        let (responder, pair) = start_cognition_host(
+            Arc::clone(&source),
+            Arc::clone(&memory),
+            &capability_refs(&host_capabilities),
+        )
+        .await;
+        let session_id = handshake(
+            &pair.client,
+            &cognition_manifest("cognition-vector-client", &capability_refs(&client_capabilities)),
+        )
+        .await;
+        let response =
+            raw_invoke(&pair.client, &session_id, 0, case_id, op, payload.clone()).await;
+
+        let scope_reads = source.scope_reads.load(Ordering::SeqCst);
+        let memory_invokes = memory.invokes.load(Ordering::SeqCst);
+        let (expected_scope, expected_memory) = if op.starts_with("memory.") {
+            (0, expected_calls)
+        } else {
+            (expected_calls, 0)
+        };
+        assert_eq!(
+            u64::try_from(scope_reads).expect("reads fit"),
+            expected_scope,
+            "{case_id}: KE source reads"
+        );
+        assert_eq!(
+            u64::try_from(memory_invokes).expect("invokes fit"),
+            expected_memory,
+            "{case_id}: memory service invokes"
+        );
+
+        if expected.get("status").and_then(Value::as_str) == Some("ok") {
+            assert!(
+                response.get("error").is_none(),
+                "{case_id}: expected success, got {response}"
+            );
+            assert!(
+                response.get("payload").is_some(),
+                "{case_id}: the success envelope carries the served payload: {response}"
+            );
+            responder.close();
+            continue;
+        }
+        let code = expected.get("code").and_then(Value::as_str).expect("code");
+        // Exact wire parity (consumer contract §2.2) read from the RAW frame:
+        // the lowercase dispatch spelling the responder must emit verbatim.
+        assert_eq!(
+            response["error"]["code"].as_str(),
+            Some(code),
+            "{case_id}: {response}"
+        );
+        assert!(
+            response.get("payload").is_none(),
+            "{case_id}: a denial carries no success payload: {response}"
+        );
+        if code == "invalid_input" {
+            assert_eq!(
+                response["error"]["details"]["reason"],
+                expected
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .expect("reason"),
+                "{case_id}: {response}"
+            );
+            assert_eq!(
+                response["error"]["details"]["field"],
+                expected
+                    .get("field")
+                    .and_then(Value::as_str)
+                    .expect("field"),
+                "{case_id}: {response}"
+            );
+        }
+        responder.close();
+    }
+}
+
+/// Every shared SUCCESS vector decoded on the real client surface: the typed
+/// `RemoteAdapter` result for payloads it can carry, and — for the raw-only
+/// positives the generated request types cannot represent verbatim (the
+/// top-level `cognition` member and the Memory `scope` member) — the wire
+/// payload decoded with its own op response type exactly as the client
+/// decodes it. Asserts the exact retained entry ids and the Memory page's
+/// missing-versus-zero shape, with the source's own log as a supporting
+/// control only.
+#[tokio::test]
+async fn cognition_shared_success_vectors_decode_on_the_real_client() {
+    let fixture: Value = serde_json::from_str(COGNITION_FIXTURE).expect("fixture json");
+    let hosts = fixture.get("hosts").expect("fixture hosts");
+    let entries = fixture
+        .get("ke_entries")
+        .and_then(Value::as_array)
+        .expect("fixture ke_entries")
+        .clone();
+    let cases = fixture
+        .get("cases")
+        .and_then(Value::as_array)
+        .expect("fixture cases");
+    let mut raw_only_ids: Vec<String> = Vec::new();
+    for case in cases {
+        if case.get("kind").and_then(Value::as_str) != Some("served")
+            || case["expect"]["status"].as_str() != Some("ok")
+        {
+            continue;
+        }
+        let case_id = case.get("id").and_then(Value::as_str).expect("case id");
+        let host = hosts
+            .get(case.get("host").and_then(Value::as_str).expect("host"))
+            .expect("host entry");
+        let client_capabilities = fixture_capabilities(
+            hosts
+                .get(case.get("client").and_then(Value::as_str).expect("client"))
+                .expect("client entry"),
+        );
+        let host_capabilities = fixture_capabilities(host);
+        let op = case.get("op").and_then(Value::as_str).expect("op");
+        let payload = case.get("payload").expect("payload");
+        let expected_ids = expected_entry_ids(case);
+
+        let source = Arc::new(CognitionKeSource::new(entries.clone()));
+        let memory = Arc::new(CognitionMemoryService::default());
+        let (responder, pair) = start_cognition_host(
+            Arc::clone(&source),
+            Arc::clone(&memory),
+            &capability_refs(&host_capabilities),
+        )
+        .await;
+        let client_manifest =
+            cognition_manifest("cognition-vector-client", &capability_refs(&client_capabilities));
+
+        let typed_scope_request = if op == COGNITION_SCOPE_OP {
+            typed_scope(payload)
+        } else {
+            None
+        };
+        if let Some(scope) = typed_scope_request {
+            let client = dial(pair, &client_manifest).await;
+            let decoded = expect_ok(client.list_knowledge_entries(&scope).await);
+            assert_eq!(
+                decoded
+                    .iter()
+                    .map(|entry| entry.entry_id.clone())
+                    .collect::<Vec<_>>(),
+                expected_ids,
+                "{case_id}: client-decoded entry ids"
+            );
+            assert_eq!(
+                *source.returned_entry_ids.lock().expect("ids lock"),
+                expected_ids,
+                "{case_id}: source selection (control)"
+            );
+            assert_eq!(source.scope_reads.load(Ordering::SeqCst), 1);
+            client.close();
+        } else if let Some(request) = typed_memory_list(payload) {
+            let client = dial(pair, &client_manifest).await;
+            let page = expect_ok(client.list_records(&client_principal(), request).await);
+            let page = wire(&page);
+            assert_eq!(page["records"], json!([]), "{case_id}: {page}");
+            assert_eq!(page["total_authorized"], 0, "{case_id}: {page}");
+            assert!(
+                page.get("next_cursor").is_none(),
+                "{case_id}: an absent cursor is never invented: {page}"
+            );
+            assert_eq!(memory.invokes.load(Ordering::SeqCst), 1);
+            client.close();
+        } else {
+            // Neither typed client path can forward this payload verbatim
+            // (the scope request drops any second top-level member and the
+            // generated Memory request type rejects the `scope` member), so
+            // the raw public session is the real path. Each received payload
+            // decodes with its own op response type — the same decode the
+            // client performs.
+            raw_only_ids.push(case_id.to_owned());
+            let session_id = handshake(&pair.client, &client_manifest).await;
+            let response = raw_invoke(
+                &pair.client,
+                &session_id,
+                0,
+                case_id,
+                op,
+                payload.clone(),
+            )
+            .await;
+            let served = response
+                .get("payload")
+                .unwrap_or_else(|| panic!("{case_id}: expected a served payload, got {response}"));
+            if op == COGNITION_SCOPE_OP {
+                let decoded: Vec<KnowledgeEntry> = serde_json::from_value(served.clone())
+                    .expect("the served entry page decodes");
+                assert_eq!(
+                    decoded
+                        .iter()
+                        .map(|entry| entry.entry_id.clone())
+                        .collect::<Vec<_>>(),
+                    expected_ids,
+                    "{case_id}: decoded entry ids"
+                );
+                assert_eq!(source.scope_reads.load(Ordering::SeqCst), 1);
+            } else {
+                let decoded: MemoryRecordsListResponse = serde_json::from_value(served.clone())
+                    .expect("the served page decodes as its op response");
+                match decoded {
+                    MemoryRecordsListResponse::Variant0 {
+                        records,
+                        total_authorized,
+                        next_cursor,
+                        ..
+                    } => {
+                        assert!(
+                            records.is_empty(),
+                            "{case_id}: decoded records {records:?}"
+                        );
+                        assert_eq!(total_authorized, 0, "{case_id}: decoded count");
+                        assert!(
+                            next_cursor.is_none(),
+                            "{case_id}: an absent cursor is never invented"
+                        );
+                    }
+                    MemoryRecordsListResponse::Variant1 { error, .. } => {
+                        panic!("{case_id}: a success decoded to the error branch: {error:?}");
+                    }
+                }
+                assert_eq!(memory.invokes.load(Ordering::SeqCst), 1);
+            }
+        }
+        responder.close();
+    }
+    raw_only_ids.sort();
+    assert_eq!(
+        raw_only_ids,
+        [
+            "memory_scope_cognition_is_not_a_memory_carrier",
+            "unrelated_top_level_cognition_is_ordinary_data",
+        ],
+        "both raw-only positives (Memory `scope` member, top-level `cognition` member) keep the raw public session"
+    );
+}
+
+/// The decoded client result keeps an absent optional record member absent
+/// and an explicit zero at zero — the source's return log is only a control.
+#[tokio::test]
+async fn cognition_success_records_keep_missing_and_zero_distinct_on_the_client() {
+    let fixture: Value = serde_json::from_str(COGNITION_FIXTURE).expect("fixture json");
+    let case = fixture
+        .get("cases")
+        .and_then(Value::as_array)
+        .expect("fixture cases")
+        .iter()
+        .find(|case| {
+            case.get("id").and_then(Value::as_str)
+                == Some("ke_only_serves_current_selection_with_wildcard_fork")
+        })
+        .expect("wildcard fork vector");
+    let hosts = fixture.get("hosts").expect("fixture hosts");
+    let host_capabilities = fixture_capabilities(
+        hosts
+            .get(case.get("host").and_then(Value::as_str).expect("host"))
+            .expect("host entry"),
+    );
+    let entries = fixture
+        .get("ke_entries")
+        .and_then(Value::as_array)
+        .expect("fixture ke_entries")
+        .clone();
+    let payload = case.get("payload").expect("payload");
+    let scope = typed_scope(payload).expect("the wildcard selection decodes");
+
+    let source = Arc::new(CognitionKeSource::new(entries));
+    let memory = Arc::new(CognitionMemoryService::default());
+    let (responder, pair) = start_cognition_host(
+        Arc::clone(&source),
+        memory,
+        &capability_refs(&host_capabilities),
+    )
+    .await;
+    let client = dial(
+        pair,
+        &cognition_manifest(
+            "cognition-vector-client",
+            &capability_refs(&host_capabilities),
+        ),
+    )
+    .await;
+    let decoded = expect_ok(client.list_knowledge_entries(&scope).await);
+    let ids: Vec<&str> = decoded
+        .iter()
+        .map(|entry| entry.entry_id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["kb_mira_fork", "kb_mira_nofork"]);
+
+    let forked = serde_json::to_value(&decoded[0]).expect("decoded entry serializes");
+    let no_fork = serde_json::to_value(&decoded[1]).expect("decoded entry serializes");
+    // Distinct assessment contexts are retained side by side.
+    assert_eq!(
+        forked["modules"]["cognition"]["records"][0]["assessment_context"],
+        json!({"context_id": "ctx_main", "fork_id": "fork_alpha"})
+    );
+    assert_eq!(
+        no_fork["modules"]["cognition"]["records"][0]["assessment_context"],
+        json!({"context_id": "ctx_main"})
+    );
+    // Absent optional record data stays absent; an explicit zero stays zero.
+    assert!(
+        forked["modules"]["cognition"]["records"][0]
+            .get("metrics")
+            .is_none(),
+        "the forked record carries no metrics: {forked}"
+    );
+    assert_eq!(
+        no_fork["modules"]["cognition"]["records"][0]["metrics"]["b"]["value"].as_u64(),
+        Some(0),
+        "the explicit zero survives the client decode: {no_fork}"
+    );
+    // Supporting control: the source returned the same two entries.
+    assert_eq!(
+        *source.returned_entry_ids.lock().expect("ids lock"),
+        vec!["kb_mira_fork".to_owned(), "kb_mira_nofork".to_owned()]
+    );
+    responder.close();
+    client.close();
+}
+
+/// A `memory.records.create` payload whose Content carries cognition-shaped
+/// data is ordinary written data: it is not a cognition requirement, it
+/// reaches the service unchanged, and the client decodes the committed
+/// receipt.
+#[tokio::test]
+async fn cognition_memory_create_content_data_is_ordinary_and_decodes_on_the_client() {
+    let capabilities = ["spoke-baseline", "spoke-memory", "spoke-cognition"];
+    let source = Arc::new(CognitionKeSource::new(Vec::new()));
+    let memory = Arc::new(CognitionMemoryService::default());
+    let (responder, pair) =
+        start_cognition_host(Arc::clone(&source), Arc::clone(&memory), &capabilities).await;
+    let client = dial(pair, &cognition_manifest("test-client", &capabilities)).await;
+    let request: MemoryRecordsCreateRequest = serde_json::from_value(json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "kind": "fact",
+        "content": {
+            "text": "Mira records a belief-shaped note",
+            "structured": { "cognition": { "records": [] } },
+        },
+        "scope": { "visibility": "context", "context_id": CONTEXT },
+        "idempotency_key": "cognition-create-1",
+    }))
+    .expect("valid memory.records.create request");
+    let decoded: MemoryRecordsCreateResponse =
+        expect_ok(client.create_record(&client_principal(), request).await);
+    let receipt = wire(&decoded);
+    assert_eq!(receipt["status"], "committed", "{receipt}");
+    assert_eq!(receipt["op"], "memory.records.create", "{receipt}");
+    assert_eq!(receipt["result"]["record_id"], "rec_cognition_public_proof");
+    assert_eq!(receipt["result"]["revision"], 1);
+    assert_eq!(memory.invokes.load(Ordering::SeqCst), 1);
+    assert_eq!(source.scope_reads.load(Ordering::SeqCst), 0);
+    let delivered = memory
+        .last_payload
+        .lock()
+        .expect("payload lock")
+        .clone()
+        .expect("the service received the payload");
+    assert_eq!(
+        delivered["content"]["structured"]["cognition"]["records"],
+        json!([]),
+        "Content data reaches the service unchanged: {delivered}"
+    );
+    assert_eq!(delivered["idempotency_key"], "cognition-create-1");
+    responder.close();
+    client.close();
+}
+
+/// §6.1/§6.4: an explicitly supplied `"cognition":[]` survives capture,
+/// review override and fragment content, and every public read reply — raw
+/// wire and typed — while a genuinely absent member stays omitted. The
+/// candidate and the override differ in their supplied text and structured
+/// fields while both intentionally carry `"cognition":[]`, and each reply
+/// must equal the full supplied Content verbatim, so discarding the override
+/// or the fragment fails. The SQLite reference provider answers reads by
+/// decoding stored JSON into the generated typed response and re-serializing
+/// it, so both views are covered.
+#[tokio::test]
+async fn sqlite_content_cognition_empty_stays_present_across_review_and_reads() {
+    let provider = Arc::new(SqliteMemoryProvider::in_memory());
+    provider.provision_space(SPACE, "memory-loopback-host", &[]);
+    provider.provision_subject(SPACE, SUBJECT, None);
+    let principal = client_principal();
+    provider.provision_grant(
+        SPACE,
+        json!({
+            "schema_version": 1,
+            "grant_id": "grt_loopback_presence_admin",
+            "space_id": SPACE,
+            "principal_id": principal.principal_id,
+            "capabilities": ["admin"],
+            "created_at": "2026-07-23T05:36:00Z",
+            "revision": 1,
+            "extensions": {},
+        }),
+    );
+    let port: Arc<dyn MemoryPort + Send + Sync> = provider.clone();
+    let memory: Arc<dyn RemoteMemoryService> = Arc::new(MemoryPortService::new(port, admission()));
+
+    let (typed_responder, typed_pair) =
+        start_host(Some(Arc::clone(&memory)), &MEMORY_CAPABILITIES).await;
+    let (raw_responder, raw_pair) = start_host(Some(memory), &MEMORY_CAPABILITIES).await;
+    let typed = dial(
+        typed_pair,
+        &memory_manifest("test-client", &MEMORY_CAPABILITIES),
+    )
+    .await;
+    let raw_session = handshake(
+        &raw_pair.client,
+        &memory_manifest("test-client", &MEMORY_CAPABILITIES),
+    )
+    .await;
+
+    // The candidate and the override are distinguishable in their supplied
+    // text and structured fields (both intentionally carry `"cognition":[]`),
+    // so an implementation that promotes the candidate and discards the
+    // override cannot satisfy the retained-record assertions below.
+    let candidate_content = json!({
+        "text": "Bo described the harbour gate to Mira.",
+        "structured": { "origin": "candidate" },
+        "cognition": [],
+    });
+    let absent_content = json!({
+        "text": "Bo counted three barrels along the harbour wall.",
+    });
+    let override_content = json!({
+        "text": "Mira told Bo the gate key is hidden under the third barrel.",
+        "structured": { "origin": "override" },
+        "cognition": [],
+    });
+    let fragment_content = json!({
+        "text": "Mira revealed the key location to Bo.",
+        "structured": { "origin": "fragment" },
+        "cognition": [],
+    });
+    let capture = |key: &str, content: &Value| {
+        typed_capture(json!({
+            "space_id": SPACE,
+            "subject_id": SUBJECT,
+            "content": content.clone(),
+            "capture_scope": { "visibility": "context", "context_id": CONTEXT },
+            "source_context_ids": [CONTEXT],
+            "kind_hint": "fact",
+            "idempotency_key": key,
+        }))
+    };
+    let candidate_id = |captured: &spoke_schemas::MemoryCaptureResponse| {
+        wire(captured)["result"]["candidate_ids"][0]
+            .as_str()
+            .expect("candidate id")
+            .to_string()
+    };
+
+    let override_candidate = candidate_id(&expect_ok(
+        typed
+            .capture(&principal, capture("presence-cap-override", &candidate_content))
+            .await,
+    ));
+    let absent_candidate = candidate_id(&expect_ok(
+        typed
+            .capture(&principal, capture("presence-cap-absent", &absent_content))
+            .await,
+    ));
+    let fragment_candidate = candidate_id(&expect_ok(
+        typed
+            .capture(&principal, capture("presence-cap-fragment", &absent_content))
+            .await,
+    ));
+
+    // Candidates: the pending read replies keep the candidate Content verbatim
+    // (explicit empty cognition included), while an absent member stays omitted.
+    let candidate = wire(&expect_ok(
+        typed
+            .get_candidate(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "candidate_id": override_candidate,
+                }))
+                .expect("candidate get"),
+            )
+            .await,
+    ));
+    assert_eq!(
+        candidate["candidate"]["proposed"]["content"], candidate_content,
+        "candidates.get keeps the candidate Content verbatim: {candidate}"
+    );
+    let candidates = wire(&expect_ok(
+        typed
+            .list_candidates(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                }))
+                .expect("candidate list"),
+            )
+            .await,
+    ));
+    let find_candidate = |id: &str| {
+        candidates["candidates"]
+            .as_array()
+            .expect("candidates array")
+            .iter()
+            .find(|candidate| candidate["candidate_id"] == json!(id))
+            .unwrap_or_else(|| panic!("candidate {id} is listed: {candidates}"))
+            .clone()
+    };
+    assert_eq!(
+        find_candidate(&override_candidate)["proposed"]["content"], candidate_content
+    );
+    assert_eq!(
+        find_candidate(&absent_candidate)["proposed"]["content"], absent_content,
+        "candidates.list keeps an absent Content without a cognition member: {candidates}"
+    );
+
+    let mut sequence = 0;
+    let raw_candidate = raw_invoke(
+        &raw_pair.client,
+        &raw_session,
+        sequence,
+        "presence-raw-candidate-get",
+        "memory.candidates.get",
+        json!({ "space_id": SPACE, "candidate_id": override_candidate }),
+    )
+    .await;
+    sequence += 1;
+    assert_eq!(
+        raw_candidate["payload"]["candidate"]["proposed"]["content"], candidate_content,
+        "raw candidates.get payload keeps the candidate Content verbatim: {raw_candidate}"
+    );
+    let raw_candidates = raw_invoke(
+        &raw_pair.client,
+        &raw_session,
+        sequence,
+        "presence-raw-candidate-list",
+        "memory.candidates.list",
+        json!({ "space_id": SPACE, "subject_id": SUBJECT }),
+    )
+    .await;
+    sequence += 1;
+    let raw_list = raw_candidates["payload"]["candidates"]
+        .as_array()
+        .expect("raw candidates array");
+    let find_raw_candidate = |id: &str| {
+        raw_list
+            .iter()
+            .find(|candidate| candidate["candidate_id"] == json!(id))
+            .unwrap_or_else(|| panic!("candidate {id} is listed: {raw_candidates}"))
+            .clone()
+    };
+    assert_eq!(
+        find_raw_candidate(&override_candidate)["proposed"]["content"], candidate_content,
+        "raw candidates.list keeps the candidate Content verbatim: {raw_candidates}"
+    );
+    assert_eq!(
+        find_raw_candidate(&absent_candidate)["proposed"]["content"], absent_content,
+        "raw candidates.list keeps an absent Content without a cognition member: {raw_candidates}"
+    );
+
+    // Review: the override replaces the candidate Content and the fragment
+    // Content supplies a new one; both must survive verbatim.
+    let reviewed = wire(&expect_ok(
+        typed
+            .review_candidate(
+                &principal,
+                typed_review(json!({
+                    "space_id": SPACE,
+                    "candidate_id": override_candidate,
+                    "expected_revision": 1,
+                    "decision": {
+                        "action": "promote",
+                        "kind": "fact",
+                        "content_override": override_content.clone(),
+                    },
+                    "idempotency_key": "presence-review-override",
+                })),
+            )
+            .await,
+    ));
+    let override_record = reviewed["result"]["record_ids"][0]
+        .as_str()
+        .expect("record id")
+        .to_string();
+    let reviewed = wire(&expect_ok(
+        typed
+            .review_candidate(
+                &principal,
+                typed_review(json!({
+                    "space_id": SPACE,
+                    "candidate_id": absent_candidate,
+                    "expected_revision": 1,
+                    "decision": { "action": "promote", "kind": "fact" },
+                    "idempotency_key": "presence-review-absent",
+                })),
+            )
+            .await,
+    ));
+    let absent_record = reviewed["result"]["record_ids"][0]
+        .as_str()
+        .expect("record id")
+        .to_string();
+    let reviewed = wire(&expect_ok(
+        typed
+            .review_candidate(
+                &principal,
+                typed_review(json!({
+                    "space_id": SPACE,
+                    "candidate_id": fragment_candidate,
+                    "expected_revision": 1,
+                    "decision": {
+                        "action": "fragment",
+                        "fragments": [{ "kind": "fact", "content": fragment_content.clone() }],
+                    },
+                    "idempotency_key": "presence-review-fragment",
+                })),
+            )
+            .await,
+    ));
+    let fragment_record = reviewed["result"]["record_ids"][0]
+        .as_str()
+        .expect("record id")
+        .to_string();
+
+    // Typed reads: get, list, and recall all retain the explicit empty member.
+    let record = wire(&expect_ok(
+        typed
+            .get_record(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": override_record,
+                }))
+                .expect("record get"),
+            )
+            .await,
+    ));
+    assert_eq!(
+        record["record"]["content"], override_content,
+        "records.get returns the supplied override Content verbatim: {record}"
+    );
+    let record = wire(&expect_ok(
+        typed
+            .get_record(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": fragment_record,
+                }))
+                .expect("fragment record get"),
+            )
+            .await,
+    ));
+    assert_eq!(
+        record["record"]["content"], fragment_content,
+        "records.get returns the supplied fragment Content verbatim: {record}"
+    );
+    let record = wire(&expect_ok(
+        typed
+            .get_record(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": absent_record,
+                }))
+                .expect("absent record get"),
+            )
+            .await,
+    ));
+    assert_eq!(
+        record["record"]["content"], absent_content,
+        "records.get keeps an absent Content without a cognition member: {record}"
+    );
+
+    let listed = wire(&expect_ok(
+        typed
+            .list_records(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "subject_all" },
+                }))
+                .expect("record list"),
+            )
+            .await,
+    ));
+    let find_record = |listed: &Value, id: &str| {
+        listed["records"]
+            .as_array()
+            .expect("records array")
+            .iter()
+            .find(|record| record["record_id"] == json!(id))
+            .unwrap_or_else(|| panic!("record {id} is listed: {listed}"))
+            .clone()
+    };
+    assert_eq!(
+        find_record(&listed, &override_record)["content"], override_content,
+        "records.list returns the override Content verbatim: {listed}"
+    );
+    assert_eq!(
+        find_record(&listed, &fragment_record)["content"], fragment_content,
+        "records.list returns the fragment Content verbatim: {listed}"
+    );
+    assert_eq!(
+        find_record(&listed, &absent_record)["content"], absent_content,
+        "records.list keeps an absent Content without a cognition member: {listed}"
+    );
+
+    let recalled = wire(&expect_ok(
+        typed
+            .recall(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "subject_all" },
+                    "budget": { "max_items": 8 },
+                }))
+                .expect("recall request"),
+            )
+            .await,
+    ));
+    assert_eq!(
+        find_record(&recalled, &override_record)["content"], override_content,
+        "recall returns the override Content verbatim: {recalled}"
+    );
+    assert_eq!(
+        find_record(&recalled, &fragment_record)["content"], fragment_content,
+        "recall returns the fragment Content verbatim: {recalled}"
+    );
+    assert_eq!(
+        find_record(&recalled, &absent_record)["content"], absent_content,
+        "recall keeps an absent Content without a cognition member: {recalled}"
+    );
+
+    // Raw reads: the emitted payload carries the same presence, so a lossy
+    // client-side decode could not have produced this result.
+    let raw_record = raw_invoke(
+        &raw_pair.client,
+        &raw_session,
+        sequence,
+        "presence-raw-record-get",
+        "memory.records.get",
+        json!({ "space_id": SPACE, "record_id": override_record }),
+    )
+    .await;
+    sequence += 1;
+    assert_eq!(
+        raw_record["payload"]["record"]["content"], override_content,
+        "raw records.get payload carries the supplied override Content verbatim: {raw_record}"
+    );
+    let raw_fragment = raw_invoke(
+        &raw_pair.client,
+        &raw_session,
+        sequence,
+        "presence-raw-record-get-fragment",
+        "memory.records.get",
+        json!({ "space_id": SPACE, "record_id": fragment_record }),
+    )
+    .await;
+    sequence += 1;
+    assert_eq!(
+        raw_fragment["payload"]["record"]["content"], fragment_content,
+        "raw records.get payload carries the supplied fragment Content verbatim: {raw_fragment}"
+    );
+    let raw_absent = raw_invoke(
+        &raw_pair.client,
+        &raw_session,
+        sequence,
+        "presence-raw-record-get-absent",
+        "memory.records.get",
+        json!({ "space_id": SPACE, "record_id": absent_record }),
+    )
+    .await;
+    sequence += 1;
+    assert_eq!(
+        raw_absent["payload"]["record"]["content"], absent_content,
+        "raw records.get payload keeps an absent Content without a cognition member: {raw_absent}"
+    );
+    let raw_records = raw_invoke(
+        &raw_pair.client,
+        &raw_session,
+        sequence,
+        "presence-raw-record-list",
+        "memory.records.list",
+        json!({
+            "space_id": SPACE,
+            "subject_id": SUBJECT,
+            "selection": { "mode": "subject_all" },
+        }),
+    )
+    .await;
+    sequence += 1;
+    assert_eq!(
+        find_record(&raw_records["payload"], &override_record)["content"], override_content,
+        "raw records.list carries the override Content verbatim: {raw_records}"
+    );
+    assert_eq!(
+        find_record(&raw_records["payload"], &fragment_record)["content"], fragment_content,
+        "raw records.list carries the fragment Content verbatim: {raw_records}"
+    );
+    assert_eq!(
+        find_record(&raw_records["payload"], &absent_record)["content"], absent_content,
+        "raw records.list keeps an absent Content without a cognition member: {raw_records}"
+    );
+    let raw_recall = raw_invoke(
+        &raw_pair.client,
+        &raw_session,
+        sequence,
+        "presence-raw-recall",
+        "memory.recall",
+        json!({
+            "space_id": SPACE,
+            "subject_id": SUBJECT,
+            "selection": { "mode": "subject_all" },
+            "budget": { "max_items": 8 },
+        }),
+    )
+    .await;
+    assert_eq!(
+        find_record(&raw_recall["payload"], &override_record)["content"], override_content,
+        "raw recall payload carries the override Content verbatim: {raw_recall}"
+    );
+    assert_eq!(
+        find_record(&raw_recall["payload"], &fragment_record)["content"], fragment_content,
+        "raw recall payload carries the fragment Content verbatim: {raw_recall}"
+    );
+    assert_eq!(
+        find_record(&raw_recall["payload"], &absent_record)["content"], absent_content,
+        "raw recall payload keeps an absent Content without a cognition member: {raw_recall}"
+    );
+
+    typed_responder.close();
+    raw_responder.close();
+    typed.close();
+}
+
+/// C9 public proof on the conformant Memory host: the real
+/// `SqliteMemoryProvider` behind `MemoryPortService`, a client `RemoteAdapter`
+/// and a session that explicitly negotiates `spoke-cognition`. The shared
+/// memory-query vectors drive typed list/recall/reflection queries; the exact
+/// eligible ids, page continuation, cursor invalidation and reflection basis
+/// are asserted through the public client boundary.
+#[tokio::test]
+async fn cognition_query_vectors_answer_on_the_conformant_memory_session() {
+    const C9_CAPABILITIES: [&str; 5] = [
+        "spoke-baseline",
+        "spoke-memory",
+        "spoke-memory-reflection",
+        "spoke-memory-transfer",
+        "spoke-cognition",
+    ];
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/cognition/memory-query-vectors.json"
+    );
+    let file: Value = serde_json::from_str(
+        &std::fs::read_to_string(path).expect("memory-query-vectors.json readable"),
+    )
+    .expect("memory-query-vectors.json parses");
+
+    let provider = Arc::new(SqliteMemoryProvider::in_memory());
+    provider.provision_space(SPACE, "memory-loopback-host", &["personality"]);
+    provider.provision_subject(SPACE, SUBJECT, None);
+    let principal = client_principal();
+    provider.provision_grant(
+        SPACE,
+        json!({
+            "schema_version": 1,
+            "grant_id": "grt_loopback_query_admin",
+            "space_id": SPACE,
+            "principal_id": principal.principal_id,
+            "capabilities": ["admin"],
+            "created_at": "2026-07-23T05:36:00Z",
+            "revision": 1,
+            "extensions": {},
+        }),
+    );
+    provider.provision_profile(
+        SPACE,
+        json!({
+            "schema_version": 1,
+            "space_id": SPACE,
+            "subject_id": SUBJECT,
+            "profile_kind": "personality",
+            "document": {},
+            "revision": 1,
+        }),
+    );
+    for record in file["records"].as_array().expect("records") {
+        let mut stored = record.clone();
+        stored["schema_version"] = json!(1);
+        stored["space_id"] = json!(SPACE);
+        stored["subject_id"] = json!(SUBJECT);
+        stored["scope"] = json!({ "visibility": "shared" });
+        stored["provenance"] = json!({
+            "source_context_ids": ["ctx_vector"],
+            "anchors": [],
+            "captured_by": principal.principal_id,
+            "captured_at": "2026-07-23T06:00:00Z",
+        });
+        stored["updated_at"] = stored["created_at"].clone();
+        stored["extensions"] = json!({});
+        provider.provision_record(SPACE, stored);
+    }
+
+    let port: Arc<dyn MemoryPort + Send + Sync> = provider.clone();
+    let memory: Arc<dyn RemoteMemoryService> = Arc::new(MemoryPortService::new(port, admission()));
+    let (responder, pair) = start_host(Some(memory), &C9_CAPABILITIES).await;
+    let client = dial(pair, &memory_manifest("test-client", &C9_CAPABILITIES)).await;
+
+    let page_filter = json!({
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "target": { "target_id": "t_prop_1" },
+        "q": { "min": 0.5 }
+    });
+    let other_filter = json!({
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "target": { "target_id": "t_prop_1" },
+        "category": "belief",
+        "q": { "min": 0.5, "max": 1.0 }
+    });
+
+    // List: the one eligible source set before counts and pages.
+    let listed = expect_ok(
+        client
+            .list_records(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "shared_only" },
+                    "cognition_filter": page_filter.clone(),
+                    "limit": 2,
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    let listed = wire(&listed);
+    let list_ids: Vec<&str> = listed["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .map(|record| record["record_id"].as_str().expect("record_id"))
+        .collect();
+    assert_eq!(
+        json!(list_ids),
+        json!(["rec_cog_alice_high", "rec_cog_forked"]),
+        "list page 1"
+    );
+    assert_eq!(listed["total_authorized"], json!(3));
+    let list_cursor = listed["next_cursor"]
+        .as_str()
+        .expect("list page 1 cursor")
+        .to_string();
+
+    // Recall page 1 and its continuation through the same cursor.
+    let recalled = expect_ok(
+        client
+            .recall(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "shared_only" },
+                    "cognition_filter": page_filter.clone(),
+                    "budget": { "max_items": 2 },
+                }))
+                .expect("recall request"),
+            )
+            .await,
+    );
+    let recalled = wire(&recalled);
+    let first_ids: Vec<&str> = recalled["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .map(|record| record["record_id"].as_str().expect("record_id"))
+        .collect();
+    assert_eq!(
+        json!(first_ids),
+        json!(["rec_cog_alice_high", "rec_cog_forked"]),
+        "recall page 1"
+    );
+    assert_eq!(recalled["total_authorized"], json!(3));
+    let recall_cursor = recalled["next_cursor"]
+        .as_str()
+        .expect("recall page 1 cursor")
+        .to_string();
+    let continued = expect_ok(
+        client
+            .recall(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "shared_only" },
+                    "cognition_filter": page_filter.clone(),
+                    "budget": { "max_items": 2 },
+                    "cursor": recall_cursor,
+                }))
+                .expect("recall request"),
+            )
+            .await,
+    );
+    let continued = wire(&continued);
+    let continued_ids: Vec<&str> = continued["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .map(|record| record["record_id"].as_str().expect("record_id"))
+        .collect();
+    assert_eq!(json!(continued_ids), json!(["rec_cog_full"]));
+
+    // A changed filter invalidates both cursor identities.
+    for request in [
+        json!({
+            "space_id": SPACE,
+            "subject_id": SUBJECT,
+            "selection": { "mode": "shared_only" },
+            "cognition_filter": other_filter.clone(),
+            "budget": { "max_items": 2 },
+            "cursor": recall_cursor,
+        }),
+    ] {
+        let reject = expect_reject(
+            client
+                .recall(
+                    &principal,
+                    serde_json::from_value(request).expect("recall request"),
+                )
+                .await,
+        );
+        assert_eq!(
+            reject.code,
+            SpokeRejectCode::CursorInvalid,
+            "a changed cognition filter must invalidate the cursor: {reject:?}"
+        );
+    }
+    let reject = expect_reject(
+        client
+            .list_records(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "shared_only" },
+                    "cognition_filter": other_filter.clone(),
+                    "limit": 2,
+                    "cursor": list_cursor,
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(reject.code, SpokeRejectCode::CursorInvalid);
+
+    // Cursor identity carries the operation at the public boundary too: list
+    // and recall order differently, so neither cursor may resume the other.
+    let reject = expect_reject(
+        client
+            .list_records(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "shared_only" },
+                    "cognition_filter": page_filter.clone(),
+                    "limit": 2,
+                    "cursor": recall_cursor.clone(),
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        reject.code,
+        SpokeRejectCode::CursorInvalid,
+        "a recall cursor must not resume a list page"
+    );
+    let reject = expect_reject(
+        client
+            .recall(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "shared_only" },
+                    "cognition_filter": page_filter.clone(),
+                    "budget": { "max_items": 2 },
+                    "cursor": list_cursor.clone(),
+                }))
+                .expect("recall request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        reject.code,
+        SpokeRejectCode::CursorInvalid,
+        "a list cursor must not resume a recall page"
+    );
+
+    // Reflection: the state digest pins the filter, generation stores it, and
+    // the listed reflection keeps the same basis.
+    let state = expect_ok(
+        client
+            .get_reflection_state(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "subject_all" },
+                    "cognition_filter": page_filter.clone(),
+                }))
+                .expect("state request"),
+            )
+            .await,
+    );
+    let state = wire(&state);
+    assert_eq!(state["basis"]["record_count"], json!(3));
+    let digest = state["state_digest"]
+        .as_str()
+        .expect("state digest")
+        .to_string();
+    let generated = expect_ok(
+        client
+            .generate_reflection(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "subject_all" },
+                    "cognition_filter": page_filter.clone(),
+                    "expected_state_digest": digest.clone(),
+                    "idempotency_key": "vec-loopback-generate",
+                }))
+                .expect("generate request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&generated)["status"], json!("pending"));
+    provider.run_worker();
+    let reflections = expect_ok(
+        client
+            .list_reflections(
+                &principal,
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "cognition_filter": page_filter.clone(),
+                    "limit": 10,
+                }))
+                .expect("list reflections"),
+            )
+            .await,
+    );
+    let reflections = wire(&reflections);
+    let pinned = reflections["reflections"]
+        .as_array()
+        .expect("reflections")
+        .first()
+        .expect("the generated reflection is listed");
+    assert_eq!(pinned["cognition_filter"], page_filter);
+    assert_eq!(pinned["basis"]["state_digest"], json!(digest));
+    assert_eq!(pinned["basis"]["record_count"], json!(3));
 
     responder.close();
     client.close();

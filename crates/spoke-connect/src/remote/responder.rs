@@ -76,13 +76,15 @@ use spoke_schemas::{
     KnowledgeEntry, ProjectRequest, Relation, Scope,
 };
 
+use crate::cognition::{unsupported_cognition_requirement, WIRE_INVALID_INPUT};
 use crate::core::{
     authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
-    check_response_correlation, derive_peer_id_from_ed25519_pubkey, dispatch_allowed,
-    is_allowlisted, required_capability, sign_hello_ed25519, verify_hello_ed25519,
-    verify_invoke_request_auth, verify_invoke_response_auth, Correlation, EnvelopeAuthError,
-    InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput, NonceStore, OutboundSequence,
-    SessionSignInput, CAPABILITY_KE_OWNERSHIP,
+    check_response_correlation, cognition_requirement_present,
+    derive_peer_id_from_ed25519_pubkey, dispatch_allowed, is_allowlisted, required_capability,
+    sign_hello_ed25519, verify_hello_ed25519, verify_invoke_request_auth, verify_invoke_response_auth,
+    Correlation, EnvelopeAuthError, InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput,
+    NonceStore, OutboundSequence, SessionSignInput, CAPABILITY_KE_OWNERSHIP,
+    CAPABILITY_SPOKE_COGNITION,
 };
 use crate::hello::generate_nonce;
 use crate::remote::remote_adapter::{
@@ -92,7 +94,10 @@ use crate::remote::remote_adapter::{
 };
 use crate::remote::serve_ports::RemoteServePorts;
 use crate::remote::transport::Transport;
-use crate::remote::{requires_ownership_capability, validate_scope_declaration};
+use crate::remote::{
+    baseline_scope_shape, port_op_requirement, requires_ownership_capability,
+    validate_scope_declaration,
+};
 use crate::runtime::generate_request_id;
 
 /// Default bounded-wait deadline for each reverse-invoke waiter AND the
@@ -108,31 +113,17 @@ const SESSION_ID_PREFIX: &str = "connect-responder-session-";
 /// [`crate::remote::RemoteAdapterState`] — one state vocabulary).
 pub type ConnectResponderState = crate::remote::RemoteAdapterState;
 
-/// Product `op_capability_requirements` map (D4): every baseline `port.*`
-/// op requires `spoke-baseline`; the optional families require their
-/// negotiated family capability (`l2-computable` / `l5-fork`). The core
-/// `required_capability` table returns `None` for `port.*`, so WITHOUT this
-/// map every port invoke would be denied `op_unsupported`.
-fn port_op_requirement(op: &str) -> Option<&'static str> {
-    match op {
-        "port.knowledge.get" => Some("spoke-baseline"),
-        "port.knowledge.put" => Some("spoke-baseline"),
-        "port.relation.get" => Some("spoke-baseline"),
-        "port.relation.put" => Some("spoke-baseline"),
-        "port.scope.list_knowledge_entries" => Some("spoke-baseline"),
-        "port.scope.list_timeline_events" => Some("spoke-baseline"),
-        "port.finding.put" => Some("spoke-baseline"),
-        "port.rule.list" => Some("spoke-baseline"),
-        "port.host.list_peer_manifests" => Some("spoke-baseline"),
-        // Optional families (D4 catalogue): project / compute require the
-        // `l2-computable` family capability; the fork timeline query
-        // requires `l5-fork` — all evaluated against the negotiated
-        // capabilities (both-hello intersection) by `gate_allows`.
-        "port.computable.project" => Some("l2-computable"),
-        "port.computable.compute" => Some("l2-computable"),
-        "port.fork.list_timeline_events" => Some("l5-fork"),
-        _ => None,
-    }
+/// The agreed capability subset of the two signed hellos: the plain
+/// intersection in local-manifest order (mirror of the TS
+/// `negotiatedCapabilities`). One family, no aliasing — a legacy flag carries
+/// no authority here, so `spoke-cognition` appears only when both sides
+/// declare it.
+fn negotiated_capabilities(local: &[String], remote: &[String]) -> Vec<String> {
+    local
+        .iter()
+        .filter(|cap| remote.iter().any(|advertised| advertised == *cap))
+        .cloned()
+        .collect()
 }
 
 /// Optional-family op → required face probe (D4 catalogue). Serving order
@@ -777,13 +768,10 @@ impl ConnectResponder {
             serde_json::from_value(serde_json::to_value(&wire).expect("hello host serializes"))
                 .map_err(|error| format!("dialer hello host decode failed: {error}"))?
         };
-        let negotiated: Vec<String> = self
-            .manifest
-            .capabilities
-            .iter()
-            .filter(|cap| remote_manifest.capabilities.iter().any(|remote| remote == *cap))
-            .cloned()
-            .collect();
+        let negotiated: Vec<String> = negotiated_capabilities(
+            &self.manifest.capabilities,
+            &remote_manifest.capabilities,
+        );
 
         *self.session.lock().expect("session lock") = Some(ResponderSession {
             session_id: format!("{SESSION_ID_PREFIX}{derived_client_peer_id}"),
@@ -1133,7 +1121,7 @@ impl ConnectResponder {
         // `memory.*` ops are served by the optional injected
         // [`RemoteMemoryService`](crate::remote::RemoteMemoryService) face.
         if op.starts_with("memory.") {
-            self.dispatch_memory_invoke(doc).await?;
+            self.dispatch_memory_invoke(doc, &negotiated).await?;
             return Ok(());
         }
         // `extract` is a core op served by an optional injected service
@@ -1421,7 +1409,11 @@ impl ConnectResponder {
     /// The service owns the provider port, the admission context (the
     /// authenticated peer → `Principal`) and the per-op wire mapping; this
     /// end forwards the op string and its payload object unchanged.
-    async fn dispatch_memory_invoke(&self, doc: &Value) -> Result<(), ResponderError> {
+    async fn dispatch_memory_invoke(
+        &self,
+        doc: &Value,
+        negotiated: &[String],
+    ) -> Result<(), ResponderError> {
         let Some(op) = doc.get("op").and_then(Value::as_str) else {
             // Defensive: the dispatch gate routes only string ops here, so a
             // non-string op means a caller bypassed it. Fail closed with the
@@ -1437,6 +1429,17 @@ impl ConnectResponder {
             .await?;
             return Ok(());
         };
+        // Payload-dependent cognition gate (consumer contract §2.1/§2.2) on
+        // the raw payload: runs before the service probe and any provider
+        // call, so a denied requirement has no memory side effect.
+        let empty_payload = json!({});
+        let payload = doc.get("payload").unwrap_or(&empty_payload);
+        if !self
+            .serve_cognition_gate(doc, payload, negotiated, op)
+            .await?
+        {
+            return Ok(());
+        }
         let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_memory()) else {
             let details = memory_terminal_details();
             self.send_reverse_error_envelope(
@@ -1527,6 +1530,49 @@ impl ConnectResponder {
         Ok(())
     }
 
+    /// Payload-dependent cognition gate shared by the two cognition-carrying
+    /// serving branches (`port.*` and `memory.*`), parallel to the F2
+    /// ownership conjunct (consumer contract §2.1/§2.2).
+    ///
+    /// `Ok(true)` means the request may be served; `Ok(false)` means the deny
+    /// envelope was already sent and the caller must stop — no probe, no
+    /// provider call, no provider side effect.
+    async fn serve_cognition_gate(
+        &self,
+        doc: &Value,
+        payload: &Value,
+        negotiated: &[String],
+        op: &str,
+    ) -> Result<bool, ResponderError> {
+        if !cognition_requirement_present(op, payload) {
+            return Ok(true);
+        }
+        if !negotiated
+            .iter()
+            .any(|cap| cap == CAPABILITY_SPOKE_COGNITION)
+        {
+            // Family absence is the normative consumer contract's
+            // `capability_missing` branch (§2.1); the ownership conjunct keeps
+            // `op_unsupported`. §D7 maps both codes to one dialer class.
+            self.send_reverse_error_envelope(
+                doc,
+                "capability_missing",
+                &format!(
+                    "op {op} requires capability {CAPABILITY_SPOKE_COGNITION} for its declared cognition requirement"
+                ),
+                None,
+            )
+            .await?;
+            return Ok(false);
+        }
+        if let Some((message, details)) = unsupported_cognition_requirement(op, payload) {
+            self.send_reverse_error_envelope(doc, WIRE_INVALID_INPUT, message, Some(&details))
+                .await?;
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     /// Serve a `port.*` invoke through the D4 catalogue (or dispatch-deny).
     ///
     /// `negotiated` is the session's negotiated capability set (the caller
@@ -1545,22 +1591,37 @@ impl ConnectResponder {
         // `json!({})` fallback did.
         let empty_payload = json!({});
         let payload = doc.get("payload").unwrap_or(&empty_payload);
-        // F2 supplementary product-boundary gate (frozen): the declared
-        // Scope validation and the conditional ownership requirement both
-        // run after the static capability gate and before the provider is
-        // probed or called. The dialer never pre-gates, so this is the first
-        // place the payload-dependent rule is applied.
+        // F2 supplementary product-boundary gate (frozen): the declared Scope
+        // validation and the conditional ownership requirement keep the
+        // responder's original order — shape first, then ownership — and both
+        // still run after the static capability gate and before the provider
+        // is probed or called. The dialer never pre-gates, so this is the
+        // first place the payload-dependent rules are applied.
+        //
+        // A payload that declares the new optional cognition subtree can fail
+        // the typed decode on that subtree alone (the closed grammar is
+        // `deny_unknown_fields`). Such a failure is deferred to the raw §2.2
+        // diagnosis below, where it is reported with its own requirement path;
+        // every baseline shape failure still answers first.
+        let mut deferred_scope_reject = None;
         let declared_scope = match validate_scope_declaration(op, payload) {
             Ok(scope) => scope,
             Err(reject) => {
-                self.send_reverse_error_envelope(
-                    doc,
-                    reject.code.as_str(),
-                    &reject.message,
-                    reject.details.as_ref(),
-                )
-                .await?;
-                return Ok(());
+                if cognition_requirement_present(op, payload)
+                    && baseline_scope_shape(op, payload).is_ok()
+                {
+                    deferred_scope_reject = Some(reject);
+                    None
+                } else {
+                    self.send_reverse_error_envelope(
+                        doc,
+                        reject.code.as_str(),
+                        &reject.message,
+                        reject.details.as_ref(),
+                    )
+                    .await?;
+                    return Ok(());
+                }
             }
         };
         if requires_ownership_capability(op, payload)
@@ -1568,6 +1629,9 @@ impl ConnectResponder {
                 .iter()
                 .any(|cap| cap == CAPABILITY_KE_OWNERSHIP)
         {
+            // The frozen deny matrix fixes the ownership conjunct to
+            // `op_unsupported` (spoke-connect §Op dispatch gate), unlike the
+            // cognition family's `capability_missing`.
             self.send_reverse_error_envelope(
                 doc,
                 "op_unsupported",
@@ -1575,6 +1639,28 @@ impl ConnectResponder {
                     "op {op} requires capability {CAPABILITY_KE_OWNERSHIP} for its declared viewpoint"
                 ),
                 None,
+            )
+            .await?;
+            return Ok(());
+        }
+        // Payload-dependent cognition gate (consumer contract §2.1/§2.2) on
+        // the raw payload: after the original shape/ownership denials and
+        // before the provider is probed or called.
+        if !self
+            .serve_cognition_gate(doc, payload, negotiated, op)
+            .await?
+        {
+            return Ok(());
+        }
+        if let Some(reject) = deferred_scope_reject {
+            // The negotiated family serves the declared requirement, so the
+            // typed decode failure the baseline shape could not explain
+            // stands on its own.
+            self.send_reverse_error_envelope(
+                doc,
+                reject.code.as_str(),
+                &reject.message,
+                reject.details.as_ref(),
             )
             .await?;
             return Ok(());
@@ -2173,6 +2259,122 @@ mod tests {
         .expect("valid manifest")
     }
 
+    // ── Cognition capability / raw requirement vectors ────────────────────
+    //
+    // The vectors are the SAME file the TS suite consumes
+    // (`packages/spoke-connect-ts/tests/fixtures/cognition-negotiation.json`),
+    // so both languages agree on the host manifests, payloads and exact
+    // rejection fields.
+
+    use crate::cognition::COGNITION_FIXTURE;
+
+    fn capability_list(host: &Value) -> Vec<String> {
+        host.get("capabilities")
+            .and_then(Value::as_array)
+            .expect("host capabilities")
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn cognition_negotiation_vectors_match_the_family_intersection() {
+        let fixture: Value = serde_json::from_str(COGNITION_FIXTURE).expect("fixture json");
+        let cases = fixture
+            .get("cases")
+            .and_then(Value::as_array)
+            .expect("fixture cases");
+        let mut negotiated_cases = 0;
+        for case in cases {
+            if case.get("kind").and_then(Value::as_str) != Some("negotiation") {
+                continue;
+            }
+            negotiated_cases += 1;
+            let local = capability_list(&json!({
+                "capabilities": case.get("local_capabilities"),
+            }));
+            let remote = capability_list(&json!({
+                "capabilities": case.get("remote_capabilities"),
+            }));
+            let negotiated = negotiated_capabilities(&local, &remote);
+            assert_eq!(
+                negotiated.iter().any(|cap| cap == CAPABILITY_SPOKE_COGNITION),
+                case.get("negotiated_includes_cognition")
+                    .and_then(Value::as_bool)
+                    .expect("negotiated_includes_cognition"),
+                "{case}"
+            );
+        }
+        assert!(negotiated_cases >= 5, "negotiation vectors present");
+    }
+
+    /// Original first-denial preserved: a malformed baseline Scope answers
+    /// its shape failure BEFORE the conditional `ke-ownership` conjunct, and a
+    /// cognition-carrying payload whose baseline shape is malformed keeps that
+    /// shape denial too instead of borrowing the §2.2 verdict.
+    #[tokio::test]
+    async fn malformed_scope_keeps_its_shape_denial_before_ownership_and_cognition() {
+        let pair = loopback_transport_pair();
+        let responder = Arc::new(ConnectResponder::new(ConnectResponderOptions {
+            transport: Arc::new(pair.server),
+            identity: RemoteIdentity { seed: [0x33; 32] },
+            manifest: test_manifest(),
+            allowlist: Vec::new(),
+            peer_keys: HashMap::new(),
+            ports: None,
+            invoke_timeout_ms: None,
+        }));
+        let negotiated = vec![
+            crate::core::CAPABILITY_SPOKE_BASELINE.to_owned(),
+            CAPABILITY_SPOKE_COGNITION.to_owned(),
+        ];
+        // `scope_id` is required, so the Scope is malformed while its
+        // viewpoint is a valid ownership trigger. `ke-ownership` is not
+        // negotiated: the malformed shape must still answer first.
+        let doc = json!({
+            "session_id": "shape-first-session",
+            "sequence": 0,
+            "request_id": "shape-first-request",
+            "op": "port.scope.list_knowledge_entries",
+            "payload": {"scope": {"viewpoint": "kb_mira"}},
+        });
+        responder
+            .dispatch_port_invoke(&doc, &negotiated)
+            .await
+            .expect("dispatch answers");
+        let frame = pair.client.recv().await.expect("error frame");
+        let response: Value = serde_json::from_slice(&frame).expect("response json");
+        assert_eq!(response["error"]["code"], "INVALID_INPUT", "{response}");
+
+        // Same payload plus an unsupported cognition requirement: the
+        // baseline shape failure still wins, because the deferred raw §2.2
+        // diagnosis only answers payloads whose baseline Scope is sound.
+        let doc = json!({
+            "session_id": "shape-first-session",
+            "sequence": 1,
+            "request_id": "shape-first-request-2",
+            "op": "port.scope.list_knowledge_entries",
+            "payload": {
+                "scope": {
+                    "viewpoint": "kb_mira",
+                    "cognition": {"view": "current", "filter": {"q_min": 0.5}},
+                },
+            },
+        });
+        responder
+            .dispatch_port_invoke(&doc, &negotiated)
+            .await
+            .expect("dispatch answers");
+        let frame = pair.client.recv().await.expect("error frame");
+        let response: Value = serde_json::from_slice(&frame).expect("response json");
+        assert_eq!(response["error"]["code"], "INVALID_INPUT", "{response}");
+        assert!(
+            response["error"].get("details").is_none(),
+            "the baseline shape denial carries no §2.2 verdict: {response}"
+        );
+    }
+
     /// Direct regression for the defensive non-string-op arm: the dispatch
     /// gate routes only string ops here, so a caller that bypasses it must
     /// still get a terminal `INVALID_INPUT` response — never the silent drop
@@ -2197,7 +2399,7 @@ mod tests {
             "payload": {},
         });
         responder
-            .dispatch_memory_invoke(&doc)
+            .dispatch_memory_invoke(&doc, &[])
             .await
             .expect("non-string op dispatch answers");
         let frame = pair.client.recv().await.expect("error frame");

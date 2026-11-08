@@ -61,10 +61,11 @@
 //! peer's last connection closes, live
 //! session handles are marked closed and their pending invokes fail fast.
 
+use crate::cognition::{unsupported_cognition_requirement, WIRE_INVALID_INPUT};
 use crate::config::{ConnectConfig, InvokeHandler, InvokeHandlerV2};
 use crate::core::{
-    token_authorizes_op, verify_capability_token, CapabilityTokenProof, CoreError, CoreInvokeError,
-    InboundSequence,
+    cognition_requirement_present, token_authorizes_op, verify_capability_token,
+    CapabilityTokenProof, CoreError, CoreInvokeError, InboundSequence, CAPABILITY_SPOKE_COGNITION,
 };
 use crate::error::{ConnectError, InvokeError};
 use crate::gate::{gate_hello, is_allowlisted, NonceStore};
@@ -85,6 +86,7 @@ use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::swarm::{ConnectionId, NetworkBehaviour, Swarm, SwarmEvent};
 use libp2p::SwarmBuilder;
 use libp2p::{identify, noise, tcp, yamux, Multiaddr, PeerId, StreamProtocol};
+use serde_json::{Map, Value};
 use spoke_schemas::connect::connect_auth_challenge::ConnectAuthChallenge;
 use spoke_schemas::connect::connect_auth_response::ConnectAuthResponse;
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
@@ -1058,6 +1060,29 @@ impl EventLoop {
                                     .is_none_or(|grant| {
                                         token_authorizes_op(required, grant)
                                     });
+                                // Payload-dependent cognition conjunct
+                                // (consumer contract §2.1/§2.2): a request that
+                                // declares a cognition requirement also needs
+                                // the negotiated `spoke-cognition` family, and a
+                                // declared requirement the family cannot serve is
+                                // rejected here — before the configured handler
+                                // runs, so a handler never has a side effect for
+                                // a request the raw boundary denies. The legacy
+                                // `l5-mind` flag never grants the family.
+                                //
+                                // Diagnosed only when the original op/token
+                                // gates pass: an op/token-denied request keeps
+                                // its original first denial and performs no
+                                // cognition work.
+                                let cognition = if negotiated_allowed && token_allowed {
+                                    cognition_gate(
+                                        request.op.as_str(),
+                                        &request.payload,
+                                        &session.negotiated_capabilities,
+                                    )
+                                } else {
+                                    CognitionGate::Allowed
+                                };
                                 if !negotiated_allowed || !token_allowed {
                                     self.error_response(
                                         request,
@@ -1066,6 +1091,25 @@ impl EventLoop {
                                             "op {} requires a capability that is not granted in this session",
                                             request.op.as_str()
                                         ),
+                                    )
+                                } else if matches!(cognition, CognitionGate::CapabilityMissing) {
+                                    self.error_response(
+                                        request,
+                                        "capability_missing",
+                                        format!(
+                                            "op {} requires capability {} for its declared cognition requirement",
+                                            request.op.as_str(),
+                                            CAPABILITY_SPOKE_COGNITION
+                                        ),
+                                    )
+                                } else if let CognitionGate::Unsupported(message, details) =
+                                    cognition
+                                {
+                                    self.error_response_with_details(
+                                        request,
+                                        WIRE_INVALID_INPUT,
+                                        message.to_owned(),
+                                        details,
                                     )
                                 } else {
                                     // The handler runs synchronously on the
@@ -1218,6 +1262,19 @@ impl EventLoop {
         code: &str,
         message: String,
     ) -> ConnectInvokeResponse {
+        self.error_response_with_details(request, code, message, Map::new())
+    }
+
+    /// Build a `ConnectInvokeResponse` error branch carrying `details` — the
+    /// raw cognition requirement rejection names its `reason` and exact
+    /// request `field` there (consumer contract §2.2).
+    fn error_response_with_details(
+        &self,
+        request: &ConnectInvokeRequest,
+        code: &str,
+        message: String,
+        details: Map<String, Value>,
+    ) -> ConnectInvokeResponse {
         self.sign_invoke_response(crate::core::InvokeResponseSignInput::Error {
             session_id: request.session_id.to_string(),
             sequence: request.sequence,
@@ -1225,7 +1282,7 @@ impl EventLoop {
             error: ErrorEnvelope {
                 code: code.into(),
                 message,
-                details: Default::default(),
+                details,
                 extensions: Default::default(),
             },
         })
@@ -1618,6 +1675,43 @@ fn pending_hello_capacity_available(pending: usize) -> bool {
     pending < MAX_PENDING_HELLOS_PER_PEER
 }
 
+/// Verdict of the payload-dependent cognition conjunct of the inbound op
+/// dispatch gate (consumer contract §2.1/§2.2).
+enum CognitionGate {
+    /// The request declares no cognition requirement, or the negotiated
+    /// family serves it.
+    Allowed,
+    /// The request requires the family and the session never negotiated it.
+    CapabilityMissing,
+    /// The negotiated family cannot serve the declared requirement: the §2.2
+    /// envelope message and its `details` (`reason` + exact request field).
+    Unsupported(&'static str, Map<String, Value>),
+}
+
+/// The payload-dependent cognition conjunct of the inbound op dispatch gate
+/// (consumer contract §2.1/§2.2).
+///
+/// The node knows capabilities and raw payloads, not product op grammars, so
+/// it enforces exactly the shared conclusion: a request that declares a
+/// cognition requirement must negotiate `spoke-cognition` (only the
+/// both-sided hello intersection can grant it — a legacy `l5-mind` flag never
+/// does), and the declared requirement must be one the family serves. Both
+/// denials are answered before the configured handler runs, so a generic node
+/// cannot hand an unsupported projection to a handler with side effects; the
+/// same diagnosis is what the responder applies before its provider calls.
+fn cognition_gate(op: &str, payload: &Value, negotiated: &[String]) -> CognitionGate {
+    if !cognition_requirement_present(op, payload) {
+        return CognitionGate::Allowed;
+    }
+    if !negotiated.iter().any(|cap| cap == CAPABILITY_SPOKE_COGNITION) {
+        return CognitionGate::CapabilityMissing;
+    }
+    match unsupported_cognition_requirement(op, payload) {
+        Some((message, details)) => CognitionGate::Unsupported(message, details),
+        None => CognitionGate::Allowed,
+    }
+}
+
 /// A running connect node.
 ///
 /// `Send + Sync`: all shared state lives behind `Arc`; the libp2p swarm is
@@ -1818,6 +1912,7 @@ pub fn parse_multiaddr(addr: &str) -> Result<Multiaddr, ConnectError> {
 mod tests {
     use super::*;
     use crate::config::ConnectConfig;
+    use crate::core::CAPABILITY_SPOKE_BASELINE;
     use libp2p::identity::Keypair;
 
     fn manifest(host_id: &str) -> HostCapabilityManifest {
@@ -1896,6 +1991,295 @@ mod tests {
         assert!(inbound_sequence_valid(MAX_SEQUENCE as i64));
         assert!(!inbound_sequence_valid(-1));
         assert!(!inbound_sequence_valid((MAX_SEQUENCE + 1) as i64));
+    }
+
+    /// The product-map port ops the shared vectors dispatch.
+    const PORT_OPS: &[&str] = &[
+        "port.scope.list_knowledge_entries",
+        "port.scope.list_timeline_events",
+        "port.fork.list_timeline_events",
+    ];
+
+    /// One signed inbound invoke through the real node dispatch path: a
+    /// fresh node/event loop with the given negotiated capabilities and a
+    /// counting handler, so a denied request proves both the exact wire
+    /// envelope and zero handler calls.
+    fn dispatch_cognition_request(
+        negotiated: Vec<String>,
+        payload: serde_json::Value,
+    ) -> (ConnectInvokeResponse, usize) {
+        dispatch_cognition_op_request(negotiated, "check", payload)
+    }
+
+    /// The same real dispatch path for one named shared-vector op.
+    fn dispatch_cognition_op_request(
+        negotiated: Vec<String>,
+        op: &str,
+        payload: serde_json::Value,
+    ) -> (ConnectInvokeResponse, usize) {
+        let peer_keypair = Keypair::generate_ed25519();
+        let peer = peer_keypair.public().to_peer_id();
+        let peer_seed =
+            crate::hello::ed25519_seed(&peer_keypair).expect("connect identity is Ed25519");
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls_for_handler = Arc::clone(&calls);
+        let mut cfg = config(Keypair::generate_ed25519(), vec![peer]);
+        cfg.invoke_handler = Some(Arc::new(move |_op: &str, _payload: serde_json::Value| {
+            calls_for_handler.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(serde_json::json!({ "ok": true }))
+        }));
+        // `port.*` ops are the product-map family for a generic node (the core
+        // table has no row for them), exactly as a product host configures it.
+        cfg.op_capability_requirements = PORT_OPS
+            .iter()
+            .map(|port_op| ((*port_op).to_owned(), CAPABILITY_SPOKE_BASELINE.to_owned()))
+            .collect();
+        let mut loop_ = session_event_loop(cfg, peer, peer_keypair.public(), negotiated);
+        let request = signed_request(&peer_seed, 0, "req-0001", op, payload);
+        let response = loop_.answer_inbound_invoke(&peer, &request);
+        (response, calls.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
+    /// Node-boundary cognition conjunct (consumer contract §2.1/§2.2): an
+    /// actual inbound invoke is refused before the handler when the session
+    /// never negotiated the family or when the negotiated family cannot serve
+    /// the declared requirement — a legacy `l5-mind` flag never stands in for
+    /// it — while the served and ordinary requests still reach the handler.
+    #[tokio::test]
+    async fn cognition_requirement_is_decided_before_the_node_handler() {
+        let selection = serde_json::json!({
+            "scope": {
+                "scope_id": "world_1",
+                "cognition": {
+                    "view": "current",
+                    "filter": {},
+                    "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"},
+                },
+            },
+        });
+        let baseline_only = vec![CAPABILITY_SPOKE_BASELINE.to_owned()];
+        let (response, calls) = dispatch_cognition_request(baseline_only.clone(), selection.clone());
+        let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+            panic!("an unnegotiated cognition requirement must be denied");
+        };
+        assert_eq!(error.code, "capability_missing", "{error:?}");
+        assert_eq!(calls, 0, "the handler must not run for a denied invoke");
+
+        // The legacy flag is never read as the family.
+        let (response, calls) = dispatch_cognition_request(
+            vec![
+                CAPABILITY_SPOKE_BASELINE.to_owned(),
+                "l5-mind".to_owned(),
+            ],
+            selection.clone(),
+        );
+        let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+            panic!("a legacy-only session must not serve the requirement");
+        };
+        assert_eq!(error.code, "capability_missing", "{error:?}");
+        assert_eq!(calls, 0);
+
+        // The negotiated family still refuses an unsupported requirement
+        // BEFORE the handler: a negotiated `scope.cognition.filter.q_min`
+        // must not reach a handler with side effects.
+        let (response, calls) = dispatch_cognition_request(
+            vec![
+                CAPABILITY_SPOKE_BASELINE.to_owned(),
+                CAPABILITY_SPOKE_COGNITION.to_owned(),
+            ],
+            serde_json::json!({
+                "scope": {
+                    "scope_id": "world_1",
+                    "cognition": {
+                        "view": "current",
+                        "filter": {"q_min": 0.5},
+                        "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"},
+                    },
+                },
+            }),
+        );
+        let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+            panic!("an unsupported requirement must be denied before the handler");
+        };
+        assert_eq!(error.code, "invalid_input", "{error:?}");
+        assert_eq!(
+            error.details.get("reason").and_then(Value::as_str),
+            Some("unsupported_cognition_requirement")
+        );
+        assert_eq!(
+            error.details.get("field").and_then(Value::as_str),
+            Some("scope.cognition.filter.q_min")
+        );
+        assert_eq!(calls, 0, "the handler must not run for an unsupported requirement");
+
+        // A served selection reaches the handler exactly once.
+        let (response, calls) = dispatch_cognition_request(
+            vec![
+                CAPABILITY_SPOKE_BASELINE.to_owned(),
+                CAPABILITY_SPOKE_COGNITION.to_owned(),
+            ],
+            selection,
+        );
+        assert!(
+            matches!(response, ConnectInvokeResponse::Variant0 { .. }),
+            "a valid selection is served"
+        );
+        assert_eq!(calls, 1);
+
+        // Ordinary payloads keep their baseline behavior.
+        let (response, calls) = dispatch_cognition_request(
+            baseline_only,
+            serde_json::json!({"scope": {"scope_id": "world_1"}}),
+        );
+        assert!(
+            matches!(response, ConnectInvokeResponse::Variant0 { .. }),
+            "an ordinary payload dispatches unchanged"
+        );
+        assert_eq!(calls, 1);
+    }
+
+    /// An op/token-denied request keeps its original first denial even when
+    /// its payload declares an unsupported cognition requirement: the op gate
+    /// answers, and no cognition diagnosis runs (fixed direction §2).
+    #[tokio::test]
+    async fn op_denial_precedes_the_cognition_diagnosis() {
+        // `port.scope.list_knowledge_entries` requires `spoke-baseline`
+        // (`PORT_OPS`). A session that negotiated the cognition family but not
+        // that required capability is denied at the op gate, so the malformed
+        // requirement below must never become the answer.
+        let (response, calls) = dispatch_cognition_op_request(
+            vec![CAPABILITY_SPOKE_COGNITION.to_owned()],
+            "port.scope.list_knowledge_entries",
+            serde_json::json!({
+                "scope": {
+                    "scope_id": "world_1",
+                    "cognition": {"view": "current", "filter": {"q_min": 0.5}},
+                },
+            }),
+        );
+        let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+            panic!("an op-denied request must be denied");
+        };
+        assert_eq!(error.code, "op_unsupported", "{error:?}");
+        assert_eq!(calls, 0, "the handler must not run for an op-denied request");
+    }
+
+    /// Every shared served vector through the real node dispatch boundary:
+    /// the host's exact wire verdict (`code`/`reason`/`field`) and the
+    /// handler-call count — zero on a denial, one on a served or ordinary
+    /// request. The node takes the untouched raw payload, so this loop also
+    /// covers the vectors the typed client cannot carry.
+    #[tokio::test]
+    async fn cognition_shared_vectors_are_decided_at_the_node_boundary() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(crate::cognition::COGNITION_FIXTURE).expect("fixture json");
+        let hosts = fixture.get("hosts").expect("fixture hosts");
+        let cases = fixture
+            .get("cases")
+            .and_then(serde_json::Value::as_array)
+            .expect("fixture cases");
+        let capability_list = |host: &serde_json::Value| -> Vec<String> {
+            host.get("capabilities")
+                .and_then(serde_json::Value::as_array)
+                .expect("capabilities")
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        };
+        let mut served_cases = 0;
+        let mut node_skipped = 0;
+        for case in cases {
+            if case.get("kind").and_then(serde_json::Value::as_str) != Some("served") {
+                continue;
+            }
+            served_cases += 1;
+            let case_id = case
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .expect("case id")
+                .to_owned();
+            let host = capability_list(
+                hosts
+                    .get(case.get("host").and_then(serde_json::Value::as_str).expect("host"))
+                    .expect("host entry"),
+            );
+            let client = capability_list(
+                hosts
+                    .get(
+                        case.get("client")
+                            .and_then(serde_json::Value::as_str)
+                            .expect("client"),
+                    )
+                    .expect("client entry"),
+            );
+            // Both-sided hello intersection: the family — and every other
+            // capability — is negotiated only when both manifests declare it.
+            let negotiated: Vec<String> =
+                host.into_iter().filter(|cap| client.contains(cap)).collect();
+            let op = case
+                .get("op")
+                .and_then(serde_json::Value::as_str)
+                .expect("op");
+            let payload = case.get("payload").expect("payload").clone();
+            let expected = case.get("expect").expect("expect");
+            let expected_calls = case
+                .get("expect_provider_calls")
+                .and_then(serde_json::Value::as_u64)
+                .expect("expect_provider_calls");
+            if expected.get("code").and_then(serde_json::Value::as_str) == Some("op_unsupported") {
+                // The F2 `ke-ownership` conjunct is a responder/router
+                // product-boundary rule; the generic node has no ownership
+                // gate to run (its original first-denial is the op/token
+                // gate only), so this vector's subject is the other routes.
+                node_skipped += 1;
+                continue;
+            }
+            let (response, calls) = dispatch_cognition_op_request(negotiated, op, payload);
+            assert_eq!(
+                u64::try_from(calls).expect("calls fit"),
+                expected_calls,
+                "{case_id}: handler calls"
+            );
+            if expected.get("status").and_then(serde_json::Value::as_str) == Some("ok") {
+                assert!(
+                    matches!(response, ConnectInvokeResponse::Variant0 { .. }),
+                    "{case_id}: expected success, got {response:?}"
+                );
+                continue;
+            }
+            let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+                panic!("{case_id}: expected a wire rejection, got {response:?}");
+            };
+            assert_eq!(
+                error.code,
+                expected
+                    .get("code")
+                    .and_then(serde_json::Value::as_str)
+                    .expect("code"),
+                "{case_id}: {error:?}"
+            );
+            if let Some(field) = expected
+                .get("field")
+                .and_then(serde_json::Value::as_str)
+            {
+                assert_eq!(
+                    error.details.get("reason").and_then(serde_json::Value::as_str),
+                    Some("unsupported_cognition_requirement"),
+                    "{case_id}: {error:?}"
+                );
+                assert_eq!(
+                    error.details.get("field").and_then(serde_json::Value::as_str),
+                    Some(field),
+                    "{case_id}: {error:?}"
+                );
+            }
+        }
+        assert!(served_cases >= 20, "served vectors present: {served_cases}");
+        assert_eq!(
+            node_skipped, 1,
+            "only the ke-ownership-precedence vector belongs to the responder/router routes"
+        );
     }
 
     #[test]
@@ -2059,6 +2443,7 @@ mod tests {
         cfg: ConnectConfig,
         peer: PeerId,
         peer_public_key: PublicKey,
+        negotiated_capabilities: Vec<String>,
     ) -> EventLoop {
         let (listen_tx, _listen_rx) = mpsc::channel(16);
         let (cmd_tx, cmd_rx) = mpsc::channel(32);
@@ -2081,7 +2466,7 @@ mod tests {
                     "local-session-id".into(),
                     peer,
                     manifest("remote-host"),
-                    vec!["spoke-baseline".into()],
+                    negotiated_capabilities,
                     [0x2a; 32],
                     Duration::from_secs(5),
                     cmd_tx,
@@ -2100,6 +2485,7 @@ mod tests {
         seed: &[u8; 32],
         sequence: i64,
         request_id: &str,
+        op: &str,
         payload: serde_json::Value,
     ) -> ConnectInvokeRequest {
         crate::core::authenticate_invoke_request(
@@ -2108,7 +2494,7 @@ mod tests {
                 session_id: "peer-side-session-id".into(),
                 sequence,
                 request_id: request_id.into(),
-                op: "upsert".into(),
+                op: op.into(),
                 payload,
                 auth: None,
             },
@@ -2147,13 +2533,19 @@ mod tests {
             },
         ));
 
-        let mut loop_ = session_event_loop(cfg, peer, peer_keypair.public());
+        let mut loop_ = session_event_loop(
+            cfg,
+            peer,
+            peer_keypair.public(),
+            vec!["spoke-baseline".into()],
+        );
         // The payload claims a DIFFERENT peer id; the handler must see the
         // session peer instead (the payload claim is untrusted).
         let request = signed_request(
             &peer_seed,
             0,
             "req-0001",
+            "upsert",
             serde_json::json!({ "peer_id": payload_claimed_peer.to_string() }),
         );
         let response = loop_.answer_inbound_invoke(&peer, &request);
@@ -2196,11 +2588,17 @@ mod tests {
             Ok(serde_json::json!({ "ok": true }))
         }));
 
-        let mut loop_ = session_event_loop(cfg, peer, peer_keypair.public());
+        let mut loop_ = session_event_loop(
+            cfg,
+            peer,
+            peer_keypair.public(),
+            vec!["spoke-baseline".into()],
+        );
         let request = signed_request(
             &peer_seed,
             0,
             "req-0001",
+            "upsert",
             serde_json::json!({ "collection": "notes" }),
         );
         let response = loop_.answer_inbound_invoke(&peer, &request);

@@ -33,6 +33,112 @@ export type TimelineScale = string;
  */
 export type ForkId = string;
 /**
+ * Optional cognitive selection (spoke-cognition); capability-flagged, requires the negotiated spoke-cognition flag. Absent = no cognitive refinement.
+ */
+export type CognitionSelection = OneOf | OneOf1;
+export type View = "current";
+/**
+ * Typed reference kind. `world` identifies the designated narrated-world authority and is invalid as the holder of Belief, epistemic or Perception records. Memory.subject_id is not implicitly a holder; a Memory cognition holder explicitly uses `memory_subject` when intended.
+ */
+export type CognitionReferenceKind =
+  "knowledge_entry" | "timeline_event" | "memory_record" | "memory_subject" | "principal" | "world" | "external";
+export type CognitionTargetKind = "proposition" | "question" | "perceived_content" | "episode";
+/**
+ * Closed fork predicate: {eq: fork} addresses one fork identity; {absent: true} addresses the context identity whose stored fork_id is absent. An omitted fork_id is a wildcard over forked and no-fork contexts and is never an exact no-fork address.
+ */
+export type ForkIdPredicate =
+  | {
+      eq: string;
+    }
+  | {
+      absent: Absent;
+    };
+export type Absent = true;
+/**
+ * No-record is a projection state, not a fourth enum value.
+ */
+export type EpistemicState = "known" | "ignorant" | "undetermined";
+/**
+ * Higher-order depth. order 0 is retained for the shared vocabulary; current actor Belief records normally use 1-3 and narrated order-0 facts use WorldFactRecord.
+ */
+export type BeliefOrder = 0 | 1 | 2 | 3;
+/**
+ * Categorical predicate: {eq} matches only a present value; {absent: true} matches only an explicitly absent optional field. A required field cannot use the absent form.
+ */
+export type TruthPredicate =
+  | {
+      eq: Truth;
+    }
+  | {
+      absent: Absent1;
+    };
+/**
+ * truth = "Unknown" is not holder ignorance.
+ */
+export type Truth = "True" | "False" | "Unknown";
+export type Absent1 = true;
+export type BeliefAccessPredicate =
+  | {
+      eq: BeliefAccess;
+    }
+  | {
+      absent: Absent2;
+    };
+/**
+ * Distribution label, never authorization.
+ */
+export type BeliefAccess = "Private" | "Shared" | "Public";
+export type Absent2 = true;
+export type RepresentationPredicate =
+  | {
+      eq: Representation;
+    }
+  | {
+      absent: Absent3;
+    };
+export type Representation = "Explicit" | "Implicit";
+export type Absent3 = true;
+export type BeliefContentTypePredicate =
+  | {
+      eq: BeliefContentType;
+    }
+  | {
+      absent: Absent4;
+    };
+export type BeliefContentType =
+  | "Location"
+  | "Contents/Physical State"
+  | "Identity/Relation"
+  | "Epistemic"
+  | "Desire/Intention"
+  | "Emotion"
+  | "Trait/Value"
+  | "Action/Event";
+export type Absent4 = true;
+export type BeliefSourcePredicate =
+  | {
+      eq: AcquisitionPath;
+    }
+  | {
+      absent: Absent5;
+    };
+/**
+ * Acquisition label, not actual-perception proof.
+ */
+export type AcquisitionPath =
+  "Narration" | "Perception" | "Memory" | "Testimony" | "Inference" | "Imagination" | "Unknown";
+export type Absent5 = true;
+export type BeliefContextPredicate =
+  | {
+      eq: BeliefContext;
+    }
+  | {
+      absent: Absent6;
+    };
+export type BeliefContext = "Deceptive" | "Temporal" | "Counterfactual" | "Neutral";
+export type Absent6 = true;
+export type View1 = "recorded_at";
+/**
  * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
  * via the `definition` "OpaqueJson".
  */
@@ -121,7 +227,78 @@ export interface Scope {
    * Optional reader context: non-empty holder-KE entry_id consumed by ownership-aware operations. Capability-flagged (ke-ownership); opt-in. Check and assemble share this Scope carrier; scope_id stays opaque and is never parsed for viewpoint. A missing viewpoint names no subject and grants no private visibility; entry, entry_type, and source refinements compose with the disclosure predicate by AND.
    */
   viewpoint?: string;
+  cognition?: CognitionSelection;
   extensions?: ExtensionMap1;
+}
+export interface OneOf {
+  view: View;
+  filter: CognitionFilter;
+  selection_policy: SelectionPolicyIdentity;
+}
+/**
+ * All supplied predicates are ANDed on one record with the same holder/target/assessment context; predicates never join across different targets or records. Reference predicates compare the complete (kind, namespace, id) tuple; id predicates never compare bare strings across namespaces. There is no OR, text similarity, ranking, cutoff default, optional-metric filter, or implicit source/calibration/criterion constraint in the core grammar; schema-unknown predicates and unimplemented dimensions fail the whole request as unsupported_cognition_requirement (P2 behavior).
+ */
+export interface CognitionFilter {
+  holder?: CognitionReference;
+  target?: TargetPredicate;
+  assessment_context?: ContextPredicate;
+  category?: "epistemic" | "perception" | "belief";
+  state?: EpistemicState;
+  q?: QRange;
+  order?: BeliefOrder;
+  truth?: TruthPredicate;
+  access?: BeliefAccessPredicate;
+  representation?: RepresentationPredicate;
+  content_type?: BeliefContentTypePredicate;
+  source?: BeliefSourcePredicate;
+  belief_context?: BeliefContextPredicate;
+}
+/**
+ * Complete namespace-bearing reference identity. Producers use one namespace only for ids assigned by the same identity authority; independent systems use distinct namespaces unless they deliberately share that authority.
+ */
+export interface CognitionReference {
+  kind: CognitionReferenceKind;
+  /**
+   * Non-empty, opaque within kind/namespace. Identity is never established by bare id or equal text.
+   */
+  id: string;
+  /**
+   * Required identity realm for every kind; for `external` it is the declared external namespace. A reference's identity is the complete (kind, namespace, id) tuple. Pure validation checks only this shape — never global uniqueness, registry resolution or I/O.
+   */
+  namespace: string;
+}
+export interface TargetPredicate {
+  carrier?: CognitionReference;
+  target_id?: string;
+  kind?: CognitionTargetKind;
+}
+export interface ContextPredicate {
+  context_id?: string;
+  fork_id?: ForkIdPredicate;
+}
+/**
+ * Inclusive comparisons over the declared foundational q.value; uncalibrated but declared values participate identically. At least one of min/max required (minProperties 1); min <= max is enforced by validators.
+ */
+export interface QRange {
+  /**
+   * Finite 0..1, inclusive.
+   */
+  min?: number;
+  /**
+   * Finite 0..1, inclusive; min <= max (enforced by validators).
+   */
+  max?: number;
+}
+/**
+ * Explicitly supplied product policy; the library verifies only that the selected id belongs to the traced inputs and supplies no policy algorithm.
+ */
+export interface SelectionPolicyIdentity {
+  policy_id: string;
+  policy_version: string;
+}
+export interface OneOf1 {
+  view: View1;
+  filter: CognitionFilter;
 }
 /**
  * Optional product-scoped scope/query metadata (ExtensionMap). Consumers layer product filters here (e.g. branch/search limits). Protocol matchers ignore extensions; adapters round-trip unknown namespaces verbatim.
@@ -198,14 +375,14 @@ export interface MentalFieldMap {
   [k: string]: unknown | undefined;
 }
 /**
- * Field-level change record for temporal-delta presentation of mental-state changes; presentation only, not authoritative state. Authoritative values live on the holder KnowledgeEntry under modules.mental / modules.belief.
+ * Field-level change record for temporal-delta presentation of mental-state changes; presentation only, not authoritative state. Authoritative values live on the holder KnowledgeEntry under modules.mental / modules.cognition.
  *
  * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
  * via the `definition` "MindDelta".
  */
 export interface MindDelta {
   /**
-   * Dot-path or JSON Pointer to the changed field within modules.mental or modules.belief.
+   * RFC 6901 JSON Pointer with one of these exact roots: /modules/mental/<field>... for any of the nine mental fields; /modules/cognition/records/... for derivative standard cognition; /modules/cognition/world_facts/... for narrated-world facts. No dot-path and no path targeting the MindState itself as authority.
    */
   path: string;
   previous?: OpaqueJson;

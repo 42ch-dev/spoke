@@ -109,17 +109,14 @@ fn load_asset(relative: &str) -> Value {
 
 // ── Loopback plumbing (copied from tests/memory_loopback.rs) ──────────────
 
-type SharedPrincipal = Arc<Mutex<String>>;
-
 fn principal_for(peer_id: &str) -> Principal {
     serde_json::from_value(json!({ "principal_id": format!("prn_{peer_id}"), "extensions": {} }))
         .expect("valid principal")
 }
 
-fn admission() -> MemoryAdmission {
+fn admission(principal_id: &str) -> MemoryAdmission {
+    let principal_id = principal_id.to_string();
     Arc::new(move |_peer_id: &str| {
-        // The harness sets the corpus principal for the case being executed.
-        let principal_id = CURRENT_PRINCIPAL.lock().expect("principal lock").clone();
         match serde_json::from_value::<Principal>(json!({
             "principal_id": principal_id,
             "extensions": {},
@@ -134,17 +131,15 @@ fn admission() -> MemoryAdmission {
     })
 }
 
-fn memory_face(provider: Arc<SqliteMemoryProvider>) -> Arc<dyn RemoteMemoryService> {
+fn memory_face(provider: Arc<SqliteMemoryProvider>, principal_id: &str) -> Arc<dyn RemoteMemoryService> {
     let port: Arc<dyn MemoryPort + Send + Sync> = provider;
-    Arc::new(MemoryPortService::new(port, admission()))
+    Arc::new(MemoryPortService::new(port, admission(principal_id)))
 }
 
-fn loopback_face(host: Arc<MemoryHost>) -> Arc<dyn RemoteMemoryService> {
+fn loopback_face(host: Arc<MemoryHost>, principal_id: &str) -> Arc<dyn RemoteMemoryService> {
     let port: Arc<dyn MemoryPort + Send + Sync> = host;
-    Arc::new(MemoryPortService::new(port, admission()))
+    Arc::new(MemoryPortService::new(port, admission(principal_id)))
 }
-
-static CURRENT_PRINCIPAL: Mutex<String> = Mutex::new(String::new());
 
 fn manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
     serde_json::from_value(json!({
@@ -833,6 +828,7 @@ async fn run_leg(leg: Leg) -> Report {
             .filter(|case| case["surface"] == "wire")
         {
             let case_id = case["id"].as_str().unwrap_or("<case>");
+            let principal_id = case["principal"].as_str().unwrap_or("prn_tw_host_primary");
             if let Leg::Loopback = leg {
                 if let Some(gap) = loopback_gap(case) {
                     report.record(
@@ -854,7 +850,7 @@ async fn run_leg(leg: Leg) -> Report {
                     seed(&provider).await;
                     (
                         Provider::Sqlite(Arc::clone(&provider)),
-                        memory_face(Arc::clone(&provider)),
+                        memory_face(Arc::clone(&provider), principal_id),
                     )
                 }
                 Leg::Loopback => {
@@ -864,7 +860,7 @@ async fn run_leg(leg: Leg) -> Report {
                         store: Arc::new(store),
                     });
                     let store = Arc::clone(&host.store);
-                    (Provider::Loopback(store), loopback_face(host))
+                    (Provider::Loopback(store), loopback_face(host, principal_id))
                 }
             };
             let (responder, pair) = start_host(Arc::clone(&face), &MEMORY_CAPABILITIES).await;
@@ -937,7 +933,36 @@ fn corpus_interpreter_runs_against_both_memory_providers() {
         .enable_all()
         .build()
         .expect("runtime");
-    let (sqlite, loopback) = runtime.block_on(async { (run_leg(Leg::Sqlite).await, run_leg(Leg::Loopback).await) });
+    let (sqlite, loopback) = runtime.block_on(async {
+        let operator_provider = Arc::new(SqliteMemoryProvider::in_memory());
+        let host_provider = Arc::new(SqliteMemoryProvider::in_memory());
+        seed(&operator_provider).await;
+        seed(&host_provider).await;
+        let (mut operator, operator_responder) =
+            wire_over(memory_face(Arc::clone(&operator_provider), "prn_tw_cli_operator")).await;
+        let (mut host, host_responder) =
+            wire_over(memory_face(Arc::clone(&host_provider), "prn_tw_host_primary")).await;
+        operator.provider = Provider::Sqlite(operator_provider);
+        host.provider = Provider::Sqlite(host_provider);
+        let scenario = load_scenarios().into_iter()
+            .find(|scenario| scenario.id == "candidate-consumption")
+            .expect("candidate consumption scenario");
+        let operator_case = scenario.cases.iter()
+            .find(|case| case["id"] == "consumption-is-atomic-on-conflict")
+            .expect("atomic conflict case");
+        let host_case = scenario.cases.iter()
+            .find(|case| case["id"] == "review-inherits-capture-scope")
+            .expect("capture scope case");
+        let (operator_outcome, host_outcome) = tokio::join!(
+            run_case(&mut operator, None, &scenario.id, operator_case),
+            run_case(&mut host, None, &scenario.id, host_case),
+        );
+        assert_eq!(operator_outcome, Outcome::Pass, "operator's Bo conflict case");
+        assert_eq!(host_outcome, Outcome::Pass, "host's Mira capture case");
+        operator_responder.close();
+        host_responder.close();
+        (run_leg(Leg::Sqlite).await, run_leg(Leg::Loopback).await)
+    });
 
     print_column("sqlite", &sqlite);
     print_column("loopback", &loopback);
@@ -975,6 +1000,166 @@ fn corpus_interpreter_runs_against_both_memory_providers() {
         loopback_passed >= 16,
         "the loopback column must keep its served-surface coverage (got {loopback_passed})"
     );
+}
+
+/// Shared C8 lifecycle vectors on the SQLite leg: the provider admits the
+/// valid non-empty recorded-at-time carrier, rejects malformed cognition with
+/// `INVALID_INPUT`, and classification treats cognition as content. The
+/// over-budget admission vector exercises the validator-level boundary (the
+/// provider applies its own 64 KiB limit), and the transfer vectors are
+/// consumed by the reference-engine conformance suite plus the typed provider
+/// transfer tests — an unknown vector shape here is a failure, never a skip.
+#[test]
+fn cognition_lifecycle_shared_vectors_sqlite_leg() {
+    fn wire<T: serde::Serialize>(value: &T) -> Value {
+        serde_json::to_value(value).expect("value serializes")
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    runtime.block_on(async {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/cognition/memory-lifecycle-vectors.json"
+        );
+        let raw = fs::read_to_string(path).expect("lifecycle vectors readable");
+        let file: Value = serde_json::from_str(&raw).expect("lifecycle vectors parse");
+        let vectors = file["vectors"].as_array().expect("vectors array");
+        let belief_carrier = vectors
+            .iter()
+            .find(|vector| vector["id"] == "lifecycle-admission-cognition-valid")
+            .and_then(|vector| vector["content"]["cognition"].as_array().cloned())
+            .expect("a valid non-empty cognition carrier vector");
+        let capture = |content: Value, key: &str| {
+            json!({
+                "space_id": SPACE,
+                "subject_id": MIRA,
+                "content": content,
+                "capture_scope": { "visibility": "shared" },
+                "source_context_ids": ["ctx_tw_dawn_arrival"],
+                "kind_hint": "fact",
+                "idempotency_key": key,
+            })
+        };
+
+        for vector in vectors {
+            let id = vector["id"].as_str().expect("vector id");
+            match vector["shape"].as_str().expect("vector shape") {
+                "content-admission" => {
+                    if vector["reason"].as_str() == Some("max_content_bytes") {
+                        // Boundary case: proven at validator level with exact
+                        // limits; the provider enforces its own limit.
+                        continue;
+                    }
+                    let provider = SqliteMemoryProvider::in_memory();
+                    seed(&provider).await;
+                    let request = serde_json::from_value::<spoke_schemas::MemoryCaptureRequest>(
+                        capture(vector["content"].clone(), "cap-cognition"),
+                    )
+                    .expect("capture request parses");
+                    let result = provider
+                        .capture(&principal_for("tw_host_primary"), request)
+                        .await;
+                    match vector["expected"].as_str().expect("expected") {
+                        "accept" => {
+                            let receipt = match result {
+                                SpokeResult::Ok(receipt) => wire(&receipt),
+                                SpokeResult::Reject(reject) => {
+                                    panic!("{id}: expected commit, got {reject:?}")
+                                }
+                            };
+                            // The generated `Content` carrier omits an empty
+                            // `Vec`, so an explicitly empty cognition array
+                            // only exercises the byte boundary (validator
+                            // level); a non-empty carrier must be retained.
+                            let expected_cognition = vector["content"]["cognition"]
+                                .as_array()
+                                .filter(|entries| !entries.is_empty())
+                                .cloned();
+                            if receipt["result"]["classified"] == json!(1) {
+                                if let Some(expected) = expected_cognition {
+                                    let candidate_id =
+                                        receipt["result"]["candidate_ids"][0].as_str().unwrap();
+                                    let candidate = provider
+                                        .get_candidate(
+                                            &principal_for("tw_host_primary"),
+                                            serde_json::from_value(json!({
+                                                "space_id": SPACE,
+                                                "candidate_id": candidate_id,
+                                            }))
+                                            .expect("get request"),
+                                        )
+                                        .await;
+                                    let candidate = match candidate {
+                                        SpokeResult::Ok(candidate) => wire(&candidate),
+                                        SpokeResult::Reject(reject) => {
+                                            panic!("{id}: candidate get: {reject:?}")
+                                        }
+                                    };
+                                    assert_eq!(
+                                        candidate["candidate"]["proposed"]["content"]["cognition"],
+                                        json!(expected),
+                                        "{id}: pending candidate retains the cognition carrier"
+                                    );
+                                }
+                            }
+                        }
+                        "reject" => match result {
+                            SpokeResult::Ok(receipt) => {
+                                panic!("{id}: expected reject, got {}", wire(&receipt))
+                            }
+                            SpokeResult::Reject(reject) => assert_eq!(
+                                reject.code,
+                                spoke_operations::SpokeRejectCode::InvalidInput,
+                                "{id}: malformed cognition rejects INVALID_INPUT"
+                            ),
+                        },
+                        other => panic!("{id}: unknown expected {other:?}"),
+                    }
+                }
+                "candidate-classification" => {
+                    let provider = SqliteMemoryProvider::in_memory();
+                    seed(&provider).await;
+                    let mut content = json!({ "text": vector["text"] });
+                    if let Some(present) = vector.get("content_cognition") {
+                        // Actual wire member, including an explicit empty
+                        // array; the provider derives presence from it.
+                        content["cognition"] = present.clone();
+                    } else if vector["has_cognition_content"].as_bool().unwrap_or(false) {
+                        content["cognition"] = json!(belief_carrier);
+                    }
+                    let request = serde_json::from_value::<spoke_schemas::MemoryCaptureRequest>(
+                        capture(content, "cap-classification"),
+                    )
+                    .expect("capture request parses");
+                    let receipt = match provider
+                        .capture(&principal_for("tw_host_primary"), request)
+                        .await
+                    {
+                        SpokeResult::Ok(receipt) => wire(&receipt),
+                        SpokeResult::Reject(reject) => {
+                            panic!("{id}: expected commit, got {reject:?}")
+                        }
+                    };
+                    let expected = match vector["expected_disposition"].as_str().unwrap() {
+                        "promote" => 1,
+                        "drop" => 0,
+                        other => panic!("{id}: unknown disposition {other:?}"),
+                    };
+                    assert_eq!(
+                        receipt["result"]["classified"], json!(expected),
+                        "{id}: cognition counts as content for classification"
+                    );
+                }
+                "reference-translation" => {
+                    // Engine-level vectors: consumed by the reference-engine
+                    // conformance suite and the typed provider transfer tests.
+                }
+                other => panic!("{id}: unknown vector shape {other:?}"),
+            }
+        }
+    });
 }
 
 /// Drive the provider worker and poll one receipt until it is committed or
@@ -1019,10 +1204,6 @@ async fn run_case(
     case: &Value,
 ) -> Outcome {
     let case_id = case["id"].as_str().unwrap_or("<case>");
-    *CURRENT_PRINCIPAL.lock().expect("principal lock") = case["principal"]
-        .as_str()
-        .unwrap_or("prn_tw_host_primary")
-        .to_string();
     let mut responses: BTreeMap<String, Value> = BTreeMap::new();
     // The provider worker runs separately from every read path (MEM-R011):
     // the harness settles deferred async work after each step, except while

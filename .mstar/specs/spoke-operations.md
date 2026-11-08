@@ -320,12 +320,15 @@ Deepen families (§5–§11), computable validators (§12), and body attribute r
 
 | Export | Purpose | Purity |
 |--------|---------|--------|
-| `knowledgeEntryMatchesScope(knowledgeEntry, scope)` | KnowledgeEntry passes optional `Scope` refinements | Pure |
-| `filterKnowledgeEntriesByScope(knowledgeEntries, scope)` | Filter list by `knowledgeEntryMatchesScope` | Pure |
+| `filterKnowledgeEntriesByScope(knowledgeEntries, scope)` | Filter list by the KnowledgeEntry scope predicate after authorization/disclosure | Pure |
 | `timelineEventMatchesScope(timelineEvent, scope)` | TimelineEvent passes optional `Scope` refinements | Pure |
 | `filterTimelineEventsByScope(timelineEvents, scope)` | Filter list by `timelineEventMatchesScope` | Pure |
+| `assertSupportedCognitionSelection(selection, fieldPath)` | Reject an unsupported/unavailable cognition selection (`unsupported_cognition_requirement` + `field`) | Pure |
+| `cognitionRecordsOfAuthorizedEntries(entries)` / Rust `cognition_records_of_authorized_entry(entry)` and `cognition_records_of_authorized_entries(entries)` | Extract only closed `modules.cognition` records; reject a malformed carrier as `invalid_cognition_record` | Pure |
 
 **`Scope` wire shape:** [`spoke-ops.md` §Scope](spoke-ops.md#scope-shared--check--assemble). `scope_id` is required on wire but **not interpreted** by these helpers — caller pre-scopes collections by product binding.
+
+**Array presence:** an omitted list is absent and matches everything; an explicitly present list — including `[]` — is a refinement, so a present-empty list matches nothing. The distinction survives JSON → typed → served processing: Rust carries these arrays as `Option<Vec<String>>` on the shared `Scope` and on the `CheckRequest`/`AssembleRequest` copies, and TypeScript keeps `undefined` versus `[]`.
 
 **KnowledgeEntry refinements (AND when present on `scope`):**
 
@@ -335,6 +338,9 @@ Deepen families (§5–§11), computable validators (§12), and body attribute r
 | `entry_types` | `knowledgeEntry.entry_type` ∈ array |
 | `source_id` | `knowledgeEntry.source_anchor?.source_id === scope.source_id` |
 | `viewpoint` | `knowledgeEntryVisibleToViewpoint(knowledgeEntry, scope.viewpoint)` — `ke-ownership` disclosure predicate; an entry without `disclosure` always passes, `owner-private` requires an exact owner match and fails without a viewpoint (or a malformed private entry), and unknown disclosure values fail for every viewpoint |
+| `cognition` | Validate the closed selection, then apply it to closed holder records after authorization; entries without carried cognition do not match. Current view uses the injected product policy; exact filter/projection rules are in [`spoke-cognition-data-contract.md`](spoke-cognition-data-contract.md) §5 |
+
+**Cognition selection rejection:** the closed selection grammar runs on the typed selection before any record matching, so a decodable but grammar-invalid filter (`{absent: false}` on a categorical or fork predicate, a `q` range with no bound) rejects the whole call as `unsupported_cognition_requirement` with `field` at the actual request path (e.g. `scope.cognition.filter.truth.absent`) — even when the authorized source is empty and no record could reveal it. An unavailable `recorded_at` view rejects at `<fieldPath>.view`.
 
 Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
 
@@ -348,9 +354,26 @@ Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
 
 Ignored on TimelineEvent: `entry_ids`, `entry_types`, `source_id`, `parent_fork_id`, `viewpoint`.
 
-**Tests must cover:** each refinement on its carrier type (including the `ke-ownership` `viewpoint` disclosure predicate on KnowledgeEntry: shared, own private, foreign private, absent viewpoint, unknown disclosure, and AND with another refinement), empty refinement pass-through, combined AND.
+**Tests must cover:** each refinement on its carrier type (including the `ke-ownership` `viewpoint` disclosure predicate on KnowledgeEntry: shared, own private, foreign private, absent viewpoint, unknown disclosure, and AND with another refinement), the omitted wildcard versus present-empty no-match for `entry_ids` / `entry_types` / `timeline_event_ids` through the typed and served paths, and combined AND.
 
 ---
+
+### 8a. Cognition — `cognition/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `validateCognitionRecord` / `validate_cognition_record` | Closed Belief, epistemic or Perception record rules | Pure |
+| `validateCognitionContent` / `validate_cognition_content` | Recorded-at-time Memory `Content.cognition` placement | Pure |
+| `validateCognitionModule` / `validate_cognition_module` | Closed holder `modules.cognition` module | Pure |
+| `validateObservationModule` / `validate_observation_module` | Event observation and open access keys | Pure |
+| `validateCognitionFilter` / `validate_cognition_filter` | Closed filter grammar | Pure |
+| `validateCognitionSelection` / `validate_cognition_selection` | Closed view/filter/policy selection | Pure |
+| `validateCognitionProjection` / `validate_cognition_projection` | Projection shape and current-policy trace | Pure |
+| `cognitionRecordMatchesFilter` / `cognition_record_matches_filter` | One-record conjunction with complete identity | Pure |
+| `selectCognitionRecords` / `select_cognition_records` | Group and select matching authorized records | Pure |
+| `projectCognitionRecords` / `project_cognition_records` | Attribution-preserving projection with injected policy | Pure |
+
+`CurrentViewPolicy.select` returns one traced input record id. The packages export the projection helper-facing types derived from the generated MindState carrier; they do not create a parallel wire contract. Validators perform no reference resolution, evidence judgment, probability synthesis, disagreement merging, replay, ranking, retrieval or I/O. Exact semantics: [`spoke-cognition-data-contract.md`](spoke-cognition-data-contract.md); public surface boundaries: [`spoke-cognition-consumer-contract.md`](spoke-cognition-consumer-contract.md).
 
 ### 9. Upsert gate — `upsert/*`
 
@@ -600,7 +623,7 @@ Pure reads over caller-supplied `KnowledgeEntry` values for the optional `ke-own
 - Comparison is exact string equality; identifiers are not normalized, and no holder lookup, type inference, belief evaluation, or audience expansion occurs.
 - The predicate **fails closed**: an `owner-private` entry with an empty or missing `owner` is excluded, and unknown non-empty disclosure values are excluded rather than reinterpreted as shared.
 - Calling this surface is the caller's opt-in; consumers holding field-absent data keep baseline behavior.
-- Composition lives in §8 Scope match: `knowledgeEntryMatchesScope` / `knowledge_entry_matches_scope` (and the wire-aware Rust variant `knowledge_entry_matches_scope_view`) call the predicate with `scope.viewpoint`, so check, assemble, and the fork variants observe the same result. No parallel ownership-filter family exists.
+- Composition lives in §8 Scope match: `knowledgeEntryPassesScopeAuthorization` / `knowledge_entry_passes_scope_authorization` call the predicate with `scope.viewpoint`, so check, assemble, and the fork variants observe the same result. No parallel ownership-filter family exists.
 
 **Out of scope:** identity registries, audience sets, view composition, authentication / authorization, storage lifecycle and concurrency, and product visibility policy.
 
@@ -913,7 +936,7 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 
 Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering **every** symbol in TS `src/index.ts`. Rust MAY also export additional typed/wire helpers not listed in TS `index.ts` — e.g. `KnowledgeEntryForAssemble`, `validate_promote_request_wire`, `UpsertMode`, `ExtensionMap`, `spoke_ok_unit` — without breaking parity.
 
-**Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `body`, `occ`, `knowledge_entry`, `scope`, `timeline`, `upsert`, `relate`, `error`, `computable`); adapter ports/orchestrators use `adapter/ports.ts` and `adapter/orchestrate.ts` in TypeScript and `adapter.rs` submodules in Rust; private `util` is for typify field-access helpers only — no parallel wire DTOs.
+**Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `body`, `occ`, `knowledge_entry`, `scope`, `timeline`, `upsert`, `relate`, `error`, `computable`, `mind-state`, `cognition`); adapter ports/orchestrators use `adapter/ports.ts` and `adapter/orchestrate.ts` in TypeScript and `adapter.rs` submodules in Rust; private `util` is for typify field-access helpers only — no parallel wire DTOs.
 
 **Wire types:** helpers accept `spoke_schemas` generated types directly (`KnowledgeEntry`, `Finding`, `ErrorEnvelope`, etc.).
 
@@ -965,6 +988,13 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 - [x] `get_knowledge_entry_owner` / `knowledge_entry_visible_to_viewpoint` re-exported from `spoke-operations` `src/lib.rs`
 - [x] §16 documents the visibility truth table, fail-closed rules, and out-of-scope product policy
 - [x] §8 applies the predicate through `Scope.viewpoint` in the existing matcher and list filter (no parallel ownership-filter family)
+
+### Cognition (`cognition/*`)
+
+- [x] Validators, predicates, selection and projection helpers in §8a are exported from both package roots; Rust additionally exports the singular per-entry authorized-record helper
+- [x] `validateMindState` / `validate_mind_state` remain the MindState validator names and cover derivative cognition and pointer roots
+- [x] Scope filtering applies cognition after authorization/disclosure; assemble carries the optional projection and injected current policy before truncation
+- [x] No reference resolution, inference, replay, ranking, retrieval, storage or network I/O enters the cognition helper family
 
 ### Adapter interfaces + injection orchestration
 

@@ -36,6 +36,26 @@ export const CAPABILITY_SPOKE_MEMORY_REFLECTION = "spoke-memory-reflection";
 export const CAPABILITY_SPOKE_MEMORY_TRANSFER = "spoke-memory-transfer";
 
 /**
+ * Optional capability: the `spoke-cognition` family (one flag, no subflags).
+ *
+ * Not an op requirement — no core-table row names it. A request that
+ * *declares* a cognition requirement (see `cognitionRequirementPresent`)
+ * additionally needs this flag in the negotiated set; the payload-dependent
+ * conjunct lives at the dispatch boundary next to `ke-ownership`. The legacy
+ * `l5-mind` flag is never read as this family.
+ */
+export const CAPABILITY_SPOKE_COGNITION = "spoke-cognition";
+
+/**
+ * Wire spelling of a dispatch-layer validation verdict (consumer contract
+ * §2.2). The ops protocol spells the same internal code `INVALID_INPUT` on
+ * its envelopes; a rejection taken at the pre-handler boundary carries this
+ * lowercase form instead, beside the other dispatch codes (`op_unsupported`,
+ * `capability_missing`, `auth_failed`).
+ */
+export const WIRE_INVALID_INPUT = "invalid_input";
+
+/**
  * The minimum capability required to dispatch `op`, per the protocol v1
  * core-op table. Product-defined `op` values return `undefined` — their
  * required capability is documented by the product and configured outside
@@ -140,4 +160,80 @@ export function tokenAuthorizesOp(
   tokenCapabilities: readonly string[],
 ): boolean {
   return required !== undefined && tokenCapabilities.includes(required);
+}
+
+/**
+ * Ops whose registered request carries a `Scope` and therefore the
+ * `Scope.cognition` selection slot (`common.schema.json` → `Scope`,
+ * referenced by `assemble-request` / `check-request` and the three remote
+ * Scope ops).
+ */
+const SCOPE_COGNITION_OPS: Record<string, true> = {
+  check: true,
+  assemble: true,
+  "port.scope.list_knowledge_entries": true,
+  "port.scope.list_timeline_events": true,
+  "port.fork.list_timeline_events": true,
+};
+
+/**
+ * Memory ops whose registered request declares the `cognition_filter` slot
+ * (`memory-recall-request`, `memory-records-list-request`,
+ * `memory-reflections-{generate,list,state}-request`).
+ */
+const COGNITION_FILTER_OPS: Record<string, true> = {
+  "memory.recall": true,
+  "memory.records.list": true,
+  "memory.reflections.generate": true,
+  "memory.reflections.list": true,
+  "memory.reflections.state": true,
+};
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The request field path that declares a cognition requirement **for this
+ * op**, or `undefined` when the request carries none. Both slots come from
+ * the registered request schemas: only the actual standard carrier of the
+ * dispatched operation can demand cognition, so collapsed/inspected data on
+ * any other op — a tool's `arguments`, unrelated product metadata, an opaque
+ * `extensions` member — stays ordinary payload data and never becomes a
+ * synthetic requirement.
+ *
+ * Declared-location predicate only: no trimming, normalization, registry
+ * lookup or recursive search. A present `null` counts as present (malformed,
+ * never "absent").
+ */
+export function cognitionRequirementField(
+  op: string,
+  payload: Record<string, unknown>,
+): string | undefined {
+  if (Object.hasOwn(SCOPE_COGNITION_OPS, op)) {
+    const scope = payload.scope;
+    if (isPlainObject(scope) && scope.cognition !== undefined) {
+      return "scope.cognition";
+    }
+  }
+  if (
+    Object.hasOwn(COGNITION_FILTER_OPS, op) &&
+    payload.cognition_filter !== undefined
+  ) {
+    return "cognition_filter";
+  }
+  return undefined;
+}
+
+/**
+ * Whether `op`'s payload declares a `spoke-cognition` requirement. The
+ * signing/negotiation gate then requires `CAPABILITY_SPOKE_COGNITION` in the
+ * negotiated set; ordinary payloads without the op's carrier members are
+ * untouched.
+ */
+export function cognitionRequirementPresent(
+  op: string,
+  payload: Record<string, unknown>,
+): boolean {
+  return cognitionRequirementField(op, payload) !== undefined;
 }

@@ -62,16 +62,17 @@ Key statements: array order is the interchange order — hosts apply their own l
 
 ## Mental state
 
-**Mental state** defines how narrative hosts exchange mental-state data (beliefs, goals, intentions, emotions, observation access) without a shared engine. It lives as three `modules.*` dialects under capability flags `l5-mind` + `narrative-modules`; a temporal record object (`MindState`) carries derivative snapshots/deltas.
+**Mental state** defines how narrative hosts exchange cognition and mental-state data without a shared engine. It carries four concepts on three record categories under one capability flag (`spoke-cognition`), together with the open `modules.mental` vocabulary and the derivative `MindState` record.
 
 | Published vocabulary | Wire home | Values |
 |----------------------|-----------|--------|
-| Mental fields | `KnowledgeEntry.modules.mental` | nine-field vocabulary: `identity`, `beliefs`, `attention`, `goals`, `intentions`, `emotions`, `dispositions`, `norms`, `constraints` |
-| Belief labels | `KnowledgeEntry.modules.belief` | `holder` (entry_id or `world`), `proposition`, `order` (0–3), seven-dimension labels (Truth/Access/Representation/Content/Source/Context) |
-| Event observation | `TimelineEvent.modules.observation` | `observers: entry_id[]`, optional `access` (perceptual constraints) |
-| Temporal record | `MindState` wire object | `mind_state_id`, `holder_entry_id`, `snapshot`, `deltas` — strictly derivative |
+| Mental fields | `KnowledgeEntry.modules.mental` | nine-field vocabulary: `identity`, `beliefs`, `attention`, `goals`, `intentions`, `emotions`, `dispositions`, `norms`, `constraints`; `beliefs` carries derivative summary, count or reference data |
+| Standard cognition | `KnowledgeEntry.modules.cognition` | `records[]` of Belief, epistemic (knowledge/ignorance/undetermined) and Perception records, plus `world_facts[]`; every completed Belief, epistemic or Perception record carries a declared `q` and may carry distinct metrics |
+| Belief dimensions | Belief record fields | `order` (0–3), `truth` (`True`/`False`/`Unknown`), `access` (`Private`/`Shared`/`Public`), `representation` (`Explicit`/`Implicit`), `content_type` (eight labels), `source` (seven acquisition labels), `context` (`Deceptive`/`Temporal`/`Counterfactual`/`Neutral`) |
+| Event observation | `TimelineEvent.modules.observation` | `observers: CognitionReference[]` (required; `[]` states that no observer could perceive), optional open `access` constraints |
+| Temporal record | `MindState` wire object | `mind_state_id`, `holder_entry_id`, `snapshot`, `deltas`, optional `cognition` projection — strictly derivative |
 
-Key statements: the settled home of mental fields and belief labels is the holder KnowledgeEntry `modules.mental`/`modules.belief`; `MindState` is strictly temporal/derivative (no dual authority); false belief = True world fact + False actor belief (one labeled row); unobserved event ⇒ stale belief ⇒ false belief (Knowledge Access derivation).
+Key statements: the holder KnowledgeEntry carries the authoritative values — standard records under `modules.cognition` and open mental fields under `modules.mental` — while `MindState` presents the temporal trajectory. A false belief is an actor Belief record with `truth: "False"` alongside the world fact it contradicts; a Perception record describes actual capture and keeps partial, misleading, illusory or disbelieved content. Event access metadata describes who could perceive and makes no actual-capture claim. Filtering uses `Scope.cognition` on KnowledgeEntry surfaces and `cognition_filter` on Memory surfaces; both apply a one-record conjunction and reject unsupported requirements explicitly.
 
 ## Related
 

@@ -12,7 +12,7 @@
 
 **包含：**
 
-- 数据层 schema：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、**HostCapabilityManifest**、Rule、TimelineEvent、MindState
+- 数据层 schema：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、**HostCapabilityManifest**、Rule、TimelineEvent、MindState、CognitionRecord
 - Ops 层 schema：`upsert`、extract→promote、`relate`、`check`、`assemble`；可选 **`project` / `compute`**（`l2-computable` 能力下）
 - 生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`、`spoke-operations`）
 - 纯函数生命周期辅助，以及 **adapter ports** 与 **injection orchestration**（`@42ch/spoke-operations` / `spoke-operations`）
@@ -201,7 +201,8 @@ async function promote() {
 | **Finding** | 一致性、风格或分析类检查器输出 |
 | **Rule** | `check` 的声明式约束输入（L6） |
 | **TimelineEvent** | when 轴上的第一类时间对象（L5） |
-| **MindState** | when 轴上的第一类时间心智状态记录（L5，可选 `l5-mind`） |
+| **MindState** | when 轴上的第一类时间心智状态记录（L5，可选 `spoke-cognition` 能力） |
+| **CognitionRecord** | 持有者 KnowledgeEntry 的 `modules.cognition` 下的标准 Belief / epistemic / Perception 记录（`spoke-cognition`） |
 | **AssemblePacket** | 线上上下文组装载荷（供下游 LLM 提示的精简条目） |
 | **HostCapabilityManifest** | 主机角色、能力与所拥有的 `namespaces[]`，用于进程内协作 |
 | **Extensions** | 数据对象上的产品专属字段袋（`extensions.<namespace>`） |
@@ -222,7 +223,7 @@ async function promote() {
 
 需要 fork 作用域时间线查询的产品可声明 **`l5-fork`**。需要交换跨产品功能方言（lore 激活、知识包、assemble 摆放 / 激活轨迹）的产品可声明 **`narrative-modules`**：KnowledgeEntry、AssemblePacket 与 TimelineEvent 上的可选 `modules`（`ModuleMap`）字段袋承载这些方言，适配器对未知 module namespace 原样往返保留。内部形状由 Domain Profile 手册定义。
 
-可互换「谁在时刻 t 相信 / 想要 / 感受什么」的产品可声明 **`l5-mind`**：when 轴上的可选 `MindState` 时间记录（快照 / 增量）与 `TimelineEvent.modules` 上的 `modules.observation`。心智字段与信念标签的常驻家园是持有者 KnowledgeEntry 的 `modules.mental` / `modules.belief`（`narrative-modules` 字段袋）；`MindState` 严格派生，绝不构成第二权威。心智引擎留在产品侧。按需启用，非 `spoke-baseline`。
+可互换「谁在时刻 t 知道、相信、感知、想要或感受什么」的产品可声明 **`spoke-cognition`**：单一能力标志（无子标志）下的标准、可归因认知记录族。主机通过持有者 KnowledgeEntry 的 `modules.cognition` 提供它 —— `records[]` 承载 Belief、epistemic（knowledge、ignorance、undetermined）与 Perception 记录，`world_facts[]` 承载叙事世界事实 —— 每条完整的信念、认知评估与感知记录都为其所标识的认知断言携带必填的基础 `q`，并可携带相互独立的可选 `metrics`（`b`、`p`、`f`、`k`、`r`）。认知选择经 `Scope.cognition` 承载：封闭过滤语法（`holder`、目标身份、评估上下文 / fork、`category`、`state`、`q` 区间，以及存在/缺失的分类谓词），外加保留分歧、并记录所选当前视图策略的归因保真投影。`MindState` 把同一批持有者侧记录投影为派生的时间视图。记忆主机的 `Content.cognition` 承载记录时点的认知，并以 `cognition_filter` 过滤。只有在实际提供的表面上实现全部强制规则后，才在 `HostCapabilityManifest.capabilities` 中声明该标志；不受支持的请求要求会被显式拒绝。心智引擎留在产品侧。按需启用，非 `spoke-baseline`。细节：[数据模型 —— 认知](/zh/reference/data-model#cognition-spoke-cognition)。
 
 需要签名的跨进程交互的产品可声明 **`spoke-connect`**。组合后的 adapter 别名：`BaselineAdapter`、`ComputableAdapter`、`ForkAdapter`、`FullAdapter`。
 
@@ -238,6 +239,7 @@ async function promote() {
 - 扩展与模块映射合并及往返保留（`mergeExtensionMaps` / `mergeModuleMaps`、`preserveExtensionMaps` / `preserveModuleMaps`）
 - Finding / KnowledgeEntry `status` 迁移辅助
 - 晋升接受、upsert/relate 与 MindState 线上形状校验（`validateMindState` / `validate_mind_state`）
+- 认知线上形状门禁与选择/投影辅助（`validateCognitionRecord` / `validate_cognition_record`、`validateCognitionModule`、`validateObservationModule`、`validateCognitionFilter`、`validateCognitionSelection`、`validateCognitionProjection`、`selectCognitionRecords`、`projectCognitionRecords`）
 - 由 KnowledgeEntry 构建 AssemblePacket
 - 拒绝路径上统一的 `SpokeResult` / `SpokeRejectCode`
 
@@ -253,6 +255,7 @@ async function promote() {
 | 九层模型与能力等级 | [核心概念](https://spoke.42ch.dev/zh/explanation/concepts) |
 | 数据对象与开放词汇 | [数据模型](https://spoke.42ch.dev/zh/reference/data-model) |
 | MindState | [MindState 参考](https://spoke.42ch.dev/zh/reference/mind-state) |
+| 认知记录、过滤与投影 | [数据模型 —— 认知](https://spoke.42ch.dev/zh/reference/data-model#cognition-spoke-cognition) |
 | Ops 请求/响应信封 | [操作线上信封](https://spoke.42ch.dev/zh/reference/ops) |
 | 操作库行为 | [编排操作](https://spoke.42ch.dev/zh/how-to/orchestrate-ops) |
 | Core / modules / extensions | [数据模型](https://spoke.42ch.dev/zh/reference/data-model) |

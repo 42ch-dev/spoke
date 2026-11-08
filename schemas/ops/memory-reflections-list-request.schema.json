@@ -26,6 +26,10 @@
     "filter": {
       "$ref": "https://spoke42.invalid/schemas/data/provenance-filter.schema.json"
     },
+    "cognition_filter": {
+      "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionFilter",
+      "description": "Optional pinned-cognition-filter match: list only reflections generated with this cognition filter. Composes with selection and provenance filter by AND."
+    },
     "cursor": {
       "type": "string",
       "minLength": 1,

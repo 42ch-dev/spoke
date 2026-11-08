@@ -31,7 +31,8 @@
           "description": "Optimistic-concurrency precondition (MEM-R007)."
         },
         "content": {
-          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
+          "description": "Content variants carry the optional cognition member; every entry is validated. expected_revision and revision increment are unchanged; no KE side effect."
         },
         "idempotency_key": {
           "type": "string",
@@ -81,7 +82,8 @@
           "title": "Kind"
         },
         "content": {
-          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
+          "description": "Content variants carry the optional cognition member; every entry is validated. expected_revision and revision increment are unchanged; no KE side effect."
         },
         "idempotency_key": {
           "type": "string",

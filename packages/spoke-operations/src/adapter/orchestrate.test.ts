@@ -1,6 +1,11 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type {
   AssembleRequest,
   CheckRequest,
+  CognitionSelection,
   ComputeRequest,
   ComputeResponse,
   Finding,
@@ -1259,5 +1264,685 @@ describe("ownership viewpoint orchestration", () => {
       "kb_mine",
     ]);
     expect(ports.forkListCalls).toHaveLength(1);
+  });
+});
+
+const assemblyCognitionModule = {
+  records: [
+    {
+      kind: "belief",
+      record_id: "rec_assemble",
+      holder: { kind: "knowledge_entry", namespace: "world_a", id: "kb_mira" },
+      target: {
+        carrier: { kind: "knowledge_entry", namespace: "world_a", id: "kb_box" },
+        target_id: "t_marble",
+        kind: "proposition",
+        text: "Mira hides the marble",
+      },
+      assessor: { kind: "principal", namespace: "world_a", id: "assessor_self" },
+      assessor_role: "holder_self_report",
+      basis: {
+        kind: "evidence",
+        evidence: [{ kind: "knowledge_entry", namespace: "world_a", id: "kb_box" }],
+      },
+      assessment_context: { context_id: "ctx_main", fork_id: "fork_alpha" },
+      effective_at: "2026-07-23T09:00:00Z",
+      assessed_at: "2026-07-23T09:05:00Z",
+      view: "current",
+      order: 1,
+      q: {
+        value: 0.9,
+        assertion: "belief_attribution",
+        method: "direct_report",
+        calibration: "uncalibrated",
+      },
+      extensions: {},
+    },
+  ],
+  world_facts: [],
+  extensions: {},
+};
+
+function makeCognitionEntry(): KnowledgeEntry {
+  return makeKnowledgeEntry({
+    entry_id: "kb_mira",
+    owner: "kb_mira",
+    disclosure: "owner-private",
+    modules: { cognition: assemblyCognitionModule },
+  });
+}
+
+const assemblyCognitionSelection = {
+  view: "current" as const,
+  filter: {
+    holder: { kind: "knowledge_entry", namespace: "world_a", id: "kb_mira" },
+  },
+  selection_policy: { policy_id: "pol_t2_first_input", policy_version: "v1" },
+};
+
+const assemblyPolicy = {
+  select: ({ assessments }: { assessments: readonly { record_id: string }[] }) =>
+    assessments[0]!.record_id,
+};
+
+describe("cognition assembly orchestration", () => {
+  it("queries the port with baseline scope fields only", async () => {
+    const baseline = createMemoryBaselinePorts({ entries: [makeCognitionEntry()] });
+    const scopes: Scope[] = [];
+    const ports: BaselinePorts = {
+      ...baseline,
+      async listKnowledgeEntries(scope: Scope) {
+        scopes.push(scope);
+        return baseline.listKnowledgeEntries(scope);
+      },
+    };
+    const request: AssembleRequest = {
+      scope: {
+        scope_id: "world_1",
+        viewpoint: "kb_mira",
+        cognition: assemblyCognitionSelection,
+      },
+    };
+
+    const result = await orchestrateAssemble(ports, request, assemblyPolicy);
+
+    expect(result.ok).toBe(true);
+    expect(scopes).toHaveLength(1);
+    expect(scopes[0]).not.toHaveProperty("cognition");
+    expect(scopes[0]?.viewpoint).toBe("kb_mira");
+  });
+
+  it("withholds private cognition from a foreign viewpoint", async () => {
+    const ports = createMemoryBaselinePorts({ entries: [makeCognitionEntry()] });
+    const request: AssembleRequest = {
+      scope: {
+        scope_id: "world_1",
+        viewpoint: "kb_rival",
+        cognition: assemblyCognitionSelection,
+      },
+    };
+
+    const result = await orchestrateAssemble(ports, request, assemblyPolicy);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.packet.cognition).toEqual({
+      view: "current",
+      items: [],
+      extensions: {},
+    });
+  });
+
+  it("projects authorized current cognition with a traced policy selection", async () => {
+    const ports = createMemoryBaselinePorts({ entries: [makeCognitionEntry()] });
+    const request: AssembleRequest = {
+      scope: {
+        scope_id: "world_1",
+        viewpoint: "kb_mira",
+        cognition: assemblyCognitionSelection,
+      },
+    };
+
+    const result = await orchestrateAssemble(ports, request, assemblyPolicy);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const cognition = result.value.packet.cognition;
+    expect(cognition?.items).toHaveLength(1);
+    expect(cognition?.items[0]?.holder).toEqual({
+      kind: "knowledge_entry",
+      namespace: "world_a",
+      id: "kb_mira",
+    });
+    expect(cognition?.items[0]?.target.carrier.id).toBe("kb_box");
+    expect(cognition?.items[0]?.assessment_context).toEqual({
+      context_id: "ctx_main",
+      fork_id: "fork_alpha",
+    });
+    expect(cognition?.items[0]?.selection).toEqual({
+      policy: { policy_id: "pol_t2_first_input", policy_version: "v1" },
+      input_record_ids: ["rec_assemble"],
+      selected_record_id: "rec_assemble",
+    });
+    // Slim packet entries are unchanged by the derivative projection.
+    expect(result.value.packet.entries).toEqual([
+      {
+        entry_id: "kb_mira",
+        entry_type: "character",
+        canonical_name: "Mira Vale",
+        snippet: "Protagonist",
+      },
+    ]);
+  });
+
+  it("rejects a current cognition selection without an injected policy", async () => {
+    const ports = createMemoryBaselinePorts({ entries: [makeCognitionEntry()] });
+    const request: AssembleRequest = {
+      scope: {
+        scope_id: "world_1",
+        viewpoint: "kb_mira",
+        cognition: assemblyCognitionSelection,
+      },
+    };
+
+    const result = await orchestrateAssemble(ports, request);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
+
+  it("leaves the packet unchanged when Scope.cognition is absent", async () => {
+    const ports = createMemoryBaselinePorts({ entries: [makeCognitionEntry()] });
+    const request: AssembleRequest = {
+      scope: { scope_id: "world_1", viewpoint: "kb_mira" },
+    };
+
+    const result = await orchestrateAssemble(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.packet).not.toHaveProperty("cognition");
+  });
+
+  it("applies the same authorization-first cognition path on fork assemble", async () => {
+    const baseline = createMemoryBaselinePorts({ entries: [makeCognitionEntry()] });
+    const ports = withForkPorts(baseline);
+    const request: AssembleRequest = {
+      scope: {
+        scope_id: "world_1",
+        viewpoint: "kb_mira",
+        fork_id: "fork_a",
+        cognition: assemblyCognitionSelection,
+      },
+    };
+
+    const result = await orchestrateForkAssemble(ports, request, assemblyPolicy);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.packet.cognition?.items).toHaveLength(1);
+    expect(ports.forkListCalls).toHaveLength(1);
+  });
+});
+
+// Shared cross-language KE authorization/assembly contract (TS ↔ Rust): every
+// vector runs the actual public operation with a recording baseline port, so a
+// rejection is proven to happen before source output, checker or persistence.
+const assemblyVectorFile = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../fixtures/cognition/assembly-vectors.json",
+    ),
+    "utf8",
+  ),
+) as { vectors: AssemblyVector[] };
+
+interface AssemblyVectorCalls {
+  listKnowledgeEntries: number;
+  listTimelineEvents: number;
+  listRules: number;
+  putFindings: number;
+  checker: number;
+}
+
+interface AssemblyVectorError {
+  code: string;
+  reason?: string;
+  field?: string;
+}
+
+interface AssemblyItemExpectation {
+  presence: "assessed" | "no_record";
+  holder: [string, string, string];
+  target: [[string, string, string], string, string];
+  context: [string, string | null];
+  assessments: string[];
+  selected: string | null;
+  policy: [string, string] | null;
+  input_record_ids: string[] | null;
+}
+
+interface AssemblyVector {
+  id: string;
+  operation: "assemble" | "check";
+  entries: KnowledgeEntry[];
+  scope: Scope;
+  max_entries?: number;
+  policy_selects?: "first_input" | string | null;
+  expected: {
+    error?: AssemblyVectorError;
+    cognition_absent?: true;
+    view?: "current" | "recorded_at";
+    items?: AssemblyItemExpectation[];
+    entry_ids?: string[];
+    checker_entry_ids?: string[];
+    findings_persisted?: number;
+  };
+  expected_calls: AssemblyVectorCalls;
+}
+
+function projectionSummary(cognition: {
+  view: string;
+  items: readonly {
+    presence: string;
+    holder: { kind: string; namespace: string; id: string };
+    target: {
+      carrier: { kind: string; namespace: string; id: string };
+      kind: string;
+      target_id: string;
+    };
+    assessment_context: { context_id: string; fork_id?: string };
+    assessments: readonly { record_id: string }[];
+    selection?: {
+      policy: { policy_id: string; policy_version: string };
+      input_record_ids: readonly string[];
+      selected_record_id: string;
+    };
+  }[];
+}) {
+  return {
+    view: cognition.view,
+    items: cognition.items.map((item) => ({
+      presence: item.presence,
+      holder: [item.holder.kind, item.holder.namespace, item.holder.id],
+      target: [
+        [
+          item.target.carrier.kind,
+          item.target.carrier.namespace,
+          item.target.carrier.id,
+        ],
+        item.target.kind,
+        item.target.target_id,
+      ],
+      context: [
+        item.assessment_context.context_id,
+        item.assessment_context.fork_id ?? null,
+      ],
+      assessments: item.assessments.map((record) => record.record_id),
+      selected: item.selection?.selected_record_id ?? null,
+      policy:
+        item.selection === undefined
+          ? null
+          : [
+              item.selection.policy.policy_id,
+              item.selection.policy.policy_version,
+            ],
+      input_record_ids: item.selection?.input_record_ids ?? null,
+    })),
+  };
+}
+
+function vectorPolicy(selects: AssemblyVector["policy_selects"]) {
+  if (selects === "first_input") {
+    return {
+      select: ({ assessments }: { assessments: readonly { record_id: string }[] }) =>
+        assessments[0]!.record_id,
+    };
+  }
+  if (typeof selects === "string") {
+    return { select: () => selects };
+  }
+  return undefined;
+}
+
+/** Recording baseline port: the provider deliberately returns the raw vector set. */
+function createVectorPorts(
+  entries: KnowledgeEntry[],
+  calls: AssemblyVectorCalls,
+): BaselinePorts {
+  const baseline = createMemoryBaselinePorts({ entries });
+  return {
+    ...baseline,
+    async listKnowledgeEntries() {
+      calls.listKnowledgeEntries += 1;
+      return spokeOk(entries);
+    },
+    async listTimelineEvents() {
+      calls.listTimelineEvents += 1;
+      return spokeOk([]);
+    },
+    async listRules(ruleRefs) {
+      calls.listRules += 1;
+      return baseline.listRules(ruleRefs);
+    },
+    async putFindings(next) {
+      calls.putFindings += 1;
+      return spokeOk(next);
+    },
+  };
+}
+
+function expectVectorReject(
+  result: SpokeResult<unknown>,
+  expected: AssemblyVectorError,
+): void {
+  expect(result.ok).toBe(false);
+  if (result.ok) {
+    return;
+  }
+  expect(result.code).toBe(expected.code);
+  if (expected.reason !== undefined || expected.field !== undefined) {
+    expect(result.details).toMatchObject({
+      ...(expected.reason === undefined ? {} : { reason: expected.reason }),
+      ...(expected.field === undefined ? {} : { field: expected.field }),
+    });
+  }
+}
+
+function vectorCarrierRecords(entries: readonly KnowledgeEntry[]) {
+  const records = [];
+  for (const entry of entries) {
+    const module = entry.modules?.cognition;
+    if (module === undefined || Array.isArray(module)) {
+      continue;
+    }
+    const moduleRecords = module.records;
+    if (!Array.isArray(moduleRecords)) {
+      continue;
+    }
+    records.push(...moduleRecords);
+  }
+  return records;
+}
+
+async function runAssemblyVector(vector: AssemblyVector): Promise<void> {
+  const calls: AssemblyVectorCalls = {
+    listKnowledgeEntries: 0,
+    listTimelineEvents: 0,
+    listRules: 0,
+    putFindings: 0,
+    checker: 0,
+  };
+  const ports = createVectorPorts(vector.entries, calls);
+
+  if (vector.operation === "check") {
+    const checkerEntryIds: string[] = [];
+    const result = await orchestrateCheck(
+      ports,
+      { scope: vector.scope },
+      (input) => {
+        calls.checker += 1;
+        checkerEntryIds.push(...input.entries.map((entry) => entry.entry_id));
+        return spokeOk([]);
+      },
+    );
+
+    expect(calls, vector.id).toEqual(vector.expected_calls);
+    const error = vector.expected.error;
+    if (error !== undefined) {
+      expectVectorReject(result, error);
+      return;
+    }
+
+    expect(result.ok, vector.id).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(checkerEntryIds, vector.id).toEqual(vector.expected.checker_entry_ids);
+    expect(result.value.findings, vector.id).toHaveLength(
+      vector.expected.findings_persisted ?? 0,
+    );
+    return;
+  }
+
+  const result = await orchestrateAssemble(
+    ports,
+    {
+      scope: vector.scope,
+      ...(vector.max_entries === undefined
+        ? {}
+        : { max_entries: vector.max_entries }),
+    },
+    vectorPolicy(vector.policy_selects),
+  );
+
+  expect(calls, vector.id).toEqual(vector.expected_calls);
+  const error = vector.expected.error;
+  if (error !== undefined) {
+    expectVectorReject(result, error);
+    return;
+  }
+
+  expect(result.ok, vector.id).toBe(true);
+  if (!result.ok) {
+    return;
+  }
+
+  const packet = result.value.packet;
+  expect(
+    packet.entries.map((entry) => entry.entry_id),
+    vector.id,
+  ).toEqual(vector.expected.entry_ids);
+
+  if (vector.expected.cognition_absent !== undefined) {
+    expect(packet.cognition, vector.id).toBeUndefined();
+    return;
+  }
+
+  const projection = packet.cognition;
+  expect(projection, vector.id).toBeDefined();
+  if (projection === undefined) {
+    return;
+  }
+  expect(projectionSummary(projection), vector.id).toEqual({
+    view: vector.expected.view,
+    items: vector.expected.items,
+  });
+
+  // Every retained assessment is the complete input record: holder, target,
+  // assessor, basis, context and probability references survive verbatim.
+  const inputRecords = vectorCarrierRecords(vector.entries);
+  for (const item of projection.items) {
+    for (const record of item.assessments) {
+      expect(record, `${vector.id}:${record.record_id}`).toEqual(
+        inputRecords.find(
+          (candidate) => candidate.record_id === record.record_id,
+        ),
+      );
+    }
+  }
+}
+
+describe("cognition assembly shared vectors", () => {
+  it("executes every assembly vector id exactly once through the public path", async () => {
+    const executed = new Set<string>();
+    for (const vector of assemblyVectorFile.vectors) {
+      await runAssemblyVector(vector);
+      expect(executed.has(vector.id)).toBe(false);
+      executed.add(vector.id);
+    }
+    expect(executed.size).toBe(assemblyVectorFile.vectors.length);
+  });
+});
+
+const cognitionEntryFor = (entryId: string, recordId: string): KnowledgeEntry =>
+  makeKnowledgeEntry({
+    entry_id: entryId,
+    modules: {
+      cognition: {
+        ...assemblyCognitionModule,
+        records: [
+          {
+            ...assemblyCognitionModule.records[0]!,
+            record_id: recordId,
+            holder: {
+              kind: "knowledge_entry",
+              namespace: "world_a",
+              id: entryId,
+            },
+          },
+        ],
+      },
+    },
+  });
+
+const recordedAtSelection = {
+  view: "recorded_at" as const,
+  filter: {
+    holder: { kind: "knowledge_entry", namespace: "world_a", id: "kb_mira" },
+  },
+};
+
+describe("cognition scope rejection boundaries", () => {
+  it("rejects an unknown filter predicate before any source output", async () => {
+    const calls: AssemblyVectorCalls = {
+      listKnowledgeEntries: 0,
+      listTimelineEvents: 0,
+      listRules: 0,
+      putFindings: 0,
+      checker: 0,
+    };
+    const ports = createVectorPorts([makeCognitionEntry()], calls);
+    const request = {
+      scope: {
+        scope_id: "world_1",
+        viewpoint: "kb_mira",
+        cognition: {
+          view: "current",
+          filter: { q_min: 0.5 },
+          selection_policy: { policy_id: "pol_t2", policy_version: "v1" },
+        },
+      },
+    } as unknown as AssembleRequest;
+
+    const result = await orchestrateAssemble(ports, request, assemblyPolicy);
+
+    expectVectorReject(result, {
+      code: SpokeRejectCode.INVALID_INPUT,
+      reason: "unsupported_cognition_requirement",
+      field: "scope.cognition.filter.q_min",
+    });
+    expect(calls.listKnowledgeEntries).toBe(0);
+    expect(calls.listTimelineEvents).toBe(0);
+  });
+
+  it("check enforces cognition locally on the authorized set", async () => {
+    const baseline = createMemoryBaselinePorts({
+      entries: [
+        cognitionEntryFor("kb_mira", "rec_mira"),
+        cognitionEntryFor("kb_theo", "rec_theo"),
+      ],
+    });
+    const scopes: Scope[] = [];
+    const ports: BaselinePorts = {
+      ...baseline,
+      async listKnowledgeEntries(scope: Scope) {
+        scopes.push(scope);
+        return baseline.listKnowledgeEntries(scope);
+      },
+    };
+    let checkerEntries: string[] = [];
+
+    const result = await orchestrateCheck(
+      ports,
+      {
+        scope: {
+          scope_id: "world_1",
+          cognition: {
+            view: "current",
+            filter: {
+              holder: {
+                kind: "knowledge_entry",
+                namespace: "world_a",
+                id: "kb_theo",
+              },
+            },
+            selection_policy: { policy_id: "pol_t2", policy_version: "v1" },
+          },
+        },
+      },
+      (input) => {
+        checkerEntries = input.entries.map((entry) => entry.entry_id);
+        return spokeOk([]);
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(scopes).toHaveLength(1);
+    expect(scopes[0]).not.toHaveProperty("cognition");
+    expect(checkerEntries).toEqual(["kb_theo"]);
+  });
+
+  it("fork check rejects the unavailable recorded-at view before any port call", async () => {
+    const baseline = createMemoryBaselinePorts({
+      entries: [makeCognitionEntry()],
+    });
+    const scopes: Scope[] = [];
+    const recording: BaselinePorts = {
+      ...baseline,
+      async listKnowledgeEntries(scope: Scope) {
+        scopes.push(scope);
+        return baseline.listKnowledgeEntries(scope);
+      },
+    };
+    const ports = withForkPorts(recording);
+    let checkerCalls = 0;
+
+    const result = await orchestrateForkCheck(
+      ports,
+      {
+        scope: {
+          scope_id: "world_1",
+          fork_id: "fork_a",
+          cognition: recordedAtSelection,
+        },
+      },
+      () => {
+        checkerCalls += 1;
+        return spokeOk([]);
+      },
+    );
+
+    expectVectorReject(result, {
+      code: SpokeRejectCode.INVALID_INPUT,
+      reason: "unsupported_cognition_requirement",
+      field: "scope.cognition.view",
+    });
+    expect(scopes).toHaveLength(0);
+    expect(ports.forkListCalls).toHaveLength(0);
+    expect(checkerCalls).toBe(0);
+  });
+
+  it("fork assemble rejects the unavailable recorded-at view before any port call", async () => {
+    const baseline = createMemoryBaselinePorts({
+      entries: [makeCognitionEntry()],
+    });
+    const scopes: Scope[] = [];
+    const recording: BaselinePorts = {
+      ...baseline,
+      async listKnowledgeEntries(scope: Scope) {
+        scopes.push(scope);
+        return baseline.listKnowledgeEntries(scope);
+      },
+    };
+    const ports = withForkPorts(recording);
+
+    const result = await orchestrateForkAssemble(ports, {
+      scope: {
+        scope_id: "world_1",
+        fork_id: "fork_a",
+        viewpoint: "kb_mira",
+        cognition: recordedAtSelection,
+      },
+    });
+
+    expectVectorReject(result, {
+      code: SpokeRejectCode.INVALID_INPUT,
+      reason: "unsupported_cognition_requirement",
+      field: "scope.cognition.view",
+    });
+    expect(scopes).toHaveLength(0);
+    expect(ports.forkListCalls).toHaveLength(0);
   });
 });

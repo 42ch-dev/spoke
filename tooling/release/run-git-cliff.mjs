@@ -8,13 +8,10 @@
  * @module tooling/release/run-git-cliff
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-/** @type {const} */
-const GIT_CLIFF_VERSION = "2.13.1";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -64,7 +61,10 @@ export function resolveGitCliffInvocation() {
     return { command: "git-cliff", prefixArgs: [] };
   }
 
-  const pinnedPackage = `git-cliff@${GIT_CLIFF_VERSION}`;
+  const version = JSON.parse(
+    readFileSync(join(REPO_ROOT, "package.json"), "utf8"),
+  ).devDependencies["git-cliff"];
+  const pinnedPackage = `git-cliff@${version}`;
 
   if (commandExists("pnpm", ["--version"])) {
     return { command: "pnpm", prefixArgs: ["dlx", pinnedPackage] };
@@ -75,7 +75,7 @@ export function resolveGitCliffInvocation() {
   }
 
   throw new Error(
-    `git-cliff not found: install devDependency git-cliff@${GIT_CLIFF_VERSION}, install git-cliff globally, or ensure pnpm/npx is available for dlx fallback.`,
+    `git-cliff not found: install devDependency git-cliff@${version}, install git-cliff globally, or ensure pnpm/npx is available for dlx fallback.`,
   );
 }
 

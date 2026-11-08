@@ -1,19 +1,32 @@
 ---
 module: spoke-connect
 date: 2026-08-01
-last_updated: 2026-08-03
+last_updated: 2026-11-09
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["building the first language-SDK slice for spoke-connect", "porting the connect session core to a new language", "choosing crypto / JCS / framing dependencies for a connect client", "adding a browser-or-Node connect client", "extending session-core capability parity across TS and Rust"]
-tags: [spoke-connect, connect-ts, path-a, pure-ts, websocket-framing, jcs, webcrypto, golden-vectors, session-core-parity]
+applies_when:
+  - building the first language-SDK slice for spoke-connect
+  - porting the connect session core to a new language
+  - choosing crypto / JCS / framing dependencies for a connect client
+  - adding a browser-or-Node connect client
+  - extending session-core capability parity across TS and Rust
+tags:
+  - spoke-connect
+  - connect-ts
+  - pure-ts
+  - websocket-framing
+  - jcs
+  - webcrypto
+  - golden-vectors
+  - session-core-parity
 ---
 
-# pure-TS-minimal connect client SDK (first slice)
+# pure-TS-minimal connect client SDK
 
 ## Context
 
-The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) locks **pure-TS-minimal** as the primary Path A client stack: WebSocket as an ordered reliable stream carrying one JSON connect envelope per message, WebCrypto Ed25519 with an `@noble/ed25519` fallback, RFC 8785 JCS canonicalization, and a small behavior port of the Rust session core — no js-libp2p mesh, no WASM. Identity-byte reproducibility in JavaScript is proven by the CI-gated identity proof (`tooling/connect-identity-proof/proof.mjs`), and `packages/spoke-connect-ts` (`@42ch/spoke-connect`) is the landed first slice: a pure-TS client library published on npm whose `src/core/` mirrors the pure Rust core accept/reject outcomes without sharing code.
+The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) locks **pure-TS-minimal** as the primary Path A client stack: WebSocket as an ordered reliable stream carrying one JSON connect envelope per message, WebCrypto Ed25519 with an `@noble/ed25519` fallback, RFC 8785 JCS canonicalization, and a small behavior port of the Rust session core — no js-libp2p mesh, no WASM. Identity-byte reproducibility in JavaScript is proven by the CI-gated identity proof (`tooling/connect-identity-proof/proof.mjs`), and `packages/spoke-connect-ts` (`@42ch/spoke-connect`) is the pure-TS implementation of that stack: a client library published on npm whose `src/core/` mirrors the pure Rust core accept/reject outcomes without sharing code.
 
 ## Guidance
 
@@ -23,7 +36,7 @@ The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) loc
 |---|---|
 | Visibility | Published on npm as `@42ch/spoke-connect` (publish governed by the connect publish strategy); versioned in lockstep with the monorepo |
 | Version | Tracks the monorepo lockstep SemVer — asserted by `verify:version`, bumped by `release:bump` |
-| Engine floor | `node >= 20.19.0` (see Node floor rationale below) |
+| Engine floor | `node >= 22` (see Node floor rationale below) |
 | Module style | ESM (`"type": "module"`); monorepo-internal imports resolve TypeScript sources under `NodeNext` |
 | Isomorphism | `src/` modules (`identity`, `crypto`, `jcs`, `framing`, `core/`) are browser-swappable — no `ws` import; Node-only pieces (`ws` adapter, `connectClient`) live in the `src/node/` subpath, not the root barrel |
 | Root barrel | Exports identity, crypto, framing, JCS, and the whole core barrel; `src/node/` is imported by explicit subpath |
@@ -40,7 +53,7 @@ The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) loc
 
 ### JCS pin + golden-byte gate
 
-`canonicalHelloBytes(peerId, nonce, host)` canonicalizes **exactly** `{protocol_version, peer_id, nonce, host}` (top-level `extensions` and `signature` excluded) with the pinned `canonicalize@3.0.0` package. Tests assert the output against `GOLDEN_JCS_HEX` (264 bytes) — the **golden-byte gate**: if a dependency update ever diverges, port the hand-rolled JCS subset from the proof script into the module instead of weakening the golden vector. Absent optional manifest members (e.g. `host.authority`) are omitted, never emitted as `null` — `canonicalize` drops `undefined` members, matching Rust `skip_serializing_if`; an explicit `null` would change the canonical bytes and break verify against Rust.
+`canonicalHelloBytes(peerId, nonce, host)` canonicalizes **exactly** `{protocol_version, peer_id, nonce, host}` (top-level `extensions` and `signature` excluded) with the pinned `canonicalize@5.1.0` package. Tests assert the output against `GOLDEN_JCS_HEX` (264 bytes) — the **golden-byte gate**: if a dependency update ever diverges, port the hand-rolled JCS subset from the proof script into the module instead of weakening the golden vector. Absent optional manifest members (e.g. `host.authority`) are omitted, never emitted as `null` — `canonicalize` drops `undefined` members, matching Rust `skip_serializing_if`; an explicit `null` would change the canonical bytes and break verify against Rust.
 
 ### WS framing (one JSON document per message, fail-closed)
 
@@ -148,9 +161,9 @@ cross-language bytes (JCS, sig, peer_id) — add or extend a Rust-produced
 
 Keep the byte contract and the schema-valid fixture separate; they serve different test classes and conflating them silently blesses a schema drift.
 
-### Node floor ≥ 20.19 rationale
+### Node floor ≥ 22 rationale
 
-20.19.0 is the `@noble/hashes` floor **and** the first Node line that accepts WebCrypto Ed25519. CI runs the suite on Node 20.x — WebCrypto Ed25519 on ≥ 20.19, `@noble/ed25519` on older patches; the fallback keeps the same seed/sign semantics.
+Node 22 is the supported consumer runtime floor. The production probe (`webcryptoEd25519Available`) tests one PKCS8 Ed25519 private/sign-key import, and its cached result selects the backend for signing and verification alike: hosts whose probe accepts take WebCrypto, the rest fall back to `@noble/ed25519`. Verification's SPKI public-key import is not itself probed. Both backends keep the same seed/sign semantics and must satisfy the golden vectors. CI runs the suite on Node 24.
 
 ## Why This Matters
 

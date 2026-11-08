@@ -494,15 +494,14 @@ mod tests {
     }
 
     #[test]
-    fn measure_fast_path_matches_direct_typed_serialization() {
-        // I-000039: the typed fast path must emit exactly the direct
-        // `serde_json::to_vec(content)` wire bytes for every measure vector
-        // used by the byte-budget tests — plain-text (15/16-byte), numeric
-        // (44-byte), escaping (55-byte), deferred-tail (30-byte) and
-        // oversized (111-byte) — and only `Some(Value::Null)` takes
-        // normalization (asserted against the normalize path only per
-        // I-000031). Assert the full byte slices against the normalize path
-        // (`to_value` → strip null members → `to_vec`), not just lengths.
+    fn measure_fast_path_matches_normalize_path_bytes() {
+        // I-000039: the typed fast path must emit exactly the normalize-path
+        // bytes (`to_value` → strip null members → `to_vec`) for every
+        // measure vector used by the byte-budget tests — plain-text
+        // (15/16-byte), numeric (44-byte), escaping (55-byte),
+        // deferred-tail (30-byte) and oversized (111-byte). `Some(Value::Null)`
+        // is the only vector where normalization changes the bytes. Assert
+        // full byte slices, not just lengths.
         let cases = [
             (Content {
                 cognition: None,

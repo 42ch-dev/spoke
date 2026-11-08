@@ -1,22 +1,37 @@
 ---
 module: spoke-connect
 date: 2026-08-06
+last_updated: 2026-11-09
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
 plan_id: connect-demo-mvp
-related_components: ["spoke-connect", "spoke-operations", "spoke-schemas"]
-tags: [connect-responder, envelope-auth, public-exports, dispatch-gate, transport-seam, ts-interop]
-applies_when: ["building a TypeScript responder or host that speaks protocol_version 2 connect", "reimplementing a protocol algorithm over public library primitives because the library keeps helpers module-internal", "hosting a BaselinePorts adapter behind a connect session with per-invoke dispatch gating", "integrating a third-party peer against the strict library client where canonical bytes must match exactly", "porting the responder recipe to another language against the Rust reference behavior"]
+related_components:
+  - spoke-connect
+  - spoke-operations
+  - spoke-schemas
+tags:
+  - connect-responder
+  - envelope-auth
+  - public-exports
+  - dispatch-gate
+  - transport-seam
+  - ts-interop
+applies_when:
+  - building a TypeScript responder or host that speaks protocol_version 2 connect
+  - reimplementing a protocol algorithm over public library primitives because the library keeps helpers module-internal
+  - hosting a BaselinePorts adapter behind a connect session with per-invoke dispatch gating
+  - integrating a third-party peer against the strict library client where canonical bytes must match exactly
+  - porting the responder recipe to another language against the Rust reference behavior
 ---
 
 # Building a connect responder in TypeScript from public exports
 
 ## Context
 
-`@42ch/spoke-connect` is a **client** library. Its protocol_version 2 per-envelope authentication helpers (`authenticateSession` / `verifySessionAuth` / `authenticateInvokeRequest` / `verifyInvokeRequestAuth` / `authenticateInvokeResponse` / `verifyInvokeResponseAuth` in `src/core/envelope-auth.ts`) are **module-internal by design** (spec D10 — consumers reach enforcement only through the RemoteAdapter surface). A third-party TypeScript **responder** (server-side host) still has to speak protocol_version 2 itself: it signs the `ConnectSession` snapshot it emits, verifies every inbound `ConnectInvokeRequest` before dispatch, and signs every `ConnectInvokeResponse`. Because the helpers are internal, the responder reimplements the three post-hello algorithm ids over the **public** primitives — the crypto and session-core exports from the package root plus the pinned RFC 8785 JCS canonicalizer.
+`@42ch/spoke-connect` ships a strict **client** surface and the public `connectResponder` orchestration (`@42ch/spoke-connect/remote`), which runs the responder handshake and serve loop for a host. The package's protocol_version 2 per-envelope authentication helpers (`authenticateSession` / `verifySessionAuth` / `authenticateInvokeRequest` / `verifyInvokeRequestAuth` / `authenticateInvokeResponse` / `verifyInvokeResponseAuth` in `src/core/envelope-auth.ts`) remain **module-internal by design** (spec D10 — the helpers are never exported; consumers reach enforcement through the shipped client adapter and the public responder facades as applicable). A TypeScript **responder** built without that factory — a third-party host that owns its own transport and dispatch — still has to speak protocol_version 2 itself: it signs the `ConnectSession` snapshot it emits, verifies every inbound `ConnectInvokeRequest` before dispatch, and signs every `ConnectInvokeResponse`. Because the helpers are internal, such a responder reimplements the three post-hello algorithm ids over the **public** primitives — the crypto and session-core exports from the package root plus the pinned RFC 8785 JCS canonicalizer.
 
-This pattern is the recipe proven by the demo responder (`examples/connect-demo/server/src/host/` — `envelope-auth.ts`, `connect-host.ts`, `port-dispatch.ts`), which mirrors the library's canonical responder-phase reference (`packages/spoke-connect-ts/tests/remote/loopback-host.ts`). The same construction is normative in `.mstar/specs/spoke-connect.md` §Envelope authentication (protocol_version 2) and enforced by `.mstar/specs/spoke-remote-adapter.md` D10.
+This pattern is the low-level construction `connectResponder` encapsulates, and it mirrors the library's canonical responder-phase reference (`packages/spoke-connect-ts/tests/remote/loopback-host.ts`). The demo drives that public factory directly (`examples/connect-demo/server/src/transport/ws-server.ts`). The same construction is normative in `.mstar/specs/spoke-connect.md` §Envelope authentication (protocol_version 2) and enforced by `.mstar/specs/spoke-remote-adapter.md` D10.
 
 ## Guidance
 
@@ -33,7 +48,7 @@ The responder's surface is the public package exports, split into two layers:
 
 **Reused from `@42ch/spoke-connect/remote`:** `isConnectHello`, `isConnectInvokeRequest`, and the message-oriented `Transport` type (one envelope per `send` / `recv` — the same seam the RemoteAdapter consumes).
 
-**Reimplemented:** the three envelope-auth algorithm ids — the signed-object builders, the JCS canonicalization step, and the fail-closed verify sequence — over the public crypto primitives plus the **pinned** `canonicalize@3.0.0` package (RFC 8785 JCS). Both the library and the demo responder pin `canonicalize` at exactly `3.0.0`; JCS is the sole canonicalizer, so signer/verifier byte parity depends on the same canonicalizer version. A responder that signs with `JSON.stringify` produces different bytes (key order, number formatting) and the strict verifier rejects them as `envelope_auth_invalid`.
+**Reimplemented:** the three envelope-auth algorithm ids — the signed-object builders, the JCS canonicalization step, and the fail-closed verify sequence — over the public crypto primitives plus the **pinned** `canonicalize@5.1.0` package (RFC 8785 JCS). The library manifests pin `canonicalize` at exactly `5.1.0`; the demo responder itself carries no direct pin — it orchestrates the public `ConnectResponder`, whose library dependency supplies the pinned canonicalizer. A responder built from this recipe pins `canonicalize` directly, at exactly the library's version. JCS is the sole canonicalizer, so signer/verifier byte parity depends on the same canonicalizer version. A responder that signs with `JSON.stringify` produces different bytes (key order, number formatting) and the strict verifier rejects them as `envelope_auth_invalid`.
 
 ### 2. The three algorithm ids and their locked field sets
 
@@ -73,7 +88,7 @@ The responder runs two phases over the transport, exactly as the loopback host d
 Gate serialization: `peek → verify → advance` must run to completion per request (the async verify would otherwise let a second request peek against the pre-advance counter and be mis-rejected as `inbound_sequence_mismatch`). Queue invokes on a `gateTail` promise; the dispatch phase after the gate may interleave — out-of-order completions are legal on the wire.
 
 ```ts
-// Gate phase — the serialized core of the serve loop (demo connect-host.ts).
+// Gate phase — the custom serialized gate: peek → verify → advance, one request at a time.
 async function runGate(doc: ConnectInvokeRequest): Promise<GateResult> {
   const current = session;
   if (current === null || doc.session_id !== current.session_id) {
@@ -141,7 +156,7 @@ expect(run.fetched).toEqual(run.updated);          // signed response verified b
 
 ## Why This Matters
 
-The enforcement boundary is deliberate: consumers reach envelope authentication only through the RemoteAdapter surface, so a third-party responder has no shared helper to import — it must reimplement the three algorithm ids from the spec over public primitives. That is exactly where interop is won or lost: the strict library client rejects anything that is not the exact canonical bytes (JCS with the pinned canonicalizer, canonical base64url, locked field sets), so any field-set drift, order dependence, or decoder slack on the responder side surfaces as `auth_failed` — visible, but only if the responder is tested against the real client. The demo responder proves the recipe end to end, and its shape doubles as the porting reference for other languages against the Rust reference behavior.
+The enforcement boundary is deliberate: the `authenticate_*` / `verify_*` helpers stay module-internal, so a responder that cannot adopt the shipped `connectResponder` has no shared helper to import — it must reimplement the three algorithm ids from the spec over public primitives, with the same canonical-byte obligations. That is exactly where interop is won or lost: the strict library client rejects anything that is not the exact canonical bytes (JCS with the pinned canonicalizer, canonical base64url, locked field sets), so any field-set drift, order dependence, or decoder slack on the responder side surfaces as `auth_failed` — visible, but only if that responder is tested against the real client. Hosts that can use the public factory get this orchestration shipped; the demo exercises exactly that integration (`examples/connect-demo/server/src/transport/ws-server.ts`). The manual recipe remains the reference for the low-level option and for ports to other languages against the Rust reference behavior — those ports are not runtime-proven by the demo.
 
 ## When to Apply
 
@@ -167,7 +182,7 @@ const signature = await signEd25519(seed, new TextEncoder().encode(
 ### After: signed-object construction over public primitives
 
 ```ts
-import canonicalize from "canonicalize"; // pinned 3.0.0 — the sole canonicalizer
+import canonicalize from "canonicalize"; // pinned 5.1.0 — the sole canonicalizer
 import {
   base64UrlDecode, base64UrlEncode,
   signEd25519, verifyEd25519,

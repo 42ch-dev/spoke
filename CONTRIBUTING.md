@@ -6,7 +6,7 @@ Agent and harness invariants live in [`AGENTS.md`](AGENTS.md). Normative release
 
 ## Prerequisites
 
-- Node.js `^22.18.0 || ^24.11.0 || >=26.0.0` and pnpm ≥ 11.21 (Node range tracks tsup 9's `engines`; pnpm pinned via the root packageManager field)
+- Node.js `^22.18.0 || ^24.11.0 || >=26.0.0` and pnpm ≥ 11.21 (Node range tracks tsup 9's `engines`; pnpm pinned via the root packageManager field). Published runtime packages set their own consumer floor instead: `@42ch/spoke-operations` and `@42ch/spoke-connect` declare `engines.node: ">=22"`, and `@42ch/spoke-connect` keeps `canonicalize` at 5.1.0
 - Rust toolchain (stable) for `spoke-schemas` / `spoke-operations` crates
 - git-lfs — the committed Swift xcframework static libraries and C carrier dynamic libraries are LFS objects
 
@@ -33,6 +33,8 @@ Useful scripts (repo root):
 | `pnpm run release:changelog -- --unreleased` | Preview CHANGELOG section |
 
 Schema changes and generated output belong in the **same** commit.
+
+The Kotlin Gradle wrapper verifies the pinned distribution's SHA-256 checksum and uses a 60-second network timeout when downloading it.
 
 Rust crates (from repo root):
 
@@ -111,21 +113,21 @@ Pages summarize each topic and link the normative body in `.mstar/specs/` — th
 
 The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-15` from the checkout's Rust sources — pinned toolchain 1.98.1, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. Every pull request runs it; pushes run it when the FFI surface changes. The job builds the committed Swift package and runs the functional smoke against its macOS library. The built xcframework and its hash manifest are uploaded as a refresh artifact.
 
-Refresh the committed artifact from a run in one command (requires the `gh` CLI and `rsync`):
+Refresh the committed artifact from a run in one command (requires the `gh` CLI, `rsync`, `python3`, and `shasum`):
 
 ```bash
 ./tooling/connect/apply-xcframework-artifact.sh <run-id>
 ```
 
-The script verifies the run's provenance — the `Xcframework` workflow, a successful conclusion or a failure solely on committed consumer smoke after a successful artifact upload, and a `headSha` matching the current checkout (override with `--allow-sha <sha>` only to deliberately pin an older build). It verifies the artifact's hash manifest and producer record before applying the built tree and staging the LFS pointers. Commit with the suggested line — `build(connect): refresh xcframework from CI artifact <run-id>` — using normal maintainer credentials.
+The script verifies the run's provenance — the `Xcframework` workflow, completed producer steps for the build, manifest, provenance, and upload, and either success or failures limited to the committed freshness and consumer smoke checks. The producer record must name the run head as both its declared `sourceHead` and its actual `checkoutRevision`, so a run built from a different checkout — a pull-request virtual merge records the merge commit, not the PR head — can never be applied as a head build. The run `headSha` must match the current checkout (override with `--allow-sha <sha>` only to deliberately pin an older build; the override never relaxes the producer-record checks). It verifies the artifact's hash manifest and producer record before applying the built tree and staging the LFS pointers. The copy itself is content-aware — `rsync -c` compares checksums rather than size and mtime, because same-size files sharing a coarse mtime would otherwise be skipped, reporting success while leaving the old bytes — and after the copy the script re-verifies the delivered tree against the artifact's hash manifest before any staging or sidecar write, so a transfer that reports success without delivering the authenticated bytes refuses with no staged changes and no provenance sidecar. Commit with the suggested line — `build(connect): refresh xcframework from CI artifact <run-id>` — using normal maintainer credentials. A fresh build may differ from a later rebuild; retain the actual two-tree comparison and investigate drift rather than treating successful application as reproducibility.
 
 ## Refreshing the C carrier natives
 
 `crates/spoke-connect/bindings/cpp/native/` holds the two committed C carriers (`osx-arm64/libspoke_connect_capi.dylib`, `win-x64/spoke_connect_capi.dll`) with the Windows import library and `provenance.json`. The dynamic libraries are git-lfs objects; `spoke_connect_capi.dll.lib` and `provenance.json` stay ordinary Git objects, so a checkout can read and diff the record without an LFS fetch. A converted or refreshed carrier needs `git add --renormalize <path>` — a plain `git add` sees unchanged bytes and stages nothing.
 
-The Windows lane of [`cpp-connect.yml`](.github/workflows/cpp-connect.yml) checks out with `lfs: true`, builds the carrier (`node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.98.1`) and uploads `spoke-connect-win-x64`: the DLL, the import library and the refreshed `provenance.json`. Refresh the committed carrier by copying that artifact over `native/win-x64/` and committing the binaries together with the record that describes them — the recorded `headerSha256` / artifact hashes must match the committed bytes, never the other way round.
+The Windows lane of [`cpp-connect.yml`](.github/workflows/cpp-connect.yml) checks out with `lfs: true`, builds the carrier (`node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.98.1`) and uploads `spoke-connect-win-x64`: the DLL, the import library and the refreshed `provenance.json`. Refresh the committed carrier by copying that artifact over `native/win-x64/` and committing the binaries together with the record that describes them — the recorded `headerSha256` / `hppSha256` / artifact hashes must match the committed bytes, never the other way round.
 
-Both carrier lanes check the C ABI and run the C++ smoke against the committed carrier before building, then repeat those checks on the rebuilt carrier. `node tooling/connect/cpp-build.mjs --verify --target <triple>` is available to verify the recorded hashes of the committed header and native. The C contract header is pinned to LF (`text eol=lf` in `.gitattributes`).
+Both carrier lanes check the C ABI and run the C++ smoke against the committed carrier before building, then repeat those checks on the rebuilt carrier. `node tooling/connect/cpp-build.mjs --verify --target <triple>` is available to verify the recorded hashes of the committed C and C++ headers and native. The C `.h` and C++ `.hpp` headers are pinned to LF (`text eol=lf` in `.gitattributes`) so the recorded `headerSha256` and `hppSha256` describe their bytes on every platform.
 
 ## Release
 
@@ -136,6 +138,8 @@ Primary path — **New release** on GitHub Actions, then merge the PR:
 3. Merge the opened PR (keep the `release` label), or close it to abort. CI runs [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml): creates annotated tag `vX.Y.Z`, verify gates, GitHub Release from [`CHANGELOG.md`](CHANGELOG.md), and on stable / alpha tags (no `-rc.` suffix) publishes npm + crates.io.
 
 [`CHANGELOG.md`](CHANGELOG.md) is the release-notes source (Keep a Changelog via [git-cliff](https://git-cliff.org)). Preview locally: `pnpm run release:changelog -- --unreleased`.
+
+The changelog runner resolves the workspace `git-cliff` first, then a PATH installation, followed by `pnpm dlx` or `npx` using the root `devDependencies` pin.
 
 Pre-release tags `vX.Y.Z-rc.N` create a GitHub pre-release. Tags without `-rc.` publish to npm and crates.io.
 

@@ -1,70 +1,76 @@
-# Lockstep SemVer release (git tag + GitHub Release)
+---
+module: release / lockstep versioning
+date: 2026-07-25
+last_updated: 2026-11-08
+problem_type: architecture_pattern
+category: architecture-patterns
+severity: medium
+tags:
+  - semver
+  - lockstep
+  - release
+  - oidc
+  - cargo
+  - changelog
+applies_when:
+  - Preparing a coordinated release
+  - Adding a workspace member or version-bearing surface
+---
 
-**Category:** architecture-patterns  
-**Source:** compound 2026-07-25 (version-release); 2026-09-18 member-derived Cargo surface  
-**Status:** durable
+# Lockstep SemVer release
 
-## Problem
+## Context
 
-Integrators pin SPOKE across TypeScript packages, Rust crates, and human docs. Without a single version identity, a tag-driven release path, and registry artifacts at the same SemVer, sibling repos cannot install or pin reproducibly.
+Root `package.json` supplies the repository's package version. TypeScript packages, Cargo workspace members and native-binding manifests share that release identity. Wire `schema_version` and the C ABI revision are separate compatibility axes.
 
-## Decision
+## Guidance
 
-1. **Lockstep SemVer** — one `X.Y.Z` across ten consumer pin surfaces. Canonical source: root `package.json` → `version`. SSOT manifest: `tooling/release/lockstep-surfaces.mjs`; assert: `tooling/release/assert-lockstep-version.mjs` (`pnpm run verify:version`).
-2. **CI drift gate** — `verify-version` job in `.github/workflows/ci.yml` on PR/push to `main` and `iteration/**`. Any lockstep manifest mismatch fails the build (no warn-only path). README Version badges are dynamic GitHub Releases shields (presence-checked, not version-locked).
-3. **Tag-triggered release** — `.github/workflows/release.yml` is top-level only (`push.tags: ['v*']` or `pull_request` closed + label `release`). No `workflow_call` / no `workflow_dispatch` — Trusted Publishing OIDC binds to filename `release.yml`. Verify jobs → GitHub Release → npm (Node 24 + `registry-url`, stock npm) → crates.io (`crates-io-auth-action`); schemas before ops in each registry.
-4. **Annotated tags** — form `vX.Y.Z` (leading `v` required). Pre-release: `vX.Y.Z-rc.N` → GitHub pre-release. Release notes extraction order: matching `CHANGELOG.md` section first (`extract-changelog-notes.mjs`); tag annotation fallback (`git tag -l --format='%(contents)'`); one-line `Release vX.Y.Z` when both are empty.
-5. **Operator bump** — `pnpm run release:bump -- X.Y.Z` writes all lockstep surfaces + README shields.io badges, regenerates `CHANGELOG.md` via git-cliff, then runs assert. Optional `--tag [message]` creates a **local** annotated tag only when the tree is clean and already at target version; script never pushes.
-6. **`--tag` deferral** — if bumping or working tree is dirty, `--tag` is refused (non-zero exit) with printed instructions: commit first, then re-run the same version with `--tag`.
-7. **Package SemVer vs wire `schema_version`** — independent axes. Package bumps track packaging identity; wire `schema_version` is an integer on durable JSON objects (`common.schema.json`). Couple only when release notes say so.
-8. **Consumer pinning** — npm/crates.io at `X.Y.Z`, git tag checkout, GitHub Release source archive, pnpm `file:` path, or git dependency at tag (e.g. `github:42ch-dev/spoke#vX.Y.Z`). Packages: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-fixture-toy-world`; Rust crate `spoke-schemas`.
+### One derived version surface
 
-### Lockstep surfaces (assert rows 1–10)
+`tooling/release/lockstep-surfaces.mjs` owns the version-bearing JSON surfaces and derives Cargo members from root `Cargo.toml`. Every workspace member uses `version.workspace = true`; its `Cargo.lock` package entry participates in assertion and bumping, including workspace-private fixtures and carriers.
 
-| # | Surface |
-|---|---------|
-| 1 | Root `package.json` → `version` (canonical) |
-| 2–5 | `packages/spoke-schemas`, `packages/spoke-operations`, `fixtures/toy-world`, `tooling/codegen` → `package.json` `version` |
-| 6 | `Cargo.toml` `[workspace.package].version` |
-| 7 | `crates/spoke-schemas/Cargo.toml` with `version.workspace = true` |
-| 8 | `crates/spoke-operations/Cargo.toml` with `version.workspace = true` |
-| 9–10 | `README.md` and `README_CN.md` shields.io `version-X.Y.Z` badge URLs |
+Every pinned inter-crate path dependency participates, including optional dependencies and aliases. Bump and assertion use the same member-derived set. A stale optional pin can prevent Cargo resolution after an otherwise coordinated bump.
 
-**Ops crate dependency pin (row 8 manifest):** `spoke-operations` MUST declare `spoke-schemas = { version = "X.Y.Z", path = "../spoke-schemas" }` — not path-only. Bump script rewrites the `version` key via `formatOpsSpokeSchemasDependency` / `replaceOpsSpokeSchemasDependencyVersion` in `lockstep-surfaces.mjs`.
+`pnpm run verify:version` invokes the existing lockstep assertion. The required `verify-version` CI job checks the same contract. README release badges resolve GitHub Releases dynamically; they are independent of manifest version writes.
 
-**Excluded:** `tooling/codegen/rust-gen/Cargo.toml` (standalone bin workspace; not a pin surface).
-
-### Maintainer happy path
+### Strictly increasing bump
 
 ```bash
-pnpm run release:bump -- 0.1.1
-git add -A && git commit -m "chore(release): bump to 0.1.1"
-git push origin main
-pnpm run release:bump -- 0.1.1 --tag "Release 0.1.1"
-git push origin v0.1.1
+pnpm run release:bump -- X.Y.Z
 ```
 
-Tag push re-runs verify-equivalent gates; on success, workflow creates the GitHub Release and publishes registry artifacts (stable tags only).
+The requested SemVer must be strictly greater than the current root version. Equal and lower requests fail before manifest, lockfile, changelog or Git-ref mutation. The CLI updates all version surfaces and dependency pins, updates the lockfile and changelog, then runs the shared assertion.
 
-## What not to do
+`CHANGELOG.md` is generated through git-cliff and Conventional Commits. If the target section already exists, bumping promotes that section to the top instead of adding a duplicate. `extract-changelog-notes.mjs` reads the resulting target section for release notes. Version-dependent tests use relative fixture versions and isolated repositories.
 
-- Do not use independent per-package SemVer channels.
-- Do not auto-bump or auto-tag on every merge to `main`.
-- Do not create lightweight-only tags (annotation required for release notes).
-- Do not conflate package SemVer with wire `schema_version` in docs or tooling.
-- Do not hardcode live lockstep SemVer in `bump-version` unit tests that seed fixtures from `package.json` — see `testing-patterns/release-bump-tests-version-agnostic.md`.
+### Signed release workflow
 
-## Workspace crates in the lockstep surface
+Maintainers request **New release** with the desired greater SemVer. `.github/workflows/new-release.yml` creates a GitHub-verified bump on a release branch and opens the labeled release PR. The request also checks that the target tag is absent. Merging that PR lets the top-level `.github/workflows/release.yml` create the annotated tag and publish; closing the PR aborts the cut.
 
-Every Cargo workspace member participates in lockstep version assertions and bumps alongside the published crates. `tooling/release/lockstep-surfaces.mjs` derives that set from `Cargo.toml` `[workspace] members`: `parseCargoWorkspaceMembers` reads the member paths, `parseCargoPackageName` reads each member manifest's `[package] name`, and `resolveCargoLockPackageNames(workspaceContents, readMemberManifest)` returns the package names. `assert-lockstep-version.mjs` verifies, for every derived member, that its manifest declares `version.workspace = true` and that its `Cargo.lock` `[[package]]` entry matches canonical; `bump-version.mjs` rewrites those same lock entries. Membership in `Cargo.toml` is therefore the only input — a new member is covered by both scripts with no tooling edit — and the workspace-private crates `spoke-fixture-toy-world` and `spoke-connect-capi` (`publish = false`) are covered on the same footing as the published `spoke-connect`. Release tests include a fixture containing an extra workspace member and assert both bump and drift detection. Rationale: a crate drifting from the workspace version silently breaks path-dep resolution on a future minor bump and leaves the lockfile stale; the same locks…
+**Release** is also triggered by matching tag pushes. Stable `vX.Y.Z` tags and prerelease tags outside the `-rc.` family publish the coordinated packages. Tags containing `-rc.` create GitHub pre-releases.
 
-**Every pinned inter-crate path dependency is a lockstep surface, including optional deps.** A pin left behind by a bump makes Cargo fail to resolve the requirement against the bumped workspace (`failed to select a version for the requirement`). `tooling/release/lockstep-surfaces.mjs` selects pins by member name (`parseCargoPathDependencyPins` reads every inline `{ version, path }` dependency table in a member manifest), so `bump-version` rewrites and `assert-lockstep-version` verifies the version of every such pin on every member, optional deps included; release tests cover the generalized rewrite. Two companion properties: `tooling/release/publish-npm.sh` is idempotent across job re-runs (skips versions already on the registry), and the published `spoke-connect` crate no longer carries an optional path dep on the unpublished fixture crate (registry resolution cannot fail on a package that never publishes). When a Release publish job partially fails, re-run only the failed jobs — the publish scripts skip versions already on the registry, so re-runs are safe.
+The top-level `release.yml` filename is part of the Trusted Publishing identity. npm publishing uses Node24, the configured registry and stock npm; crates.io publishing obtains a short-lived credential through its OIDC authentication action. The published core packages are `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-connect`, and the corresponding `spoke-schemas`, `spoke-operations`, `spoke-connect` crates. Workspace-private fixtures and codegen remain in the coordinated version assertion.
 
-## Related
+Native bindings use their configured channels at the same release identity: NuGet and Maven through GitHub Packages, Python through PyPI, and Swift/Go/C/C++ through matching repository tags. Their owning contract is `connect-binding-channels.md`.
 
-- Normative policy: `.mstar/specs/spoke-version-release.md`
-- Rust ops parity + typify helpers: `architecture-patterns/rust-spoke-operations-parity.md`
-- Release test pattern: `testing-patterns/release-bump-tests-version-agnostic.md`
-- Workflows: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
-- Tooling: `tooling/release/lockstep-surfaces.mjs`, `assert-lockstep-version.mjs`, `bump-version.mjs`
-- Consumer twin READMEs: `README.md`, `README_CN.md`
+### Partial-publication recovery
+
+Re-run the failed publish job after a sibling registry succeeds. Existing npm and crate publish helpers skip versions already present and retry supported transient upload failures. Registry confirmations determine each channel's result; the version remains the same throughout that recovery.
+
+## Why This Matters
+
+A shared version resolver keeps optional dependencies, private workspace members and consumer manifests consistent. Strict pre-mutation rejection preserves a safe target for the signed release workflow. A single changelog section keeps extracted publication notes aligned with that target.
+
+## When to Apply
+
+- Preparing a coordinated SemVer release through the maintainer workflow.
+- Adding a Cargo workspace member, pinned path dependency or version-bearing manifest.
+- Updating release-tool fixtures or recovering a partially published release.
+
+## References
+
+- [Normative version and release policy](../../specs/spoke-version-release.md)
+- [Native-binding channels](../../specs/connect-binding-channels.md)
+- [Version-agnostic release test fixtures](../testing-patterns/release-bump-tests-version-agnostic.md)
+- [Maintainer procedures](../../../CONTRIBUTING.md)
+- Source: `tooling/release/lockstep-surfaces.mjs`, `assert-lockstep-version.mjs`, `bump-version.mjs`, `extract-changelog-notes.mjs`.

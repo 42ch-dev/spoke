@@ -3,7 +3,7 @@
   "nativeArtifacts": {
     "osx-arm64": {
       "target": "aarch64-apple-darwin",
-      "sourceRevision": "81d684f8e3483e283221a9b83f8a93dff0d24bef",
+      "sourceRevision": "1ef7b3e8a3d35c2353d7e92ad4369db85f0aebfd",
       "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
       "compilerVersion": "Apple clang version 17.0.0 (clang-1700.0.13.5)",
       "buildFlags": {
@@ -21,16 +21,17 @@
         "rustFlags": []
       },
       "headerSha256": "7b4b4472f8a3d877978f1d0805c4acdfc6f02c99d44a1643a33a54a3aeec88a1",
+      "hppSha256": "eb5fe1ec7b1f3ebf479175774bd86b515c2ab937d33590e134e657c62600f605",
       "artifacts": [
         {
           "path": "libspoke_connect_capi.dylib",
-          "sha256": "22199a6b79f61f318e28d88bde0e6e6cacb0652517bca58387090bb5f79a1e9d"
+          "sha256": "f9e7d0fb45d225fb71b32f9a31c8a8d5756173f88c68fdbb8408726244a7406d"
         }
       ]
     },
     "win-x64": {
       "target": "x86_64-pc-windows-msvc",
-      "sourceRevision": "81d684f8e3483e283221a9b83f8a93dff0d24bef",
+      "sourceRevision": "1ef7b3e8a3d35c2353d7e92ad4369db85f0aebfd",
       "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
       "compilerVersion": "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36260 for x64",
       "buildFlags": {
@@ -51,10 +52,11 @@
         ]
       },
       "headerSha256": "7b4b4472f8a3d877978f1d0805c4acdfc6f02c99d44a1643a33a54a3aeec88a1",
+      "hppSha256": "eb5fe1ec7b1f3ebf479175774bd86b515c2ab937d33590e134e657c62600f605",
       "artifacts": [
         {
           "path": "spoke_connect_capi.dll",
-          "sha256": "a2727c354ec925907aed2a95da4151918e24f6de2d4fcd67c07e649a7711e7d9"
+          "sha256": "217decfc656869d918148892be69e44e9299fc4528f6e9e8c93b7f5186778674"
         },
         {
           "path": "spoke_connect_capi.dll.lib",

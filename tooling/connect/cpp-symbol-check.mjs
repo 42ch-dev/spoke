@@ -4,7 +4,7 @@
  *
  * The hand-written `include/spoke_connect.h` and the carrier's exported
  * symbols land together; this gate is what makes that an executable rule
- * instead of a review habit. It performs four checks and exits non-zero if
+ * instead of a review habit. It performs seven checks and exits non-zero if
  * any of them fails:
  *
  *   1. Declaration parse — the marked public declaration block must contain
@@ -46,6 +46,13 @@
  *      on one side only fails), and a member written inline in the header
  *      (the foreign buffer's `release`) is compared the same way as a named
  *      typedef.
+ *   7. Record field type parity — the same carrier run reports every
+ *      non-callback record member as the Rust type it actually has, and this
+ *      gate renders that type into the C type the header must declare. A
+ *      same-size retype (`int64_t` to `uint64_t`) or a dropped `const` keeps
+ *      every size and offset assertion green, so the member type itself is
+ *      compared, in both directions (a member on one side only fails).
+ *      Callback members stay on the strictly stronger signature axis above.
  *
  * The compared namespace is `spoke_connect_` only: the carrier links the
  * `spoke-connect` crate, whose UniFFI scaffolding (`uniffi_spoke_connect_*`,
@@ -63,9 +70,12 @@
  * `--self-test` additionally proves fail-closed behavior: temporary header
  * copies with (a) a real declaration removed, (b) an invented declaration
  * added, (c) a callback argument retyped to a same-size record — which no
- * layout or offset check can see — and (d) exception syntax planted in the
- * convenience header must all fail their comparison. Temporary files are
- * removed on success and on failure.
+ * layout or offset check can see — (d) exception syntax planted in the
+ * convenience header, (e) one record field offset perturbed in the carrier
+ * report, (f) a non-callback record member retyped with a same-size swap
+ * (which the layout assertions cannot see), and (g) a pointer record member's
+ * `const` dropped (which no size, alignment or offset changes) must all fail
+ * their comparison. Temporary files are removed on success and on failure.
  */
 
 import {
@@ -92,6 +102,13 @@ const INVENTED_SYMBOL = "spoke_connect_drift_probe";
 const HPP_GUARD_END = "#endif /* SPOKE_CONNECT_HPP */";
 /** The name the planted `.hpp` mutation declares, for a readable control. */
 const HPP_MUTATION_MARKER = "spoke_connect_hpp_exception_syntax_probe";
+/**
+ * The two C++ inclusion probes, matching the smoke's build configurations. The
+ * disabled label is also the `.hpp` mutation's selector: the planted `throw`
+ * only fails under a no-exception configuration.
+ */
+const CXX_DISABLED_LABEL = "C++17 inclusion (no exceptions, no RTTI; .h + .hpp)";
+const CXX_ENABLED_LABEL = "C++17 inclusion (exceptions enabled; .h + .hpp)";
 
 /**
  * The carrier's record-layout report lines (`abi_layout.rs`) and the header's
@@ -106,6 +123,12 @@ const LAYOUT_PREFIX = "SPOKE_CONNECT_ABI_LAYOUT";
  * `SPOKE_CONNECT_ABI_CALLBACK member <record>.<field> <rust type>`.
  */
 const CALLBACK_PREFIX = "SPOKE_CONNECT_ABI_CALLBACK";
+/**
+ * The carrier's non-callback member type report lines (`abi_layout.rs`), in
+ * the shape `SPOKE_CONNECT_ABI_FIELD_TYPE <record>.<field> <rust type>`. These
+ * cover what the size/offset assertions cannot: a same-size type change.
+ */
+const FIELD_TYPE_PREFIX = "SPOKE_CONNECT_ABI_FIELD_TYPE";
 const LAYOUT_TEST = "abi_layout";
 const RECORD_PATTERN =
   /typedef\s+struct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{([^{}]*)\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;/g;
@@ -134,6 +157,8 @@ const INLINE_CALLBACK_PATTERN = new RegExp(
 const RUST_TYPES = new Map([
   ["core::ffi::c_void", "void"],
   ["u8", "uint8_t"],
+  ["u64", "uint64_t"],
+  ["i64", "int64_t"],
   ["i32", "int32_t"],
   ["usize", "size_t"],
 ]);
@@ -360,7 +385,18 @@ function carrierReport() {
   const records = new Map();
   const typedefs = new Map();
   const members = new Map();
+  const fieldTypes = new Map();
   for (const line of `${result.stdout ?? ""}\n${result.stderr ?? ""}`.split("\n")) {
+    if (line.startsWith(`${FIELD_TYPE_PREFIX} `)) {
+      const row = /^(\S+) (.+)$/.exec(line.slice(FIELD_TYPE_PREFIX.length + 1).trim());
+      if (!row) fail(`unparsed '${FIELD_TYPE_PREFIX}' row: '${line.trim()}'`);
+      const [, label, rustType] = row;
+      if (fieldTypes.has(label)) {
+        fail(`duplicate '${FIELD_TYPE_PREFIX}' row for '${label}'`);
+      }
+      fieldTypes.set(label, rustType);
+      continue;
+    }
     if (line.startsWith(`${CALLBACK_PREFIX} `)) {
       const row = /^(\S+) (\S+) (.+)$/.exec(line.slice(CALLBACK_PREFIX.length + 1).trim());
       if (!row) fail(`unparsed '${CALLBACK_PREFIX}' row: '${line.trim()}'`);
@@ -402,7 +438,13 @@ function carrierReport() {
         "(is the carrier test surface built?)",
     );
   }
-  return { records, typedefs, members };
+  if (fieldTypes.size === 0) {
+    fail(
+      `the carrier reported no '${FIELD_TYPE_PREFIX}' rows ` +
+        "(is the carrier test surface built?)",
+    );
+  }
+  return { records, typedefs, members, fieldTypes };
 }
 
 /** Splits a comma-separated signature list at the top level. */
@@ -462,7 +504,7 @@ function renderRustType(rustType) {
   if (known) return known;
   // A named type crosses by name; the module path it lives in is Rust-side.
   if (/^[A-Za-z_][A-Za-z0-9_:]*$/.test(text)) return text.split("::").pop();
-  fail(`unparsed Rust type '${rustType}' in a carrier callback signature`);
+  fail(`unparsed Rust type '${rustType}' in a carrier report`);
 }
 
 /**
@@ -591,6 +633,64 @@ function runCallbackCheck(headerText, headerPath, records, carrier) {
   );
 }
 
+/**
+ * Compares the declared C type of every non-callback record member against the
+ * carrier's typed field report and returns the mismatches. Callback members
+ * are left to `compareCallbacks`, which compares their whole signature and is
+ * strictly stronger. A same-size retype (`int64_t` to `uint64_t`) or a dropped
+ * `const` keeps every size and offset assertion green, so the member type is
+ * what identifies it; both coverage directions fail the gate.
+ */
+function compareFieldTypes(headerText, headerPath, records, carrier) {
+  const typedefs = parseCallbackTypedefs(headerText, headerPath);
+  const declared = new Map();
+  for (const record of records) {
+    for (const member of record.fields) {
+      if (memberCallbackSignature(member, typedefs)) continue;
+      declared.set(`${record.name}.${member.name}`, canonicalType(member.type));
+    }
+  }
+  const reported = new Map();
+  for (const [label, rustType] of carrier.fieldTypes) {
+    reported.set(label, canonicalType(renderRustType(rustType)));
+  }
+
+  const mismatches = [];
+  for (const [label, type] of declared) {
+    if (!reported.has(label)) {
+      mismatches.push(`field ${label}: declared in the header, not reported by the carrier`);
+      continue;
+    }
+    if (reported.get(label) !== type) {
+      mismatches.push(`field ${label}: header ${type}, carrier ${reported.get(label)}`);
+    }
+  }
+  for (const label of reported.keys()) {
+    if (!declared.has(label)) {
+      mismatches.push(`field ${label}: reported by the carrier, not declared in the header`);
+    }
+  }
+  return { mismatches, fields: declared };
+}
+
+/** The field-type comparison, reported the way the other checks report. */
+function runFieldTypeCheck(headerText, headerPath, records, carrier) {
+  const { mismatches, fields } = compareFieldTypes(
+    headerText,
+    headerPath,
+    records,
+    carrier,
+  );
+  if (mismatches.length > 0) {
+    console.error("Record field types: FAIL");
+    for (const entry of mismatches) console.error(`  ${entry}`);
+    process.exit(1);
+  }
+  console.log(
+    `Record field types: PASS (${fields.size} non-callback members match the carrier)`,
+  );
+}
+
 /** Compiles one probe translation unit; a non-zero exit is a gate failure.
     A caller that is the negative control asks to observe the failure instead
     (`expectFailure`), where a *zero* exit is what fails the gate. */
@@ -620,12 +720,16 @@ function runCompiler(entry, tempDir, expectFailure = false) {
 }
 
 /**
- * Pins every record the header declares to the layout the carrier's
- * `#[repr(C)]` mirror reports: one `_Static_assert` per `sizeof`, `_Alignof`
- * and `offsetof`, compiled against the header. Both coverage directions fail
- * the gate, so neither side can add, drop or move a record on its own.
+ * Writes the layout probe translation unit and returns its compile entry,
+ * without compiling it: every record the header declares is pinned to the
+ * layout the carrier's `#[repr(C)]` mirror reports, one `_Static_assert` per
+ * `sizeof`, `_Alignof` and `offsetof`. Both coverage directions fail the gate,
+ * so neither side can add, drop or move a record on its own.
+ *
+ * The `--self-test` negative control builds the probe from a mutated layout
+ * map and compiles that entry itself, so this half stays free of compilation.
  */
-function runLayoutCheck(records, layouts, headerPath, tempDir) {
+function buildLayoutProbe(records, layouts, headerPath, tempDir) {
   const includeDir = dirname(headerPath);
   const lines = [
     "/* Generated by tooling/connect/cpp-symbol-check.mjs — do not edit. */",
@@ -689,8 +793,7 @@ function runLayoutCheck(records, layouts, headerPath, tempDir) {
 
   const probeSource = join(tempDir, "spoke_connect_layout_probe.c");
   writeFileSync(probeSource, `${lines.join("\n")}\n`);
-  const entry =
-    process.platform === "win32"
+  return process.platform === "win32"
       ? {
           label: "Record layout (cl.exe /std:c11 /W4 /WX)",
           command: "cl.exe",
@@ -721,8 +824,16 @@ function runLayoutCheck(records, layouts, headerPath, tempDir) {
             join(tempDir, "spoke_connect_layout_probe.o"),
           ],
         };
+}
+
+/** Compiles the layout probe and reports it the way the other checks report. */
+function runLayoutCheck(records, layouts, headerPath, tempDir) {
+  const entry = buildLayoutProbe(records, layouts, headerPath, tempDir);
   runCompiler(entry, tempDir);
-  const asserted = lines.filter((line) => line.startsWith("_Static_assert")).length;
+  // Every record contributes a size and an alignment assertion, every field
+  // one offset assertion; `buildLayoutProbe` fails before returning when any
+  // of those facts is missing.
+  const asserted = records.reduce((count, record) => count + 2 + record.fields.length, 0);
   console.log(
     `Record layout: ${records.length} records, ${asserted} assertions ` +
       `(sizeof/_Alignof/offsetof) match the carrier mirrors`,
@@ -1018,7 +1129,7 @@ function probeCommands(declarations, headerPath, libraryPath, tempDir) {
       ],
     });
     commands.push({
-      label: "C++17 inclusion (no exceptions, no RTTI; .h + .hpp)",
+      label: CXX_DISABLED_LABEL,
       command: "cl.exe",
       args: [
         "/nologo",
@@ -1032,6 +1143,22 @@ function probeCommands(declarations, headerPath, libraryPath, tempDir) {
         "/c",
         cxxSource,
         `/Fo:${join(tempDir, "spoke_connect_probe_cxx.obj")}`,
+      ],
+    });
+    commands.push({
+      label: CXX_ENABLED_LABEL,
+      command: "cl.exe",
+      args: [
+        "/nologo",
+        "/TP",
+        "/std:c++17",
+        "/EHsc",
+        "/W4",
+        "/WX",
+        `/I${includeDir}`,
+        "/c",
+        cxxSource,
+        `/Fo:${join(tempDir, "spoke_connect_probe_cxx_exceptions.obj")}`,
       ],
     });
   } else {
@@ -1051,7 +1178,7 @@ function probeCommands(declarations, headerPath, libraryPath, tempDir) {
       ],
     });
     commands.push({
-      label: "C++17 inclusion (no exceptions, no RTTI; .h + .hpp)",
+      label: CXX_DISABLED_LABEL,
       command: "clang++",
       args: [
         "-std=c++17",
@@ -1065,6 +1192,23 @@ function probeCommands(declarations, headerPath, libraryPath, tempDir) {
         cxxSource,
         "-o",
         join(tempDir, "spoke_connect_probe_cxx.o"),
+      ],
+    });
+    commands.push({
+      label: CXX_ENABLED_LABEL,
+      command: "clang++",
+      args: [
+        "-std=c++17",
+        "-fexceptions",
+        "-fno-rtti",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        `-I${includeDir}`,
+        "-c",
+        cxxSource,
+        "-o",
+        join(tempDir, "spoke_connect_probe_cxx_exceptions.o"),
       ],
     });
   }
@@ -1170,6 +1314,94 @@ function selfTest(headerPath, libraryPath, tempDir, carrier, declarations) {
     `negative mutation (callback signature): FAILED as expected (${mismatches[0]})`,
   );
 
+  // A struct-field type mutation: `SpokeConnectError.actual` becomes
+  // `uint64_t`, a same-size swap that keeps every size, alignment and offset,
+  // so only the field-type comparison can fail on it.
+  const retyped = headerText.replace("int64_t actual;", "uint64_t actual;");
+  if (retyped === headerText) {
+    fail("self-test: could not locate SpokeConnectError.actual to retype");
+  }
+  const retypedPath = join(tempDir, "spoke_connect_field_type_header.h");
+  writeFileSync(retypedPath, retyped);
+  const fieldMismatches = compareFieldTypes(
+    retyped,
+    retypedPath,
+    parseRecords(retyped, retypedPath),
+    carrier,
+  ).mismatches;
+  if (!fieldMismatches.some((entry) => entry.includes("SpokeConnectError.actual"))) {
+    fail(
+      "self-test: the struct field type mutation did not fail on the retyped " +
+        `member (${fieldMismatches.length > 0 ? fieldMismatches.join("; ") : "no mismatch"})`,
+    );
+  }
+  console.log(
+    `negative mutation (struct field type): FAILED as expected (${fieldMismatches[0]})`,
+  );
+
+  // A pointer-constness mutation: `SpokeConnectSlice.data` becomes mutable in
+  // the header, which keeps every size, alignment, offset and symbol — so only
+  // the field-type comparison can fail on it, and it must fail on the const
+  // spelling rather than an unrelated member.
+  const unconstText = headerText.replace(
+    /(typedef struct SpokeConnectSlice \{\s*)const uint8_t \*data;/,
+    "$1uint8_t *data;",
+  );
+  if (unconstText === headerText) {
+    fail("self-test: could not locate const SpokeConnectSlice.data to unconst");
+  }
+  const unconstPath = join(tempDir, "spoke_connect_field_constness_header.h");
+  writeFileSync(unconstPath, unconstText);
+  const constMismatches = compareFieldTypes(
+    unconstText,
+    unconstPath,
+    parseRecords(unconstText, unconstPath),
+    carrier,
+  ).mismatches;
+  if (
+    !constMismatches.some(
+      (entry) =>
+        entry.startsWith("field SpokeConnectSlice.data:") &&
+        entry.includes("header uint8_t *") &&
+        entry.includes("carrier const uint8_t *"),
+    )
+  ) {
+    fail(
+      "self-test: the pointer constness mutation did not fail on the const " +
+        `spelling (${constMismatches.length > 0 ? constMismatches.join("; ") : "no mismatch"})`,
+    );
+  }
+  console.log(
+    `negative mutation (struct field constness): FAILED as expected (${constMismatches[0]})`,
+  );
+
+  // A record-layout mutation: one reported offset moves while every record and
+  // member stays reported, so no coverage path fires and only the compiled
+  // `offsetof` assertion can fail on it.
+  const perturbed = new Map(
+    [...carrier.records].map(([name, layout]) => [
+      name,
+      { ...layout, fields: new Map(layout.fields) },
+    ]),
+  );
+  const perturbedSlice = perturbed.get("SpokeConnectSlice");
+  if (!perturbedSlice || !perturbedSlice.fields.has("len")) {
+    fail("self-test: the carrier reports no SpokeConnectSlice.len to perturb");
+  }
+  perturbedSlice.fields.set("len", 16);
+  const observedLayout = runCompiler(
+    buildLayoutProbe(parseRecords(headerText, headerPath), perturbed, headerPath, tempDir),
+    tempDir,
+    true,
+  );
+  if (!/SpokeConnectSlice\.len: offset/.test(observedLayout.diagnostics)) {
+    fail(
+      "self-test: the record layout mutation failed for an unrelated reason:\n" +
+        observedLayout.diagnostics.trim(),
+    );
+  }
+  console.log("negative mutation (record layout offset): FAILED as expected");
+
   // A `.hpp` exception-syntax mutation: the C++ probe must really compile the
   // convenience header. The mutation lands in a copy of the whole header
   // directory — so an include-path mistake cannot masquerade as a successful
@@ -1189,7 +1421,7 @@ function selfTest(headerPath, libraryPath, tempDir, carrier, declarations) {
 
   const mutatedHeader = join(mutatedDir, basename(headerPath));
   const mutatedCommands = probeCommands(declarations, mutatedHeader, libraryPath, tempDir);
-  const cxxProbe = mutatedCommands.find((entry) => entry.label.startsWith("C++17 inclusion"));
+  const cxxProbe = mutatedCommands.find((entry) => entry.label === CXX_DISABLED_LABEL);
   if (!cxxProbe) {
     fail("self-test: the probe entry point no longer compiles a C++ inclusion probe");
   }
@@ -1245,6 +1477,7 @@ function main() {
     const carrier = carrierReport();
     runLayoutCheck(records, carrier.records, args.header, tempDir);
     runCallbackCheck(headerText, args.header, records, carrier);
+    runFieldTypeCheck(headerText, args.header, records, carrier);
     if (args.selfTest) selfTest(args.header, args.library, tempDir, carrier, declarations);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

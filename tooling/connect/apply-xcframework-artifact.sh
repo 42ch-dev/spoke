@@ -11,20 +11,31 @@
 # Downloads the xcframework artifact from <run-id>, verifies the run's
 # provenance (workflow, conclusion, headSha), checksum-verifies the artifact
 # against its mandatory hash manifest, validates the producer record the CI
-# now ships inside the artifact (its sourceHead must equal the run head and
-# its embedded manifest must equal the artifact manifest byte-for-byte, which
+# now ships inside the artifact (its sourceHead and its actual checkoutRevision
+# must both equal the run head — a pull-request virtual merge records a merge
+# checkout while declaring the PR head, and accepting it would bind the
+# committed carrier to a head it was never built from — and its embedded
+# manifest must equal the artifact manifest byte-for-byte, which
 # also yields the observed compiler version), rsyncs the artifact over the
-# committed tree (LFS pointers staged via .gitattributes clean filter), writes
+# committed tree (checksum-based so same-size same-mtime files are not
+# silently skipped), re-verifies the delivered tree against the manifest
+# before staging, stages LFS pointers via .gitattributes clean filter, writes
 # the sibling `provenance.json` + manifest copy from the run's own facts plus
 # that observed compiler, and prints the suggested commit line. Requires `gh`,
-# `rsync` and `python3` (the record is emitted with `json.dump` and re-parsed
-# before staging). Run as a maintainer with normal credentials — never
+# `rsync`, `python3` (the record is emitted with `json.dump` and re-parsed
+# before staging) and `shasum` (mandatory checksum verification before and
+# after transfer); `git-lfs` is also required, since the `.a` carriers must
+# stage as LFS pointers rather than raw binaries. Run as a maintainer with
+# normal credentials — never
 # GITHUB_TOKEN (token pushes don't re-trigger workflows and can't carry LFS
 # objects).
 #
-# Provenance gate (fail-closed, runs before the download): accept a successful
-# Xcframework run or one failing only the committed consumer smoke after a
-# successful upload. The run head must match HEAD unless --allow-sha pins it.
+# Provenance gate (fail-closed, runs before the download): accept successful
+# runs or failures limited to the committed freshness and consumer smoke checks,
+# with successful build, manifest, provenance and upload steps in either case.
+# The run head must match HEAD unless --allow-sha pins it. The override only
+# relaxes that destination check; the producer record must still show a
+# checkout of exactly the declared run head.
 
 set -euo pipefail
 
@@ -75,6 +86,17 @@ if ! command -v python3 >/dev/null 2>&1; then
   echo "error: python3 required (provenance record emission and validation)" >&2
   exit 1
 fi
+if ! command -v shasum >/dev/null 2>&1; then
+  echo "error: shasum required (mandatory checksum verification before and after transfer)" >&2
+  exit 1
+fi
+# LFS guard: without git-lfs the .gitattributes clean filter is missing and
+# `git add` would stage raw ~120 MB binaries instead of pointers.
+if ! git lfs version >/dev/null 2>&1; then
+  echo "error: git-lfs required so .a files stage as LFS pointers, not raw binaries" >&2
+  echo "       (brew install git-lfs && git lfs install)" >&2
+  exit 1
+fi
 
 # Keep in sync with the workflow name in .github/workflows/xcframework.yml.
 WF_NAME="Xcframework"
@@ -91,15 +113,48 @@ if [[ "${RUN_WORKFLOW}" != "${WF_NAME}" ]]; then
   exit 1
 fi
 
-if [[ "${RUN_CONCLUSION}" == "failure" ]]; then
-  FAILED_STEPS="$(gh run view "${RUN_ID}" --json jobs --template '{{range .jobs}}{{range .steps}}{{if eq .conclusion "failure"}}{{.name}}{{println}}{{end}}{{end}}{{end}}')"
-  UPLOADED="$(gh run view "${RUN_ID}" --json jobs --template '{{range .jobs}}{{range .steps}}{{if and (eq .name "Upload xcframework artifact") (eq .conclusion "success")}}yes{{end}}{{end}}{{end}}')"
-  if [[ "${FAILED_STEPS}" != "Fail on committed Swift consumer smoke" || "${UPLOADED}" != "yes" ]]; then
-    echo "error: run ${RUN_ID} did not fail solely on committed consumer smoke with a successful upload" >&2
-    exit 1
-  fi
-elif [[ "${RUN_CONCLUSION}" != "success" ]]; then
+if [[ "${RUN_CONCLUSION}" != "success" && "${RUN_CONCLUSION}" != "failure" ]]; then
   echo "error: run ${RUN_ID} conclusion '${RUN_CONCLUSION}' is not acceptable" >&2
+  exit 1
+fi
+if ! gh run view "${RUN_ID}" --json jobs | python3 -c '
+import json
+import sys
+
+try:
+    jobs = json.load(sys.stdin)["jobs"]
+    if len(jobs) != 1 or jobs[0]["name"] != "xcframework":
+        raise ValueError("expected exactly the xcframework job")
+    job = jobs[0]
+    if job["status"] != "completed" or job["conclusion"] != sys.argv[1]:
+        raise ValueError("job status or conclusion does not match run")
+    steps = job["steps"]
+    names = [step["name"] for step in steps]
+    required = {
+        "Build Swift xcframework (staged, locked)",
+        "Write xcframework hash manifest",
+        "Record xcframework build provenance",
+        "Upload xcframework artifact",
+    }
+    allowed_failures = {
+        "Verify committed xcframework freshness",
+        "Fail on committed Swift consumer smoke",
+    }
+    if len(names) != len(set(names)):
+        raise ValueError("duplicate step names")
+    outcomes = {step["name"]: step["conclusion"] for step in steps}
+    if any(outcomes.get(name) != "success" for name in required):
+        raise ValueError("build, manifest, provenance or upload did not succeed")
+    if any(step["status"] != "completed" or step["conclusion"] not in ("success", "failure", "skipped") for step in steps):
+        raise ValueError("incomplete or cancelled step")
+    failures = {name for name, conclusion in outcomes.items() if conclusion == "failure"}
+    if failures - allowed_failures or bool(failures) != (sys.argv[1] == "failure"):
+        raise ValueError("failure is not limited to committed freshness or consumer smoke")
+except (KeyError, TypeError, ValueError) as error:
+    print("error: invalid producer job: %s" % error, file=sys.stderr)
+    sys.exit(1)
+' "${RUN_CONCLUSION}"; then
+  echo "error: run ${RUN_ID} did not meet the xcframework producer outcome gate" >&2
   exit 1
 fi
 
@@ -176,6 +231,13 @@ if record.get("sourceHead") != os.environ["RUN_HEAD_SHA"]:
         file=sys.stderr,
     )
     raise SystemExit(1)
+if record.get("checkoutRevision") != os.environ["RUN_HEAD_SHA"]:
+    print(
+        "error: artifact provenance checkoutRevision %s != run head %s — the producer did not build at the declared head"
+        % (record.get("checkoutRevision"), os.environ["RUN_HEAD_SHA"]),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 with open(os.environ["MANIFEST"], encoding="utf-8") as handle:
     if record.get("manifest") != handle.read():
         print("error: artifact provenance manifest does not match the artifact manifest", file=sys.stderr)
@@ -191,17 +253,22 @@ PY
   exit 1
 fi
 
+# Content-aware transfer: rsync's default size/mtime shortcut skips same-size
+# files sharing a coarse mtime and reports success while leaving the old bytes,
+# so compare checksums instead (-c). The delivered tree is additionally
+# re-verified against the authenticated manifest below, before staging.
 echo "==> rsync artifact over committed tree"
-rsync -a --delete "${BUILT}/" "${XCFRAMEWORK_DIR}/"
+rsync -a -c --delete "${BUILT}/" "${XCFRAMEWORK_DIR}/"
 
-# LFS guard: without git-lfs the .gitattributes clean filter is missing and
-# `git add` would stage raw ~120 MB binaries instead of pointers.
+# A transfer that reports success without delivering the authenticated bytes
+# must never produce successful provenance: re-check the actual destination
+# bytes against the same manifest before any staging or sidecar write.
+echo "==> verify delivered bundle against hash manifest"
+(cd "${XCFRAMEWORK_DIR}" && shasum -a 256 -c "${MANIFEST}")
+
+# Repository-state checks stay beside staging: every .a carrier must map to
+# the LFS filter before anything is staged.
 echo "==> stage LFS pointers"
-if ! git lfs version >/dev/null 2>&1; then
-  echo "error: git-lfs required so .a files stage as LFS pointers, not raw binaries" >&2
-  echo "       (brew install git-lfs && git lfs install)" >&2
-  exit 1
-fi
 LFS_TARGET="$(find "${XCFRAMEWORK_DIR}" -name '*.a' -print -quit)"
 if [[ -z "${LFS_TARGET}" ]]; then
   echo "error: no .a file under ${XCFRAMEWORK_DIR} — nothing for git-lfs to track" >&2
@@ -218,9 +285,10 @@ git add "${XCFRAMEWORK_DIR}"
 #
 # The declared recipe (toolchain pin, Apple targets, --locked) is read from the
 # workflow file at the RUN's own head, so it states what the producer declared
-# rather than what this checkout happens to say now. The actual compiler/Xcode
-# banner is deliberately not recorded: the run log does not print it, and
-# writing a version here would be invention.
+# rather than what this checkout happens to say now. The producer record's
+# `rustcVersion` is required non-empty (the producer's full `rustc -Vv` output,
+# not the declared toolchain pin) and is copied verbatim into this sidecar's
+# `observedRustc`.
 SIDECAR_DIR="$(dirname "${XCFRAMEWORK_DIR}")"
 MANIFEST_NAME="$(basename "${MANIFEST}")"
 MANIFEST_SHA="$(shasum -a 256 "${MANIFEST}" | cut -d' ' -f1)"

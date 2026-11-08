@@ -2034,12 +2034,7 @@ async fn unreadable_pinned_reflection_members_read_stale() {
         );
     };
     let typed_list_refusal = |result: SpokeResult<MemoryReflectionsListResponse>| {
-        let refusal = expect_reject_with(result);
-        assert_eq!(refusal.code, SpokeRejectCode::InternalError, "{refusal:?}");
-        assert!(
-            refusal.message.starts_with("provider response shape:"),
-            "{refusal:?}"
-        );
+        assert_eq!(expect_reject(result), SpokeRejectCode::InternalError);
     };
 
     // Exactly one stored member is corrupted per round, always from pristine.

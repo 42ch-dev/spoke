@@ -111,6 +111,7 @@ pub mod ffi;
 #[cfg(feature = "ffi")]
 uniffi::setup_scaffolding!();
 
+mod cognition;
 mod config;
 mod error;
 mod gate;

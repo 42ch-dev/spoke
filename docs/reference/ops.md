@@ -45,7 +45,32 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 | `timeline_scale` | TimelineScale | L5 tier filter (`brief`, `narrative`, `moment`) |
 | `fork_id` | ForkId | L5 branch filter — strict equality on `TimelineEvent.fork_id` (`l5-fork`) |
 | `viewpoint` | string | Reader context (`ke-ownership`) — the reader's holder KnowledgeEntry `entry_id`; absent names no subject and grants no private visibility |
+| `cognition` | CognitionSelection | Cognitive refinement (`spoke-cognition`) — requires the negotiated flag and serves the `current` view only; see [Cognition selection](#cognition-selection-spoke-cognition) |
 | `extensions` | ExtensionMap | Product-scoped query metadata; protocol matchers ignore it, adapters round-trip it |
+
+List refinements (`entry_ids`, `entry_types`, `timeline_event_ids`) match by presence: an omitted list is absent and matches everything, while an explicitly present list — including `[]` — restricts the result, so `[]` matches nothing.
+
+## Cognition selection (`spoke-cognition`)
+
+`Scope.cognition` carries a `CognitionSelection` on `check`, `assemble` and the scoped KnowledgeEntry / TimelineEvent reads. This carrier serves the `current` view only: `{ view: "current", filter, selection_policy }`. The `recorded_at` form belongs to the Memory source view; supplying it here rejects the whole request instead of returning an empty projection.
+
+The selection is applied after authorization and before projection or any checker side effect: a KnowledgeEntry is kept only when at least one carried record satisfies the complete one-record filter conjunction, and entries carrying no matching record are excluded. `filter` is the closed grammar in [Data model reference §Selection and projection](/reference/data-model#selection-and-projection) — every supplied predicate is ANDed on the same record, and no predicate joins across records or targets.
+
+`selection_policy` is required in the `current` form and names the product policy as `{ policy_id, policy_version }`. The product supplies the algorithm; the library verifies only that `selected_record_id` belongs to the traced `input_record_ids`. The result is attribution-preserving: every item keeps its own `holder`, `target` and `assessment_context`, and retained disagreements are never averaged or replaced.
+
+An unknown predicate, an unimplemented dimension or an unavailable view rejects the entire request — no silent stripping, partial response or unfiltered fallback:
+
+```json
+{
+  "error": {
+    "code": "invalid_input",
+    "message": "Unsupported cognition requirement",
+    "details": { "reason": "unsupported_cognition_requirement", "field": "scope.cognition.filter.q" }
+  }
+}
+```
+
+Requests carrying `Scope.cognition` require the negotiated `spoke-cognition` flag; when the negotiation lacks it, the request takes the existing `capability_missing` branch with no handler side effect. See [Protocol reference §Cognition negotiation and rejection](/reference/protocol#cognition-negotiation-and-rejection).
 
 ## Envelope field tables
 
@@ -97,6 +122,8 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 | `scope` | Assembly scope selector |
 | `max_entries` | Optional entry limit hint (not enforced by the protocol) |
 | `extensions` | Optional transport metadata |
+
+When `scope.cognition` is present, `packet.cognition` is a `CognitionProjection` `{ view, items[], extensions }` selected over the authorized source set. Each item carries its own `holder`, `target`, `assessment_context`, `presence` (`assessed` or `no_record`) and `assessments[]`; a `current` assessed item also carries `selection: { policy, input_record_ids[], selected_record_id }`. The projection is computed before `max_entries` truncation — the limit narrows the slim packet entries, never which authorized cognition was requested — and is absent when the request carries no cognitive selection. See [Data model reference §Selection and projection](/reference/data-model#selection-and-projection).
 
 ## Optional op (`ke-extraction`)
 
@@ -157,5 +184,6 @@ Thirty-three ops across three capability flags for per-subject memory. Every op 
 - [Protocol reference](/reference/protocol) — the three columns and capability flags.
 - [Orchestrate operations](/how-to/orchestrate-ops) — calling each orchestrator with real signatures.
 - [Data model reference](/reference/data-model) — the objects these envelopes carry.
+- [Cognition records](/reference/data-model#cognition-spoke-cognition) — record shapes, `q`, the closed filter grammar and projections.
 - [Connect reference](/reference/connect) — ops envelopes wrapped as opaque invoke payloads.
 - [Memory reference](/reference/memory) — the optional `spoke-memory` family's 33 ops, capability split, and provider guidance.

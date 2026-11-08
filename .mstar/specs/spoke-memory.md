@@ -145,7 +145,7 @@ Anchors `MEM-R###` are the conformance reference points referenced by conformanc
 | MEM-R023 | A frozen space MUST admit exactly the §8.2 allowlist. Quiescent export and cutover MUST require the drain barrier (`pending_receipts == 0`). |
 | MEM-R024 | A context-scoped fence MUST reject writes that place into the fenced context across all clients while sibling contexts remain usable. |
 | MEM-R025 | Export/import MUST preserve every candidate: a consumed candidate transfers as its content-scrubbed shell carrying `content_digest`, and a pending candidate transfers in full with its `proposed` content, so unreviewed material survives transfer. Content-free receipt and dedup summaries and all reference maps MUST be preserved. Grants MUST NOT be activated on import except those listed in `adopt_grants`. Imported reflections MUST enter `stale: true`. |
-| MEM-R026 | Every cursor MUST bind principal, space, subject, selection/filter, snapshot marker, and `engine_policy_version`; any state or grant change MUST invalidate it with `CURSOR_INVALID`. Every by-id read MUST recheck current authorization. |
+| MEM-R026 | Every cursor MUST bind principal, space, subject, selection/filter, canonical cognition filter, snapshot marker, and `engine_policy_version`; any state or grant change MUST invalidate it with `CURSOR_INVALID`. Every by-id read MUST recheck current authorization. |
 | MEM-R027 | Exactly one authority MUST exist through cutover and rollback: the old provider MUST stay frozen and reject writes. Once the target has accepted writes, rollback MUST require verified reverse transfer (delta reconciliation) before the source reopens. Two providers MUST NOT accept writes at once, and target-written history MUST NOT be deleted. |
 
 ## 6. Data models
@@ -255,14 +255,14 @@ Schema: [`retained-record.schema.json`](../../schemas/data/retained-record.schem
 | `record_id` | string | — | Provider-assigned. |
 | `space_id`, `subject_id` | string | — | |
 | `kind` | string | — | Open vocabulary. Core (documented, not enforced): `event`, `fact`, `note`. Product-specific kinds are product policy, never protocol vocabulary. |
-| `content` | object | — | `{ "text": string, "structured": OpaqueJson (optional) }`. **Untrusted** content (§10). |
+| `content` | object | — | `{ "text": string, "structured": OpaqueJson (optional), "cognition"?: CognitionRecord[] }`. **Untrusted** content (§10). `cognition` entries are recorded-at-time standard records under `spoke-cognition`; absent, explicitly empty, and non-empty are distinct wire states. |
 | `scope` | object | — | **Write placement**: `{ "visibility": "shared" \| "context", "context_id": string }`. `context_id` is required iff `visibility = "context"`, and omitted when `visibility = "shared"`. Changed only by `memory.records.promote`. |
 | `provenance` | object | — | `{ "source_context_ids": string[] (may be empty), "anchors": SourceAnchor[] (may be empty), "captured_by": principal_id, "captured_at": Timestamp }`. `captured_by` / `captured_at` are always provider-populated; `source_context_ids` / `anchors` are recorded client claims (§10). Provenance is independent of placement. Reuses the existing `SourceAnchor` wire object. |
 | `import_ref` | object | optional | Present iff created by import activation: `{ "import_id": string, "source_record_id": string, "source_revision": int }`. Historical attribution; never CAS input. |
 | `occurred_at` | Timestamp | optional | When the remembered event happened, when the source supplied it; independent of `created_at` / `updated_at` (record lifecycle). |
 | `created_at`, `updated_at` | Timestamp | — | |
 | `revision` | int | — | |
-| `tombstone` | object | conditional | Present in the `TombstonedRecord` variant only: `{ "deleted_at": Timestamp, "deleted_by": principal_id, "reason": string (optional) }`. A tombstoned record has `content` removed (empty text, no `structured`) and is excluded from recall and default export (`MEM-R014`). |
+| `tombstone` | object | conditional | Present in the `TombstonedRecord` variant only: `{ "deleted_at": Timestamp, "deleted_by": principal_id, "reason": string (optional) }`. A tombstoned record has content removed (empty text, no `structured` or `cognition`) and is excluded from recall and default export (`MEM-R014`). |
 | `extensions` | ExtensionMap | — | |
 
 ### 6.7 `MemoryCandidate`
@@ -317,6 +317,7 @@ Schema: [`reflection.schema.json`](../../schemas/data/reflection.schema.json). G
 | `space_id`, `subject_id` | string | — | |
 | `selection` | ReadSelection | — | Pinned placement selection used for generation. |
 | `filter` | ProvenanceFilter | optional | Pinned provenance filter (absent = none). |
+| `cognition_filter` | CognitionFilter | optional | Pinned recorded-at-time cognition filter (absent = none); composes by AND with `selection` and `filter`. |
 | `basis` | object | — | `{ "source_set_digest": string (64 hex over the authorized source record ID+revision set), "record_count": int, "profile_revisions": {profile_kind: revision}, "state_digest": string (64 hex, §7.25) }`. Pins the exact inputs and coverage. |
 | `body` | object | — | `{ "format": "markdown" \| "json", "body": string }`. Derived content; trusted only as to its pinned basis and generator. |
 | `stale` | bool | — | Authoritative value is computed at read time (§7.26): true iff the current authorized basis differs from the pinned basis (`MEM-R013`). The stored flag is a write-time cache. |
@@ -467,7 +468,7 @@ The family defines 33 ops: 25 core (`spoke-memory`), 3 reflection (`spoke-memory
 
 **7.0.6 Bootstrap.** Spaces and the initial administrator grants are created by provider-operator provisioning (host-local configuration), not by any protocol op. There is no uncallable grant cycle: the operator assigns the first `admin` grant directly in provider storage; all further grants flow through `memory.grants.grant` under the §6.5 non-amplification rule. Clients discover provisioned spaces through `memory.describe` / `memory.spaces.list`.
 
-**7.0.7 Pagination.** List and recall ops accept `cursor` + `limit` (≤ `max_page_size`) and return `next_cursor` (absent = end). Cursors bind principal + space + subject + selection/filter + snapshot marker + `engine_policy_version`; any state or grant change invalidates them with `CURSOR_INVALID`, so pages never silently re-filter mid-pagination (`MEM-R026`).
+**7.0.7 Pagination.** List and recall ops accept `cursor` + `limit` (≤ `max_page_size`) and return `next_cursor` (absent = end). Cursors bind principal + space + subject + selection/filter + canonical cognition filter + snapshot marker + `engine_policy_version`; any state or grant change invalidates them with `CURSOR_INVALID`, so pages never silently re-filter mid-pagination (`MEM-R026`).
 
 Limits (`memory.describe.limits`) apply to every op; exceeding a limit fails `INVALID_INPUT` with `details.limit` naming the exceeded limit. Each op below states: purpose — request fields — grant — result — errors.
 
@@ -637,8 +638,8 @@ Direct authored write, bypassing capture/review (management surfaces). **Grant:*
 
 **Grant:** `records_read` or `recall` with coverage of the selection (and filter coverage per §6.5). Read-only.
 
-- Request: `{ "space_id", "subject_id", "selection": ReadSelection, "filter"?: ProvenanceFilter, "kinds"?: string[], "include_tombstoned"?: bool (default false, admin only), "cursor"?, "limit"? }`.
-- Result: `{ "records": RetainedRecord[], "total_authorized": int, "next_cursor"?: string }`. Authorization filters before pagination; `total_authorized` counts only records the principal may see (`MEM-R006`).
+- Request: `{ "space_id", "subject_id", "selection": ReadSelection, "filter"?: ProvenanceFilter, "cognition_filter"?: CognitionFilter, "kinds"?: string[], "include_tombstoned"?: bool (default false, admin only), "cursor"?, "limit"? }`.
+- Result: `{ "records": RetainedRecord[], "total_authorized": int, "next_cursor"?: string }`. Authorization plus all present filters form one eligible source set before pagination; `total_authorized` counts only records the principal may see (`MEM-R006`). A cognition filter matches only when one recorded-at-time entry satisfies its entire conjunction.
 
 ### 7.21 `memory.records.promote`
 
@@ -653,9 +654,9 @@ Explicit placement change of a retained record (context ↔ shared, or context �
 
 Authorized, ranked, budgeted read for execution-time context. **Grant:** `recall` covering the selection (§6.5). Read-only (`MEM-R011`).
 
-- Request: `{ "space_id", "subject_id", "selection": ReadSelection, "filter"?: ProvenanceFilter, "query"?: string (ranking hint), "budget": { "max_items": int (required, ≥1, ≤ max_page_size), "max_bytes"?: int (hard UTF-8 budget, §9) }, "cursor"?: string }`.
+- Request: `{ "space_id", "subject_id", "selection": ReadSelection, "filter"?: ProvenanceFilter, "cognition_filter"?: CognitionFilter, "query"?: string (ranking hint), "budget": { "max_items": int (required, ≥1, ≤ max_page_size), "max_bytes"?: int (hard wire-byte budget, §9) }, "cursor"?: string }`.
 - Result: `{ "records": RetainedRecord[], "total_authorized": int, "truncated": bool, "overflow_record_id"?: string (§9), "next_cursor"?: string, "engine_policy_version": string }`.
-- Semantics: authorization filter first (`MEM-R006`); then provider ranking (algorithm-variable, §9 item 2); then budget. `truncated: true` whenever the budget cut the authorized set. Candidates never appear (`MEM-R004`); tombstoned records never appear. Ordering MUST be stable for identical provider state, request, and `engine_policy_version`; it MAY differ across providers or policy versions.
+- Semantics: authorization and every present filter (including cognition) form one eligible source set first (`MEM-R006`); then provider ranking (algorithm-variable, §9 item 2); then budget. `truncated: true` whenever the budget cut the eligible set. Candidates never appear (`MEM-R004`); tombstoned records never appear. Ordering MUST be stable for identical provider state, request, and `engine_policy_version`; it MAY differ across providers or policy versions.
 - Errors: `NOT_AUTHORIZED`, `INVALID_INPUT`, `NOT_FOUND`, `CURSOR_INVALID`.
 
 ### 7.23 `memory.profile.get`
@@ -678,22 +679,22 @@ Authorized, ranked, budgeted read for execution-time context. **Grant:** `recall
 
 Capability `spoke-memory-reflection`. **Grant:** `reflect` or `admin` covering the selection/filter. Read-only.
 
-- Request: `{ "space_id", "subject_id", "selection": ReadSelection, "filter"?: ProvenanceFilter }`.
+- Request: `{ "space_id", "subject_id", "selection": ReadSelection, "filter"?: ProvenanceFilter, "cognition_filter"?: CognitionFilter }`.
 - Result: `{ "state_digest": string (64 hex), "basis": { "record_count": int, "profile_kinds": string[] }, "stale": bool, "last_reflection_id"?: string, "missing_required_profile_kinds": string[], "data_sufficiency": "sufficient" | "insufficient" }`.
-- `state_digest` commits to: selection, filter, the authorized source record ID+revision set, profile kinds and revisions, and `engine_policy_version`. It is the CAS token for generation. `data_sufficiency` surfaces engine/provider policy (minimum-material heuristics); the protocol defines no numeric thresholds.
+- `state_digest` commits to: selection, provenance filter, cognition filter, the authorized source record ID+revision set, profile kinds and revisions, and `engine_policy_version`. It is the CAS token for generation. `data_sufficiency` surfaces engine/provider policy (minimum-material heuristics); the protocol defines no numeric thresholds.
 
 ### 7.26 `memory.reflections.list`
 
 Capability `spoke-memory-reflection`. **Grant:** `reflect` or `admin` covering each returned reflection's pinned selection/filter (context-restricted grants never read all-subject derived text). Read-only.
 
-- Request: `{ "space_id", "subject_id", "selection"?: ReadSelection (restricts listing), "filter"?: ProvenanceFilter, "cursor"?, "limit"? }`.
+- Request: `{ "space_id", "subject_id", "selection"?: ReadSelection (restricts listing), "filter"?: ProvenanceFilter, "cognition_filter"?: CognitionFilter, "cursor"?, "limit"? }`.
 - Result: `{ "reflections": Reflection[], "next_cursor"?: string }`, newest-first. `stale` values are computed at read time (§6.9). Reflections referencing tombstoned records are excluded (§6.9).
 
 ### 7.27 `memory.reflections.generate`
 
 Capability `spoke-memory-reflection`. **Grant:** `reflect` covering the selection/filter. Explicit, cost-bearing generation (`MEM-R012`).
 
-- Request: `{ "space_id", "subject_id", "selection": ReadSelection, "filter"?: ProvenanceFilter, "expected_state_digest": string, "idempotency_key": string }`.
+- Request: `{ "space_id", "subject_id", "selection": ReadSelection, "filter"?: ProvenanceFilter, "cognition_filter"?: CognitionFilter, "expected_state_digest": string, "idempotency_key": string }`.
 - Admission failures (fail-closed): `missing_required_profile_kinds` non-empty → `PROFILE_INCOMPLETE` with `details.missing` (`MEM-R005`); `data_sufficiency: "insufficient"` → `INSUFFICIENT_DATA` (provider/engine policy gate, §7.25); `expected_state_digest` ≠ current digest → `REVISION_CONFLICT`.
 - Result: pending `MemoryReceipt`; on completion `result = { "reflection_id": string, "cost"?: Cost }` (content-free).
 - **Concurrency rule (publish-pinned):** generation completes against the pinned basis from admission. If the basis moved meanwhile, the reflection is still published with its pinned basis and immediately reads `stale: true` (`MEM-R013`) — never a false-current result, never a silently dropped paid generation.
@@ -777,9 +778,9 @@ Subject target: `active ⇄ fenced`, `{active, fenced} → archived` (terminal d
 
 ## 9. Recall, ranking, truncation, budget
 
-1. **Filter (normative):** authorization + selection + provenance filter + tombstone/candidate exclusion (`MEM-R004`, `MEM-R006`).
+1. **Filter (normative):** authorization + selection + provenance filter + cognition filter + tombstone/candidate exclusion form one eligible source set before ranking/pages/budgets (`MEM-R004`, `MEM-R006`).
 2. **Rank (non-normative):** provider algorithm; `query` is a hint, never a filter. Identical-algorithm behavior across providers is explicitly not mandated.
-3. **Budget (normative):** `max_items` is a hard item cap. `max_bytes` is a **hard** budget measured as the UTF-8 byte length of the serialized `content` fields of returned records. Progress rule: if the next ranked item would exceed `max_bytes` and the page is empty, the provider returns that single item whole and sets `overflow_record_id` to its ID — an oversized first item is surfaced, never silently dropped or silently skipped; if the page is non-empty, the item is deferred and `truncated: true`. `truncated` MUST be true iff the authorized filtered set exceeds the returned page under the applied budget.
+3. **Budget (normative):** `max_items` is a hard item cap. `max_bytes` is a **hard** budget measured on emitted wire bytes of the complete `Content`, including any present `cognition` array. Progress rule: if the next ranked item would exceed `max_bytes` and the page is empty, the provider returns that single item whole and sets `overflow_record_id` to its ID — an oversized first item is surfaced, never silently dropped or silently skipped; if the page is non-empty, the item is deferred and `truncated: true`. `truncated` MUST be true iff the eligible authorized filtered set exceeds the returned page under the applied budget.
 4. **Pagination:** `next_cursor` per §7.0.7 (`MEM-R026`): bound, snapshot-consistent, invalidated by state/grant change with `CURSOR_INVALID`; no hidden-row leaks.
 
 The reference engine implements this policy set in `fixtures/memory-engine/rust/src/recall.rs` (`recall`), which receives already-authorized records.
@@ -979,7 +980,7 @@ This section states what this repository contains today for the family. Normativ
 
 - **13 data schemas:** `schemas/data/` — `memory-space`, `subject`, `principal`, `memory-grant`, `retained-record`, `memory-candidate`, `profile-document`, `reflection`, `memory-receipt`, `read-selection`, `provenance-filter`, `memory-export-bundle`, `memory-export-chunk`.
 - **66 op schemas:** 33 request + 33 response pairs named `memory-<segments>-{request,response}.schema.json` under `schemas/ops/`.
-- **79 family schema files**, counted by `EXPECTED_SCHEMA_COUNT` in [`tooling/codegen/assert-schema-count.mjs`](../../tooling/codegen/assert-schema-count.mjs) alongside the rest of the inventory (113 committed `*.schema.json` files in total). [`schemas/README.md`](../../schemas/README.md) lists the family.
+- **79 family schema files**, counted by `EXPECTED_SCHEMA_COUNT` in [`tooling/codegen/assert-schema-count.mjs`](../../tooling/codegen/assert-schema-count.mjs) alongside the rest of the inventory (114 committed `*.schema.json` files in total). [`schemas/README.md`](../../schemas/README.md) lists the family.
 - **Generated packages:** TypeScript `packages/spoke-schemas/src/generated/{data,ops}/` and Rust `crates/spoke-schemas/src/generated/{data,ops}/`; drift fails `pnpm run verify-codegen`.
 
 ### 18.2 Operations library
@@ -1005,7 +1006,7 @@ This section states what this repository contains today for the family. Normativ
 
 ### 18.6 Boundary statement
 
-Author Memory is standardized as the optional `spoke-memory` capability family defined by this document. A product that does not implement the family keeps memory product-local and MUST NOT emulate memory semantics through baseline objects (`MEM-R019`). World KB and mental-state surfaces (`modules.mental`, `modules.belief`, `MindState`) remain independent and referenceable; nothing is copied into memory.
+Author Memory is standardized as the optional `spoke-memory` capability family defined by this document. A product that does not implement the family keeps memory product-local and MUST NOT emulate memory semantics through baseline objects (`MEM-R019`). KnowledgeEntry current cognition (`modules.cognition`), open mental fields (`modules.mental`) and derivative `MindState` remain independent and referenceable; Memory `Content.cognition` carries independently authorized recorded-at-time assessments and never synchronizes holder-side current authority.
 
 ## See also
 
@@ -1019,6 +1020,6 @@ Author Memory is standardized as the optional `spoke-memory` capability family d
 | [`spoke-memory-capability-adr.md`](spoke-memory-capability-adr.md) | Capability decision: optional family, single authority, receipt model, engine/provider split, conformance providers |
 | [`spoke-connect.md`](spoke-connect.md) | Connect envelope family — invoke request/response carrying `memory.*` payloads |
 | [`ke-extraction-adr.md`](ke-extraction-adr.md) | Precedent for a standalone optional port outside `BaselinePorts` |
-| [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md) | Mental-state capability boundary; authority vs derivative split |
+| [`spoke-cognition-data-contract.md`](spoke-cognition-data-contract.md) | Recorded-at-time Memory cognition data, source sets, cursors and reflection basis |
 | [`schemas/README.md`](../../schemas/README.md) | Schema inventory and authoring rules |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Protocol vocabulary; memory family boundary |

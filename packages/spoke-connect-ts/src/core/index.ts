@@ -32,12 +32,16 @@ export {
   CAPABILITY_KE_EXTRACTION,
   CAPABILITY_L2_COMPUTABLE,
   CAPABILITY_SPOKE_BASELINE,
+  CAPABILITY_SPOKE_COGNITION,
   CAPABILITY_SPOKE_MEMORY,
   CAPABILITY_SPOKE_MEMORY_REFLECTION,
   CAPABILITY_SPOKE_MEMORY_TRANSFER,
+  cognitionRequirementField,
+  cognitionRequirementPresent,
   dispatchAllowed,
   requiredCapability,
   tokenAuthorizesOp,
+  WIRE_INVALID_INPUT,
 } from "./dispatch.js";
 export { generateNonce, NonceStore } from "./nonce.js";
 export { isAllowlisted } from "./allowlist.js";

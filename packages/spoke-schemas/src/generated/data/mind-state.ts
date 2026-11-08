@@ -5,7 +5,77 @@
  */
 
 /**
- * First-class temporal mental-state record under optional capability l5-mind. Strictly derivative of the holder KnowledgeEntry's modules.mental / modules.belief (settled home); never a second authority. Distinct from KnowledgeEntry ontology labels such as entry_type: "character" or profile "mind". Engines (belief revision, ToM inference) are product-owned; SPOKE owns the wire shape.
+ * view = "current" is valid only in holder-side current input/authority; view = "recorded_at" is required in Memory and valid for explicitly supplied historical input. A projection does not change either value into an authority grant.
+ */
+export type CognitiveView = "current" | "recorded_at";
+/**
+ * Typed reference kind. `world` identifies the designated narrated-world authority and is invalid as the holder of Belief, epistemic or Perception records. Memory.subject_id is not implicitly a holder; a Memory cognition holder explicitly uses `memory_subject` when intended.
+ */
+export type CognitionReferenceKind =
+  "knowledge_entry" | "timeline_event" | "memory_record" | "memory_subject" | "principal" | "world" | "external";
+export type CognitionTargetKind = "proposition" | "question" | "perceived_content" | "episode";
+export type Kind = "belief";
+export type AssessorRole = "holder_self_report" | "external_judgment" | "product_assessment";
+/**
+ * Every completed standard assessment has either a non-empty evidence basis or an explicit declared subjective/prior/model basis. A declared basis may remain uncalibrated; it supplies no default probability, evidence, interval or calibration. Raw or unassessed source material remains outside CognitionRecord and has no AssessmentBasis.
+ */
+export type AssessmentBasis = EvidenceBasis | PriorBasis;
+export type Kind1 = "evidence";
+/**
+ * Acquisition label, not actual-perception proof.
+ */
+export type AcquisitionPath =
+  "Narration" | "Perception" | "Memory" | "Testimony" | "Inference" | "Imagination" | "Unknown";
+export type Kind2 = "prior";
+/**
+ * The identified cognitive assertion q concerns; not extraction fidelity, world truth or a product prediction.
+ */
+export type CognitiveAssertion =
+  "belief_attribution" | "actual_capture" | "knowledge_criterion" | "ignorance_criterion" | "assessor_indeterminacy";
+/**
+ * Declared status of an estimator/method, not proof from one record.
+ */
+export type CalibrationStatus = "calibrated" | "uncalibrated" | "unknown";
+export type UncertaintyKind = "subjective_credible" | "statistical_confidence" | "other";
+export type MetricEstimand =
+  "holder_credence" | "capture" | "correspondence" | "knowledge_criterion" | "recording_fidelity";
+/**
+ * Higher-order depth. order 0 is retained for the shared vocabulary; current actor Belief records normally use 1-3 and narrated order-0 facts use WorldFactRecord.
+ */
+export type BeliefOrder = 0 | 1 | 2 | 3;
+/**
+ * truth = "Unknown" is not holder ignorance.
+ */
+export type Truth = "True" | "False" | "Unknown";
+/**
+ * Distribution label, never authorization.
+ */
+export type BeliefAccess = "Private" | "Shared" | "Public";
+export type Representation = "Explicit" | "Implicit";
+export type BeliefContentType =
+  | "Location"
+  | "Contents/Physical State"
+  | "Identity/Relation"
+  | "Epistemic"
+  | "Desire/Intention"
+  | "Emotion"
+  | "Trait/Value"
+  | "Action/Event";
+/**
+ * Acquisition label, not actual-perception proof.
+ */
+export type AcquisitionPath1 =
+  "Narration" | "Perception" | "Memory" | "Testimony" | "Inference" | "Imagination" | "Unknown";
+export type BeliefContext = "Deceptive" | "Temporal" | "Counterfactual" | "Neutral";
+export type Kind3 = "epistemic";
+/**
+ * No-record is a projection state, not a fourth enum value.
+ */
+export type EpistemicState = "known" | "ignorant" | "undetermined";
+export type Kind4 = "perception";
+
+/**
+ * First-class temporal mental-state record under optional capability spoke-cognition. Strictly derivative of the holder KnowledgeEntry's modules.mental / modules.cognition (settled home); never a second authority. Distinct from KnowledgeEntry ontology labels such as entry_type: "character" or profile "mind". Engines (belief revision, ToM inference) are product-owned; SPOKE owns the wire shape.
  */
 export interface MindState {
   /**
@@ -17,7 +87,7 @@ export interface MindState {
    */
   mind_state_id: string;
   /**
-   * Reference to the mental actor's KnowledgeEntry (entry_id). This record is a temporal derivative of that entry's modules.mental / modules.belief.
+   * Reference to the mental actor's KnowledgeEntry (entry_id). This record is a temporal derivative of that entry's modules.mental / modules.cognition (settled home); never a second authority.
    */
   holder_entry_id: string;
   /**
@@ -38,6 +108,7 @@ export interface MindState {
    */
   deltas?: MindDelta[];
   source_anchor?: SourceAnchor;
+  cognition?: CognitionProjection;
   /**
    * RFC 3339 UTC datetime string.
    */
@@ -55,11 +126,11 @@ export interface MentalFieldMap {
   [k: string]: unknown | undefined;
 }
 /**
- * Field-level change record for temporal-delta presentation of mental-state changes; presentation only, not authoritative state. Authoritative values live on the holder KnowledgeEntry under modules.mental / modules.belief.
+ * Field-level change record for temporal-delta presentation of mental-state changes; presentation only, not authoritative state. Authoritative values live on the holder KnowledgeEntry under modules.mental / modules.cognition.
  */
 export interface MindDelta {
   /**
-   * Dot-path or JSON Pointer to the changed field within modules.mental or modules.belief.
+   * RFC 6901 JSON Pointer with one of these exact roots: /modules/mental/<field>... for any of the nine mental fields; /modules/cognition/records/... for derivative standard cognition; /modules/cognition/world_facts/... for narrated-world facts. No dot-path and no path targeting the MindState itself as authority.
    */
   path: string;
   previous?: unknown;
@@ -109,4 +180,601 @@ export interface ExtensionMap {
 }
 export interface ExtensionValue {
   [k: string]: unknown | undefined;
+}
+/**
+ * Optional derivative projection of the selected holder-side cognition authority with all retained matching assessments and trace; never a second authority.
+ */
+export interface CognitionProjection {
+  view: CognitiveView;
+  items: CognitionProjectionItem[];
+  extensions: ExtensionMap;
+}
+export interface CognitionProjectionItem {
+  holder: CognitionReference;
+  target: CognitionTarget;
+  assessment_context: CognitionContext;
+  /**
+   * A no_record item is emitted only when the filter exactly addresses holder + complete target identity + assessment context_id + an explicit fork predicate (eq or absent), and the authorized source has no record for that compound key before optional category/dimension/q predicates. An omitted fork_id is a wildcard and never produces no_record.
+   */
+  presence: "assessed" | "no_record";
+  /**
+   * All retained authorized matching assessments; disagreements remain and selection does not overwrite or merge them.
+   */
+  assessments: (BeliefRecord | EpistemicAssessment | PerceptionRecord)[];
+  /**
+   * Required iff view = current and presence = assessed; recorded-at-time projection has no current selection.
+   */
+  selection?: {
+    policy: SelectionPolicyIdentity;
+    input_record_ids: string[];
+    /**
+     * Must be one of input_record_ids.
+     */
+    selected_record_id: string;
+  };
+}
+/**
+ * Complete namespace-bearing reference identity. Producers use one namespace only for ids assigned by the same identity authority; independent systems use distinct namespaces unless they deliberately share that authority.
+ */
+export interface CognitionReference {
+  kind: CognitionReferenceKind;
+  /**
+   * Non-empty, opaque within kind/namespace. Identity is never established by bare id or equal text.
+   */
+  id: string;
+  /**
+   * Required identity realm for every kind; for `external` it is the declared external namespace. A reference's identity is the complete (kind, namespace, id) tuple. Pure validation checks only this shape — never global uniqueness, registry resolution or I/O.
+   */
+  namespace: string;
+}
+/**
+ * Compound target identity is (carrier, kind, target_id, assessment_context.context_id, assessment_context.fork_id). There is no target registry or lookup operation.
+ */
+export interface CognitionTarget {
+  carrier: CognitionReference;
+  /**
+   * Non-empty and stable within carrier.
+   */
+  target_id: string;
+  kind: CognitionTargetKind;
+  /**
+   * Representational content, never identity.
+   */
+  text?: string;
+  about?: CognitionTarget1;
+}
+/**
+ * Higher-order target; bounded by Belief order <= 3.
+ */
+export interface CognitionTarget1 {
+  carrier: CognitionReference;
+  /**
+   * Non-empty and stable within carrier.
+   */
+  target_id: string;
+  kind: CognitionTargetKind;
+  /**
+   * Representational content, never identity.
+   */
+  text?: string;
+  about?: CognitionTarget1;
+}
+export interface CognitionContext {
+  /**
+   * Non-empty; product-selected, no protocol default.
+   */
+  context_id: string;
+  /**
+   * Existing opaque L5 fork identity.
+   */
+  fork_id?: string;
+}
+export interface BeliefRecord {
+  kind: Kind;
+  /**
+   * Non-empty; unique within its carrier.
+   */
+  record_id: string;
+  holder: CognitionReference1;
+  target: CognitionTarget2;
+  assessor: CognitionReference;
+  assessor_role: AssessorRole;
+  basis: AssessmentBasis;
+  assessment_context: CognitionContext;
+  /**
+   * When the assessed state/content applies.
+   */
+  effective_at: string;
+  /**
+   * When this assessor made the assessment.
+   */
+  assessed_at: string;
+  view: CognitiveView;
+  criterion?: CognitionCriterion;
+  q: DeclaredProbability;
+  metrics?: CognitionMetrics;
+  extensions: ExtensionMap;
+  order: BeliefOrder;
+  truth?: Truth;
+  access?: BeliefAccess;
+  representation?: Representation;
+  content_type?: BeliefContentType;
+  source?: AcquisitionPath1;
+  context?: BeliefContext;
+}
+/**
+ * Complete namespace-bearing reference identity. Producers use one namespace only for ids assigned by the same identity authority; independent systems use distinct namespaces unless they deliberately share that authority.
+ */
+export interface CognitionReference1 {
+  kind: CognitionReferenceKind;
+  /**
+   * Non-empty, opaque within kind/namespace. Identity is never established by bare id or equal text.
+   */
+  id: string;
+  /**
+   * Required identity realm for every kind; for `external` it is the declared external namespace. A reference's identity is the complete (kind, namespace, id) tuple. Pure validation checks only this shape — never global uniqueness, registry resolution or I/O.
+   */
+  namespace: string;
+}
+/**
+ * Proposition or higher-order proposition target. For order = 1, target.about is absent; for order 2 or 3, about is present and the chain depth is consistent with order (chain never exceeds 3; enforced by validators).
+ */
+export interface CognitionTarget2 {
+  carrier: CognitionReference;
+  /**
+   * Non-empty and stable within carrier.
+   */
+  target_id: string;
+  kind: CognitionTargetKind;
+  /**
+   * Representational content, never identity.
+   */
+  text?: string;
+  about?: CognitionTarget1;
+}
+export interface EvidenceBasis {
+  kind: Kind1;
+  /**
+   * Non-empty. Evidence references identify support only; they neither authenticate evidence nor grant access.
+   *
+   * @minItems 1
+   */
+  evidence: [CognitionReference, ...CognitionReference[]];
+  acquisition?: AcquisitionPath;
+}
+export interface PriorBasis {
+  kind: Kind2;
+  /**
+   * Non-empty declared subjective/prior/model basis.
+   */
+  description: string;
+  acquisition?: AcquisitionPath;
+}
+export interface CognitionCriterion {
+  /**
+   * Non-empty stable criterion identifier.
+   */
+  criterion_id: string;
+  /**
+   * Human/product-readable rule; not executable protocol logic.
+   */
+  expression?: string;
+}
+/**
+ * assertion = belief_attribution; attribution confidence, never holder credence b.
+ */
+export interface DeclaredProbability {
+  /**
+   * Finite, 0..1. 0 and 1 are admitted only as deliberately assigned values, never label defaults.
+   */
+  value: number;
+  assertion: CognitiveAssertion;
+  /**
+   * Non-empty estimation/elicitation method.
+   */
+  method: string;
+  calibration: CalibrationStatus;
+  uncertainty?: ProbabilityUncertainty;
+}
+/**
+ * Uncertainty describes the estimate; it is not another cognitive score.
+ */
+export interface ProbabilityUncertainty {
+  kind: UncertaintyKind;
+  /**
+   * 0 <= lower <= upper <= 1 (upper bound enforced by validators; unquantified uncertainty is an absent `uncertainty`, never a fabricated zero-width interval).
+   */
+  lower: number;
+  upper: number;
+  /**
+   * 0 < level < 1 when the kind declares a nominal level.
+   */
+  level?: number;
+  /**
+   * Required when kind = "other" (enforced by validators; draft-07 conditionals are not derivable by the codegen toolchain).
+   */
+  description?: string;
+}
+/**
+ * Category-compatible metrics only (Belief permits b/r; Perception permits p/f/r; epistemic permits k/r), enforced by validators.
+ */
+export interface CognitionMetrics {
+  b?: CognitionMetric;
+  p?: CognitionMetric1;
+  f?: CognitionMetric2;
+  k?: CognitionMetric3;
+  r?: CognitionMetric4;
+}
+/**
+ * estimand = holder_credence. Distinct from q.
+ */
+export interface CognitionMetric {
+  /**
+   * Finite, 0..1.
+   */
+  value: number;
+  estimand: MetricEstimand;
+  assessor: CognitionReference;
+  assessor_role: AssessorRole;
+  basis: AssessmentBasis;
+  context: CognitionContext;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  effective_at: string;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  assessed_at: string;
+  method: string;
+  criterion?: CognitionCriterion1;
+  calibration: CalibrationStatus;
+  uncertainty?: ProbabilityUncertainty;
+}
+/**
+ * Required for knowledge_criterion/correspondence estimands (enforced by validators; draft-07 conditionals are not derivable by the codegen toolchain).
+ */
+export interface CognitionCriterion1 {
+  /**
+   * Non-empty stable criterion identifier.
+   */
+  criterion_id: string;
+  /**
+   * Human/product-readable rule; not executable protocol logic.
+   */
+  expression?: string;
+}
+/**
+ * estimand = capture.
+ */
+export interface CognitionMetric1 {
+  /**
+   * Finite, 0..1.
+   */
+  value: number;
+  estimand: MetricEstimand;
+  assessor: CognitionReference;
+  assessor_role: AssessorRole;
+  basis: AssessmentBasis;
+  context: CognitionContext;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  effective_at: string;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  assessed_at: string;
+  method: string;
+  criterion?: CognitionCriterion1;
+  calibration: CalibrationStatus;
+  uncertainty?: ProbabilityUncertainty;
+}
+/**
+ * estimand = correspondence.
+ */
+export interface CognitionMetric2 {
+  /**
+   * Finite, 0..1.
+   */
+  value: number;
+  estimand: MetricEstimand;
+  assessor: CognitionReference;
+  assessor_role: AssessorRole;
+  basis: AssessmentBasis;
+  context: CognitionContext;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  effective_at: string;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  assessed_at: string;
+  method: string;
+  criterion?: CognitionCriterion1;
+  calibration: CalibrationStatus;
+  uncertainty?: ProbabilityUncertainty;
+}
+/**
+ * estimand = knowledge_criterion.
+ */
+export interface CognitionMetric3 {
+  /**
+   * Finite, 0..1.
+   */
+  value: number;
+  estimand: MetricEstimand;
+  assessor: CognitionReference;
+  assessor_role: AssessorRole;
+  basis: AssessmentBasis;
+  context: CognitionContext;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  effective_at: string;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  assessed_at: string;
+  method: string;
+  criterion?: CognitionCriterion1;
+  calibration: CalibrationStatus;
+  uncertainty?: ProbabilityUncertainty;
+}
+/**
+ * estimand = recording_fidelity.
+ */
+export interface CognitionMetric4 {
+  /**
+   * Finite, 0..1.
+   */
+  value: number;
+  estimand: MetricEstimand;
+  assessor: CognitionReference;
+  assessor_role: AssessorRole;
+  basis: AssessmentBasis;
+  context: CognitionContext;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  effective_at: string;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  assessed_at: string;
+  method: string;
+  criterion?: CognitionCriterion1;
+  calibration: CalibrationStatus;
+  uncertainty?: ProbabilityUncertainty;
+}
+export interface EpistemicAssessment {
+  kind: Kind3;
+  /**
+   * Non-empty; unique within its carrier.
+   */
+  record_id: string;
+  holder: CognitionReference2;
+  target: CognitionTarget3;
+  assessor: CognitionReference;
+  assessor_role: AssessorRole;
+  basis: AssessmentBasis;
+  assessment_context: CognitionContext;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  effective_at: string;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  assessed_at: string;
+  view: CognitiveView;
+  state: EpistemicState;
+  criterion: CognitionCriterion2;
+  /**
+   * Owns only categorical interpretation under the stated criterion.
+   */
+  classification_policy: {
+    policy_id: string;
+    policy_version: string;
+  };
+  q: DeclaredProbability1;
+  metrics?: CognitionMetrics;
+  extensions: ExtensionMap;
+}
+/**
+ * Complete namespace-bearing reference identity. Producers use one namespace only for ids assigned by the same identity authority; independent systems use distinct namespaces unless they deliberately share that authority.
+ */
+export interface CognitionReference2 {
+  kind: CognitionReferenceKind;
+  /**
+   * Non-empty, opaque within kind/namespace. Identity is never established by bare id or equal text.
+   */
+  id: string;
+  /**
+   * Required identity realm for every kind; for `external` it is the declared external namespace. A reference's identity is the complete (kind, namespace, id) tuple. Pure validation checks only this shape — never global uniqueness, registry resolution or I/O.
+   */
+  namespace: string;
+}
+/**
+ * Proposition or question.
+ */
+export interface CognitionTarget3 {
+  carrier: CognitionReference;
+  /**
+   * Non-empty and stable within carrier.
+   */
+  target_id: string;
+  kind: CognitionTargetKind;
+  /**
+   * Representational content, never identity.
+   */
+  text?: string;
+  about?: CognitionTarget1;
+}
+/**
+ * Required binary knowledge criterion.
+ */
+export interface CognitionCriterion2 {
+  /**
+   * Non-empty stable criterion identifier.
+   */
+  criterion_id: string;
+  /**
+   * Human/product-readable rule; not executable protocol logic.
+   */
+  expression?: string;
+}
+/**
+ * known uses assertion = knowledge_criterion; ignorant uses ignorance_criterion; undetermined uses assessor_indeterminacy (q supplies no bound on knowledge and does not validate any attached metric).
+ */
+export interface DeclaredProbability1 {
+  /**
+   * Finite, 0..1. 0 and 1 are admitted only as deliberately assigned values, never label defaults.
+   */
+  value: number;
+  assertion: CognitiveAssertion;
+  /**
+   * Non-empty estimation/elicitation method.
+   */
+  method: string;
+  calibration: CalibrationStatus;
+  uncertainty?: ProbabilityUncertainty;
+}
+/**
+ * Perception is actual capture, separate from access metadata and optional correspondence. Event access alone never creates a Perception record or default p/q.
+ */
+export interface PerceptionRecord {
+  kind: Kind4;
+  /**
+   * Non-empty; unique within its carrier.
+   */
+  record_id: string;
+  holder: CognitionReference3;
+  target: CognitionTarget4;
+  assessor: CognitionReference;
+  assessor_role: AssessorRole;
+  basis: AssessmentBasis;
+  assessment_context: CognitionContext;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  effective_at: string;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  assessed_at: string;
+  view: CognitiveView;
+  episode: CognitionReference4;
+  content: unknown;
+  access?: ObservationAccess;
+  criterion?: CognitionCriterion;
+  q: DeclaredProbability2;
+  metrics?: CognitionMetrics1;
+  extensions: ExtensionMap;
+}
+/**
+ * Complete namespace-bearing reference identity. Producers use one namespace only for ids assigned by the same identity authority; independent systems use distinct namespaces unless they deliberately share that authority.
+ */
+export interface CognitionReference3 {
+  kind: CognitionReferenceKind;
+  /**
+   * Non-empty, opaque within kind/namespace. Identity is never established by bare id or equal text.
+   */
+  id: string;
+  /**
+   * Required identity realm for every kind; for `external` it is the declared external namespace. A reference's identity is the complete (kind, namespace, id) tuple. Pure validation checks only this shape — never global uniqueness, registry resolution or I/O.
+   */
+  namespace: string;
+}
+/**
+ * Perceived_content or episode; target carrier/episode identity must agree with `episode` (enforced by validators).
+ */
+export interface CognitionTarget4 {
+  carrier: CognitionReference;
+  /**
+   * Non-empty and stable within carrier.
+   */
+  target_id: string;
+  kind: CognitionTargetKind;
+  /**
+   * Representational content, never identity.
+   */
+  text?: string;
+  about?: CognitionTarget1;
+}
+/**
+ * Complete namespace-bearing reference identity. Producers use one namespace only for ids assigned by the same identity authority; independent systems use distinct namespaces unless they deliberately share that authority.
+ */
+export interface CognitionReference4 {
+  kind: CognitionReferenceKind;
+  /**
+   * Non-empty, opaque within kind/namespace. Identity is never established by bare id or equal text.
+   */
+  id: string;
+  /**
+   * Required identity realm for every kind; for `external` it is the declared external namespace. A reference's identity is the complete (kind, namespace, id) tuple. Pure validation checks only this shape — never global uniqueness, registry resolution or I/O.
+   */
+  namespace: string;
+}
+/**
+ * Actual capture constraints if known; not event observability.
+ */
+export interface ObservationAccess {
+  /**
+   * Open: string or structured object.
+   */
+  position?:
+    | string
+    | {
+        [k: string]: unknown | undefined;
+      };
+  /**
+   * Open: boolean or structured object.
+   */
+  line_of_sight?:
+    | boolean
+    | {
+        [k: string]: unknown | undefined;
+      };
+  /**
+   * Open: boolean or structured object.
+   */
+  hearing_range?:
+    | boolean
+    | {
+        [k: string]: unknown | undefined;
+      };
+  modality?: string[];
+  [k: string]: unknown | undefined;
+}
+/**
+ * assertion = actual_capture.
+ */
+export interface DeclaredProbability2 {
+  /**
+   * Finite, 0..1. 0 and 1 are admitted only as deliberately assigned values, never label defaults.
+   */
+  value: number;
+  assertion: CognitiveAssertion;
+  /**
+   * Non-empty estimation/elicitation method.
+   */
+  method: string;
+  calibration: CalibrationStatus;
+  uncertainty?: ProbabilityUncertainty;
+}
+/**
+ * Category-compatible metrics only (Belief permits b/r; Perception permits p/f/r; epistemic permits k/r), enforced by validators.
+ */
+export interface CognitionMetrics1 {
+  b?: CognitionMetric;
+  p?: CognitionMetric1;
+  f?: CognitionMetric2;
+  k?: CognitionMetric3;
+  r?: CognitionMetric4;
+}
+export interface SelectionPolicyIdentity {
+  policy_id: string;
+  policy_version: string;
 }

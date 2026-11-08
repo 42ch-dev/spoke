@@ -32,6 +32,7 @@ import type {
   TimelineEvent,
 } from "@42ch/spoke-schemas";
 import {
+  assertSupportedCognitionSelection,
   filterKnowledgeEntriesByScope,
   filterTimelineEventsByScope,
   orchestrateExtract,
@@ -184,11 +185,24 @@ export class MockAdapter implements FullPorts {
   async listKnowledgeEntries(
     scope: Scope,
   ): Promise<SpokeResult<KnowledgeEntry[]>> {
+    // Reject an unsupported cognition requirement before the foreign-scope
+    // early return and before any source read, so it never surfaces as an
+    // ordinary empty result or an unfiltered baseline set.
+    const supported = assertSupportedCognitionSelection(
+      scope.cognition,
+      "scope.cognition",
+    );
+    if (!supported.ok) {
+      return supported;
+    }
     if (scope.scope_id !== undefined && scope.scope_id !== DEMO_SCOPE_ID) {
       return spokeOk([]);
     }
-    return spokeOk(
-      filterKnowledgeEntriesByScope(this.engine.listKnowledgeEntries(), scope),
+    // Served Scope list: authorization first, then the validated cognition
+    // selection.
+    return filterKnowledgeEntriesByScope(
+      this.engine.listKnowledgeEntries(),
+      scope,
     );
   }
 

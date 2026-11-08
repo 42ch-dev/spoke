@@ -8,7 +8,9 @@
   "participant_entry_ids": ["kb_tw_ana", "kb_tw_marble"],
   "modules": {
     "observation": {
-      "observers": ["kb_tw_ana"],
+      "observers": [
+        { "kind": "knowledge_entry", "namespace": "toy_world", "id": "kb_tw_ana" }
+      ],
       "access": {
         "line_of_sight": true,
         "hearing_range": true,

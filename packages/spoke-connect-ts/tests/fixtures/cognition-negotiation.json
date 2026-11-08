@@ -1,0 +1,765 @@
+{
+  "schema_version": 1,
+  "description": "spoke-cognition capability, negotiation and raw unsupported-requirement vectors (consumer contract §1-§2). Consumed unchanged by the TS suite (tests/remote/cognition.test.ts) and the Rust suite (crates/spoke-connect in-module cognition tests). Every served case is a real responder/RemoteAdapter round trip with provider-call accounting; the KE-only host answers from `ke_entries` by applying the shared C6 cognition matcher, so a served selection returns discriminating entries instead of an empty echo.",
+  "capability": "spoke-cognition",
+  "legacy_capability": "l5-mind",
+  "hosts": {
+    "ke_only_conformant": {
+      "capabilities": ["spoke-baseline", "spoke-cognition"],
+      "note": "KE-only host. Advertising the family is truthful because the served-request cases below exercise Scope cognition end to end; Memory ports are not served and are not required."
+    },
+    "ke_only_no_cognition": {
+      "capabilities": ["spoke-baseline"],
+      "note": "KE host that did not implement the family: it must not advertise and must deny a cognition requirement."
+    },
+    "combined_memory_incomplete": {
+      "capabilities": ["spoke-baseline", "spoke-memory"],
+      "note": "Combined KE+Memory host whose Memory cognition conformance has not landed. The family is intentionally absent from the manifest: the string alone is never conformance, so a cognition request is denied instead of served unfiltered."
+    },
+    "legacy_l5_mind": {
+      "capabilities": ["spoke-baseline", "l5-mind"],
+      "note": "Legacy flag only. Nothing implies the new family: the negotiated set is the plain both-sided intersection."
+    },
+    "combined_cognition_rejection_probe": {
+      "capabilities": ["spoke-baseline", "spoke-memory", "spoke-cognition"],
+      "note": "Vector-only §2.2 probe: it declares the family solely so the Memory cognition_filter diagnosis is exercised. Every case that carries a cognition requirement with this host expects a rejection, the remaining one carries none, so it makes no advertisement or conformance claim; combined advertisement stays blocked on the Memory track."
+    }
+  },
+  "ke_entries": [
+    {
+      "schema_version": 1,
+      "entry_id": "kb_mira_fork",
+      "entry_type": "character",
+      "canonical_name": "Mira (fork_alpha context)",
+      "status": "active",
+      "body": {"summary": "Forked-context standard cognition, optional metrics absent."},
+      "extensions": {},
+      "modules": {
+        "cognition": {
+          "records": [
+            {
+              "kind": "belief",
+              "record_id": "rec_mira_fork",
+              "holder": {"kind": "knowledge_entry", "namespace": "world_a", "id": "kb_mira"},
+              "target": {
+                "carrier": {"kind": "knowledge_entry", "namespace": "world_a", "id": "kb_mira"},
+                "target_id": "prop_mira",
+                "kind": "proposition",
+                "text": "Mira keeps the marble in the box"
+              },
+              "assessor": {"kind": "principal", "namespace": "system_a", "id": "assessor_1"},
+              "assessor_role": "holder_self_report",
+              "basis": {
+                "kind": "evidence",
+                "evidence": [{"kind": "knowledge_entry", "namespace": "world_a", "id": "kb_mira"}]
+              },
+              "assessment_context": {"context_id": "ctx_main", "fork_id": "fork_alpha"},
+              "effective_at": "2026-07-23T09:00:00Z",
+              "assessed_at": "2026-07-23T09:05:00Z",
+              "view": "current",
+              "order": 1,
+              "truth": "True",
+              "access": "Private",
+              "representation": "Explicit",
+              "content_type": "Identity/Relation",
+              "source": "Perception",
+              "context": "Neutral",
+              "q": {
+                "value": 0.5,
+                "assertion": "belief_attribution",
+                "method": "direct_report",
+                "calibration": "uncalibrated"
+              },
+              "extensions": {}
+            }
+          ],
+          "world_facts": [],
+          "extensions": {}
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "entry_id": "kb_mira_nofork",
+      "entry_type": "character",
+      "canonical_name": "Mira (no-fork context)",
+      "status": "active",
+      "body": {"summary": "No-fork context standard cognition, optional metric recorded as an explicit zero."},
+      "extensions": {},
+      "modules": {
+        "cognition": {
+          "records": [
+            {
+              "kind": "belief",
+              "record_id": "rec_mira_nofork",
+              "holder": {"kind": "knowledge_entry", "namespace": "world_a", "id": "kb_mira"},
+              "target": {
+                "carrier": {"kind": "knowledge_entry", "namespace": "world_a", "id": "kb_mira"},
+                "target_id": "prop_mira",
+                "kind": "proposition",
+                "text": "Mira keeps the marble in the box"
+              },
+              "assessor": {"kind": "principal", "namespace": "system_a", "id": "assessor_1"},
+              "assessor_role": "holder_self_report",
+              "basis": {
+                "kind": "evidence",
+                "evidence": [{"kind": "knowledge_entry", "namespace": "world_a", "id": "kb_mira"}]
+              },
+              "assessment_context": {"context_id": "ctx_main"},
+              "effective_at": "2026-07-23T09:00:00Z",
+              "assessed_at": "2026-07-23T09:06:00Z",
+              "view": "current",
+              "order": 1,
+              "truth": "True",
+              "access": "Private",
+              "representation": "Explicit",
+              "content_type": "Identity/Relation",
+              "source": "Perception",
+              "context": "Neutral",
+              "q": {
+                "value": 0.5,
+                "assertion": "belief_attribution",
+                "method": "direct_report",
+                "calibration": "uncalibrated"
+              },
+              "metrics": {
+                "b": {
+                  "value": 0,
+                  "estimand": "holder_credence",
+                  "assessor": {"kind": "principal", "namespace": "system_a", "id": "assessor_1"},
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [{"kind": "knowledge_entry", "namespace": "world_a", "id": "kb_mira"}]
+                  },
+                  "context": {"context_id": "ctx_main"},
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:06:00Z",
+                  "method": "direct_report",
+                  "calibration": "uncalibrated"
+                }
+              },
+              "extensions": {}
+            }
+          ],
+          "world_facts": [],
+          "extensions": {}
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "entry_id": "kb_alice_fork",
+      "entry_type": "character",
+      "canonical_name": "Alice (fork_alpha context)",
+      "status": "active",
+      "body": {"summary": "Principal-held standard cognition in a forked context."},
+      "extensions": {},
+      "modules": {
+        "cognition": {
+          "records": [
+            {
+              "kind": "belief",
+              "record_id": "rec_alice_fork",
+              "holder": {"kind": "principal", "namespace": "system_a", "id": "alice"},
+              "target": {
+                "carrier": {"kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1"},
+                "target_id": "prop_1",
+                "kind": "proposition",
+                "text": "Ana keeps the marble in the box"
+              },
+              "assessor": {"kind": "principal", "namespace": "system_a", "id": "assessor_1"},
+              "assessor_role": "holder_self_report",
+              "basis": {
+                "kind": "evidence",
+                "evidence": [{"kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1"}]
+              },
+              "assessment_context": {"context_id": "ctx_main", "fork_id": "fork_alpha"},
+              "effective_at": "2026-07-23T09:00:00Z",
+              "assessed_at": "2026-07-23T09:05:00Z",
+              "view": "current",
+              "order": 1,
+              "truth": "True",
+              "access": "Private",
+              "representation": "Explicit",
+              "content_type": "Identity/Relation",
+              "source": "Perception",
+              "context": "Neutral",
+              "q": {
+                "value": 0.5,
+                "assertion": "belief_attribution",
+                "method": "direct_report",
+                "calibration": "uncalibrated"
+              },
+              "extensions": {}
+            }
+          ],
+          "world_facts": [],
+          "extensions": {}
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "entry_id": "kb_alice_beta",
+      "entry_type": "character",
+      "canonical_name": "Alice (ctx_beta context)",
+      "status": "active",
+      "body": {"summary": "The same holder/target recorded under a second context id."},
+      "extensions": {},
+      "modules": {
+        "cognition": {
+          "records": [
+            {
+              "kind": "belief",
+              "record_id": "rec_alice_beta",
+              "holder": {"kind": "principal", "namespace": "system_a", "id": "alice"},
+              "target": {
+                "carrier": {"kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1"},
+                "target_id": "prop_1",
+                "kind": "proposition",
+                "text": "Ana keeps the marble in the box"
+              },
+              "assessor": {"kind": "principal", "namespace": "system_a", "id": "assessor_1"},
+              "assessor_role": "holder_self_report",
+              "basis": {
+                "kind": "evidence",
+                "evidence": [{"kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1"}]
+              },
+              "assessment_context": {"context_id": "ctx_beta"},
+              "effective_at": "2026-07-23T09:00:00Z",
+              "assessed_at": "2026-07-23T09:07:00Z",
+              "view": "current",
+              "order": 1,
+              "truth": "True",
+              "access": "Private",
+              "representation": "Explicit",
+              "content_type": "Identity/Relation",
+              "source": "Perception",
+              "context": "Neutral",
+              "q": {
+                "value": 0.5,
+                "assertion": "belief_attribution",
+                "method": "direct_report",
+                "calibration": "uncalibrated"
+              },
+              "extensions": {}
+            }
+          ],
+          "world_facts": [],
+          "extensions": {}
+        }
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "negotiation_both_sides_declare",
+      "kind": "negotiation",
+      "local_capabilities": ["spoke-baseline", "spoke-cognition"],
+      "remote_capabilities": ["spoke-baseline", "spoke-cognition"],
+      "negotiated_includes_cognition": true
+    },
+    {
+      "id": "negotiation_remote_only",
+      "kind": "negotiation",
+      "local_capabilities": ["spoke-baseline"],
+      "remote_capabilities": ["spoke-baseline", "spoke-cognition"],
+      "negotiated_includes_cognition": false
+    },
+    {
+      "id": "negotiation_local_only",
+      "kind": "negotiation",
+      "local_capabilities": ["spoke-baseline", "spoke-cognition"],
+      "remote_capabilities": ["spoke-baseline"],
+      "negotiated_includes_cognition": false
+    },
+    {
+      "id": "negotiation_legacy_flag_only",
+      "kind": "negotiation",
+      "local_capabilities": ["spoke-baseline", "l5-mind"],
+      "remote_capabilities": ["spoke-baseline", "spoke-cognition"],
+      "negotiated_includes_cognition": false
+    },
+    {
+      "id": "negotiation_neither_declares",
+      "kind": "negotiation",
+      "local_capabilities": [],
+      "remote_capabilities": [],
+      "negotiated_includes_cognition": false
+    },
+    {
+      "id": "ke_only_serves_current_selection_with_wildcard_fork",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {
+              "holder": {"kind": "knowledge_entry", "namespace": "world_a", "id": "kb_mira"},
+              "assessment_context": {"context_id": "ctx_main"}
+            },
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {"status": "ok"},
+      "expect_provider_calls": 1,
+      "expect_entry_ids": ["kb_mira_fork", "kb_mira_nofork"]
+    },
+    {
+      "id": "ke_only_serves_exact_fork_predicate",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {
+              "assessment_context": {"context_id": "ctx_main", "fork_id": {"eq": "fork_alpha"}}
+            },
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {"status": "ok"},
+      "expect_provider_calls": 1,
+      "expect_entry_ids": ["kb_mira_fork", "kb_alice_fork"]
+    },
+    {
+      "id": "ke_only_serves_absent_fork_predicate",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {
+              "assessment_context": {"context_id": "ctx_main", "fork_id": {"absent": true}},
+              "q": {"min": 0.25, "max": 0.75}
+            },
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {"status": "ok"},
+      "expect_provider_calls": 1,
+      "expect_entry_ids": ["kb_mira_nofork"]
+    },
+    {
+      "id": "ke_only_serves_multi_context_selection",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {
+              "holder": {"kind": "principal", "namespace": "system_a", "id": "alice"},
+              "target": {"kind": "proposition", "target_id": "prop_1"}
+            },
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {"status": "ok"},
+      "expect_provider_calls": 1,
+      "expect_entry_ids": ["kb_alice_fork", "kb_alice_beta"]
+    },
+    {
+      "id": "ke_only_serves_absent_optional_cognition",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {"scope": {"scope_id": "world_1"}},
+      "expect": {"status": "ok"},
+      "expect_provider_calls": 1,
+      "expect_entry_ids": ["kb_mira_fork", "kb_mira_nofork", "kb_alice_fork", "kb_alice_beta"]
+    },
+    {
+      "id": "unrelated_top_level_cognition_is_ordinary_data",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {"scope_id": "world_1"},
+        "cognition": {"view": "current", "filter": {"q_min": 0.5}}
+      },
+      "expect": {"status": "ok"},
+      "expect_provider_calls": 1,
+      "expect_entry_ids": ["kb_mira_fork", "kb_mira_nofork", "kb_alice_fork", "kb_alice_beta"]
+    },
+    {
+      "id": "host_without_family_denies",
+      "kind": "served",
+      "host": "ke_only_no_cognition",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {"state": {"eq": "known"}},
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {"status": "reject", "code": "capability_missing"},
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "client_without_family_denies",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_no_cognition",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {},
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {"status": "reject", "code": "capability_missing"},
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "ownership_denial_precedes_the_cognition_denial",
+      "kind": "served",
+      "host": "ke_only_no_cognition",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "viewpoint": "kb_mira",
+          "cognition": {
+            "view": "current",
+            "filter": {"state": {"eq": "known"}},
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {"status": "reject", "code": "op_unsupported"},
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "combined_incomplete_memory_host_denies",
+      "kind": "served",
+      "host": "combined_memory_incomplete",
+      "client": "combined_memory_incomplete",
+      "op": "memory.records.list",
+      "payload": {"space_id": "space_1", "subject_id": "subject_1", "selection": {"mode": "subject_all"}, "cognition_filter": {"state": {"eq": "known"}}},
+      "expect": {"status": "reject", "code": "capability_missing"},
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "legacy_l5_mind_never_grants_the_family",
+      "kind": "served",
+      "host": "legacy_l5_mind",
+      "client": "legacy_l5_mind",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {},
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {"status": "reject", "code": "capability_missing"},
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "unknown_predicate_q_min_rejects_before_the_handler",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {"q_min": 0.5},
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "scope.cognition.filter.q_min"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "nested_unknown_predicate_reports_its_own_member",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {"q": {"min": 0.5, "extra": 1}},
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "scope.cognition.filter.q.extra"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "nested_target_carrier_member_reports_its_path",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {
+              "target": {
+                "carrier": {"kind": "knowledge_entry", "namespace": "world_a", "id": "kb_mira", "extra": true}
+              }
+            },
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "scope.cognition.filter.target.carrier.extra"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "scope_carrier_empty_member_keeps_its_path",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {"": 1},
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "scope.cognition.filter[\"\"]"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "cross_field_q_range_keeps_the_filter_member",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {"q": {"min": 0.9, "max": 0.1}},
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "scope.cognition.filter.q"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "categorical_cross_field_keeps_its_member",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {"truth": {"eq": "True", "absent": true}},
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "scope.cognition.filter.truth"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "known_but_unimplemented_dimension_rejects",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "current",
+            "filter": {"metric": {"estimand": "capture"}},
+            "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"}
+          }
+        }
+      },
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "scope.cognition.filter.metric"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "unavailable_recorded_at_view_rejects",
+      "kind": "served",
+      "host": "ke_only_conformant",
+      "client": "ke_only_conformant",
+      "op": "port.scope.list_knowledge_entries",
+      "payload": {
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {
+            "view": "recorded_at",
+            "filter": {"holder": {"kind": "knowledge_entry", "namespace": "world_a", "id": "kb_mira"}}
+          }
+        }
+      },
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "scope.cognition.view"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "memory_cognition_filter_unknown_predicate_rejects",
+      "kind": "served",
+      "host": "combined_cognition_rejection_probe",
+      "client": "combined_cognition_rejection_probe",
+      "op": "memory.records.list",
+      "payload": {"space_id": "space_1", "subject_id": "subject_1", "selection": {"mode": "subject_all"}, "cognition_filter": {"q_min": 0.5}},
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "cognition_filter.q_min"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "memory_carrier_delimiter_member_keeps_its_path",
+      "kind": "served",
+      "host": "combined_cognition_rejection_probe",
+      "client": "combined_cognition_rejection_probe",
+      "op": "memory.records.list",
+      "payload": {"space_id": "space_1", "subject_id": "subject_1", "selection": {"mode": "subject_all"}, "cognition_filter": {"q": {"min": 0.5, "a.b": 1}}},
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "cognition_filter.q[\"a.b\"]"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "memory_unrelated_cognition_cannot_hide_the_filter",
+      "kind": "served",
+      "host": "combined_cognition_rejection_probe",
+      "client": "combined_cognition_rejection_probe",
+      "op": "memory.records.list",
+      "payload": {
+        "space_id": "space_1", "subject_id": "subject_1", "selection": {"mode": "subject_all"},
+        "cognition": {"view": "current", "filter": {}},
+        "cognition_filter": {"q_min": 0.5}
+      },
+      "expect": {
+        "status": "reject",
+        "code": "invalid_input",
+        "reason": "unsupported_cognition_requirement",
+        "field": "cognition_filter.q_min"
+      },
+      "expect_provider_calls": 0
+    },
+    {
+      "id": "memory_scope_cognition_is_not_a_memory_carrier",
+      "kind": "served",
+      "host": "combined_cognition_rejection_probe",
+      "client": "combined_cognition_rejection_probe",
+      "op": "memory.records.list",
+      "payload": {
+        "space_id": "space_1", "subject_id": "subject_1", "selection": {"mode": "subject_all"},
+        "scope": {
+          "scope_id": "world_1",
+          "cognition": {"view": "current", "filter": {"q_min": 0.5}}
+        }
+      },
+      "expect": {"status": "ok"},
+      "expect_provider_calls": 1
+    },
+    {
+      "id": "memory_host_without_family_denies_cognition_filter",
+      "kind": "served",
+      "host": "combined_memory_incomplete",
+      "client": "combined_memory_incomplete",
+      "op": "memory.records.list",
+      "payload": {"space_id": "space_1", "subject_id": "subject_1", "selection": {"mode": "subject_all"}, "cognition_filter": {"q_min": 0.5}},
+      "expect": {"status": "reject", "code": "capability_missing"},
+      "expect_provider_calls": 0
+    }
+  ]
+}

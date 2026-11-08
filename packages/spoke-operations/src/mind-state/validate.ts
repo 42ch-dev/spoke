@@ -1,5 +1,7 @@
 import type { MindState } from "@42ch/spoke-schemas";
 
+import { validateCognitionProjection } from "../cognition/validate.js";
+
 // Closed-envelope property table (mind-state.schema.json, additionalProperties: false).
 const MIND_STATE_KEYS: Record<string, true> = {
   schema_version: true,
@@ -11,10 +13,57 @@ const MIND_STATE_KEYS: Record<string, true> = {
   snapshot: true,
   deltas: true,
   source_anchor: true,
+  cognition: true,
   created_at: true,
   updated_at: true,
   extensions: true,
 };
+
+// Retained nine-field mental vocabulary (domain-profile-mental-state).
+const MENTAL_FIELDS: Record<string, true> = {
+  identity: true,
+  beliefs: true,
+  attention: true,
+  goals: true,
+  intentions: true,
+  emotions: true,
+  dispositions: true,
+  norms: true,
+  constraints: true,
+};
+
+/**
+ * MindDelta path gate (common.schema.json MindDelta): RFC 6901 JSON Pointer
+ * with one of these exact roots: `/modules/mental/<field>...` for any of the
+ * nine mental fields; `/modules/cognition/records/...` for derivative
+ * standard cognition; `/modules/cognition/world_facts/...` for narrated-world
+ * facts. No dot-path and no path targeting the MindState itself as authority.
+ */
+function isValidMindDeltaPath(value: unknown): boolean {
+  if (typeof value !== "string" || value.length === 0) {
+    return false;
+  }
+  const segments = value.split("/");
+  if (segments[0] !== "" || /~(?![01])/.test(value)) {
+    return false;
+  }
+  const [, root, section, ...rest] = segments;
+  if (root !== "modules") {
+    return false;
+  }
+  if (section === "mental") {
+    return rest.length > 0 && MENTAL_FIELDS[rest[0]] === true;
+  }
+  // Schema `/(records|world_facts)/.+` counts the separating slash itself,
+  // so only a literally empty post-root tail is rejected; an all-empty-token
+  // tail such as `/records//` is valid (RFC 6901 permits empty tokens).
+  return (
+    section === "cognition" &&
+    rest.length > 1 &&
+    (rest.length > 2 || rest[1].length > 0) &&
+    (rest[0] === "records" || rest[0] === "world_facts")
+  );
+}
 
 function isNonEmptyTrimmedString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
@@ -39,8 +88,9 @@ const NAIVE_TIMESTAMP_RE =
  * (crates/spoke-operations/src/mind_state.rs): RFC 3339 first, then the
  * NaiveDateTime fallback. The accept/reject contract is pinned by the shared
  * fixture `fixtures/timestamp-parity-cases.json`, asserted by both suites.
+ * Exported for the cognition validators, which reuse the same Timestamp gate.
  */
-function isParseableDateTime(value: string): boolean {
+export function isParseableDateTime(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
     return false;
@@ -117,10 +167,14 @@ function isCalendarDateTimeValid(
 }
 
 /**
- * Wire-shape gate for MindState (optional capability l5-mind).
+ * Wire-shape gate for MindState (optional capability spoke-cognition).
  *
- * Checks required fields, the closed envelope (no unknown properties), and
- * snapshot / deltas types. Pure wire-shape validation only — mental
+ * Checks required fields (`schema_version`, `mind_state_id`,
+ * `holder_entry_id`, `extensions`), the closed envelope (no unknown
+ * properties), `snapshot` / `deltas` types when present, RFC 6901 delta
+ * paths rooted at `/modules/mental/<field>` or
+ * `/modules/cognition/{records,world_facts}`, and the optional derivative
+ * `cognition` CognitionProjection. Pure wire-shape validation only — mental
  * transition and ToM inference stay product-owned.
  */
 export function validateMindState(state: unknown): state is MindState {
@@ -184,11 +238,17 @@ export function validateMindState(state: unknown): state is MindState {
         if (!isPlainObject(delta)) {
           return false;
         }
-        return isNonEmptyTrimmedString(delta.path);
+        return isValidMindDeltaPath(delta.path);
       })
     ) {
       return false;
     }
+  }
+  if (
+    state.cognition !== undefined &&
+    !validateCognitionProjection(state.cognition)
+  ) {
+    return false;
   }
 
   return true;

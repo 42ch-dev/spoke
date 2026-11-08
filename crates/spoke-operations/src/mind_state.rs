@@ -8,7 +8,7 @@ use crate::result::{spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_json::{json, Map, Value};
 
-const MIND_STATE_KEYS: [&str; 12] = [
+const MIND_STATE_KEYS: [&str; 13] = [
     "schema_version",
     "mind_state_id",
     "holder_entry_id",
@@ -18,17 +18,76 @@ const MIND_STATE_KEYS: [&str; 12] = [
     "snapshot",
     "deltas",
     "source_anchor",
+    "cognition",
     "created_at",
     "updated_at",
     "extensions",
 ];
+
+// Retained nine-field mental vocabulary (domain-profile-mental-state).
+const MENTAL_FIELDS: [&str; 9] = [
+    "identity",
+    "beliefs",
+    "attention",
+    "goals",
+    "intentions",
+    "emotions",
+    "dispositions",
+    "norms",
+    "constraints",
+];
+
+/// MindDelta path gate (common.schema.json MindDelta): RFC 6901 JSON Pointer
+/// with one of these exact roots: `/modules/mental/<field>...` for any of the
+/// nine mental fields; `/modules/cognition/records/...` for derivative
+/// standard cognition; `/modules/cognition/world_facts/...` for narrated-world
+/// facts. No dot-path and no path targeting the MindState itself as authority.
+fn is_valid_mind_delta_path(value: &str) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+    // RFC 6901 escape rule: every `~` must be followed by `0` or `1`. The
+    // scan must cover all characters — a rooted path starts with `/`, so a
+    // first-character loop would never inspect its escape sequences.
+    for (index, ch) in value.char_indices() {
+        if ch != '~' {
+            continue;
+        }
+        match value[index + '~'.len_utf8()..].chars().next() {
+            Some('0') | Some('1') => {}
+            _ => return false,
+        }
+    }
+    let segments: Vec<&str> = value.split('/').collect();
+    if segments.first() != Some(&"") {
+        return false;
+    }
+    if segments.get(1) != Some(&"modules") {
+        return false;
+    }
+    let rest = &segments[2..];
+    match segments.get(2) {
+        Some(&"mental") => !rest[1..].is_empty() && MENTAL_FIELDS.contains(&rest[1]),
+        // `/modules/cognition/{records,world_facts}/` must have a non-empty
+        // post-root tail (schema pattern `/(records|world_facts)/.+`), but
+        // the `.+` counts the separating slash itself: only a literally
+        // empty tail is rejected, so `/records//` (two empty RFC 6901
+        // reference tokens) is valid while `/records/` is not.
+        Some(&"cognition") => {
+            rest.len() > 2
+                && (rest.len() > 3 || !rest[2].is_empty())
+                && (rest[1] == "records" || rest[1] == "world_facts")
+        }
+        _ => false,
+    }
+}
 
 fn is_non_empty_trimmed_string(value: &str) -> bool {
     !value.trim().is_empty()
 }
 
 fn is_plain_object(value: &Value) -> bool {
-    value.is_object() && !value.is_null()
+    value.is_object()
 }
 
 fn is_parseable_date_time(value: &str) -> bool {
@@ -49,11 +108,14 @@ fn reject(field: &str, code: SpokeRejectCode, message: &str) -> SpokeResult<()> 
     spoke_reject(code, message, Some(details))
 }
 
-/// Wire-shape gate for MindState (optional capability l5-mind).
+/// Wire-shape gate for MindState (optional capability spoke-cognition).
 ///
 /// Checks required fields (`schema_version`, `mind_state_id`,
 /// `holder_entry_id`, `extensions`), the closed envelope (no unknown
-/// properties), and `snapshot` / `deltas` types when present.
+/// properties), `snapshot` / `deltas` types when present, RFC 6901 delta
+/// paths rooted at `/modules/mental/<field>` or
+/// `/modules/cognition/{records,world_facts}`, and the optional derivative
+/// `cognition` CognitionProjection.
 pub fn validate_mind_state(value: &Value) -> SpokeResult<()> {
     let Some(state) = value.as_object() else {
         return spoke_reject(
@@ -196,16 +258,26 @@ pub fn validate_mind_state(value: &Value) -> SpokeResult<()> {
                 );
             }
             let path = delta.get("path").and_then(Value::as_str).unwrap_or("");
-            if !is_non_empty_trimmed_string(path) {
+            if !is_valid_mind_delta_path(path) {
                 let mut details = Map::new();
                 details.insert("field".into(), json!("deltas"));
                 details.insert("index".into(), json!(index));
                 return spoke_reject(
                     SpokeRejectCode::MissingRequiredField,
-                    "MindDelta path must be a non-empty string",
+                    "MindDelta path must be an RFC 6901 pointer under /modules/mental/<field> or /modules/cognition/{records,world_facts}",
                     Some(details),
                 );
             }
+        }
+    }
+
+    if let Some(cognition) = state.get("cognition") {
+        if crate::cognition::validate_cognition_projection(cognition).is_reject() {
+            return reject(
+                "cognition",
+                SpokeRejectCode::InvalidInput,
+                "MindState cognition must be a valid CognitionProjection when present",
+            );
         }
     }
 
@@ -320,7 +392,7 @@ mod tests {
         state
             .as_object_mut()
             .unwrap()
-            .insert("deltas".into(), json!([{ "path": "beliefs" }]));
+            .insert("deltas".into(), json!([{ "path": "/modules/mental/beliefs" }]));
 
         assert!(validate_mind_state(&state).is_ok());
     }

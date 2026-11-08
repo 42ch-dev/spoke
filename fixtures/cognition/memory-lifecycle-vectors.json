@@ -1,0 +1,647 @@
+{
+  "comment": "Shared cross-language Memory cognition lifecycle vectors (C8): admission byte accounting, candidate classification and transfer reference translation. Consumed by the TS/Rust spoke-operations validator suites, the reference-engine conformance suite and the SQLite provider tests. Every TS/Rust consumer must observe the same canonical_bytes / expected outcome. Admission measures RFC 8785 (JCS) canonical bytes of the complete wire Content value with only top-level explicit null members omitted: an explicitly present empty cognition array is measured as supplied (32 bytes), distinct from an absent member. All timestamps are D18 fictional time.",
+  "vectors": [
+    {
+      "id": "lifecycle-admission-cognition-valid",
+      "shape": "content-admission",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "rec_belief_mem_1",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_mem_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_mem_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:05:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "q": {
+              "value": 0.9,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      },
+      "canonical_bytes": 773,
+      "max_content_bytes": 773,
+      "expected": "accept"
+    },
+    {
+      "id": "lifecycle-admission-cognition-over-budget",
+      "shape": "content-admission",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "rec_belief_mem_1",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_mem_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_mem_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:05:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "q": {
+              "value": 0.9,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      },
+      "canonical_bytes": 773,
+      "max_content_bytes": 772,
+      "expected": "reject",
+      "reason": "max_content_bytes"
+    },
+    {
+      "id": "lifecycle-admission-invalid-cognition-rejects-before-budget",
+      "shape": "content-admission",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "rec_belief_mem_1",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_mem_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_mem_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:05:00Z",
+            "view": "current",
+            "order": 1,
+            "q": {
+              "value": 0.9,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      },
+      "canonical_bytes": 769,
+      "max_content_bytes": 768,
+      "expected": "reject",
+      "reason": "invalid_cognition_record",
+      "note": "The record is structurally complete except for view=current and the content is also over the 768-byte budget: the cognition guard must reject as invalid_cognition_record before max_content_bytes admission."
+    },
+    {
+      "id": "lifecycle-admission-absent-cognition",
+      "shape": "content-admission",
+      "content": { "text": "Memory" },
+      "canonical_bytes": 17,
+      "max_content_bytes": 17,
+      "expected": "accept"
+    },
+    {
+      "id": "lifecycle-admission-explicit-empty-cognition",
+      "shape": "content-admission",
+      "content": { "text": "Memory", "cognition": [] },
+      "canonical_bytes": 32,
+      "max_content_bytes": 32,
+      "expected": "accept",
+      "note": "Admission measures the complete wire value: an explicitly present empty cognition array is 32 bytes (\"cognition\":[] is part of the request), distinct from an absent member (17). Both language carriers keep the member: TS measures the supplied value and the generated Rust Content preserves an explicit empty array, so both boundaries count 32 bytes."
+    },
+    {
+      "id": "lifecycle-admission-explicit-empty-cognition-over-budget",
+      "shape": "content-admission",
+      "content": { "text": "Memory", "cognition": [] },
+      "canonical_bytes": 32,
+      "max_content_bytes": 31,
+      "expected": "reject",
+      "reason": "max_content_bytes",
+      "note": "The explicit empty array is measured as supplied, so a 31-byte budget cannot admit the 32-byte request."
+    },
+    {
+      "id": "lifecycle-revision-reassessment-content",
+      "shape": "content-admission",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "rec_belief_mem_1",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_mem_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_mem_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:05:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "q": {
+              "value": 0.9,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          },
+          {
+            "kind": "belief",
+            "record_id": "rec_belief_mem_2",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_mem_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "bob" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_mem_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-24T06:05:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "q": {
+              "value": 0.4,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      },
+      "canonical_bytes": 1513,
+      "max_content_bytes": 1513,
+      "expected": "accept",
+      "note": "Revision content: the retained original entry keeps alice's attribution and assessed_at; the current reassessment is a separately attributed recorded-at-time entry appended by bob."
+    },
+    {
+      "id": "lifecycle-classify-cognition-only-promotes",
+      "shape": "candidate-classification",
+      "kind": "note",
+      "text": "   \n\t ",
+      "has_structured_content": false,
+      "has_cognition_content": true,
+      "expected_disposition": "promote"
+    },
+    {
+      "id": "lifecycle-classify-all-absent-drops",
+      "shape": "candidate-classification",
+      "kind": "note",
+      "text": "   \n\t ",
+      "has_structured_content": false,
+      "has_cognition_content": false,
+      "expected_disposition": "drop"
+    },
+    {
+      "id": "lifecycle-classify-short-text-with-cognition-promotes",
+      "shape": "candidate-classification",
+      "kind": "event",
+      "text": "key",
+      "has_structured_content": false,
+      "has_cognition_content": true,
+      "expected_disposition": "promote"
+    },
+    {
+      "id": "lifecycle-classify-whitespace-explicit-empty-cognition-drops",
+      "shape": "candidate-classification",
+      "kind": "note",
+      "text": "   \n\t ",
+      "has_structured_content": false,
+      "has_cognition_content": false,
+      "content_cognition": [],
+      "expected_disposition": "drop",
+      "note": "An explicitly present empty cognition array is a valid wire value the admission measure preserves, but it records no assessment and must not keep a contentless candidate alive."
+    },
+    {
+      "id": "transfer-subject-id-map-renames-reference",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "memory_subject", "namespace": "mem", "id": "subj_a" } }
+        ]
+      },
+      "subject_id_map": { "subj_a": "subj_b" },
+      "record_id_map": {},
+      "candidate_id_map": {},
+      "reference_translations": [],
+      "expected": "accept",
+      "expected_content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "memory_subject", "namespace": "mem", "id": "subj_b" } }
+        ]
+      }
+    },
+    {
+      "id": "transfer-id-map-keeps-namespace",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "memory_subject", "namespace": "spc_source", "id": "subj_a" } }
+        ]
+      },
+      "subject_id_map": { "subj_a": "subj_b" },
+      "record_id_map": {},
+      "candidate_id_map": {},
+      "reference_translations": [],
+      "expected": "accept",
+      "expected_content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "memory_subject", "namespace": "spc_source", "id": "subj_b" } }
+        ]
+      },
+      "note": "Id maps apply only to an id change within an unchanged namespace; the namespace always rides along untouched."
+    },
+    {
+      "id": "transfer-record-id-map-renames-reference",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          { "basis": { "kind": "evidence", "evidence": [ { "kind": "memory_record", "namespace": "mem", "id": "rec_a" } ] } }
+        ]
+      },
+      "subject_id_map": {},
+      "record_id_map": { "rec_a": "rec_b" },
+      "candidate_id_map": {},
+      "reference_translations": [],
+      "expected": "accept",
+      "expected_content": {
+        "text": "Memory",
+        "cognition": [
+          { "basis": { "kind": "evidence", "evidence": [ { "kind": "memory_record", "namespace": "mem", "id": "rec_b" } ] } }
+        ]
+      }
+    },
+    {
+      "id": "transfer-namespace-change-requires-exact-pair",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_a" } }
+        ]
+      },
+      "subject_id_map": {},
+      "record_id_map": {},
+      "candidate_id_map": {},
+      "reference_translations": [
+        [
+          { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_a" },
+          { "kind": "memory_subject", "namespace": "mem_target", "id": "subj_b" }
+        ]
+      ],
+      "expected": "accept",
+      "expected_content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "memory_subject", "namespace": "mem_target", "id": "subj_b" } }
+        ]
+      },
+      "note": "An exact full-reference pair translates the complete tuple including a namespace change; id maps can never do this."
+    },
+    {
+      "id": "transfer-pair-wins-over-id-map",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "memory_subject", "namespace": "mem", "id": "subj_a" } }
+        ]
+      },
+      "subject_id_map": { "subj_a": "subj_mapped" },
+      "record_id_map": {},
+      "candidate_id_map": {},
+      "reference_translations": [
+        [
+          { "kind": "memory_subject", "namespace": "mem", "id": "subj_a" },
+          { "kind": "memory_subject", "namespace": "mem", "id": "subj_pair" }
+        ]
+      ],
+      "expected": "accept",
+      "expected_content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "memory_subject", "namespace": "mem", "id": "subj_pair" } }
+        ]
+      },
+      "note": "An exact pair always wins over an id-map entry for the same source reference."
+    },
+    {
+      "id": "transfer-missing-assignment-fails-closed",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "memory_subject", "namespace": "mem", "id": "subj_a" } }
+        ]
+      },
+      "subject_id_map": {},
+      "record_id_map": {},
+      "candidate_id_map": {},
+      "reference_translations": [],
+      "expected": "reject",
+      "error_contains": "subj_a"
+    },
+    {
+      "id": "transfer-ambiguous-bare-id-fails-closed",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "memory_subject", "namespace": "mem_one", "id": "subj_a" } },
+          { "assessor": { "kind": "memory_subject", "namespace": "mem_two", "id": "subj_a" } }
+        ]
+      },
+      "subject_id_map": { "subj_a": "subj_b" },
+      "record_id_map": {},
+      "candidate_id_map": {},
+      "reference_translations": [],
+      "expected": "reject",
+      "error_contains": "subj_a"
+    },
+    {
+      "id": "transfer-cross-system-same-bare-id",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "external", "namespace": "system_a", "id": "alice" } },
+          { "assessor": { "kind": "external", "namespace": "system_b", "id": "alice" } }
+        ]
+      },
+      "subject_id_map": { "alice": "alice_renamed" },
+      "record_id_map": {},
+      "candidate_id_map": {},
+      "reference_translations": [
+        [
+          { "kind": "external", "namespace": "system_a", "id": "alice" },
+          { "kind": "external", "namespace": "system_c", "id": "alice" }
+        ]
+      ],
+      "expected": "accept",
+      "expected_content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "external", "namespace": "system_c", "id": "alice" } },
+          { "assessor": { "kind": "external", "namespace": "system_b", "id": "alice" } }
+        ]
+      },
+      "note": "system_a/alice and system_b/alice neither match on bare id nor inherit each other's mapping: the pair translates exactly the system_a reference, the id map never applies to external references, and the system_b reference is preserved unchanged."
+    },
+    {
+      "id": "transfer-knowledge-entry-unpaired-preserved",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" } }
+        ]
+      },
+      "subject_id_map": {},
+      "record_id_map": {},
+      "candidate_id_map": {},
+      "reference_translations": [],
+      "expected": "accept",
+      "expected_content": {
+        "text": "Memory",
+        "cognition": [
+          { "holder": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" } }
+        ]
+      },
+      "note": "No identity component changes for an unpaired knowledge_entry reference, so the complete namespace-bearing identity is preserved."
+    },
+    {
+      "id": "transfer-opaque-lookalikes-unchanged",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "structured": {
+          "kind": "memory_subject",
+          "namespace": "mem_source",
+          "id": "subj_a",
+          "extra": 1
+        },
+        "cognition": [
+          {
+            "kind": "perception",
+            "holder": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_a" },
+            "content": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_a" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+              "target_id": "t_outer",
+              "kind": "perceived_content",
+              "text": "untrusted text naming subj_a",
+              "about": {
+                "carrier": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_a" },
+                "target_id": "t_inner",
+                "kind": "proposition"
+              }
+            },
+            "extensions": {
+              "product": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_a" }
+            }
+          }
+        ]
+      },
+      "subject_id_map": { "subj_a": "subj_target" },
+      "record_id_map": {},
+      "candidate_id_map": {},
+      "reference_translations": [],
+      "expected": "accept",
+      "expected_content": {
+        "text": "Memory",
+        "structured": {
+          "kind": "memory_subject",
+          "namespace": "mem_source",
+          "id": "subj_a",
+          "extra": 1
+        },
+        "cognition": [
+          {
+            "kind": "perception",
+            "holder": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_target" },
+            "content": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_a" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+              "target_id": "t_outer",
+              "kind": "perceived_content",
+              "text": "untrusted text naming subj_a",
+              "about": {
+                "carrier": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_target" },
+                "target_id": "t_inner",
+                "kind": "proposition"
+              }
+            },
+            "extensions": {
+              "product": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_a" }
+            }
+          }
+        ]
+      },
+      "note": "Only typed cognition reference positions translate: holder and target/about carriers change, while opaque structured content, Perception `content`, target `text` and extension objects that merely look like references stay byte-identical."
+    },
+    {
+      "id": "transfer-typed-reference-fields-translated",
+      "shape": "reference-translation",
+      "content": {
+        "text": "Memory",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "rec_1",
+            "holder": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_a" },
+            "target": {
+              "carrier": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_a" },
+              "target_id": "t_outer",
+              "kind": "proposition",
+              "about": {
+                "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+                "target_id": "t_inner",
+                "kind": "proposition"
+              }
+            },
+            "assessor": { "kind": "external", "namespace": "system_a", "id": "alice" },
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "memory_record", "namespace": "mem_source", "id": "rec_src" },
+                { "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" }
+              ]
+            },
+            "metrics": {
+              "b": {
+                "assessor": { "kind": "principal", "namespace": "system_b", "id": "bob" },
+                "basis": {
+                  "kind": "evidence",
+                  "evidence": [
+                    { "kind": "external", "namespace": "system_a", "id": "alice" }
+                  ]
+                }
+              }
+            },
+            "episode": { "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" }
+          }
+        ]
+      },
+      "subject_id_map": { "subj_a": "subj_target" },
+      "record_id_map": { "rec_src": "rec_target" },
+      "candidate_id_map": {},
+      "reference_translations": [
+        [
+          { "kind": "external", "namespace": "system_a", "id": "alice" },
+          { "kind": "external", "namespace": "system_c", "id": "alice" }
+        ],
+        [
+          { "kind": "principal", "namespace": "system_b", "id": "bob" },
+          { "kind": "principal", "namespace": "system_c", "id": "bob" }
+        ],
+        [
+          { "kind": "timeline_event", "namespace": "system_a", "id": "evt_1" },
+          { "kind": "external", "namespace": "system_c", "id": "evt_1" }
+        ]
+      ],
+      "expected": "accept",
+      "expected_content": {
+        "text": "Memory",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "rec_1",
+            "holder": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_target" },
+            "target": {
+              "carrier": { "kind": "memory_subject", "namespace": "mem_source", "id": "subj_target" },
+              "target_id": "t_outer",
+              "kind": "proposition",
+              "about": {
+                "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_1" },
+                "target_id": "t_inner",
+                "kind": "proposition"
+              }
+            },
+            "assessor": { "kind": "external", "namespace": "system_c", "id": "alice" },
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "memory_record", "namespace": "mem_source", "id": "rec_target" },
+                { "kind": "external", "namespace": "system_c", "id": "evt_1" }
+              ]
+            },
+            "metrics": {
+              "b": {
+                "assessor": { "kind": "principal", "namespace": "system_c", "id": "bob" },
+                "basis": {
+                  "kind": "evidence",
+                  "evidence": [
+                    { "kind": "external", "namespace": "system_c", "id": "alice" }
+                  ]
+                }
+              }
+            },
+            "episode": { "kind": "external", "namespace": "system_c", "id": "evt_1" }
+          }
+        ]
+      },
+      "note": "Every typed §6.3 position translates: holder, target carrier, target/about carrier, assessor, basis evidence, metric assessor/basis and episode; the unpaired knowledge_entry carrier and record_id/target_id stay stable."
+    }
+  ]
+}

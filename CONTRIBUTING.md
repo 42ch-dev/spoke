@@ -117,7 +117,7 @@ Refresh the committed artifact from a run in one command (requires the `gh` CLI 
 ./tooling/connect/apply-xcframework-artifact.sh <run-id>
 ```
 
-The script verifies the run's provenance — the `Xcframework` workflow, a successful conclusion or a failure solely on committed consumer smoke after a successful artifact upload, and a `headSha` matching the current checkout (override with `--allow-sha <sha>` only to deliberately pin an older build). It verifies the artifact's hash manifest and producer record before applying the built tree and staging the LFS pointers. Commit with the suggested line — `build(connect): refresh xcframework from CI artifact <run-id>` — using normal maintainer credentials.
+The script verifies the run's provenance — the `Xcframework` workflow, completed producer steps for the build, manifest, provenance, and upload, and either success or failures limited to the committed freshness and consumer smoke checks. The `headSha` must match the current checkout (override with `--allow-sha <sha>` only to deliberately pin an older build). It verifies the artifact's hash manifest and producer record before applying the built tree and staging the LFS pointers. Commit with the suggested line — `build(connect): refresh xcframework from CI artifact <run-id>` — using normal maintainer credentials. A fresh build may differ from a later rebuild; retain the actual two-tree comparison and investigate drift rather than treating successful application as a freshness proof.
 
 ## Refreshing the C carrier natives
 

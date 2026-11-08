@@ -11,10 +11,15 @@
 # Downloads the xcframework artifact from <run-id>, verifies the run's
 # provenance (workflow, conclusion, headSha), checksum-verifies the artifact
 # against its mandatory hash manifest, validates the producer record the CI
-# now ships inside the artifact (its sourceHead must equal the run head and
-# its embedded manifest must equal the artifact manifest byte-for-byte, which
+# now ships inside the artifact (its sourceHead and its actual checkoutRevision
+# must both equal the run head — a pull-request virtual merge records a merge
+# checkout while declaring the PR head, and accepting it would bind the
+# committed carrier to a head it was never built from — and its embedded
+# manifest must equal the artifact manifest byte-for-byte, which
 # also yields the observed compiler version), rsyncs the artifact over the
-# committed tree (LFS pointers staged via .gitattributes clean filter), writes
+# committed tree (checksum-based so same-size same-mtime files are not
+# silently skipped), re-verifies the delivered tree against the manifest
+# before staging, stages LFS pointers via .gitattributes clean filter, writes
 # the sibling `provenance.json` + manifest copy from the run's own facts plus
 # that observed compiler, and prints the suggested commit line. Requires `gh`,
 # `rsync` and `python3` (the record is emitted with `json.dump` and re-parsed
@@ -25,7 +30,9 @@
 # Provenance gate (fail-closed, runs before the download): accept successful
 # runs or failures limited to the committed freshness and consumer smoke checks,
 # with successful build, manifest, provenance and upload steps in either case.
-# The run head must match HEAD unless --allow-sha pins it.
+# The run head must match HEAD unless --allow-sha pins it. The override only
+# relaxes that destination check; the producer record must still show a
+# checkout of exactly the declared run head.
 
 set -euo pipefail
 
@@ -210,6 +217,13 @@ if record.get("sourceHead") != os.environ["RUN_HEAD_SHA"]:
         file=sys.stderr,
     )
     raise SystemExit(1)
+if record.get("checkoutRevision") != os.environ["RUN_HEAD_SHA"]:
+    print(
+        "error: artifact provenance checkoutRevision %s != run head %s — the producer did not build at the declared head"
+        % (record.get("checkoutRevision"), os.environ["RUN_HEAD_SHA"]),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 with open(os.environ["MANIFEST"], encoding="utf-8") as handle:
     if record.get("manifest") != handle.read():
         print("error: artifact provenance manifest does not match the artifact manifest", file=sys.stderr)
@@ -225,8 +239,18 @@ PY
   exit 1
 fi
 
+# Content-aware transfer: rsync's default size/mtime shortcut skips same-size
+# files sharing a coarse mtime and reports success while leaving the old bytes,
+# so compare checksums instead (-c). The delivered tree is additionally
+# re-verified against the authenticated manifest below, before staging.
 echo "==> rsync artifact over committed tree"
-rsync -a --delete "${BUILT}/" "${XCFRAMEWORK_DIR}/"
+rsync -a -c --delete "${BUILT}/" "${XCFRAMEWORK_DIR}/"
+
+# A transfer that reports success without delivering the authenticated bytes
+# must never produce successful provenance: re-check the actual destination
+# bytes against the same manifest before any staging or sidecar write.
+echo "==> verify delivered bundle against hash manifest"
+(cd "${XCFRAMEWORK_DIR}" && shasum -a 256 -c "${MANIFEST}")
 
 # LFS guard: without git-lfs the .gitattributes clean filter is missing and
 # `git add` would stage raw ~120 MB binaries instead of pointers.

@@ -90,6 +90,13 @@ if ! command -v shasum >/dev/null 2>&1; then
   echo "error: shasum required (mandatory checksum verification before and after transfer)" >&2
   exit 1
 fi
+# LFS guard: without git-lfs the .gitattributes clean filter is missing and
+# `git add` would stage raw ~120 MB binaries instead of pointers.
+if ! git lfs version >/dev/null 2>&1; then
+  echo "error: git-lfs required so .a files stage as LFS pointers, not raw binaries" >&2
+  echo "       (brew install git-lfs && git lfs install)" >&2
+  exit 1
+fi
 
 # Keep in sync with the workflow name in .github/workflows/xcframework.yml.
 WF_NAME="Xcframework"
@@ -259,14 +266,9 @@ rsync -a -c --delete "${BUILT}/" "${XCFRAMEWORK_DIR}/"
 echo "==> verify delivered bundle against hash manifest"
 (cd "${XCFRAMEWORK_DIR}" && shasum -a 256 -c "${MANIFEST}")
 
-# LFS guard: without git-lfs the .gitattributes clean filter is missing and
-# `git add` would stage raw ~120 MB binaries instead of pointers.
+# Repository-state checks stay beside staging: every .a carrier must map to
+# the LFS filter before anything is staged.
 echo "==> stage LFS pointers"
-if ! git lfs version >/dev/null 2>&1; then
-  echo "error: git-lfs required so .a files stage as LFS pointers, not raw binaries" >&2
-  echo "       (brew install git-lfs && git lfs install)" >&2
-  exit 1
-fi
 LFS_TARGET="$(find "${XCFRAMEWORK_DIR}" -name '*.a' -print -quit)"
 if [[ -z "${LFS_TARGET}" ]]; then
   echo "error: no .a file under ${XCFRAMEWORK_DIR} — nothing for git-lfs to track" >&2

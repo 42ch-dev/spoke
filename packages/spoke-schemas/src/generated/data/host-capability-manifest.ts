@@ -23,7 +23,7 @@ export interface HostCapabilityManifest {
    */
   roles: [string, ...string[]];
   /**
-   * Open string capability flags. Core vocabulary (documented, not enforced): spoke-baseline, l2-computable.
+   * Open string capability flags. Core vocabulary (documented, not enforced): spoke-baseline, l2-computable, spoke-cognition. A host advertises spoke-cognition only when every mandatory rule applicable to its served surface is implemented; the manifest string alone is never conformance evidence (KE-only hosts need not serve Memory; combined hosts may not advertise incomplete Memory cognition).
    *
    * @minItems 1
    */

@@ -29,6 +29,7 @@ import type {
 } from "@42ch/spoke-schemas";
 
 import { buildAssemblePacket } from "../assemble/builder.js";
+import type { CurrentViewPolicy } from "../cognition/select.js";
 import {
   validateComputeRequest,
   validateProjectRequest,
@@ -48,8 +49,10 @@ import {
   type SpokeResult,
 } from "../result.js";
 import {
+  assertSupportedCognitionSelection,
   filterKnowledgeEntriesByScope,
   filterTimelineEventsByScope,
+  knowledgeEntryPassesScopeAuthorization,
 } from "../scope/match.js";
 import { validateUpsertKnowledgeEntry } from "../upsert/validate.js";
 
@@ -329,26 +332,44 @@ export async function orchestrateCheck(
   request: CheckRequest,
   runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>,
 ): Promise<SpokeResult<CheckResponse>> {
+  // Unavailable or unsupported cognition requirements reject the whole request
+  // before any port read or checker/finding side effect.
+  const cognition = assertSupportedCognitionSelection(
+    request.scope.cognition,
+    "scope.cognition",
+  );
+  if (!cognition.ok) {
+    return cognition;
+  }
+
   const rulesResult = await resolveCheckRules(ports, request);
   if (!rulesResult.ok) {
     return rulesResult;
   }
 
-  const entriesResult = await ports.listKnowledgeEntries(request.scope);
+  // The port sees baseline Scope fields only; cognition is applied locally
+  // after disclosure, so a broader provider result can never reach the checker.
+  const scope = baselineScope(request.scope);
+
+  const entriesResult = await ports.listKnowledgeEntries(scope);
   if (!entriesResult.ok) {
     return entriesResult;
   }
 
-  const eventsResult = await ports.listTimelineEvents(request.scope);
+  const eventsResult = await ports.listTimelineEvents(scope);
   if (!eventsResult.ok) {
     return eventsResult;
   }
 
-  const entries = filterKnowledgeEntriesByScope(
+  const authorizedEntries = filterKnowledgeEntriesByScope(
     entriesResult.value,
     request.scope,
   );
-  const events = filterTimelineEventsByScope(eventsResult.value, request.scope);
+  if (!authorizedEntries.ok) {
+    return authorizedEntries;
+  }
+  const entries = authorizedEntries.value;
+  const events = filterTimelineEventsByScope(eventsResult.value, scope);
 
   const checkResult = runChecker({
     request,
@@ -369,28 +390,54 @@ export async function orchestrateCheck(
 }
 
 /**
+ * The KE port is queried with baseline Scope fields only. Cognition is a
+ * derivative selection applied locally after disclosure, so an unauthorized
+ * record can never influence the query, count or projection.
+ */
+function baselineScope<T extends Scope>(scope: T): T {
+  if (scope.cognition === undefined) {
+    return scope;
+  }
+  const baseline: T = { ...scope };
+  delete baseline.cognition;
+  return baseline;
+}
+
+/**
  * Query scoped KnowledgeEntries/events, apply scope helpers, build AssemblePacket.
+ * A current cognition selection requires the injected product policy; it is
+ * called only after authorization and its identity is traced in the packet.
  */
 export async function orchestrateAssemble(
   ports: BaselinePorts,
   request: AssembleRequest,
+  currentViewPolicy?: CurrentViewPolicy,
 ): Promise<SpokeResult<AssembleResponse>> {
-  const entriesResult = await ports.listKnowledgeEntries(request.scope);
+  const cognition = assertSupportedCognitionSelection(
+    request.scope.cognition,
+    "scope.cognition",
+  );
+  if (!cognition.ok) {
+    return cognition;
+  }
+
+  const scope = baselineScope(request.scope);
+
+  const entriesResult = await ports.listKnowledgeEntries(scope);
   if (!entriesResult.ok) {
     return entriesResult;
   }
 
-  const eventsResult = await ports.listTimelineEvents(request.scope);
+  const eventsResult = await ports.listTimelineEvents(scope);
   if (!eventsResult.ok) {
     return eventsResult;
   }
 
   // Events are loaded/filtered for sequence parity; packet builders use entries only.
-  filterTimelineEventsByScope(eventsResult.value, request.scope);
+  filterTimelineEventsByScope(eventsResult.value, scope);
 
-  const entries = filterKnowledgeEntriesByScope(
-    entriesResult.value,
-    request.scope,
+  const entries = entriesResult.value.filter((knowledgeEntry) =>
+    knowledgeEntryPassesScopeAuthorization(knowledgeEntry, scope),
   );
 
   const packetResult = buildAssemblePacket({
@@ -398,6 +445,8 @@ export async function orchestrateAssemble(
     knowledgeEntries: entries,
     maxEntries: request.max_entries,
     extensions: request.extensions,
+    cognitionSelection: request.scope.cognition,
+    currentViewPolicy,
   });
   if (!packetResult.ok) {
     return packetResult;
@@ -492,6 +541,14 @@ export async function orchestrateForkCheck(
     return capability;
   }
 
+  const cognition = assertSupportedCognitionSelection(
+    request.scope.cognition,
+    "scope.cognition",
+  );
+  if (!cognition.ok) {
+    return cognition;
+  }
+
   const forkScope = requireForkScope(request.scope);
   if (!forkScope.ok) {
     return forkScope;
@@ -502,21 +559,30 @@ export async function orchestrateForkCheck(
     return rulesResult;
   }
 
-  const entriesResult = await ports.listKnowledgeEntries(request.scope);
+  // Baseline scope only: cognition is enforced locally after disclosure.
+  const scope = baselineScope(request.scope);
+
+  const entriesResult = await ports.listKnowledgeEntries(scope);
   if (!entriesResult.ok) {
     return entriesResult;
   }
 
-  const eventsResult = await ports.listForkTimelineEvents(forkScope.value);
+  const eventsResult = await ports.listForkTimelineEvents(
+    baselineScope(forkScope.value),
+  );
   if (!eventsResult.ok) {
     return eventsResult;
   }
 
-  const entries = filterKnowledgeEntriesByScope(
+  const authorizedEntries = filterKnowledgeEntriesByScope(
     entriesResult.value,
     request.scope,
   );
-  const events = filterTimelineEventsByScope(eventsResult.value, request.scope);
+  if (!authorizedEntries.ok) {
+    return authorizedEntries;
+  }
+  const entries = authorizedEntries.value;
+  const events = filterTimelineEventsByScope(eventsResult.value, scope);
 
   const checkResult = runChecker({
     request,
@@ -542,6 +608,7 @@ export async function orchestrateForkCheck(
 export async function orchestrateForkAssemble(
   ports: ForkPorts,
   request: AssembleRequest,
+  currentViewPolicy?: CurrentViewPolicy,
 ): Promise<SpokeResult<AssembleResponse>> {
   const capability = requirePortMethod(ports, "listForkTimelineEvents");
   if (!capability.ok) {
@@ -553,22 +620,33 @@ export async function orchestrateForkAssemble(
     return forkScope;
   }
 
-  const entriesResult = await ports.listKnowledgeEntries(request.scope);
+  const cognition = assertSupportedCognitionSelection(
+    request.scope.cognition,
+    "scope.cognition",
+  );
+  if (!cognition.ok) {
+    return cognition;
+  }
+
+  const scope = baselineScope(request.scope);
+
+  const entriesResult = await ports.listKnowledgeEntries(scope);
   if (!entriesResult.ok) {
     return entriesResult;
   }
 
-  const eventsResult = await ports.listForkTimelineEvents(forkScope.value);
+  const forkEventsScope = { ...forkScope.value };
+  delete forkEventsScope.cognition;
+  const eventsResult = await ports.listForkTimelineEvents(forkEventsScope);
   if (!eventsResult.ok) {
     return eventsResult;
   }
 
   // Events are loaded/filtered for sequence parity; packet builders use entries only.
-  filterTimelineEventsByScope(eventsResult.value, request.scope);
+  filterTimelineEventsByScope(eventsResult.value, scope);
 
-  const entries = filterKnowledgeEntriesByScope(
-    entriesResult.value,
-    request.scope,
+  const entries = entriesResult.value.filter((knowledgeEntry) =>
+    knowledgeEntryPassesScopeAuthorization(knowledgeEntry, scope),
   );
 
   const packetResult = buildAssemblePacket({
@@ -576,6 +654,8 @@ export async function orchestrateForkAssemble(
     knowledgeEntries: entries,
     maxEntries: request.max_entries,
     extensions: request.extensions,
+    cognitionSelection: request.scope.cognition,
+    currentViewPolicy,
   });
   if (!packetResult.ok) {
     return packetResult;

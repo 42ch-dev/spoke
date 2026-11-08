@@ -271,6 +271,29 @@ impl Classification {
         Default::default()
     }
 }
+#[doc = "Closed standard cognition records for the spoke-cognition family: Belief, epistemic (knowledge/ignorance/undetermined) and Perception. Every completed standard record requires a declared foundational q for its identified cognitive assertion; a declared basis may remain uncalibrated and supplies no default probability, evidence, interval or calibration. Absent is never serialized as null. Expressed as closed variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum CognitionRecord {
+    Shared16(Shared16),
+    Shared17(Shared17),
+    Shared18(Shared18),
+}
+impl ::std::convert::From<Shared16> for CognitionRecord {
+    fn from(value: Shared16) -> Self {
+        Self::Shared16(value)
+    }
+}
+impl ::std::convert::From<Shared17> for CognitionRecord {
+    fn from(value: Shared17) -> Self {
+        Self::Shared17(value)
+    }
+}
+impl ::std::convert::From<Shared18> for CognitionRecord {
+    fn from(value: Shared18) -> Self {
+        Self::Shared18(value)
+    }
+}
 #[doc = "Consumption outcome; present iff consumed (§6.7)."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -775,8 +798,12 @@ impl<'de> ::serde::Deserialize<'de> for GrantId {
 #[serde(deny_unknown_fields)]
 pub struct GrantSummary {
     pub capabilities: ::std::vec::Vec<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub context_ids: ::std::vec::Vec<::std::string::String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub context_ids: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
     pub grant_id: GrantId,
     #[doc = "Opaque correlation label — never credentials or tokens."]
     pub principal_ref: PrincipalRef,
@@ -984,17 +1011,17 @@ impl<'de> ::serde::Deserialize<'de> for Kind {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum MemoryCandidate {
-    Shared19(Shared19),
-    Shared20(Shared20),
+    Shared69(Shared69),
+    Shared70(Shared70),
 }
-impl ::std::convert::From<Shared19> for MemoryCandidate {
-    fn from(value: Shared19) -> Self {
-        Self::Shared19(value)
+impl ::std::convert::From<Shared69> for MemoryCandidate {
+    fn from(value: Shared69) -> Self {
+        Self::Shared69(value)
     }
 }
-impl ::std::convert::From<Shared20> for MemoryCandidate {
-    fn from(value: Shared20) -> Self {
-        Self::Shared20(value)
+impl ::std::convert::From<Shared70> for MemoryCandidate {
+    fn from(value: Shared70) -> Self {
+        Self::Shared70(value)
     }
 }
 #[doc = "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."]
@@ -2637,7 +2664,7 @@ impl<'de> ::serde::Deserialize<'de> for PrincipalRef {
 pub struct ProfileDocument {
     pub created_at: Shared11,
     #[doc = "Trusted author-maintained content (§10)."]
-    pub document: Shared18,
+    pub document: Shared68,
     pub extensions: Shared2,
     #[doc = "Open vocabulary of authored content kinds. Core (documented, not enforced): personality, preferences (§4.2)."]
     pub profile_kind: ProfileDocumentProfileKind,
@@ -2855,11 +2882,11 @@ impl<'de> ::serde::Deserialize<'de> for ProfileDocumentUpdatedBy {
             })
     }
 }
-#[doc = "Full proposed content; removed from the shell on consumption (§6.7 scrub)."]
+#[doc = "Full proposed content; removed from the shell on consumption (§6.7 scrub). Carries the same Content shape as retained records: optional cognition counts as content for classification and budgets; pending review confers no authority."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Proposed {
-    pub content: Shared16,
+    pub content: Shared66,
     pub kind: Kind,
 }
 impl Proposed {
@@ -3070,7 +3097,10 @@ impl<'de> ::serde::Deserialize<'de> for RecordId {
 pub struct Reflection {
     pub basis: ReflectionBasis,
     #[doc = "Derived content; trusted only as to its pinned basis and generator."]
-    pub body: Shared18,
+    pub body: Shared68,
+    #[doc = "Pinned cognition filter; absent = none. Included in the ReflectionBasis digest object (state_digest changes when it or the source set changes); composes with selection and provenance filter by AND."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub cognition_filter: ::std::option::Option<Shared63>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub cost: ::std::option::Option<ReflectionCost>,
     pub created_at: Shared11,
@@ -3622,27 +3652,55 @@ pub struct Shared0 {
     pub bundle_digest: BundleDigest,
     #[doc = "Serialized chunk size. At most export_chunk_bytes, except a single element larger than the limit, which occupies its own chunk (never split, never dropped)."]
     pub bytes: ::std::num::NonZeroU64,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub candidates: ::std::vec::Vec<Shared7>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub candidates: ::std::option::Option<::std::vec::Vec<Shared7>>,
     pub chunk_count: ::std::num::NonZeroU64,
     #[doc = "SHA-256 over the JCS canonicalization of this chunk object minus chunk_digest."]
     pub chunk_digest: ChunkDigest,
     #[doc = "Strict order; chunk 0 carries the header."]
     pub chunk_ordinal: i64,
     pub export_id: ExportId,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub grants: ::std::vec::Vec<Shared9>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub grants: ::std::option::Option<::std::vec::Vec<Shared9>>,
     pub header: Header,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub profiles: ::std::vec::Vec<Shared5>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub receipt_summaries: ::std::vec::Vec<Shared8>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub records: ::std::vec::Vec<Shared4>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub reflections: ::std::vec::Vec<Shared6>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub subjects: ::std::vec::Vec<Shared3>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub profiles: ::std::option::Option<::std::vec::Vec<Shared5>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub receipt_summaries: ::std::option::Option<::std::vec::Vec<Shared8>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub records: ::std::option::Option<::std::vec::Vec<Shared4>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub reflections: ::std::option::Option<::std::vec::Vec<Shared6>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub subjects: ::std::option::Option<::std::vec::Vec<Shared3>>,
 }
 impl Shared0 {
     pub fn builder() -> builder::Shared0 {
@@ -3657,26 +3715,54 @@ pub struct Shared1 {
     pub bundle_digest: BundleDigest,
     #[doc = "Serialized chunk size. At most export_chunk_bytes, except a single element larger than the limit, which occupies its own chunk (never split, never dropped)."]
     pub bytes: ::std::num::NonZeroU64,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub candidates: ::std::vec::Vec<MemoryCandidate>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub candidates: ::std::option::Option<::std::vec::Vec<MemoryCandidate>>,
     pub chunk_count: ::std::num::NonZeroU64,
     #[doc = "SHA-256 over the JCS canonicalization of this chunk object minus chunk_digest."]
     pub chunk_digest: ChunkDigest,
     #[doc = "Strict order; tail ordinals are >= 1."]
     pub chunk_ordinal: ::std::num::NonZeroU64,
     pub export_id: ExportId,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub grants: ::std::vec::Vec<GrantSummary>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub profiles: ::std::vec::Vec<ProfileDocument>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub receipt_summaries: ::std::vec::Vec<ReceiptSummary>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub records: ::std::vec::Vec<RetainedRecord>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub reflections: ::std::vec::Vec<Reflection>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub subjects: ::std::vec::Vec<Subject>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub grants: ::std::option::Option<::std::vec::Vec<GrantSummary>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub profiles: ::std::option::Option<::std::vec::Vec<ProfileDocument>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub receipt_summaries: ::std::option::Option<::std::vec::Vec<ReceiptSummary>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub records: ::std::option::Option<::std::vec::Vec<RetainedRecord>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub reflections: ::std::option::Option<::std::vec::Vec<Reflection>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub subjects: ::std::option::Option<::std::vec::Vec<Subject>>,
 }
 impl Shared1 {
     pub fn builder() -> builder::Shared1 {
@@ -3773,7 +3859,7 @@ impl ::std::convert::TryFrom<String> for Shared11 {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Shared12 {
-    pub content: Shared16,
+    pub content: Shared66,
     pub created_at: Shared11,
     pub extensions: Shared2,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3783,7 +3869,7 @@ pub struct Shared12 {
     #[doc = "Optional: when the underlying event or datum occurred, persisted from memory.capture.occurred_at; review-created records inherit it."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub occurred_at: ::std::option::Option<Shared11>,
-    pub provenance: Shared17,
+    pub provenance: Shared67,
     #[doc = "Provider-assigned."]
     pub record_id: RecordId,
     #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
@@ -3864,47 +3950,384 @@ impl Shared15 {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Shared16 {
-    #[doc = "Optional opaque structured content. Product semantics (e.g. affect) ride here — there is no affect wire field."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub structured: ::std::option::Option<::serde_json::Value>,
-    #[doc = "Natural-language content; untrusted (§10)."]
-    pub text: ::std::string::String,
+    pub access: ::std::option::Option<Shared42>,
+    #[doc = "When this assessor made the assessment."]
+    pub assessed_at: Shared11,
+    pub assessment_context: Shared33,
+    pub assessor: Shared20,
+    pub assessor_role: Shared31,
+    pub basis: Shared32,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub content_type: ::std::option::Option<Shared44>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub context: ::std::option::Option<Shared45>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub criterion: ::std::option::Option<Shared34>,
+    #[doc = "When the assessed state/content applies."]
+    pub effective_at: Shared11,
+    pub extensions: Shared2,
+    #[doc = "Actor/group; never kind = world."]
+    pub holder: Shared20,
+    pub kind: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub metrics: ::std::option::Option<Shared39>,
+    pub order: Shared40,
+    #[doc = "assertion = belief_attribution; attribution confidence, never holder credence b."]
+    pub q: Shared38,
+    #[doc = "Non-empty; unique within its carrier."]
+    pub record_id: Shared16RecordId,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub representation: ::std::option::Option<Shared43>,
+    #[doc = "Acquisition label, not actual-perception proof."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub source: ::std::option::Option<Shared25>,
+    #[doc = "Proposition or higher-order proposition target. For order = 1, target.about is absent; for order 2 or 3, about is present and the chain depth is consistent with order (chain never exceeds 3; enforced by validators)."]
+    pub target: Shared36,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub truth: ::std::option::Option<Shared41>,
+    pub view: Shared37,
 }
 impl Shared16 {
     pub fn builder() -> builder::Shared16 {
         Default::default()
     }
 }
+#[doc = "Non-empty; unique within its carrier."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared16RecordId(::std::string::String);
+impl ::std::ops::Deref for Shared16RecordId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared16RecordId> for ::std::string::String {
+    fn from(value: Shared16RecordId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared16RecordId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared16RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared16RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared16RecordId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 #[doc = "`Shared17`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Shared17 {
-    #[doc = "Client-claimed source anchors; may be empty."]
-    pub anchors: ::std::vec::Vec<SourceAnchor>,
-    pub captured_at: Shared11,
-    #[doc = "principal_id; always provider-populated."]
-    pub captured_by: CapturedBy,
-    #[doc = "Client-claimed provenance source context ids; may be empty. Independent of placement."]
-    pub source_context_ids: ::std::vec::Vec<::std::string::String>,
+    pub assessed_at: Shared11,
+    pub assessment_context: Shared33,
+    pub assessor: Shared20,
+    pub assessor_role: Shared31,
+    pub basis: Shared32,
+    pub classification_policy: Shared17ClassificationPolicy,
+    #[doc = "Required binary knowledge criterion."]
+    pub criterion: Shared34,
+    pub effective_at: Shared11,
+    pub extensions: Shared2,
+    #[doc = "Actor/group; never kind = world."]
+    pub holder: Shared20,
+    pub kind: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub metrics: ::std::option::Option<Shared39>,
+    #[doc = "known uses assertion = knowledge_criterion; ignorant uses ignorance_criterion; undetermined uses assessor_indeterminacy (q supplies no bound on knowledge and does not validate any attached metric)."]
+    pub q: Shared38,
+    #[doc = "Non-empty; unique within its carrier."]
+    pub record_id: Shared17RecordId,
+    pub state: Shared46,
+    #[doc = "Proposition or question."]
+    pub target: Shared36,
+    pub view: Shared37,
 }
 impl Shared17 {
     pub fn builder() -> builder::Shared17 {
         Default::default()
     }
 }
-#[doc = "`Shared18`"]
+#[doc = "Owns only categorical interpretation under the stated criterion."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared17ClassificationPolicy {
+    pub policy_id: Shared17ClassificationPolicyPolicyId,
+    pub policy_version: Shared17ClassificationPolicyPolicyVersion,
+}
+impl Shared17ClassificationPolicy {
+    pub fn builder() -> builder::Shared17ClassificationPolicy {
+        Default::default()
+    }
+}
+#[doc = "`Shared17ClassificationPolicyPolicyId`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared17ClassificationPolicyPolicyId(::std::string::String);
+impl ::std::ops::Deref for Shared17ClassificationPolicyPolicyId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared17ClassificationPolicyPolicyId> for ::std::string::String {
+    fn from(value: Shared17ClassificationPolicyPolicyId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared17ClassificationPolicyPolicyId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared17ClassificationPolicyPolicyId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared17ClassificationPolicyPolicyId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared17ClassificationPolicyPolicyId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`Shared17ClassificationPolicyPolicyVersion`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared17ClassificationPolicyPolicyVersion(::std::string::String);
+impl ::std::ops::Deref for Shared17ClassificationPolicyPolicyVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared17ClassificationPolicyPolicyVersion> for ::std::string::String {
+    fn from(value: Shared17ClassificationPolicyPolicyVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared17ClassificationPolicyPolicyVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared17ClassificationPolicyPolicyVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared17ClassificationPolicyPolicyVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared17ClassificationPolicyPolicyVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Non-empty; unique within its carrier."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared17RecordId(::std::string::String);
+impl ::std::ops::Deref for Shared17RecordId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared17RecordId> for ::std::string::String {
+    fn from(value: Shared17RecordId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared17RecordId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared17RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared17RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared17RecordId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Perception is actual capture, separate from access metadata and optional correspondence. Event access alone never creates a Perception record or default p/q."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Shared18 {
-    pub body: ::std::string::String,
-    pub format: Shared18Format,
+    #[doc = "Actual capture constraints if known; not event observability."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub access: ::std::option::Option<Shared48>,
+    pub assessed_at: Shared11,
+    pub assessment_context: Shared33,
+    pub assessor: Shared20,
+    pub assessor_role: Shared31,
+    pub basis: Shared32,
+    #[doc = "Actual experienced/captured content; key required. Partial, misleading, illusory or disbelieved content remains valid."]
+    pub content: Shared47,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub criterion: ::std::option::Option<Shared34>,
+    pub effective_at: Shared11,
+    #[doc = "timeline_event, memory_record or external episode."]
+    pub episode: Shared20,
+    pub extensions: Shared2,
+    #[doc = "Actor/group; never kind = world."]
+    pub holder: Shared20,
+    pub kind: ::std::string::String,
+    #[doc = "Optional metrics.f separately assesses correspondence under its own criterion."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub metrics: ::std::option::Option<Shared39>,
+    #[doc = "assertion = actual_capture."]
+    pub q: Shared38,
+    #[doc = "Non-empty; unique within its carrier."]
+    pub record_id: Shared18RecordId,
+    #[doc = "Perceived_content or episode; target carrier/episode identity must agree with `episode` (enforced by validators)."]
+    pub target: Shared36,
+    pub view: Shared37,
 }
 impl Shared18 {
     pub fn builder() -> builder::Shared18 {
         Default::default()
     }
 }
-#[doc = "`Shared18Format`"]
+#[doc = "Non-empty; unique within its carrier."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared18RecordId(::std::string::String);
+impl ::std::ops::Deref for Shared18RecordId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared18RecordId> for ::std::string::String {
+    fn from(value: Shared18RecordId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared18RecordId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared18RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared18RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared18RecordId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Typed reference kind. `world` identifies the designated narrated-world authority and is invalid as the holder of Belief, epistemic or Perception records. Memory.subject_id is not implicitly a holder; a Memory cognition holder explicitly uses `memory_subject` when intended."]
 #[derive(
     :: serde :: Deserialize,
     :: serde :: Serialize,
@@ -3917,73 +4340,62 @@ impl Shared18 {
     PartialEq,
     PartialOrd,
 )]
-pub enum Shared18Format {
-    #[serde(rename = "markdown")]
-    Markdown,
-    #[serde(rename = "json")]
-    Json,
+pub enum Shared19 {
+    #[serde(rename = "knowledge_entry")]
+    KnowledgeEntry,
+    #[serde(rename = "timeline_event")]
+    TimelineEvent,
+    #[serde(rename = "memory_record")]
+    MemoryRecord,
+    #[serde(rename = "memory_subject")]
+    MemorySubject,
+    #[serde(rename = "principal")]
+    Principal,
+    #[serde(rename = "world")]
+    World,
+    #[serde(rename = "external")]
+    External,
 }
-impl ::std::fmt::Display for Shared18Format {
+impl ::std::fmt::Display for Shared19 {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
-            Self::Markdown => f.write_str("markdown"),
-            Self::Json => f.write_str("json"),
+            Self::KnowledgeEntry => f.write_str("knowledge_entry"),
+            Self::TimelineEvent => f.write_str("timeline_event"),
+            Self::MemoryRecord => f.write_str("memory_record"),
+            Self::MemorySubject => f.write_str("memory_subject"),
+            Self::Principal => f.write_str("principal"),
+            Self::World => f.write_str("world"),
+            Self::External => f.write_str("external"),
         }
     }
 }
-impl ::std::str::FromStr for Shared18Format {
+impl ::std::str::FromStr for Shared19 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
-            "markdown" => Ok(Self::Markdown),
-            "json" => Ok(Self::Json),
+            "knowledge_entry" => Ok(Self::KnowledgeEntry),
+            "timeline_event" => Ok(Self::TimelineEvent),
+            "memory_record" => Ok(Self::MemoryRecord),
+            "memory_subject" => Ok(Self::MemorySubject),
+            "principal" => Ok(Self::Principal),
+            "world" => Ok(Self::World),
+            "external" => Ok(Self::External),
             _ => Err("invalid value".into()),
         }
     }
 }
-impl ::std::convert::TryFrom<&str> for Shared18Format {
+impl ::std::convert::TryFrom<&str> for Shared19 {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<::std::string::String> for Shared18Format {
+impl ::std::convert::TryFrom<::std::string::String> for Shared19 {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
-    }
-}
-#[doc = "Pending candidate awaiting review. consumed_by / content_digest are deliberately absent: a pending candidate cannot carry consumption data."]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct Shared19 {
-    #[doc = "Provider-assigned."]
-    pub candidate_id: CandidateId,
-    #[doc = "Immutable admitted placement from memory.capture; the authorization fence for review outcomes."]
-    pub capture_scope: Shared14,
-    pub classification: Classification,
-    pub created_at: Shared11,
-    #[doc = "Optional provider policy. Expired pending candidates are excluded from lists, not consumed."]
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub expires_at: ::std::option::Option<Shared11>,
-    pub extensions: Shared2,
-    #[doc = "Optional: when the underlying event or datum occurred, persisted from memory.capture.occurred_at."]
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub occurred_at: ::std::option::Option<Shared11>,
-    pub proposed: Proposed,
-    pub provenance: Shared17,
-    #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
-    pub revision: ::std::num::NonZeroU64,
-    pub schema_version: Shared10,
-    pub space_id: SpaceId,
-    pub status: ::std::string::String,
-    pub subject_id: SubjectId,
-}
-impl Shared19 {
-    pub fn builder() -> builder::Shared19 {
-        Default::default()
     }
 }
 #[doc = "Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip."]
@@ -4036,56 +4448,586 @@ impl
         Self(value)
     }
 }
-#[doc = "Consumed audit shell: content scrubbed, outcome and digest retained (§6.7). expires_at is deliberately absent: it applies only to pending candidates."]
+#[doc = "Complete namespace-bearing reference identity. Producers use one namespace only for ids assigned by the same identity authority; independent systems use distinct namespaces unless they deliberately share that authority."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Shared20 {
-    #[doc = "Provider-assigned."]
-    pub candidate_id: CandidateId,
-    #[doc = "Immutable admitted placement from memory.capture."]
-    pub capture_scope: Shared14,
-    pub classification: Classification,
-    pub consumed_by: ConsumedBy,
-    #[doc = "SHA-256 over the JCS canonical proposed.content; set when content is scrubbed at consumption, retained for dedup/audit (MEM-R025)."]
-    pub content_digest: ContentDigest,
-    pub created_at: Shared11,
-    pub extensions: Shared2,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub occurred_at: ::std::option::Option<Shared11>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub proposed: ::std::option::Option<ConsumedProposed>,
-    pub provenance: Shared17,
-    #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
-    pub revision: ::std::num::NonZeroU64,
-    pub schema_version: Shared10,
-    pub space_id: SpaceId,
-    pub status: ::std::string::String,
-    pub subject_id: SubjectId,
+    #[doc = "Non-empty, opaque within kind/namespace. Identity is never established by bare id or equal text."]
+    pub id: Shared20Id,
+    pub kind: Shared19,
+    #[doc = "Required identity realm for every kind; for `external` it is the declared external namespace. A reference's identity is the complete (kind, namespace, id) tuple. Pure validation checks only this shape — never global uniqueness, registry resolution or I/O."]
+    pub namespace: Shared20Namespace,
 }
 impl Shared20 {
     pub fn builder() -> builder::Shared20 {
         Default::default()
     }
 }
-#[doc = "Shared ops error shape. Ops responses use either a success payload or a top-level error field — not both."]
+#[doc = "Non-empty, opaque within kind/namespace. Identity is never established by bare id or equal text."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared20Id(::std::string::String);
+impl ::std::ops::Deref for Shared20Id {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared20Id> for ::std::string::String {
+    fn from(value: Shared20Id) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared20Id {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared20Id {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared20Id {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared20Id {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Required identity realm for every kind; for `external` it is the declared external namespace. A reference's identity is the complete (kind, namespace, id) tuple. Pure validation checks only this shape — never global uniqueness, registry resolution or I/O."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared20Namespace(::std::string::String);
+impl ::std::ops::Deref for Shared20Namespace {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared20Namespace> for ::std::string::String {
+    fn from(value: Shared20Namespace) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared20Namespace {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z][a-z0-9_-]*$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared20Namespace {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared20Namespace {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared20Namespace {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`Shared21`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared21 {
+    #[serde(rename = "proposition")]
+    Proposition,
+    #[serde(rename = "question")]
+    Question,
+    #[serde(rename = "perceived_content")]
+    PerceivedContent,
+    #[serde(rename = "episode")]
+    Episode,
+}
+impl ::std::fmt::Display for Shared21 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Proposition => f.write_str("proposition"),
+            Self::Question => f.write_str("question"),
+            Self::PerceivedContent => f.write_str("perceived_content"),
+            Self::Episode => f.write_str("episode"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared21 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "proposition" => Ok(Self::Proposition),
+            "question" => Ok(Self::Question),
+            "perceived_content" => Ok(Self::PerceivedContent),
+            "episode" => Ok(Self::Episode),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared21 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared21 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "Compound target identity is (carrier, kind, target_id, assessment_context.context_id, assessment_context.fork_id). There is no target registry or lookup operation."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct Shared21 {
-    #[doc = "Machine-readable error code."]
-    pub code: ::std::string::String,
-    #[doc = "Optional structured error context."]
-    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
-    pub details: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
-    #[doc = "Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip."]
-    pub extensions: ::std::collections::HashMap<
-        ExtensionKey,
-        ::serde_json::Map<::std::string::String, ::serde_json::Value>,
-    >,
-    #[doc = "Human-readable error message."]
-    pub message: ::std::string::String,
+pub struct Shared22 {
+    #[doc = "Higher-order target; bounded by Belief order <= 3."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub about: ::std::option::Option<::std::boxed::Box<Shared22>>,
+    pub carrier: Shared20,
+    pub kind: Shared21,
+    #[doc = "Non-empty and stable within carrier."]
+    pub target_id: Shared22TargetId,
+    #[doc = "Representational content, never identity."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub text: ::std::option::Option<::std::string::String>,
 }
-impl Shared21 {
-    pub fn builder() -> builder::Shared21 {
+impl Shared22 {
+    pub fn builder() -> builder::Shared22 {
+        Default::default()
+    }
+}
+#[doc = "Non-empty and stable within carrier."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared22TargetId(::std::string::String);
+impl ::std::ops::Deref for Shared22TargetId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared22TargetId> for ::std::string::String {
+    fn from(value: Shared22TargetId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared22TargetId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared22TargetId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared22TargetId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared22TargetId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`Shared23`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared23 {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub acquisition: ::std::option::Option<Shared25>,
+    #[doc = "Non-empty. Evidence references identify support only; they neither authenticate evidence nor grant access."]
+    pub evidence: ::std::vec::Vec<Shared20>,
+    pub kind: ::std::string::String,
+}
+impl Shared23 {
+    pub fn builder() -> builder::Shared23 {
+        Default::default()
+    }
+}
+#[doc = "`Shared24`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared24 {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub acquisition: ::std::option::Option<Shared25>,
+    #[doc = "Non-empty declared subjective/prior/model basis."]
+    pub description: Shared24Description,
+    pub kind: ::std::string::String,
+}
+impl Shared24 {
+    pub fn builder() -> builder::Shared24 {
+        Default::default()
+    }
+}
+#[doc = "Non-empty declared subjective/prior/model basis."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared24Description(::std::string::String);
+impl ::std::ops::Deref for Shared24Description {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared24Description> for ::std::string::String {
+    fn from(value: Shared24Description) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared24Description {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared24Description {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared24Description {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared24Description {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Acquisition label, not actual-perception proof."]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared25 {
+    Narration,
+    Perception,
+    Memory,
+    Testimony,
+    Inference,
+    Imagination,
+    Unknown,
+}
+impl ::std::fmt::Display for Shared25 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Narration => f.write_str("Narration"),
+            Self::Perception => f.write_str("Perception"),
+            Self::Memory => f.write_str("Memory"),
+            Self::Testimony => f.write_str("Testimony"),
+            Self::Inference => f.write_str("Inference"),
+            Self::Imagination => f.write_str("Imagination"),
+            Self::Unknown => f.write_str("Unknown"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared25 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "Narration" => Ok(Self::Narration),
+            "Perception" => Ok(Self::Perception),
+            "Memory" => Ok(Self::Memory),
+            "Testimony" => Ok(Self::Testimony),
+            "Inference" => Ok(Self::Inference),
+            "Imagination" => Ok(Self::Imagination),
+            "Unknown" => Ok(Self::Unknown),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared25 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared25 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Shared26`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared26 {
+    #[serde(rename = "subjective_credible")]
+    SubjectiveCredible,
+    #[serde(rename = "statistical_confidence")]
+    StatisticalConfidence,
+    #[serde(rename = "other")]
+    Other,
+}
+impl ::std::fmt::Display for Shared26 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::SubjectiveCredible => f.write_str("subjective_credible"),
+            Self::StatisticalConfidence => f.write_str("statistical_confidence"),
+            Self::Other => f.write_str("other"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared26 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "subjective_credible" => Ok(Self::SubjectiveCredible),
+            "statistical_confidence" => Ok(Self::StatisticalConfidence),
+            "other" => Ok(Self::Other),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared26 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared26 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "The identified cognitive assertion q concerns; not extraction fidelity, world truth or a product prediction."]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared27 {
+    #[serde(rename = "belief_attribution")]
+    BeliefAttribution,
+    #[serde(rename = "actual_capture")]
+    ActualCapture,
+    #[serde(rename = "knowledge_criterion")]
+    KnowledgeCriterion,
+    #[serde(rename = "ignorance_criterion")]
+    IgnoranceCriterion,
+    #[serde(rename = "assessor_indeterminacy")]
+    AssessorIndeterminacy,
+}
+impl ::std::fmt::Display for Shared27 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::BeliefAttribution => f.write_str("belief_attribution"),
+            Self::ActualCapture => f.write_str("actual_capture"),
+            Self::KnowledgeCriterion => f.write_str("knowledge_criterion"),
+            Self::IgnoranceCriterion => f.write_str("ignorance_criterion"),
+            Self::AssessorIndeterminacy => f.write_str("assessor_indeterminacy"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared27 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "belief_attribution" => Ok(Self::BeliefAttribution),
+            "actual_capture" => Ok(Self::ActualCapture),
+            "knowledge_criterion" => Ok(Self::KnowledgeCriterion),
+            "ignorance_criterion" => Ok(Self::IgnoranceCriterion),
+            "assessor_indeterminacy" => Ok(Self::AssessorIndeterminacy),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared27 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared27 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "Declared status of an estimator/method, not proof from one record."]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared28 {
+    #[serde(rename = "calibrated")]
+    Calibrated,
+    #[serde(rename = "uncalibrated")]
+    Uncalibrated,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+impl ::std::fmt::Display for Shared28 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Calibrated => f.write_str("calibrated"),
+            Self::Uncalibrated => f.write_str("uncalibrated"),
+            Self::Unknown => f.write_str("unknown"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared28 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "calibrated" => Ok(Self::Calibrated),
+            "uncalibrated" => Ok(Self::Uncalibrated),
+            "unknown" => Ok(Self::Unknown),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared28 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared28 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "Uncertainty describes the estimate; it is not another cognitive score."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared29 {
+    #[doc = "Required when kind = \"other\" (enforced by validators; draft-07 conditionals are not derivable by the codegen toolchain)."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub description: ::std::option::Option<::std::string::String>,
+    pub kind: Shared26,
+    #[doc = "0 < level < 1 when the kind declares a nominal level."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub level: ::std::option::Option<f64>,
+    #[doc = "0 <= lower <= upper <= 1 (upper bound enforced by validators; unquantified uncertainty is an absent `uncertainty`, never a fabricated zero-width interval)."]
+    pub lower: f64,
+    pub upper: f64,
+}
+impl Shared29 {
+    pub fn builder() -> builder::Shared29 {
         Default::default()
     }
 }
@@ -4110,6 +5052,611 @@ pub struct Shared3 {
 }
 impl Shared3 {
     pub fn builder() -> builder::Shared3 {
+        Default::default()
+    }
+}
+#[doc = "`Shared30`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared30 {
+    #[serde(rename = "holder_credence")]
+    HolderCredence,
+    #[serde(rename = "capture")]
+    Capture,
+    #[serde(rename = "correspondence")]
+    Correspondence,
+    #[serde(rename = "knowledge_criterion")]
+    KnowledgeCriterion,
+    #[serde(rename = "recording_fidelity")]
+    RecordingFidelity,
+}
+impl ::std::fmt::Display for Shared30 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::HolderCredence => f.write_str("holder_credence"),
+            Self::Capture => f.write_str("capture"),
+            Self::Correspondence => f.write_str("correspondence"),
+            Self::KnowledgeCriterion => f.write_str("knowledge_criterion"),
+            Self::RecordingFidelity => f.write_str("recording_fidelity"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared30 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "holder_credence" => Ok(Self::HolderCredence),
+            "capture" => Ok(Self::Capture),
+            "correspondence" => Ok(Self::Correspondence),
+            "knowledge_criterion" => Ok(Self::KnowledgeCriterion),
+            "recording_fidelity" => Ok(Self::RecordingFidelity),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared30 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared30 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Shared31`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared31 {
+    #[serde(rename = "holder_self_report")]
+    HolderSelfReport,
+    #[serde(rename = "external_judgment")]
+    ExternalJudgment,
+    #[serde(rename = "product_assessment")]
+    ProductAssessment,
+}
+impl ::std::fmt::Display for Shared31 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::HolderSelfReport => f.write_str("holder_self_report"),
+            Self::ExternalJudgment => f.write_str("external_judgment"),
+            Self::ProductAssessment => f.write_str("product_assessment"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared31 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "holder_self_report" => Ok(Self::HolderSelfReport),
+            "external_judgment" => Ok(Self::ExternalJudgment),
+            "product_assessment" => Ok(Self::ProductAssessment),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared31 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared31 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "Every completed standard assessment has either a non-empty evidence basis or an explicit declared subjective/prior/model basis. A declared basis may remain uncalibrated; it supplies no default probability, evidence, interval or calibration. Raw or unassessed source material remains outside CognitionRecord and has no AssessmentBasis."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum Shared32 {
+    Shared23(Shared23),
+    Shared24(Shared24),
+}
+impl ::std::convert::From<Shared23> for Shared32 {
+    fn from(value: Shared23) -> Self {
+        Self::Shared23(value)
+    }
+}
+impl ::std::convert::From<Shared24> for Shared32 {
+    fn from(value: Shared24) -> Self {
+        Self::Shared24(value)
+    }
+}
+#[doc = "`Shared33`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared33 {
+    #[doc = "Non-empty; product-selected, no protocol default."]
+    pub context_id: Shared33ContextId,
+    #[doc = "Existing opaque L5 fork identity."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub fork_id: ::std::option::Option<Shared33ForkId>,
+}
+impl Shared33 {
+    pub fn builder() -> builder::Shared33 {
+        Default::default()
+    }
+}
+#[doc = "Non-empty; product-selected, no protocol default."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared33ContextId(::std::string::String);
+impl ::std::ops::Deref for Shared33ContextId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared33ContextId> for ::std::string::String {
+    fn from(value: Shared33ContextId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared33ContextId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared33ContextId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared33ContextId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared33ContextId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Existing opaque L5 fork identity."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared33ForkId(::std::string::String);
+impl ::std::ops::Deref for Shared33ForkId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared33ForkId> for ::std::string::String {
+    fn from(value: Shared33ForkId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared33ForkId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared33ForkId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared33ForkId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared33ForkId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`Shared34`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared34 {
+    #[doc = "Non-empty stable criterion identifier."]
+    pub criterion_id: Shared34CriterionId,
+    #[doc = "Human/product-readable rule; not executable protocol logic."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub expression: ::std::option::Option<::std::string::String>,
+}
+impl Shared34 {
+    pub fn builder() -> builder::Shared34 {
+        Default::default()
+    }
+}
+#[doc = "Non-empty stable criterion identifier."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared34CriterionId(::std::string::String);
+impl ::std::ops::Deref for Shared34CriterionId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared34CriterionId> for ::std::string::String {
+    fn from(value: Shared34CriterionId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared34CriterionId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared34CriterionId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared34CriterionId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared34CriterionId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Optional distinct metric. A metric key is present only when its distinct estimate exists; the key-to-estimand mapping is fixed and product-local measurements belong in existing extensions.<product>, not new keys."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared35 {
+    pub assessed_at: Shared11,
+    pub assessor: Shared20,
+    pub assessor_role: Shared31,
+    pub basis: Shared32,
+    pub calibration: Shared28,
+    pub context: Shared33,
+    #[doc = "Required for knowledge_criterion/correspondence estimands (enforced by validators; draft-07 conditionals are not derivable by the codegen toolchain)."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub criterion: ::std::option::Option<Shared34>,
+    pub effective_at: Shared11,
+    pub estimand: Shared30,
+    pub method: Shared35Method,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub uncertainty: ::std::option::Option<Shared29>,
+    #[doc = "Finite, 0..1."]
+    pub value: f64,
+}
+impl Shared35 {
+    pub fn builder() -> builder::Shared35 {
+        Default::default()
+    }
+}
+#[doc = "`Shared35Method`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared35Method(::std::string::String);
+impl ::std::ops::Deref for Shared35Method {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared35Method> for ::std::string::String {
+    fn from(value: Shared35Method) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared35Method {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared35Method {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared35Method {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared35Method {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Compound target identity is (carrier, kind, target_id, assessment_context.context_id, assessment_context.fork_id). There is no target registry or lookup operation."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared36 {
+    #[doc = "Higher-order target; bounded by Belief order <= 3."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub about: ::std::option::Option<Shared22>,
+    pub carrier: Shared20,
+    pub kind: Shared21,
+    #[doc = "Non-empty and stable within carrier."]
+    pub target_id: Shared36TargetId,
+    #[doc = "Representational content, never identity."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub text: ::std::option::Option<::std::string::String>,
+}
+impl Shared36 {
+    pub fn builder() -> builder::Shared36 {
+        Default::default()
+    }
+}
+#[doc = "Non-empty and stable within carrier."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared36TargetId(::std::string::String);
+impl ::std::ops::Deref for Shared36TargetId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared36TargetId> for ::std::string::String {
+    fn from(value: Shared36TargetId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared36TargetId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared36TargetId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared36TargetId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared36TargetId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "view = \"current\" is valid only in holder-side current input/authority; view = \"recorded_at\" is required in Memory and valid for explicitly supplied historical input. A projection does not change either value into an authority grant."]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared37 {
+    #[serde(rename = "current")]
+    Current,
+    #[serde(rename = "recorded_at")]
+    RecordedAt,
+}
+impl ::std::fmt::Display for Shared37 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Current => f.write_str("current"),
+            Self::RecordedAt => f.write_str("recorded_at"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared37 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "current" => Ok(Self::Current),
+            "recorded_at" => Ok(Self::RecordedAt),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared37 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared37 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "Required foundational q. Holder, target, assessor, basis, criterion where applicable, context and effective/assessment times plus q.assertion form the complete estimand identity."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared38 {
+    pub assertion: Shared27,
+    pub calibration: Shared28,
+    #[doc = "Non-empty estimation/elicitation method."]
+    pub method: Shared38Method,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub uncertainty: ::std::option::Option<Shared29>,
+    #[doc = "Finite, 0..1. 0 and 1 are admitted only as deliberately assigned values, never label defaults."]
+    pub value: f64,
+}
+impl Shared38 {
+    pub fn builder() -> builder::Shared38 {
+        Default::default()
+    }
+}
+#[doc = "Non-empty estimation/elicitation method."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared38Method(::std::string::String);
+impl ::std::ops::Deref for Shared38Method {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared38Method> for ::std::string::String {
+    fn from(value: Shared38Method) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared38Method {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared38Method {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared38Method {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared38Method {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Category-compatible metrics only (Belief permits b/r; Perception permits p/f/r; epistemic permits k/r), enforced by validators."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Shared39 {
+    #[doc = "estimand = holder_credence. Distinct from q."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub b: ::std::option::Option<Shared35>,
+    #[doc = "estimand = correspondence."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub f: ::std::option::Option<Shared35>,
+    #[doc = "estimand = knowledge_criterion."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub k: ::std::option::Option<Shared35>,
+    #[doc = "estimand = capture."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub p: ::std::option::Option<Shared35>,
+    #[doc = "estimand = recording_fidelity."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub r: ::std::option::Option<Shared35>,
+}
+impl Shared39 {
+    pub fn builder() -> builder::Shared39 {
         Default::default()
     }
 }
@@ -4400,13 +5947,577 @@ impl ::std::convert::From<Shared13> for Shared4 {
         Self::Shared13(value)
     }
 }
+#[doc = "Higher-order depth. order 0 is retained for the shared vocabulary; current actor Belief records normally use 1-3 and narrated order-0 facts use WorldFactRecord."]
+#[derive(:: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Shared40(i64);
+impl ::std::ops::Deref for Shared40 {
+    type Target = i64;
+    fn deref(&self) -> &i64 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared40> for i64 {
+    fn from(value: Shared40) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::TryFrom<i64> for Shared40 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: i64) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if ![0_i64, 1_i64, 2_i64, 3_i64].contains(&value) {
+            Err("invalid value".into())
+        } else {
+            Ok(Self(value))
+        }
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared40 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        Self::try_from(<i64>::deserialize(deserializer)?)
+            .map_err(|e| <D::Error as ::serde::de::Error>::custom(e.to_string()))
+    }
+}
+#[doc = "truth = \"Unknown\" is not holder ignorance."]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared41 {
+    True,
+    False,
+    Unknown,
+}
+impl ::std::fmt::Display for Shared41 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::True => f.write_str("True"),
+            Self::False => f.write_str("False"),
+            Self::Unknown => f.write_str("Unknown"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared41 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "True" => Ok(Self::True),
+            "False" => Ok(Self::False),
+            "Unknown" => Ok(Self::Unknown),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared41 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared41 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "Distribution label, never authorization."]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared42 {
+    Private,
+    Shared,
+    Public,
+}
+impl ::std::fmt::Display for Shared42 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Private => f.write_str("Private"),
+            Self::Shared => f.write_str("Shared"),
+            Self::Public => f.write_str("Public"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared42 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "Private" => Ok(Self::Private),
+            "Shared" => Ok(Self::Shared),
+            "Public" => Ok(Self::Public),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared42 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared42 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Shared43`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared43 {
+    Explicit,
+    Implicit,
+}
+impl ::std::fmt::Display for Shared43 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Explicit => f.write_str("Explicit"),
+            Self::Implicit => f.write_str("Implicit"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared43 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "Explicit" => Ok(Self::Explicit),
+            "Implicit" => Ok(Self::Implicit),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared43 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared43 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Shared44`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared44 {
+    Location,
+    #[serde(rename = "Contents/Physical State")]
+    ContentsPhysicalState,
+    #[serde(rename = "Identity/Relation")]
+    IdentityRelation,
+    Epistemic,
+    #[serde(rename = "Desire/Intention")]
+    DesireIntention,
+    Emotion,
+    #[serde(rename = "Trait/Value")]
+    TraitValue,
+    #[serde(rename = "Action/Event")]
+    ActionEvent,
+}
+impl ::std::fmt::Display for Shared44 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Location => f.write_str("Location"),
+            Self::ContentsPhysicalState => f.write_str("Contents/Physical State"),
+            Self::IdentityRelation => f.write_str("Identity/Relation"),
+            Self::Epistemic => f.write_str("Epistemic"),
+            Self::DesireIntention => f.write_str("Desire/Intention"),
+            Self::Emotion => f.write_str("Emotion"),
+            Self::TraitValue => f.write_str("Trait/Value"),
+            Self::ActionEvent => f.write_str("Action/Event"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared44 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "Location" => Ok(Self::Location),
+            "Contents/Physical State" => Ok(Self::ContentsPhysicalState),
+            "Identity/Relation" => Ok(Self::IdentityRelation),
+            "Epistemic" => Ok(Self::Epistemic),
+            "Desire/Intention" => Ok(Self::DesireIntention),
+            "Emotion" => Ok(Self::Emotion),
+            "Trait/Value" => Ok(Self::TraitValue),
+            "Action/Event" => Ok(Self::ActionEvent),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared44 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared44 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Shared45`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared45 {
+    Deceptive,
+    Temporal,
+    Counterfactual,
+    Neutral,
+}
+impl ::std::fmt::Display for Shared45 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Deceptive => f.write_str("Deceptive"),
+            Self::Temporal => f.write_str("Temporal"),
+            Self::Counterfactual => f.write_str("Counterfactual"),
+            Self::Neutral => f.write_str("Neutral"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared45 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "Deceptive" => Ok(Self::Deceptive),
+            "Temporal" => Ok(Self::Temporal),
+            "Counterfactual" => Ok(Self::Counterfactual),
+            "Neutral" => Ok(Self::Neutral),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared45 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared45 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "No-record is a projection state, not a fourth enum value."]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared46 {
+    #[serde(rename = "known")]
+    Known,
+    #[serde(rename = "ignorant")]
+    Ignorant,
+    #[serde(rename = "undetermined")]
+    Undetermined,
+}
+impl ::std::fmt::Display for Shared46 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Known => f.write_str("known"),
+            Self::Ignorant => f.write_str("ignorant"),
+            Self::Undetermined => f.write_str("undetermined"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared46 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "known" => Ok(Self::Known),
+            "ignorant" => Ok(Self::Ignorant),
+            "undetermined" => Ok(Self::Undetermined),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared46 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared46 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Shared47`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Shared47(pub ::serde_json::Value);
+impl ::std::ops::Deref for Shared47 {
+    type Target = ::serde_json::Value;
+    fn deref(&self) -> &::serde_json::Value {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared47> for ::serde_json::Value {
+    fn from(value: Shared47) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::serde_json::Value> for Shared47 {
+    fn from(value: ::serde_json::Value) -> Self {
+        Self(value)
+    }
+}
+#[doc = "Actual capture constraints if known; not event observability. Open: unknown keys round-trip verbatim."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct Shared48 {
+    #[doc = "Open: boolean or structured object."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub hearing_range: ::std::option::Option<Shared48HearingRange>,
+    #[doc = "Open: boolean or structured object."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub line_of_sight: ::std::option::Option<Shared48LineOfSight>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub modality: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+    #[doc = "Open: string or structured object."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub position: ::std::option::Option<Shared48Position>,
+    #[serde(flatten)]
+    pub extra: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+}
+impl Shared48 {
+    pub fn builder() -> builder::Shared48 {
+        Default::default()
+    }
+}
+#[doc = "Open: boolean or structured object."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum Shared48HearingRange {
+    Boolean(bool),
+    Object(::serde_json::Map<::std::string::String, ::serde_json::Value>),
+}
+impl ::std::convert::From<bool> for Shared48HearingRange {
+    fn from(value: bool) -> Self {
+        Self::Boolean(value)
+    }
+}
+impl ::std::convert::From<::serde_json::Map<::std::string::String, ::serde_json::Value>>
+    for Shared48HearingRange
+{
+    fn from(value: ::serde_json::Map<::std::string::String, ::serde_json::Value>) -> Self {
+        Self::Object(value)
+    }
+}
+#[doc = "Open: boolean or structured object."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum Shared48LineOfSight {
+    Boolean(bool),
+    Object(::serde_json::Map<::std::string::String, ::serde_json::Value>),
+}
+impl ::std::convert::From<bool> for Shared48LineOfSight {
+    fn from(value: bool) -> Self {
+        Self::Boolean(value)
+    }
+}
+impl ::std::convert::From<::serde_json::Map<::std::string::String, ::serde_json::Value>>
+    for Shared48LineOfSight
+{
+    fn from(value: ::serde_json::Map<::std::string::String, ::serde_json::Value>) -> Self {
+        Self::Object(value)
+    }
+}
+#[doc = "Open: string or structured object."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum Shared48Position {
+    String(::std::string::String),
+    Object(::serde_json::Map<::std::string::String, ::serde_json::Value>),
+}
+impl ::std::convert::From<::serde_json::Map<::std::string::String, ::serde_json::Value>>
+    for Shared48Position
+{
+    fn from(value: ::serde_json::Map<::std::string::String, ::serde_json::Value>) -> Self {
+        Self::Object(value)
+    }
+}
+#[doc = "`Shared49`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared49 {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub access: ::std::option::Option<Shared42>,
+    #[doc = "When this assessor made the assessment."]
+    pub assessed_at: Shared11,
+    pub assessment_context: Shared33,
+    pub assessor: Shared20,
+    pub assessor_role: Shared31,
+    pub basis: Shared32,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub content_type: ::std::option::Option<Shared44>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub context: ::std::option::Option<Shared45>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub criterion: ::std::option::Option<Shared34>,
+    #[doc = "When the assessed state/content applies."]
+    pub effective_at: Shared11,
+    pub extensions: Shared2,
+    #[doc = "Actor/group; never kind = world."]
+    pub holder: Shared20,
+    pub kind: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub metrics: ::std::option::Option<Shared39>,
+    pub order: Shared40,
+    #[doc = "assertion = belief_attribution; attribution confidence, never holder credence b."]
+    pub q: Shared38,
+    #[doc = "Non-empty; unique within its carrier."]
+    pub record_id: Shared49RecordId,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub representation: ::std::option::Option<Shared43>,
+    #[doc = "Acquisition label, not actual-perception proof."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub source: ::std::option::Option<Shared25>,
+    #[doc = "Proposition or higher-order proposition target. For order = 1, target.about is absent; for order 2 or 3, about is present and the chain depth is consistent with order (chain never exceeds 3; enforced by validators)."]
+    pub target: Shared36,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub truth: ::std::option::Option<Shared41>,
+    pub view: Shared37,
+}
+impl Shared49 {
+    pub fn builder() -> builder::Shared49 {
+        Default::default()
+    }
+}
+#[doc = "Non-empty; unique within its carrier."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared49RecordId(::std::string::String);
+impl ::std::ops::Deref for Shared49RecordId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared49RecordId> for ::std::string::String {
+    fn from(value: Shared49RecordId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared49RecordId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared49RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared49RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared49RecordId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 #[doc = "Trusted, author-maintained subject document, unique per (space, subject, profile_kind) (§6.8). Defines the shared Document shape reused by Reflection."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Shared5 {
     pub created_at: Shared11,
     #[doc = "Trusted author-maintained content (§10)."]
-    pub document: Shared18,
+    pub document: Shared68,
     pub extensions: Shared2,
     #[doc = "Open vocabulary of authored content kinds. Core (documented, not enforced): personality, preferences (§4.2)."]
     pub profile_kind: Shared5ProfileKind,
@@ -4422,6 +6533,640 @@ pub struct Shared5 {
 impl Shared5 {
     pub fn builder() -> builder::Shared5 {
         Default::default()
+    }
+}
+#[doc = "`Shared50`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared50 {
+    pub assessed_at: Shared11,
+    pub assessment_context: Shared33,
+    pub assessor: Shared20,
+    pub assessor_role: Shared31,
+    pub basis: Shared32,
+    pub classification_policy: Shared50ClassificationPolicy,
+    #[doc = "Required binary knowledge criterion."]
+    pub criterion: Shared34,
+    pub effective_at: Shared11,
+    pub extensions: Shared2,
+    #[doc = "Actor/group; never kind = world."]
+    pub holder: Shared20,
+    pub kind: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub metrics: ::std::option::Option<Shared39>,
+    #[doc = "known uses assertion = knowledge_criterion; ignorant uses ignorance_criterion; undetermined uses assessor_indeterminacy (q supplies no bound on knowledge and does not validate any attached metric)."]
+    pub q: Shared38,
+    #[doc = "Non-empty; unique within its carrier."]
+    pub record_id: Shared50RecordId,
+    pub state: Shared46,
+    #[doc = "Proposition or question."]
+    pub target: Shared36,
+    pub view: Shared37,
+}
+impl Shared50 {
+    pub fn builder() -> builder::Shared50 {
+        Default::default()
+    }
+}
+#[doc = "Owns only categorical interpretation under the stated criterion."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared50ClassificationPolicy {
+    pub policy_id: Shared50ClassificationPolicyPolicyId,
+    pub policy_version: Shared50ClassificationPolicyPolicyVersion,
+}
+impl Shared50ClassificationPolicy {
+    pub fn builder() -> builder::Shared50ClassificationPolicy {
+        Default::default()
+    }
+}
+#[doc = "`Shared50ClassificationPolicyPolicyId`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared50ClassificationPolicyPolicyId(::std::string::String);
+impl ::std::ops::Deref for Shared50ClassificationPolicyPolicyId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared50ClassificationPolicyPolicyId> for ::std::string::String {
+    fn from(value: Shared50ClassificationPolicyPolicyId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared50ClassificationPolicyPolicyId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared50ClassificationPolicyPolicyId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared50ClassificationPolicyPolicyId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared50ClassificationPolicyPolicyId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`Shared50ClassificationPolicyPolicyVersion`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared50ClassificationPolicyPolicyVersion(::std::string::String);
+impl ::std::ops::Deref for Shared50ClassificationPolicyPolicyVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared50ClassificationPolicyPolicyVersion> for ::std::string::String {
+    fn from(value: Shared50ClassificationPolicyPolicyVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared50ClassificationPolicyPolicyVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared50ClassificationPolicyPolicyVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared50ClassificationPolicyPolicyVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared50ClassificationPolicyPolicyVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Non-empty; unique within its carrier."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared50RecordId(::std::string::String);
+impl ::std::ops::Deref for Shared50RecordId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared50RecordId> for ::std::string::String {
+    fn from(value: Shared50RecordId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared50RecordId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared50RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared50RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared50RecordId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Perception is actual capture, separate from access metadata and optional correspondence. Event access alone never creates a Perception record or default p/q."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared51 {
+    #[doc = "Actual capture constraints if known; not event observability."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub access: ::std::option::Option<Shared48>,
+    pub assessed_at: Shared11,
+    pub assessment_context: Shared33,
+    pub assessor: Shared20,
+    pub assessor_role: Shared31,
+    pub basis: Shared32,
+    #[doc = "Actual experienced/captured content; key required. Partial, misleading, illusory or disbelieved content remains valid."]
+    pub content: Shared47,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub criterion: ::std::option::Option<Shared34>,
+    pub effective_at: Shared11,
+    #[doc = "timeline_event, memory_record or external episode."]
+    pub episode: Shared20,
+    pub extensions: Shared2,
+    #[doc = "Actor/group; never kind = world."]
+    pub holder: Shared20,
+    pub kind: ::std::string::String,
+    #[doc = "Optional metrics.f separately assesses correspondence under its own criterion."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub metrics: ::std::option::Option<Shared39>,
+    #[doc = "assertion = actual_capture."]
+    pub q: Shared38,
+    #[doc = "Non-empty; unique within its carrier."]
+    pub record_id: Shared51RecordId,
+    #[doc = "Perceived_content or episode; target carrier/episode identity must agree with `episode` (enforced by validators)."]
+    pub target: Shared36,
+    pub view: Shared37,
+}
+impl Shared51 {
+    pub fn builder() -> builder::Shared51 {
+        Default::default()
+    }
+}
+#[doc = "Non-empty; unique within its carrier."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared51RecordId(::std::string::String);
+impl ::std::ops::Deref for Shared51RecordId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared51RecordId> for ::std::string::String {
+    fn from(value: Shared51RecordId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared51RecordId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared51RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared51RecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared51RecordId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Narrated order-0 world facts; live on the designated world-state KnowledgeEntry and may be co-located only where the existing world-fact contract permits. holder still disambiguates."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared52 {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub access: ::std::option::Option<Shared42>,
+    pub assessment_context: Shared33,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub content_type: ::std::option::Option<Shared44>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub context: ::std::option::Option<Shared45>,
+    pub effective_at: Shared11,
+    pub extensions: Shared2,
+    pub fact_id: Shared52FactId,
+    #[doc = "kind = world; the designated narrated-world authority, never an actor holder."]
+    pub holder: Shared20,
+    pub order: i64,
+    pub recorded_at: Shared11,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub representation: ::std::option::Option<Shared43>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub source: ::std::option::Option<Shared25>,
+    #[doc = "Proposition."]
+    pub target: Shared36,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub truth: ::std::option::Option<Shared41>,
+}
+impl Shared52 {
+    pub fn builder() -> builder::Shared52 {
+        Default::default()
+    }
+}
+#[doc = "`Shared52FactId`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared52FactId(::std::string::String);
+impl ::std::ops::Deref for Shared52FactId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared52FactId> for ::std::string::String {
+    fn from(value: Shared52FactId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared52FactId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared52FactId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared52FactId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared52FactId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Closed fork predicate: {eq: fork} addresses one fork identity; {absent: true} addresses the context identity whose stored fork_id is absent. An omitted fork_id is a wildcard over forked and no-fork contexts and is never an exact no-fork address."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub enum Shared53 {
+    #[serde(rename = "eq")]
+    Eq(Shared53Eq),
+    #[serde(rename = "absent")]
+    Absent(bool),
+}
+impl ::std::convert::From<Shared53Eq> for Shared53 {
+    fn from(value: Shared53Eq) -> Self {
+        Self::Eq(value)
+    }
+}
+impl ::std::convert::From<bool> for Shared53 {
+    fn from(value: bool) -> Self {
+        Self::Absent(value)
+    }
+}
+#[doc = "`Shared53Eq`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared53Eq(::std::string::String);
+impl ::std::ops::Deref for Shared53Eq {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared53Eq> for ::std::string::String {
+    fn from(value: Shared53Eq) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared53Eq {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared53Eq {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared53Eq {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared53Eq {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`Shared54`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Shared54 {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub carrier: ::std::option::Option<Shared20>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub kind: ::std::option::Option<Shared21>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub target_id: ::std::option::Option<Shared54TargetId>,
+}
+impl Shared54 {
+    pub fn builder() -> builder::Shared54 {
+        Default::default()
+    }
+}
+#[doc = "`Shared54TargetId`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared54TargetId(::std::string::String);
+impl ::std::ops::Deref for Shared54TargetId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared54TargetId> for ::std::string::String {
+    fn from(value: Shared54TargetId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared54TargetId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared54TargetId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared54TargetId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared54TargetId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`Shared55`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Shared55 {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub context_id: ::std::option::Option<Shared55ContextId>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub fork_id: ::std::option::Option<Shared53>,
+}
+impl Shared55 {
+    pub fn builder() -> builder::Shared55 {
+        Default::default()
+    }
+}
+#[doc = "`Shared55ContextId`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared55ContextId(::std::string::String);
+impl ::std::ops::Deref for Shared55ContextId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared55ContextId> for ::std::string::String {
+    fn from(value: Shared55ContextId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared55ContextId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared55ContextId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared55ContextId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared55ContextId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "Inclusive comparisons over the declared foundational q.value; uncalibrated but declared values participate identically. At least one of min/max required (minProperties 1); min <= max is enforced by validators."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Shared56 {
+    #[doc = "Finite 0..1, inclusive; min <= max (enforced by validators)."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub max: ::std::option::Option<f64>,
+    #[doc = "Finite 0..1, inclusive."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub min: ::std::option::Option<f64>,
+}
+impl Shared56 {
+    pub fn builder() -> builder::Shared56 {
+        Default::default()
+    }
+}
+#[doc = "Categorical predicate: {eq} matches only a present value; {absent: true} matches only an explicitly absent optional field. A required field cannot use the absent form."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub enum Shared57 {
+    #[serde(rename = "eq")]
+    Eq(Shared41),
+    #[serde(rename = "absent")]
+    Absent(bool),
+}
+impl ::std::convert::From<Shared41> for Shared57 {
+    fn from(value: Shared41) -> Self {
+        Self::Eq(value)
+    }
+}
+impl ::std::convert::From<bool> for Shared57 {
+    fn from(value: bool) -> Self {
+        Self::Absent(value)
+    }
+}
+#[doc = "`Shared58`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub enum Shared58 {
+    #[serde(rename = "eq")]
+    Eq(Shared42),
+    #[serde(rename = "absent")]
+    Absent(bool),
+}
+impl ::std::convert::From<Shared42> for Shared58 {
+    fn from(value: Shared42) -> Self {
+        Self::Eq(value)
+    }
+}
+impl ::std::convert::From<bool> for Shared58 {
+    fn from(value: bool) -> Self {
+        Self::Absent(value)
+    }
+}
+#[doc = "`Shared59`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub enum Shared59 {
+    #[serde(rename = "eq")]
+    Eq(Shared43),
+    #[serde(rename = "absent")]
+    Absent(bool),
+}
+impl ::std::convert::From<Shared43> for Shared59 {
+    fn from(value: Shared43) -> Self {
+        Self::Eq(value)
+    }
+}
+impl ::std::convert::From<bool> for Shared59 {
+    fn from(value: bool) -> Self {
+        Self::Absent(value)
     }
 }
 #[doc = "Open vocabulary of authored content kinds. Core (documented, not enforced): personality, preferences (§4.2)."]
@@ -4630,7 +7375,10 @@ impl<'de> ::serde::Deserialize<'de> for Shared5UpdatedBy {
 pub struct Shared6 {
     pub basis: Shared6Basis,
     #[doc = "Derived content; trusted only as to its pinned basis and generator."]
-    pub body: Shared18,
+    pub body: Shared68,
+    #[doc = "Pinned cognition filter; absent = none. Included in the ReflectionBasis digest object (state_digest changes when it or the source set changes); composes with selection and provenance filter by AND."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub cognition_filter: ::std::option::Option<Shared63>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub cost: ::std::option::Option<Shared6Cost>,
     pub created_at: Shared11,
@@ -4652,6 +7400,553 @@ pub struct Shared6 {
 }
 impl Shared6 {
     pub fn builder() -> builder::Shared6 {
+        Default::default()
+    }
+}
+#[doc = "`Shared60`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub enum Shared60 {
+    #[serde(rename = "eq")]
+    Eq(Shared44),
+    #[serde(rename = "absent")]
+    Absent(bool),
+}
+impl ::std::convert::From<Shared44> for Shared60 {
+    fn from(value: Shared44) -> Self {
+        Self::Eq(value)
+    }
+}
+impl ::std::convert::From<bool> for Shared60 {
+    fn from(value: bool) -> Self {
+        Self::Absent(value)
+    }
+}
+#[doc = "`Shared61`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub enum Shared61 {
+    #[serde(rename = "eq")]
+    Eq(Shared25),
+    #[serde(rename = "absent")]
+    Absent(bool),
+}
+impl ::std::convert::From<Shared25> for Shared61 {
+    fn from(value: Shared25) -> Self {
+        Self::Eq(value)
+    }
+}
+impl ::std::convert::From<bool> for Shared61 {
+    fn from(value: bool) -> Self {
+        Self::Absent(value)
+    }
+}
+#[doc = "`Shared62`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub enum Shared62 {
+    #[serde(rename = "eq")]
+    Eq(Shared45),
+    #[serde(rename = "absent")]
+    Absent(bool),
+}
+impl ::std::convert::From<Shared45> for Shared62 {
+    fn from(value: Shared45) -> Self {
+        Self::Eq(value)
+    }
+}
+impl ::std::convert::From<bool> for Shared62 {
+    fn from(value: bool) -> Self {
+        Self::Absent(value)
+    }
+}
+#[doc = "All supplied predicates are ANDed on one record with the same holder/target/assessment context; predicates never join across different targets or records. Reference predicates compare the complete (kind, namespace, id) tuple; id predicates never compare bare strings across namespaces. There is no OR, text similarity, ranking, cutoff default, optional-metric filter, or implicit source/calibration/criterion constraint in the core grammar; schema-unknown predicates and unimplemented dimensions fail the whole request as unsupported_cognition_requirement (P2 behavior)."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Shared63 {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub access: ::std::option::Option<Shared58>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub assessment_context: ::std::option::Option<Shared55>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub belief_context: ::std::option::Option<Shared62>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub category: ::std::option::Option<Shared63Category>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub content_type: ::std::option::Option<Shared60>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub holder: ::std::option::Option<Shared20>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub order: ::std::option::Option<Shared40>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub q: ::std::option::Option<Shared56>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub representation: ::std::option::Option<Shared59>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub source: ::std::option::Option<Shared61>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub state: ::std::option::Option<Shared46>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub target: ::std::option::Option<Shared54>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub truth: ::std::option::Option<Shared57>,
+}
+impl Shared63 {
+    pub fn builder() -> builder::Shared63 {
+        Default::default()
+    }
+}
+#[doc = "`Shared63Category`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared63Category {
+    #[serde(rename = "epistemic")]
+    Epistemic,
+    #[serde(rename = "perception")]
+    Perception,
+    #[serde(rename = "belief")]
+    Belief,
+}
+impl ::std::fmt::Display for Shared63Category {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Epistemic => f.write_str("epistemic"),
+            Self::Perception => f.write_str("perception"),
+            Self::Belief => f.write_str("belief"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared63Category {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "epistemic" => Ok(Self::Epistemic),
+            "perception" => Ok(Self::Perception),
+            "belief" => Ok(Self::Belief),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared63Category {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared63Category {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Shared64`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared64 {
+    pub policy_id: Shared64PolicyId,
+    pub policy_version: Shared64PolicyVersion,
+}
+impl Shared64 {
+    pub fn builder() -> builder::Shared64 {
+        Default::default()
+    }
+}
+#[doc = "`Shared64PolicyId`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared64PolicyId(::std::string::String);
+impl ::std::ops::Deref for Shared64PolicyId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared64PolicyId> for ::std::string::String {
+    fn from(value: Shared64PolicyId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared64PolicyId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared64PolicyId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared64PolicyId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared64PolicyId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`Shared64PolicyVersion`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared64PolicyVersion(::std::string::String);
+impl ::std::ops::Deref for Shared64PolicyVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared64PolicyVersion> for ::std::string::String {
+    fn from(value: Shared64PolicyVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared64PolicyVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared64PolicyVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared64PolicyVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared64PolicyVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`Shared65`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared65 {
+    pub assessment_context: Shared33,
+    #[doc = "All retained authorized matching assessments; disagreements remain and selection does not overwrite or merge them."]
+    pub assessments: ::std::vec::Vec<Shared65AssessmentsItem>,
+    pub holder: Shared20,
+    #[doc = "A no_record item is emitted only when the filter exactly addresses holder + complete target identity + assessment context_id + an explicit fork predicate (eq or absent), and the authorized source has no record for that compound key before optional category/dimension/q predicates. An omitted fork_id is a wildcard and never produces no_record."]
+    pub presence: Shared65Presence,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub selection: ::std::option::Option<Shared65Selection>,
+    pub target: Shared36,
+}
+impl Shared65 {
+    pub fn builder() -> builder::Shared65 {
+        Default::default()
+    }
+}
+#[doc = "`Shared65AssessmentsItem`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum Shared65AssessmentsItem {
+    Shared49(Shared49),
+    Shared50(Shared50),
+    Shared51(Shared51),
+}
+impl ::std::convert::From<Shared49> for Shared65AssessmentsItem {
+    fn from(value: Shared49) -> Self {
+        Self::Shared49(value)
+    }
+}
+impl ::std::convert::From<Shared50> for Shared65AssessmentsItem {
+    fn from(value: Shared50) -> Self {
+        Self::Shared50(value)
+    }
+}
+impl ::std::convert::From<Shared51> for Shared65AssessmentsItem {
+    fn from(value: Shared51) -> Self {
+        Self::Shared51(value)
+    }
+}
+#[doc = "A no_record item is emitted only when the filter exactly addresses holder + complete target identity + assessment context_id + an explicit fork predicate (eq or absent), and the authorized source has no record for that compound key before optional category/dimension/q predicates. An omitted fork_id is a wildcard and never produces no_record."]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared65Presence {
+    #[serde(rename = "assessed")]
+    Assessed,
+    #[serde(rename = "no_record")]
+    NoRecord,
+}
+impl ::std::fmt::Display for Shared65Presence {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Assessed => f.write_str("assessed"),
+            Self::NoRecord => f.write_str("no_record"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared65Presence {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "assessed" => Ok(Self::Assessed),
+            "no_record" => Ok(Self::NoRecord),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared65Presence {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared65Presence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "Required iff view = current and presence = assessed; recorded-at-time projection has no current selection."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared65Selection {
+    pub input_record_ids: ::std::vec::Vec<::std::string::String>,
+    pub policy: Shared64,
+    #[doc = "Must be one of input_record_ids."]
+    pub selected_record_id: Shared65SelectionSelectedRecordId,
+}
+impl Shared65Selection {
+    pub fn builder() -> builder::Shared65Selection {
+        Default::default()
+    }
+}
+#[doc = "Must be one of input_record_ids."]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct Shared65SelectionSelectedRecordId(::std::string::String);
+impl ::std::ops::Deref for Shared65SelectionSelectedRecordId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Shared65SelectionSelectedRecordId> for ::std::string::String {
+    fn from(value: Shared65SelectionSelectedRecordId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Shared65SelectionSelectedRecordId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared65SelectionSelectedRecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared65SelectionSelectedRecordId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Shared65SelectionSelectedRecordId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`Shared66`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared66 {
+    #[doc = "Optional recorded-at-time standard cognition (every entry has view = \"recorded_at\"); absent when no standard cognition was recorded — absent is never serialized as an empty array. Raw text/structured/candidate material is not promoted to completed standard cognition by placement alone. Tombstoned Content remains {text: \"\"} only, with no structured or cognition."]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub cognition: ::std::option::Option<::std::vec::Vec<CognitionRecord>>,
+    #[doc = "Optional opaque structured content. Product semantics (e.g. affect) ride here — there is no affect wire field."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub structured: ::std::option::Option<::serde_json::Value>,
+    #[doc = "Natural-language content; untrusted (§10)."]
+    pub text: ::std::string::String,
+}
+impl Shared66 {
+    pub fn builder() -> builder::Shared66 {
+        Default::default()
+    }
+}
+#[doc = "`Shared67`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared67 {
+    #[doc = "Client-claimed source anchors; may be empty."]
+    pub anchors: ::std::vec::Vec<SourceAnchor>,
+    pub captured_at: Shared11,
+    #[doc = "principal_id; always provider-populated."]
+    pub captured_by: CapturedBy,
+    #[doc = "Client-claimed provenance source context ids; may be empty. Independent of placement."]
+    pub source_context_ids: ::std::vec::Vec<::std::string::String>,
+}
+impl Shared67 {
+    pub fn builder() -> builder::Shared67 {
+        Default::default()
+    }
+}
+#[doc = "`Shared68`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared68 {
+    pub body: ::std::string::String,
+    pub format: Shared68Format,
+}
+impl Shared68 {
+    pub fn builder() -> builder::Shared68 {
+        Default::default()
+    }
+}
+#[doc = "`Shared68Format`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Shared68Format {
+    #[serde(rename = "markdown")]
+    Markdown,
+    #[serde(rename = "json")]
+    Json,
+}
+impl ::std::fmt::Display for Shared68Format {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Markdown => f.write_str("markdown"),
+            Self::Json => f.write_str("json"),
+        }
+    }
+}
+impl ::std::str::FromStr for Shared68Format {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "markdown" => Ok(Self::Markdown),
+            "json" => Ok(Self::Json),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared68Format {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Shared68Format {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "Pending candidate awaiting review. consumed_by / content_digest are deliberately absent: a pending candidate cannot carry consumption data."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared69 {
+    #[doc = "Provider-assigned."]
+    pub candidate_id: CandidateId,
+    #[doc = "Immutable admitted placement from memory.capture; the authorization fence for review outcomes."]
+    pub capture_scope: Shared14,
+    pub classification: Classification,
+    pub created_at: Shared11,
+    #[doc = "Optional provider policy. Expired pending candidates are excluded from lists, not consumed."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub expires_at: ::std::option::Option<Shared11>,
+    pub extensions: Shared2,
+    #[doc = "Optional: when the underlying event or datum occurred, persisted from memory.capture.occurred_at."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub occurred_at: ::std::option::Option<Shared11>,
+    pub proposed: Proposed,
+    pub provenance: Shared67,
+    #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
+    pub revision: ::std::num::NonZeroU64,
+    pub schema_version: Shared10,
+    pub space_id: SpaceId,
+    pub status: ::std::string::String,
+    pub subject_id: SubjectId,
+}
+impl Shared69 {
+    pub fn builder() -> builder::Shared69 {
         Default::default()
     }
 }
@@ -5056,17 +8351,70 @@ impl<'de> ::serde::Deserialize<'de> for Shared6SubjectId {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum Shared7 {
-    Shared19(Shared19),
-    Shared20(Shared20),
+    Shared69(Shared69),
+    Shared70(Shared70),
 }
-impl ::std::convert::From<Shared19> for Shared7 {
-    fn from(value: Shared19) -> Self {
-        Self::Shared19(value)
+impl ::std::convert::From<Shared69> for Shared7 {
+    fn from(value: Shared69) -> Self {
+        Self::Shared69(value)
     }
 }
-impl ::std::convert::From<Shared20> for Shared7 {
-    fn from(value: Shared20) -> Self {
-        Self::Shared20(value)
+impl ::std::convert::From<Shared70> for Shared7 {
+    fn from(value: Shared70) -> Self {
+        Self::Shared70(value)
+    }
+}
+#[doc = "Consumed audit shell: content scrubbed, outcome and digest retained (§6.7). expires_at is deliberately absent: it applies only to pending candidates."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared70 {
+    #[doc = "Provider-assigned."]
+    pub candidate_id: CandidateId,
+    #[doc = "Immutable admitted placement from memory.capture."]
+    pub capture_scope: Shared14,
+    pub classification: Classification,
+    pub consumed_by: ConsumedBy,
+    #[doc = "SHA-256 over the JCS canonical proposed.content; set when content is scrubbed at consumption, retained for dedup/audit (MEM-R025)."]
+    pub content_digest: ContentDigest,
+    pub created_at: Shared11,
+    pub extensions: Shared2,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub occurred_at: ::std::option::Option<Shared11>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub proposed: ::std::option::Option<ConsumedProposed>,
+    pub provenance: Shared67,
+    #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
+    pub revision: ::std::num::NonZeroU64,
+    pub schema_version: Shared10,
+    pub space_id: SpaceId,
+    pub status: ::std::string::String,
+    pub subject_id: SubjectId,
+}
+impl Shared70 {
+    pub fn builder() -> builder::Shared70 {
+        Default::default()
+    }
+}
+#[doc = "Shared ops error shape. Ops responses use either a success payload or a top-level error field — not both."]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Shared71 {
+    #[doc = "Machine-readable error code."]
+    pub code: ::std::string::String,
+    #[doc = "Optional structured error context."]
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub details: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[doc = "Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip."]
+    pub extensions: ::std::collections::HashMap<
+        ExtensionKey,
+        ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    >,
+    #[doc = "Human-readable error message."]
+    pub message: ::std::string::String,
+}
+impl Shared71 {
+    pub fn builder() -> builder::Shared71 {
+        Default::default()
     }
 }
 #[doc = "`Shared8`"]
@@ -5093,8 +8441,12 @@ impl Shared8 {
 #[serde(deny_unknown_fields)]
 pub struct Shared9 {
     pub capabilities: ::std::vec::Vec<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub context_ids: ::std::vec::Vec<::std::string::String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_presence_sensitive_array",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub context_ids: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
     pub grant_id: GrantId,
     #[doc = "Opaque correlation label — never credentials or tokens."]
     pub principal_ref: PrincipalRef,
@@ -5904,8 +9256,10 @@ pub mod builder {
     pub struct GrantSummary {
         capabilities:
             ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
-        context_ids:
-            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+        context_ids: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+            ::std::string::String,
+        >,
         grant_id: ::std::result::Result<super::GrantId, ::std::string::String>,
         principal_ref: ::std::result::Result<super::PrincipalRef, ::std::string::String>,
         revision: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
@@ -5944,6 +9298,7 @@ pub mod builder {
         {
             self.context_ids = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for context_ids: {e}"));
             self
         }
@@ -7179,7 +10534,7 @@ pub mod builder {
     #[derive(Clone, Debug)]
     pub struct ProfileDocument {
         created_at: ::std::result::Result<super::Shared11, ::std::string::String>,
-        document: ::std::result::Result<super::Shared18, ::std::string::String>,
+        document: ::std::result::Result<super::Shared68, ::std::string::String>,
         extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
         profile_kind:
             ::std::result::Result<super::ProfileDocumentProfileKind, ::std::string::String>,
@@ -7219,7 +10574,7 @@ pub mod builder {
         }
         pub fn document<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Shared18>,
+            T: ::std::convert::TryInto<super::Shared68>,
             T::Error: ::std::fmt::Display,
         {
             self.document = value
@@ -7345,7 +10700,7 @@ pub mod builder {
     }
     #[derive(Clone, Debug)]
     pub struct Proposed {
-        content: ::std::result::Result<super::Shared16, ::std::string::String>,
+        content: ::std::result::Result<super::Shared66, ::std::string::String>,
         kind: ::std::result::Result<super::Kind, ::std::string::String>,
     }
     impl ::std::default::Default for Proposed {
@@ -7359,7 +10714,7 @@ pub mod builder {
     impl Proposed {
         pub fn content<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Shared16>,
+            T: ::std::convert::TryInto<super::Shared66>,
             T::Error: ::std::fmt::Display,
         {
             self.content = value
@@ -7569,7 +10924,9 @@ pub mod builder {
     #[derive(Clone, Debug)]
     pub struct Reflection {
         basis: ::std::result::Result<super::ReflectionBasis, ::std::string::String>,
-        body: ::std::result::Result<super::Shared18, ::std::string::String>,
+        body: ::std::result::Result<super::Shared68, ::std::string::String>,
+        cognition_filter:
+            ::std::result::Result<::std::option::Option<super::Shared63>, ::std::string::String>,
         cost: ::std::result::Result<
             ::std::option::Option<super::ReflectionCost>,
             ::std::string::String,
@@ -7594,6 +10951,7 @@ pub mod builder {
             Self {
                 basis: Err("no value supplied for basis".to_string()),
                 body: Err("no value supplied for body".to_string()),
+                cognition_filter: Ok(Default::default()),
                 cost: Ok(Default::default()),
                 created_at: Err("no value supplied for created_at".to_string()),
                 extensions: Err("no value supplied for extensions".to_string()),
@@ -7622,12 +10980,22 @@ pub mod builder {
         }
         pub fn body<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Shared18>,
+            T: ::std::convert::TryInto<super::Shared68>,
             T::Error: ::std::fmt::Display,
         {
             self.body = value
                 .try_into()
                 .map_err(|e| format!("error converting supplied value for body: {e}"));
+            self
+        }
+        pub fn cognition_filter<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared63>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.cognition_filter = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for cognition_filter: {e}"));
             self
         }
         pub fn cost<T>(mut self, value: T) -> Self
@@ -7759,6 +11127,7 @@ pub mod builder {
             Ok(Self {
                 basis: value.basis?,
                 body: value.body?,
+                cognition_filter: value.cognition_filter?,
                 cost: value.cost?,
                 created_at: value.created_at?,
                 extensions: value.extensions?,
@@ -7779,6 +11148,7 @@ pub mod builder {
             Self {
                 basis: Ok(value.basis),
                 body: Ok(value.body),
+                cognition_filter: Ok(value.cognition_filter),
                 cost: Ok(value.cost),
                 created_at: Ok(value.created_at),
                 extensions: Ok(value.extensions),
@@ -8003,19 +11373,39 @@ pub mod builder {
     pub struct Shared0 {
         bundle_digest: ::std::result::Result<super::BundleDigest, ::std::string::String>,
         bytes: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
-        candidates: ::std::result::Result<::std::vec::Vec<super::Shared7>, ::std::string::String>,
+        candidates: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::Shared7>>,
+            ::std::string::String,
+        >,
         chunk_count: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
         chunk_digest: ::std::result::Result<super::ChunkDigest, ::std::string::String>,
         chunk_ordinal: ::std::result::Result<i64, ::std::string::String>,
         export_id: ::std::result::Result<super::ExportId, ::std::string::String>,
-        grants: ::std::result::Result<::std::vec::Vec<super::Shared9>, ::std::string::String>,
+        grants: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::Shared9>>,
+            ::std::string::String,
+        >,
         header: ::std::result::Result<super::Header, ::std::string::String>,
-        profiles: ::std::result::Result<::std::vec::Vec<super::Shared5>, ::std::string::String>,
-        receipt_summaries:
-            ::std::result::Result<::std::vec::Vec<super::Shared8>, ::std::string::String>,
-        records: ::std::result::Result<::std::vec::Vec<super::Shared4>, ::std::string::String>,
-        reflections: ::std::result::Result<::std::vec::Vec<super::Shared6>, ::std::string::String>,
-        subjects: ::std::result::Result<::std::vec::Vec<super::Shared3>, ::std::string::String>,
+        profiles: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::Shared5>>,
+            ::std::string::String,
+        >,
+        receipt_summaries: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::Shared8>>,
+            ::std::string::String,
+        >,
+        records: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::Shared4>>,
+            ::std::string::String,
+        >,
+        reflections: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::Shared6>>,
+            ::std::string::String,
+        >,
+        subjects: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::Shared3>>,
+            ::std::string::String,
+        >,
     }
     impl ::std::default::Default for Shared0 {
         fn default() -> Self {
@@ -8065,6 +11455,7 @@ pub mod builder {
         {
             self.candidates = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for candidates: {e}"));
             self
         }
@@ -8115,6 +11506,7 @@ pub mod builder {
         {
             self.grants = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for grants: {e}"));
             self
         }
@@ -8135,6 +11527,7 @@ pub mod builder {
         {
             self.profiles = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for profiles: {e}"));
             self
         }
@@ -8145,6 +11538,7 @@ pub mod builder {
         {
             self.receipt_summaries = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for receipt_summaries: {e}"));
             self
         }
@@ -8155,6 +11549,7 @@ pub mod builder {
         {
             self.records = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for records: {e}"));
             self
         }
@@ -8165,6 +11560,7 @@ pub mod builder {
         {
             self.reflections = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for reflections: {e}"));
             self
         }
@@ -8175,6 +11571,7 @@ pub mod builder {
         {
             self.subjects = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for subjects: {e}"));
             self
         }
@@ -8224,22 +11621,38 @@ pub mod builder {
     pub struct Shared1 {
         bundle_digest: ::std::result::Result<super::BundleDigest, ::std::string::String>,
         bytes: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
-        candidates:
-            ::std::result::Result<::std::vec::Vec<super::MemoryCandidate>, ::std::string::String>,
+        candidates: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::MemoryCandidate>>,
+            ::std::string::String,
+        >,
         chunk_count: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
         chunk_digest: ::std::result::Result<super::ChunkDigest, ::std::string::String>,
         chunk_ordinal: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
         export_id: ::std::result::Result<super::ExportId, ::std::string::String>,
-        grants: ::std::result::Result<::std::vec::Vec<super::GrantSummary>, ::std::string::String>,
-        profiles:
-            ::std::result::Result<::std::vec::Vec<super::ProfileDocument>, ::std::string::String>,
-        receipt_summaries:
-            ::std::result::Result<::std::vec::Vec<super::ReceiptSummary>, ::std::string::String>,
-        records:
-            ::std::result::Result<::std::vec::Vec<super::RetainedRecord>, ::std::string::String>,
-        reflections:
-            ::std::result::Result<::std::vec::Vec<super::Reflection>, ::std::string::String>,
-        subjects: ::std::result::Result<::std::vec::Vec<super::Subject>, ::std::string::String>,
+        grants: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::GrantSummary>>,
+            ::std::string::String,
+        >,
+        profiles: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::ProfileDocument>>,
+            ::std::string::String,
+        >,
+        receipt_summaries: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::ReceiptSummary>>,
+            ::std::string::String,
+        >,
+        records: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::RetainedRecord>>,
+            ::std::string::String,
+        >,
+        reflections: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::Reflection>>,
+            ::std::string::String,
+        >,
+        subjects: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::Subject>>,
+            ::std::string::String,
+        >,
     }
     impl ::std::default::Default for Shared1 {
         fn default() -> Self {
@@ -8288,6 +11701,7 @@ pub mod builder {
         {
             self.candidates = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for candidates: {e}"));
             self
         }
@@ -8338,6 +11752,7 @@ pub mod builder {
         {
             self.grants = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for grants: {e}"));
             self
         }
@@ -8348,6 +11763,7 @@ pub mod builder {
         {
             self.profiles = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for profiles: {e}"));
             self
         }
@@ -8358,6 +11774,7 @@ pub mod builder {
         {
             self.receipt_summaries = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for receipt_summaries: {e}"));
             self
         }
@@ -8368,6 +11785,7 @@ pub mod builder {
         {
             self.records = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for records: {e}"));
             self
         }
@@ -8378,6 +11796,7 @@ pub mod builder {
         {
             self.reflections = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for reflections: {e}"));
             self
         }
@@ -8388,6 +11807,7 @@ pub mod builder {
         {
             self.subjects = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for subjects: {e}"));
             self
         }
@@ -8433,7 +11853,7 @@ pub mod builder {
     }
     #[derive(Clone, Debug)]
     pub struct Shared12 {
-        content: ::std::result::Result<super::Shared16, ::std::string::String>,
+        content: ::std::result::Result<super::Shared66, ::std::string::String>,
         created_at: ::std::result::Result<super::Shared11, ::std::string::String>,
         extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
         import_ref:
@@ -8441,7 +11861,7 @@ pub mod builder {
         kind: ::std::result::Result<super::Kind, ::std::string::String>,
         occurred_at:
             ::std::result::Result<::std::option::Option<super::Shared11>, ::std::string::String>,
-        provenance: ::std::result::Result<super::Shared17, ::std::string::String>,
+        provenance: ::std::result::Result<super::Shared67, ::std::string::String>,
         record_id: ::std::result::Result<super::RecordId, ::std::string::String>,
         revision: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
         schema_version: ::std::result::Result<super::Shared10, ::std::string::String>,
@@ -8473,7 +11893,7 @@ pub mod builder {
     impl Shared12 {
         pub fn content<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Shared16>,
+            T: ::std::convert::TryInto<super::Shared66>,
             T::Error: ::std::fmt::Display,
         {
             self.content = value
@@ -8533,7 +11953,7 @@ pub mod builder {
         }
         pub fn provenance<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Shared17>,
+            T: ::std::convert::TryInto<super::Shared67>,
             T::Error: ::std::fmt::Display,
         {
             self.provenance = value
@@ -8957,34 +12377,1083 @@ pub mod builder {
     }
     #[derive(Clone, Debug)]
     pub struct Shared16 {
-        structured: ::std::result::Result<
-            ::std::option::Option<::serde_json::Value>,
-            ::std::string::String,
-        >,
-        text: ::std::result::Result<::std::string::String, ::std::string::String>,
+        access:
+            ::std::result::Result<::std::option::Option<super::Shared42>, ::std::string::String>,
+        assessed_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        assessment_context: ::std::result::Result<super::Shared33, ::std::string::String>,
+        assessor: ::std::result::Result<super::Shared20, ::std::string::String>,
+        assessor_role: ::std::result::Result<super::Shared31, ::std::string::String>,
+        basis: ::std::result::Result<super::Shared32, ::std::string::String>,
+        content_type:
+            ::std::result::Result<::std::option::Option<super::Shared44>, ::std::string::String>,
+        context:
+            ::std::result::Result<::std::option::Option<super::Shared45>, ::std::string::String>,
+        criterion:
+            ::std::result::Result<::std::option::Option<super::Shared34>, ::std::string::String>,
+        effective_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
+        holder: ::std::result::Result<super::Shared20, ::std::string::String>,
+        kind: ::std::result::Result<::std::string::String, ::std::string::String>,
+        metrics:
+            ::std::result::Result<::std::option::Option<super::Shared39>, ::std::string::String>,
+        order: ::std::result::Result<super::Shared40, ::std::string::String>,
+        q: ::std::result::Result<super::Shared38, ::std::string::String>,
+        record_id: ::std::result::Result<super::Shared16RecordId, ::std::string::String>,
+        representation:
+            ::std::result::Result<::std::option::Option<super::Shared43>, ::std::string::String>,
+        source:
+            ::std::result::Result<::std::option::Option<super::Shared25>, ::std::string::String>,
+        target: ::std::result::Result<super::Shared36, ::std::string::String>,
+        truth: ::std::result::Result<::std::option::Option<super::Shared41>, ::std::string::String>,
+        view: ::std::result::Result<super::Shared37, ::std::string::String>,
     }
     impl ::std::default::Default for Shared16 {
         fn default() -> Self {
             Self {
-                structured: Ok(Default::default()),
-                text: Err("no value supplied for text".to_string()),
+                access: Ok(Default::default()),
+                assessed_at: Err("no value supplied for assessed_at".to_string()),
+                assessment_context: Err("no value supplied for assessment_context".to_string()),
+                assessor: Err("no value supplied for assessor".to_string()),
+                assessor_role: Err("no value supplied for assessor_role".to_string()),
+                basis: Err("no value supplied for basis".to_string()),
+                content_type: Ok(Default::default()),
+                context: Ok(Default::default()),
+                criterion: Ok(Default::default()),
+                effective_at: Err("no value supplied for effective_at".to_string()),
+                extensions: Err("no value supplied for extensions".to_string()),
+                holder: Err("no value supplied for holder".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
+                metrics: Ok(Default::default()),
+                order: Err("no value supplied for order".to_string()),
+                q: Err("no value supplied for q".to_string()),
+                record_id: Err("no value supplied for record_id".to_string()),
+                representation: Ok(Default::default()),
+                source: Ok(Default::default()),
+                target: Err("no value supplied for target".to_string()),
+                truth: Ok(Default::default()),
+                view: Err("no value supplied for view".to_string()),
             }
         }
     }
     impl Shared16 {
-        pub fn structured<T>(mut self, value: T) -> Self
+        pub fn access<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<::std::option::Option<::serde_json::Value>>,
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared42>>,
             T::Error: ::std::fmt::Display,
         {
-            self.structured = value
+            self.access = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for structured: {e}"));
+                .map_err(|e| format!("error converting supplied value for access: {e}"));
+            self
+        }
+        pub fn assessed_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessed_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessed_at: {e}"));
+            self
+        }
+        pub fn assessment_context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared33>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessment_context = value.try_into().map_err(|e| {
+                format!("error converting supplied value for assessment_context: {e}")
+            });
+            self
+        }
+        pub fn assessor<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor: {e}"));
+            self
+        }
+        pub fn assessor_role<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared31>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor_role = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor_role: {e}"));
+            self
+        }
+        pub fn basis<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.basis = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for basis: {e}"));
+            self
+        }
+        pub fn content_type<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared44>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.content_type = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for content_type: {e}"));
+            self
+        }
+        pub fn context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared45>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.context = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for context: {e}"));
+            self
+        }
+        pub fn criterion<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared34>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.criterion = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for criterion: {e}"));
+            self
+        }
+        pub fn effective_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.effective_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for effective_at: {e}"));
+            self
+        }
+        pub fn extensions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared2>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extensions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
+            self
+        }
+        pub fn holder<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.holder = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for holder: {e}"));
+            self
+        }
+        pub fn kind<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.kind = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
+            self
+        }
+        pub fn metrics<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared39>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.metrics = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for metrics: {e}"));
+            self
+        }
+        pub fn order<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared40>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.order = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for order: {e}"));
+            self
+        }
+        pub fn q<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared38>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.q = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for q: {e}"));
+            self
+        }
+        pub fn record_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared16RecordId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.record_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for record_id: {e}"));
+            self
+        }
+        pub fn representation<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared43>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.representation = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for representation: {e}"));
+            self
+        }
+        pub fn source<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared25>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.source = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for source: {e}"));
+            self
+        }
+        pub fn target<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared36>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target: {e}"));
+            self
+        }
+        pub fn truth<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared41>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.truth = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for truth: {e}"));
+            self
+        }
+        pub fn view<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared37>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.view = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for view: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared16> for super::Shared16 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared16) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                access: value.access?,
+                assessed_at: value.assessed_at?,
+                assessment_context: value.assessment_context?,
+                assessor: value.assessor?,
+                assessor_role: value.assessor_role?,
+                basis: value.basis?,
+                content_type: value.content_type?,
+                context: value.context?,
+                criterion: value.criterion?,
+                effective_at: value.effective_at?,
+                extensions: value.extensions?,
+                holder: value.holder?,
+                kind: value.kind?,
+                metrics: value.metrics?,
+                order: value.order?,
+                q: value.q?,
+                record_id: value.record_id?,
+                representation: value.representation?,
+                source: value.source?,
+                target: value.target?,
+                truth: value.truth?,
+                view: value.view?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared16> for Shared16 {
+        fn from(value: super::Shared16) -> Self {
+            Self {
+                access: Ok(value.access),
+                assessed_at: Ok(value.assessed_at),
+                assessment_context: Ok(value.assessment_context),
+                assessor: Ok(value.assessor),
+                assessor_role: Ok(value.assessor_role),
+                basis: Ok(value.basis),
+                content_type: Ok(value.content_type),
+                context: Ok(value.context),
+                criterion: Ok(value.criterion),
+                effective_at: Ok(value.effective_at),
+                extensions: Ok(value.extensions),
+                holder: Ok(value.holder),
+                kind: Ok(value.kind),
+                metrics: Ok(value.metrics),
+                order: Ok(value.order),
+                q: Ok(value.q),
+                record_id: Ok(value.record_id),
+                representation: Ok(value.representation),
+                source: Ok(value.source),
+                target: Ok(value.target),
+                truth: Ok(value.truth),
+                view: Ok(value.view),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared17 {
+        assessed_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        assessment_context: ::std::result::Result<super::Shared33, ::std::string::String>,
+        assessor: ::std::result::Result<super::Shared20, ::std::string::String>,
+        assessor_role: ::std::result::Result<super::Shared31, ::std::string::String>,
+        basis: ::std::result::Result<super::Shared32, ::std::string::String>,
+        classification_policy:
+            ::std::result::Result<super::Shared17ClassificationPolicy, ::std::string::String>,
+        criterion: ::std::result::Result<super::Shared34, ::std::string::String>,
+        effective_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
+        holder: ::std::result::Result<super::Shared20, ::std::string::String>,
+        kind: ::std::result::Result<::std::string::String, ::std::string::String>,
+        metrics:
+            ::std::result::Result<::std::option::Option<super::Shared39>, ::std::string::String>,
+        q: ::std::result::Result<super::Shared38, ::std::string::String>,
+        record_id: ::std::result::Result<super::Shared17RecordId, ::std::string::String>,
+        state: ::std::result::Result<super::Shared46, ::std::string::String>,
+        target: ::std::result::Result<super::Shared36, ::std::string::String>,
+        view: ::std::result::Result<super::Shared37, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared17 {
+        fn default() -> Self {
+            Self {
+                assessed_at: Err("no value supplied for assessed_at".to_string()),
+                assessment_context: Err("no value supplied for assessment_context".to_string()),
+                assessor: Err("no value supplied for assessor".to_string()),
+                assessor_role: Err("no value supplied for assessor_role".to_string()),
+                basis: Err("no value supplied for basis".to_string()),
+                classification_policy: Err(
+                    "no value supplied for classification_policy".to_string()
+                ),
+                criterion: Err("no value supplied for criterion".to_string()),
+                effective_at: Err("no value supplied for effective_at".to_string()),
+                extensions: Err("no value supplied for extensions".to_string()),
+                holder: Err("no value supplied for holder".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
+                metrics: Ok(Default::default()),
+                q: Err("no value supplied for q".to_string()),
+                record_id: Err("no value supplied for record_id".to_string()),
+                state: Err("no value supplied for state".to_string()),
+                target: Err("no value supplied for target".to_string()),
+                view: Err("no value supplied for view".to_string()),
+            }
+        }
+    }
+    impl Shared17 {
+        pub fn assessed_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessed_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessed_at: {e}"));
+            self
+        }
+        pub fn assessment_context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared33>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessment_context = value.try_into().map_err(|e| {
+                format!("error converting supplied value for assessment_context: {e}")
+            });
+            self
+        }
+        pub fn assessor<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor: {e}"));
+            self
+        }
+        pub fn assessor_role<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared31>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor_role = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor_role: {e}"));
+            self
+        }
+        pub fn basis<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.basis = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for basis: {e}"));
+            self
+        }
+        pub fn classification_policy<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared17ClassificationPolicy>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.classification_policy = value.try_into().map_err(|e| {
+                format!("error converting supplied value for classification_policy: {e}")
+            });
+            self
+        }
+        pub fn criterion<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared34>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.criterion = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for criterion: {e}"));
+            self
+        }
+        pub fn effective_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.effective_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for effective_at: {e}"));
+            self
+        }
+        pub fn extensions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared2>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extensions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
+            self
+        }
+        pub fn holder<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.holder = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for holder: {e}"));
+            self
+        }
+        pub fn kind<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.kind = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
+            self
+        }
+        pub fn metrics<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared39>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.metrics = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for metrics: {e}"));
+            self
+        }
+        pub fn q<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared38>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.q = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for q: {e}"));
+            self
+        }
+        pub fn record_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared17RecordId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.record_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for record_id: {e}"));
+            self
+        }
+        pub fn state<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared46>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.state = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for state: {e}"));
+            self
+        }
+        pub fn target<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared36>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target: {e}"));
+            self
+        }
+        pub fn view<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared37>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.view = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for view: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared17> for super::Shared17 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared17) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                assessed_at: value.assessed_at?,
+                assessment_context: value.assessment_context?,
+                assessor: value.assessor?,
+                assessor_role: value.assessor_role?,
+                basis: value.basis?,
+                classification_policy: value.classification_policy?,
+                criterion: value.criterion?,
+                effective_at: value.effective_at?,
+                extensions: value.extensions?,
+                holder: value.holder?,
+                kind: value.kind?,
+                metrics: value.metrics?,
+                q: value.q?,
+                record_id: value.record_id?,
+                state: value.state?,
+                target: value.target?,
+                view: value.view?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared17> for Shared17 {
+        fn from(value: super::Shared17) -> Self {
+            Self {
+                assessed_at: Ok(value.assessed_at),
+                assessment_context: Ok(value.assessment_context),
+                assessor: Ok(value.assessor),
+                assessor_role: Ok(value.assessor_role),
+                basis: Ok(value.basis),
+                classification_policy: Ok(value.classification_policy),
+                criterion: Ok(value.criterion),
+                effective_at: Ok(value.effective_at),
+                extensions: Ok(value.extensions),
+                holder: Ok(value.holder),
+                kind: Ok(value.kind),
+                metrics: Ok(value.metrics),
+                q: Ok(value.q),
+                record_id: Ok(value.record_id),
+                state: Ok(value.state),
+                target: Ok(value.target),
+                view: Ok(value.view),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared17ClassificationPolicy {
+        policy_id: ::std::result::Result<
+            super::Shared17ClassificationPolicyPolicyId,
+            ::std::string::String,
+        >,
+        policy_version: ::std::result::Result<
+            super::Shared17ClassificationPolicyPolicyVersion,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for Shared17ClassificationPolicy {
+        fn default() -> Self {
+            Self {
+                policy_id: Err("no value supplied for policy_id".to_string()),
+                policy_version: Err("no value supplied for policy_version".to_string()),
+            }
+        }
+    }
+    impl Shared17ClassificationPolicy {
+        pub fn policy_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared17ClassificationPolicyPolicyId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.policy_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for policy_id: {e}"));
+            self
+        }
+        pub fn policy_version<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared17ClassificationPolicyPolicyVersion>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.policy_version = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for policy_version: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared17ClassificationPolicy> for super::Shared17ClassificationPolicy {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: Shared17ClassificationPolicy,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                policy_id: value.policy_id?,
+                policy_version: value.policy_version?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared17ClassificationPolicy> for Shared17ClassificationPolicy {
+        fn from(value: super::Shared17ClassificationPolicy) -> Self {
+            Self {
+                policy_id: Ok(value.policy_id),
+                policy_version: Ok(value.policy_version),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared18 {
+        access:
+            ::std::result::Result<::std::option::Option<super::Shared48>, ::std::string::String>,
+        assessed_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        assessment_context: ::std::result::Result<super::Shared33, ::std::string::String>,
+        assessor: ::std::result::Result<super::Shared20, ::std::string::String>,
+        assessor_role: ::std::result::Result<super::Shared31, ::std::string::String>,
+        basis: ::std::result::Result<super::Shared32, ::std::string::String>,
+        content: ::std::result::Result<super::Shared47, ::std::string::String>,
+        criterion:
+            ::std::result::Result<::std::option::Option<super::Shared34>, ::std::string::String>,
+        effective_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        episode: ::std::result::Result<super::Shared20, ::std::string::String>,
+        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
+        holder: ::std::result::Result<super::Shared20, ::std::string::String>,
+        kind: ::std::result::Result<::std::string::String, ::std::string::String>,
+        metrics:
+            ::std::result::Result<::std::option::Option<super::Shared39>, ::std::string::String>,
+        q: ::std::result::Result<super::Shared38, ::std::string::String>,
+        record_id: ::std::result::Result<super::Shared18RecordId, ::std::string::String>,
+        target: ::std::result::Result<super::Shared36, ::std::string::String>,
+        view: ::std::result::Result<super::Shared37, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared18 {
+        fn default() -> Self {
+            Self {
+                access: Ok(Default::default()),
+                assessed_at: Err("no value supplied for assessed_at".to_string()),
+                assessment_context: Err("no value supplied for assessment_context".to_string()),
+                assessor: Err("no value supplied for assessor".to_string()),
+                assessor_role: Err("no value supplied for assessor_role".to_string()),
+                basis: Err("no value supplied for basis".to_string()),
+                content: Err("no value supplied for content".to_string()),
+                criterion: Ok(Default::default()),
+                effective_at: Err("no value supplied for effective_at".to_string()),
+                episode: Err("no value supplied for episode".to_string()),
+                extensions: Err("no value supplied for extensions".to_string()),
+                holder: Err("no value supplied for holder".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
+                metrics: Ok(Default::default()),
+                q: Err("no value supplied for q".to_string()),
+                record_id: Err("no value supplied for record_id".to_string()),
+                target: Err("no value supplied for target".to_string()),
+                view: Err("no value supplied for view".to_string()),
+            }
+        }
+    }
+    impl Shared18 {
+        pub fn access<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared48>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.access = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for access: {e}"));
+            self
+        }
+        pub fn assessed_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessed_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessed_at: {e}"));
+            self
+        }
+        pub fn assessment_context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared33>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessment_context = value.try_into().map_err(|e| {
+                format!("error converting supplied value for assessment_context: {e}")
+            });
+            self
+        }
+        pub fn assessor<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor: {e}"));
+            self
+        }
+        pub fn assessor_role<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared31>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor_role = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor_role: {e}"));
+            self
+        }
+        pub fn basis<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.basis = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for basis: {e}"));
+            self
+        }
+        pub fn content<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared47>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.content = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for content: {e}"));
+            self
+        }
+        pub fn criterion<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared34>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.criterion = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for criterion: {e}"));
+            self
+        }
+        pub fn effective_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.effective_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for effective_at: {e}"));
+            self
+        }
+        pub fn episode<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.episode = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for episode: {e}"));
+            self
+        }
+        pub fn extensions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared2>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extensions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
+            self
+        }
+        pub fn holder<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.holder = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for holder: {e}"));
+            self
+        }
+        pub fn kind<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.kind = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
+            self
+        }
+        pub fn metrics<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared39>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.metrics = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for metrics: {e}"));
+            self
+        }
+        pub fn q<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared38>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.q = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for q: {e}"));
+            self
+        }
+        pub fn record_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared18RecordId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.record_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for record_id: {e}"));
+            self
+        }
+        pub fn target<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared36>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target: {e}"));
+            self
+        }
+        pub fn view<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared37>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.view = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for view: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared18> for super::Shared18 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared18) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                access: value.access?,
+                assessed_at: value.assessed_at?,
+                assessment_context: value.assessment_context?,
+                assessor: value.assessor?,
+                assessor_role: value.assessor_role?,
+                basis: value.basis?,
+                content: value.content?,
+                criterion: value.criterion?,
+                effective_at: value.effective_at?,
+                episode: value.episode?,
+                extensions: value.extensions?,
+                holder: value.holder?,
+                kind: value.kind?,
+                metrics: value.metrics?,
+                q: value.q?,
+                record_id: value.record_id?,
+                target: value.target?,
+                view: value.view?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared18> for Shared18 {
+        fn from(value: super::Shared18) -> Self {
+            Self {
+                access: Ok(value.access),
+                assessed_at: Ok(value.assessed_at),
+                assessment_context: Ok(value.assessment_context),
+                assessor: Ok(value.assessor),
+                assessor_role: Ok(value.assessor_role),
+                basis: Ok(value.basis),
+                content: Ok(value.content),
+                criterion: Ok(value.criterion),
+                effective_at: Ok(value.effective_at),
+                episode: Ok(value.episode),
+                extensions: Ok(value.extensions),
+                holder: Ok(value.holder),
+                kind: Ok(value.kind),
+                metrics: Ok(value.metrics),
+                q: Ok(value.q),
+                record_id: Ok(value.record_id),
+                target: Ok(value.target),
+                view: Ok(value.view),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared20 {
+        id: ::std::result::Result<super::Shared20Id, ::std::string::String>,
+        kind: ::std::result::Result<super::Shared19, ::std::string::String>,
+        namespace: ::std::result::Result<super::Shared20Namespace, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared20 {
+        fn default() -> Self {
+            Self {
+                id: Err("no value supplied for id".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
+                namespace: Err("no value supplied for namespace".to_string()),
+            }
+        }
+    }
+    impl Shared20 {
+        pub fn id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20Id>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for id: {e}"));
+            self
+        }
+        pub fn kind<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared19>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.kind = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
+            self
+        }
+        pub fn namespace<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20Namespace>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.namespace = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for namespace: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared20> for super::Shared20 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared20) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                id: value.id?,
+                kind: value.kind?,
+                namespace: value.namespace?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared20> for Shared20 {
+        fn from(value: super::Shared20) -> Self {
+            Self {
+                id: Ok(value.id),
+                kind: Ok(value.kind),
+                namespace: Ok(value.namespace),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared22 {
+        about: ::std::result::Result<
+            ::std::option::Option<::std::boxed::Box<super::Shared22>>,
+            ::std::string::String,
+        >,
+        carrier: ::std::result::Result<super::Shared20, ::std::string::String>,
+        kind: ::std::result::Result<super::Shared21, ::std::string::String>,
+        target_id: ::std::result::Result<super::Shared22TargetId, ::std::string::String>,
+        text: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for Shared22 {
+        fn default() -> Self {
+            Self {
+                about: Ok(Default::default()),
+                carrier: Err("no value supplied for carrier".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
+                target_id: Err("no value supplied for target_id".to_string()),
+                text: Ok(Default::default()),
+            }
+        }
+    }
+    impl Shared22 {
+        pub fn about<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::boxed::Box<super::Shared22>>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.about = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for about: {e}"));
+            self
+        }
+        pub fn carrier<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.carrier = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for carrier: {e}"));
+            self
+        }
+        pub fn kind<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared21>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.kind = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
+            self
+        }
+        pub fn target_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared22TargetId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target_id: {e}"));
             self
         }
         pub fn text<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<::std::string::String>,
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
             T::Error: ::std::fmt::Display,
         {
             self.text = value
@@ -8993,709 +13462,257 @@ pub mod builder {
             self
         }
     }
-    impl ::std::convert::TryFrom<Shared16> for super::Shared16 {
+    impl ::std::convert::TryFrom<Shared22> for super::Shared22 {
         type Error = super::error::ConversionError;
-        fn try_from(value: Shared16) -> ::std::result::Result<Self, super::error::ConversionError> {
+        fn try_from(value: Shared22) -> ::std::result::Result<Self, super::error::ConversionError> {
             Ok(Self {
-                structured: value.structured?,
+                about: value.about?,
+                carrier: value.carrier?,
+                kind: value.kind?,
+                target_id: value.target_id?,
                 text: value.text?,
             })
         }
     }
-    impl ::std::convert::From<super::Shared16> for Shared16 {
-        fn from(value: super::Shared16) -> Self {
+    impl ::std::convert::From<super::Shared22> for Shared22 {
+        fn from(value: super::Shared22) -> Self {
             Self {
-                structured: Ok(value.structured),
+                about: Ok(value.about),
+                carrier: Ok(value.carrier),
+                kind: Ok(value.kind),
+                target_id: Ok(value.target_id),
                 text: Ok(value.text),
             }
         }
     }
     #[derive(Clone, Debug)]
-    pub struct Shared17 {
-        anchors: ::std::result::Result<::std::vec::Vec<super::SourceAnchor>, ::std::string::String>,
-        captured_at: ::std::result::Result<super::Shared11, ::std::string::String>,
-        captured_by: ::std::result::Result<super::CapturedBy, ::std::string::String>,
-        source_context_ids:
-            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+    pub struct Shared23 {
+        acquisition:
+            ::std::result::Result<::std::option::Option<super::Shared25>, ::std::string::String>,
+        evidence: ::std::result::Result<::std::vec::Vec<super::Shared20>, ::std::string::String>,
+        kind: ::std::result::Result<::std::string::String, ::std::string::String>,
     }
-    impl ::std::default::Default for Shared17 {
+    impl ::std::default::Default for Shared23 {
         fn default() -> Self {
             Self {
-                anchors: Err("no value supplied for anchors".to_string()),
-                captured_at: Err("no value supplied for captured_at".to_string()),
-                captured_by: Err("no value supplied for captured_by".to_string()),
-                source_context_ids: Err("no value supplied for source_context_ids".to_string()),
+                acquisition: Ok(Default::default()),
+                evidence: Err("no value supplied for evidence".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
             }
         }
     }
-    impl Shared17 {
-        pub fn anchors<T>(mut self, value: T) -> Self
+    impl Shared23 {
+        pub fn acquisition<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<::std::vec::Vec<super::SourceAnchor>>,
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared25>>,
             T::Error: ::std::fmt::Display,
         {
-            self.anchors = value
+            self.acquisition = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for anchors: {e}"));
+                .map_err(|e| format!("error converting supplied value for acquisition: {e}"));
             self
         }
-        pub fn captured_at<T>(mut self, value: T) -> Self
+        pub fn evidence<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Shared11>,
+            T: ::std::convert::TryInto<::std::vec::Vec<super::Shared20>>,
             T::Error: ::std::fmt::Display,
         {
-            self.captured_at = value
+            self.evidence = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for captured_at: {e}"));
+                .map_err(|e| format!("error converting supplied value for evidence: {e}"));
             self
         }
-        pub fn captured_by<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::CapturedBy>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.captured_by = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for captured_by: {e}"));
-            self
-        }
-        pub fn source_context_ids<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.source_context_ids = value.try_into().map_err(|e| {
-                format!("error converting supplied value for source_context_ids: {e}")
-            });
-            self
-        }
-    }
-    impl ::std::convert::TryFrom<Shared17> for super::Shared17 {
-        type Error = super::error::ConversionError;
-        fn try_from(value: Shared17) -> ::std::result::Result<Self, super::error::ConversionError> {
-            Ok(Self {
-                anchors: value.anchors?,
-                captured_at: value.captured_at?,
-                captured_by: value.captured_by?,
-                source_context_ids: value.source_context_ids?,
-            })
-        }
-    }
-    impl ::std::convert::From<super::Shared17> for Shared17 {
-        fn from(value: super::Shared17) -> Self {
-            Self {
-                anchors: Ok(value.anchors),
-                captured_at: Ok(value.captured_at),
-                captured_by: Ok(value.captured_by),
-                source_context_ids: Ok(value.source_context_ids),
-            }
-        }
-    }
-    #[derive(Clone, Debug)]
-    pub struct Shared18 {
-        body: ::std::result::Result<::std::string::String, ::std::string::String>,
-        format: ::std::result::Result<super::Shared18Format, ::std::string::String>,
-    }
-    impl ::std::default::Default for Shared18 {
-        fn default() -> Self {
-            Self {
-                body: Err("no value supplied for body".to_string()),
-                format: Err("no value supplied for format".to_string()),
-            }
-        }
-    }
-    impl Shared18 {
-        pub fn body<T>(mut self, value: T) -> Self
+        pub fn kind<T>(mut self, value: T) -> Self
         where
             T: ::std::convert::TryInto<::std::string::String>,
             T::Error: ::std::fmt::Display,
         {
-            self.body = value
+            self.kind = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for body: {e}"));
-            self
-        }
-        pub fn format<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Shared18Format>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.format = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for format: {e}"));
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
             self
         }
     }
-    impl ::std::convert::TryFrom<Shared18> for super::Shared18 {
+    impl ::std::convert::TryFrom<Shared23> for super::Shared23 {
         type Error = super::error::ConversionError;
-        fn try_from(value: Shared18) -> ::std::result::Result<Self, super::error::ConversionError> {
+        fn try_from(value: Shared23) -> ::std::result::Result<Self, super::error::ConversionError> {
             Ok(Self {
-                body: value.body?,
-                format: value.format?,
+                acquisition: value.acquisition?,
+                evidence: value.evidence?,
+                kind: value.kind?,
             })
         }
     }
-    impl ::std::convert::From<super::Shared18> for Shared18 {
-        fn from(value: super::Shared18) -> Self {
+    impl ::std::convert::From<super::Shared23> for Shared23 {
+        fn from(value: super::Shared23) -> Self {
             Self {
-                body: Ok(value.body),
-                format: Ok(value.format),
+                acquisition: Ok(value.acquisition),
+                evidence: Ok(value.evidence),
+                kind: Ok(value.kind),
             }
         }
     }
     #[derive(Clone, Debug)]
-    pub struct Shared19 {
-        candidate_id: ::std::result::Result<super::CandidateId, ::std::string::String>,
-        capture_scope: ::std::result::Result<super::Shared14, ::std::string::String>,
-        classification: ::std::result::Result<super::Classification, ::std::string::String>,
-        created_at: ::std::result::Result<super::Shared11, ::std::string::String>,
-        expires_at:
-            ::std::result::Result<::std::option::Option<super::Shared11>, ::std::string::String>,
-        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
-        occurred_at:
-            ::std::result::Result<::std::option::Option<super::Shared11>, ::std::string::String>,
-        proposed: ::std::result::Result<super::Proposed, ::std::string::String>,
-        provenance: ::std::result::Result<super::Shared17, ::std::string::String>,
-        revision: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
-        schema_version: ::std::result::Result<super::Shared10, ::std::string::String>,
-        space_id: ::std::result::Result<super::SpaceId, ::std::string::String>,
-        status: ::std::result::Result<::std::string::String, ::std::string::String>,
-        subject_id: ::std::result::Result<super::SubjectId, ::std::string::String>,
+    pub struct Shared24 {
+        acquisition:
+            ::std::result::Result<::std::option::Option<super::Shared25>, ::std::string::String>,
+        description: ::std::result::Result<super::Shared24Description, ::std::string::String>,
+        kind: ::std::result::Result<::std::string::String, ::std::string::String>,
     }
-    impl ::std::default::Default for Shared19 {
+    impl ::std::default::Default for Shared24 {
         fn default() -> Self {
             Self {
-                candidate_id: Err("no value supplied for candidate_id".to_string()),
-                capture_scope: Err("no value supplied for capture_scope".to_string()),
-                classification: Err("no value supplied for classification".to_string()),
-                created_at: Err("no value supplied for created_at".to_string()),
-                expires_at: Ok(Default::default()),
-                extensions: Err("no value supplied for extensions".to_string()),
-                occurred_at: Ok(Default::default()),
-                proposed: Err("no value supplied for proposed".to_string()),
-                provenance: Err("no value supplied for provenance".to_string()),
-                revision: Err("no value supplied for revision".to_string()),
-                schema_version: Err("no value supplied for schema_version".to_string()),
-                space_id: Err("no value supplied for space_id".to_string()),
-                status: Err("no value supplied for status".to_string()),
-                subject_id: Err("no value supplied for subject_id".to_string()),
+                acquisition: Ok(Default::default()),
+                description: Err("no value supplied for description".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
             }
         }
     }
-    impl Shared19 {
-        pub fn candidate_id<T>(mut self, value: T) -> Self
+    impl Shared24 {
+        pub fn acquisition<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::CandidateId>,
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared25>>,
             T::Error: ::std::fmt::Display,
         {
-            self.candidate_id = value
+            self.acquisition = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for candidate_id: {e}"));
+                .map_err(|e| format!("error converting supplied value for acquisition: {e}"));
             self
         }
-        pub fn capture_scope<T>(mut self, value: T) -> Self
+        pub fn description<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Shared14>,
+            T: ::std::convert::TryInto<super::Shared24Description>,
             T::Error: ::std::fmt::Display,
         {
-            self.capture_scope = value
+            self.description = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for capture_scope: {e}"));
+                .map_err(|e| format!("error converting supplied value for description: {e}"));
             self
         }
-        pub fn classification<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Classification>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.classification = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for classification: {e}"));
-            self
-        }
-        pub fn created_at<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Shared11>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.created_at = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for created_at: {e}"));
-            self
-        }
-        pub fn expires_at<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<::std::option::Option<super::Shared11>>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.expires_at = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for expires_at: {e}"));
-            self
-        }
-        pub fn extensions<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Shared2>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.extensions = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
-            self
-        }
-        pub fn occurred_at<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<::std::option::Option<super::Shared11>>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.occurred_at = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for occurred_at: {e}"));
-            self
-        }
-        pub fn proposed<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Proposed>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.proposed = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for proposed: {e}"));
-            self
-        }
-        pub fn provenance<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Shared17>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.provenance = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for provenance: {e}"));
-            self
-        }
-        pub fn revision<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<::std::num::NonZeroU64>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.revision = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for revision: {e}"));
-            self
-        }
-        pub fn schema_version<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Shared10>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.schema_version = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for schema_version: {e}"));
-            self
-        }
-        pub fn space_id<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::SpaceId>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.space_id = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for space_id: {e}"));
-            self
-        }
-        pub fn status<T>(mut self, value: T) -> Self
+        pub fn kind<T>(mut self, value: T) -> Self
         where
             T: ::std::convert::TryInto<::std::string::String>,
             T::Error: ::std::fmt::Display,
         {
-            self.status = value
+            self.kind = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for status: {e}"));
-            self
-        }
-        pub fn subject_id<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::SubjectId>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.subject_id = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for subject_id: {e}"));
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
             self
         }
     }
-    impl ::std::convert::TryFrom<Shared19> for super::Shared19 {
+    impl ::std::convert::TryFrom<Shared24> for super::Shared24 {
         type Error = super::error::ConversionError;
-        fn try_from(value: Shared19) -> ::std::result::Result<Self, super::error::ConversionError> {
+        fn try_from(value: Shared24) -> ::std::result::Result<Self, super::error::ConversionError> {
             Ok(Self {
-                candidate_id: value.candidate_id?,
-                capture_scope: value.capture_scope?,
-                classification: value.classification?,
-                created_at: value.created_at?,
-                expires_at: value.expires_at?,
-                extensions: value.extensions?,
-                occurred_at: value.occurred_at?,
-                proposed: value.proposed?,
-                provenance: value.provenance?,
-                revision: value.revision?,
-                schema_version: value.schema_version?,
-                space_id: value.space_id?,
-                status: value.status?,
-                subject_id: value.subject_id?,
+                acquisition: value.acquisition?,
+                description: value.description?,
+                kind: value.kind?,
             })
         }
     }
-    impl ::std::convert::From<super::Shared19> for Shared19 {
-        fn from(value: super::Shared19) -> Self {
+    impl ::std::convert::From<super::Shared24> for Shared24 {
+        fn from(value: super::Shared24) -> Self {
             Self {
-                candidate_id: Ok(value.candidate_id),
-                capture_scope: Ok(value.capture_scope),
-                classification: Ok(value.classification),
-                created_at: Ok(value.created_at),
-                expires_at: Ok(value.expires_at),
-                extensions: Ok(value.extensions),
-                occurred_at: Ok(value.occurred_at),
-                proposed: Ok(value.proposed),
-                provenance: Ok(value.provenance),
-                revision: Ok(value.revision),
-                schema_version: Ok(value.schema_version),
-                space_id: Ok(value.space_id),
-                status: Ok(value.status),
-                subject_id: Ok(value.subject_id),
+                acquisition: Ok(value.acquisition),
+                description: Ok(value.description),
+                kind: Ok(value.kind),
             }
         }
     }
     #[derive(Clone, Debug)]
-    pub struct Shared20 {
-        candidate_id: ::std::result::Result<super::CandidateId, ::std::string::String>,
-        capture_scope: ::std::result::Result<super::Shared14, ::std::string::String>,
-        classification: ::std::result::Result<super::Classification, ::std::string::String>,
-        consumed_by: ::std::result::Result<super::ConsumedBy, ::std::string::String>,
-        content_digest: ::std::result::Result<super::ContentDigest, ::std::string::String>,
-        created_at: ::std::result::Result<super::Shared11, ::std::string::String>,
-        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
-        occurred_at:
-            ::std::result::Result<::std::option::Option<super::Shared11>, ::std::string::String>,
-        proposed: ::std::result::Result<
-            ::std::option::Option<super::ConsumedProposed>,
+    pub struct Shared29 {
+        description: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
             ::std::string::String,
         >,
-        provenance: ::std::result::Result<super::Shared17, ::std::string::String>,
-        revision: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
-        schema_version: ::std::result::Result<super::Shared10, ::std::string::String>,
-        space_id: ::std::result::Result<super::SpaceId, ::std::string::String>,
-        status: ::std::result::Result<::std::string::String, ::std::string::String>,
-        subject_id: ::std::result::Result<super::SubjectId, ::std::string::String>,
+        kind: ::std::result::Result<super::Shared26, ::std::string::String>,
+        level: ::std::result::Result<::std::option::Option<f64>, ::std::string::String>,
+        lower: ::std::result::Result<f64, ::std::string::String>,
+        upper: ::std::result::Result<f64, ::std::string::String>,
     }
-    impl ::std::default::Default for Shared20 {
+    impl ::std::default::Default for Shared29 {
         fn default() -> Self {
             Self {
-                candidate_id: Err("no value supplied for candidate_id".to_string()),
-                capture_scope: Err("no value supplied for capture_scope".to_string()),
-                classification: Err("no value supplied for classification".to_string()),
-                consumed_by: Err("no value supplied for consumed_by".to_string()),
-                content_digest: Err("no value supplied for content_digest".to_string()),
-                created_at: Err("no value supplied for created_at".to_string()),
-                extensions: Err("no value supplied for extensions".to_string()),
-                occurred_at: Ok(Default::default()),
-                proposed: Ok(Default::default()),
-                provenance: Err("no value supplied for provenance".to_string()),
-                revision: Err("no value supplied for revision".to_string()),
-                schema_version: Err("no value supplied for schema_version".to_string()),
-                space_id: Err("no value supplied for space_id".to_string()),
-                status: Err("no value supplied for status".to_string()),
-                subject_id: Err("no value supplied for subject_id".to_string()),
+                description: Ok(Default::default()),
+                kind: Err("no value supplied for kind".to_string()),
+                level: Ok(Default::default()),
+                lower: Err("no value supplied for lower".to_string()),
+                upper: Err("no value supplied for upper".to_string()),
             }
         }
     }
-    impl Shared20 {
-        pub fn candidate_id<T>(mut self, value: T) -> Self
+    impl Shared29 {
+        pub fn description<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::CandidateId>,
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
             T::Error: ::std::fmt::Display,
         {
-            self.candidate_id = value
+            self.description = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for candidate_id: {e}"));
+                .map_err(|e| format!("error converting supplied value for description: {e}"));
             self
         }
-        pub fn capture_scope<T>(mut self, value: T) -> Self
+        pub fn kind<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Shared14>,
+            T: ::std::convert::TryInto<super::Shared26>,
             T::Error: ::std::fmt::Display,
         {
-            self.capture_scope = value
+            self.kind = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for capture_scope: {e}"));
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
             self
         }
-        pub fn classification<T>(mut self, value: T) -> Self
+        pub fn level<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Classification>,
+            T: ::std::convert::TryInto<::std::option::Option<f64>>,
             T::Error: ::std::fmt::Display,
         {
-            self.classification = value
+            self.level = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for classification: {e}"));
+                .map_err(|e| format!("error converting supplied value for level: {e}"));
             self
         }
-        pub fn consumed_by<T>(mut self, value: T) -> Self
+        pub fn lower<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::ConsumedBy>,
+            T: ::std::convert::TryInto<f64>,
             T::Error: ::std::fmt::Display,
         {
-            self.consumed_by = value
+            self.lower = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for consumed_by: {e}"));
+                .map_err(|e| format!("error converting supplied value for lower: {e}"));
             self
         }
-        pub fn content_digest<T>(mut self, value: T) -> Self
+        pub fn upper<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::ContentDigest>,
+            T: ::std::convert::TryInto<f64>,
             T::Error: ::std::fmt::Display,
         {
-            self.content_digest = value
+            self.upper = value
                 .try_into()
-                .map_err(|e| format!("error converting supplied value for content_digest: {e}"));
-            self
-        }
-        pub fn created_at<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Shared11>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.created_at = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for created_at: {e}"));
-            self
-        }
-        pub fn extensions<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Shared2>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.extensions = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
-            self
-        }
-        pub fn occurred_at<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<::std::option::Option<super::Shared11>>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.occurred_at = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for occurred_at: {e}"));
-            self
-        }
-        pub fn proposed<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<::std::option::Option<super::ConsumedProposed>>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.proposed = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for proposed: {e}"));
-            self
-        }
-        pub fn provenance<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Shared17>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.provenance = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for provenance: {e}"));
-            self
-        }
-        pub fn revision<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<::std::num::NonZeroU64>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.revision = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for revision: {e}"));
-            self
-        }
-        pub fn schema_version<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::Shared10>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.schema_version = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for schema_version: {e}"));
-            self
-        }
-        pub fn space_id<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::SpaceId>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.space_id = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for space_id: {e}"));
-            self
-        }
-        pub fn status<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<::std::string::String>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.status = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for status: {e}"));
-            self
-        }
-        pub fn subject_id<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<super::SubjectId>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.subject_id = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for subject_id: {e}"));
+                .map_err(|e| format!("error converting supplied value for upper: {e}"));
             self
         }
     }
-    impl ::std::convert::TryFrom<Shared20> for super::Shared20 {
+    impl ::std::convert::TryFrom<Shared29> for super::Shared29 {
         type Error = super::error::ConversionError;
-        fn try_from(value: Shared20) -> ::std::result::Result<Self, super::error::ConversionError> {
+        fn try_from(value: Shared29) -> ::std::result::Result<Self, super::error::ConversionError> {
             Ok(Self {
-                candidate_id: value.candidate_id?,
-                capture_scope: value.capture_scope?,
-                classification: value.classification?,
-                consumed_by: value.consumed_by?,
-                content_digest: value.content_digest?,
-                created_at: value.created_at?,
-                extensions: value.extensions?,
-                occurred_at: value.occurred_at?,
-                proposed: value.proposed?,
-                provenance: value.provenance?,
-                revision: value.revision?,
-                schema_version: value.schema_version?,
-                space_id: value.space_id?,
-                status: value.status?,
-                subject_id: value.subject_id?,
+                description: value.description?,
+                kind: value.kind?,
+                level: value.level?,
+                lower: value.lower?,
+                upper: value.upper?,
             })
         }
     }
-    impl ::std::convert::From<super::Shared20> for Shared20 {
-        fn from(value: super::Shared20) -> Self {
+    impl ::std::convert::From<super::Shared29> for Shared29 {
+        fn from(value: super::Shared29) -> Self {
             Self {
-                candidate_id: Ok(value.candidate_id),
-                capture_scope: Ok(value.capture_scope),
-                classification: Ok(value.classification),
-                consumed_by: Ok(value.consumed_by),
-                content_digest: Ok(value.content_digest),
-                created_at: Ok(value.created_at),
-                extensions: Ok(value.extensions),
-                occurred_at: Ok(value.occurred_at),
-                proposed: Ok(value.proposed),
-                provenance: Ok(value.provenance),
-                revision: Ok(value.revision),
-                schema_version: Ok(value.schema_version),
-                space_id: Ok(value.space_id),
-                status: Ok(value.status),
-                subject_id: Ok(value.subject_id),
-            }
-        }
-    }
-    #[derive(Clone, Debug)]
-    pub struct Shared21 {
-        code: ::std::result::Result<::std::string::String, ::std::string::String>,
-        details: ::std::result::Result<
-            ::serde_json::Map<::std::string::String, ::serde_json::Value>,
-            ::std::string::String,
-        >,
-        extensions: ::std::result::Result<
-            ::std::collections::HashMap<
-                super::ExtensionKey,
-                ::serde_json::Map<::std::string::String, ::serde_json::Value>,
-            >,
-            ::std::string::String,
-        >,
-        message: ::std::result::Result<::std::string::String, ::std::string::String>,
-    }
-    impl ::std::default::Default for Shared21 {
-        fn default() -> Self {
-            Self {
-                code: Err("no value supplied for code".to_string()),
-                details: Ok(Default::default()),
-                extensions: Err("no value supplied for extensions".to_string()),
-                message: Err("no value supplied for message".to_string()),
-            }
-        }
-    }
-    impl Shared21 {
-        pub fn code<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<::std::string::String>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.code = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for code: {e}"));
-            self
-        }
-        pub fn details<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<
-                ::serde_json::Map<::std::string::String, ::serde_json::Value>,
-            >,
-            T::Error: ::std::fmt::Display,
-        {
-            self.details = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for details: {e}"));
-            self
-        }
-        pub fn extensions<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<
-                ::std::collections::HashMap<
-                    super::ExtensionKey,
-                    ::serde_json::Map<::std::string::String, ::serde_json::Value>,
-                >,
-            >,
-            T::Error: ::std::fmt::Display,
-        {
-            self.extensions = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
-            self
-        }
-        pub fn message<T>(mut self, value: T) -> Self
-        where
-            T: ::std::convert::TryInto<::std::string::String>,
-            T::Error: ::std::fmt::Display,
-        {
-            self.message = value
-                .try_into()
-                .map_err(|e| format!("error converting supplied value for message: {e}"));
-            self
-        }
-    }
-    impl ::std::convert::TryFrom<Shared21> for super::Shared21 {
-        type Error = super::error::ConversionError;
-        fn try_from(value: Shared21) -> ::std::result::Result<Self, super::error::ConversionError> {
-            Ok(Self {
-                code: value.code?,
-                details: value.details?,
-                extensions: value.extensions?,
-                message: value.message?,
-            })
-        }
-    }
-    impl ::std::convert::From<super::Shared21> for Shared21 {
-        fn from(value: super::Shared21) -> Self {
-            Self {
-                code: Ok(value.code),
-                details: Ok(value.details),
-                extensions: Ok(value.extensions),
-                message: Ok(value.message),
+                description: Ok(value.description),
+                kind: Ok(value.kind),
+                level: Ok(value.level),
+                lower: Ok(value.lower),
+                upper: Ok(value.upper),
             }
         }
     }
@@ -9852,6 +13869,596 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct Shared33 {
+        context_id: ::std::result::Result<super::Shared33ContextId, ::std::string::String>,
+        fork_id: ::std::result::Result<
+            ::std::option::Option<super::Shared33ForkId>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for Shared33 {
+        fn default() -> Self {
+            Self {
+                context_id: Err("no value supplied for context_id".to_string()),
+                fork_id: Ok(Default::default()),
+            }
+        }
+    }
+    impl Shared33 {
+        pub fn context_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared33ContextId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.context_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for context_id: {e}"));
+            self
+        }
+        pub fn fork_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared33ForkId>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.fork_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for fork_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared33> for super::Shared33 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared33) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                context_id: value.context_id?,
+                fork_id: value.fork_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared33> for Shared33 {
+        fn from(value: super::Shared33) -> Self {
+            Self {
+                context_id: Ok(value.context_id),
+                fork_id: Ok(value.fork_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared34 {
+        criterion_id: ::std::result::Result<super::Shared34CriterionId, ::std::string::String>,
+        expression: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for Shared34 {
+        fn default() -> Self {
+            Self {
+                criterion_id: Err("no value supplied for criterion_id".to_string()),
+                expression: Ok(Default::default()),
+            }
+        }
+    }
+    impl Shared34 {
+        pub fn criterion_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared34CriterionId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.criterion_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for criterion_id: {e}"));
+            self
+        }
+        pub fn expression<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.expression = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for expression: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared34> for super::Shared34 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared34) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                criterion_id: value.criterion_id?,
+                expression: value.expression?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared34> for Shared34 {
+        fn from(value: super::Shared34) -> Self {
+            Self {
+                criterion_id: Ok(value.criterion_id),
+                expression: Ok(value.expression),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared35 {
+        assessed_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        assessor: ::std::result::Result<super::Shared20, ::std::string::String>,
+        assessor_role: ::std::result::Result<super::Shared31, ::std::string::String>,
+        basis: ::std::result::Result<super::Shared32, ::std::string::String>,
+        calibration: ::std::result::Result<super::Shared28, ::std::string::String>,
+        context: ::std::result::Result<super::Shared33, ::std::string::String>,
+        criterion:
+            ::std::result::Result<::std::option::Option<super::Shared34>, ::std::string::String>,
+        effective_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        estimand: ::std::result::Result<super::Shared30, ::std::string::String>,
+        method: ::std::result::Result<super::Shared35Method, ::std::string::String>,
+        uncertainty:
+            ::std::result::Result<::std::option::Option<super::Shared29>, ::std::string::String>,
+        value: ::std::result::Result<f64, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared35 {
+        fn default() -> Self {
+            Self {
+                assessed_at: Err("no value supplied for assessed_at".to_string()),
+                assessor: Err("no value supplied for assessor".to_string()),
+                assessor_role: Err("no value supplied for assessor_role".to_string()),
+                basis: Err("no value supplied for basis".to_string()),
+                calibration: Err("no value supplied for calibration".to_string()),
+                context: Err("no value supplied for context".to_string()),
+                criterion: Ok(Default::default()),
+                effective_at: Err("no value supplied for effective_at".to_string()),
+                estimand: Err("no value supplied for estimand".to_string()),
+                method: Err("no value supplied for method".to_string()),
+                uncertainty: Ok(Default::default()),
+                value: Err("no value supplied for value".to_string()),
+            }
+        }
+    }
+    impl Shared35 {
+        pub fn assessed_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessed_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessed_at: {e}"));
+            self
+        }
+        pub fn assessor<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor: {e}"));
+            self
+        }
+        pub fn assessor_role<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared31>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor_role = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor_role: {e}"));
+            self
+        }
+        pub fn basis<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.basis = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for basis: {e}"));
+            self
+        }
+        pub fn calibration<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared28>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.calibration = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for calibration: {e}"));
+            self
+        }
+        pub fn context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared33>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.context = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for context: {e}"));
+            self
+        }
+        pub fn criterion<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared34>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.criterion = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for criterion: {e}"));
+            self
+        }
+        pub fn effective_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.effective_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for effective_at: {e}"));
+            self
+        }
+        pub fn estimand<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared30>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.estimand = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for estimand: {e}"));
+            self
+        }
+        pub fn method<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared35Method>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.method = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for method: {e}"));
+            self
+        }
+        pub fn uncertainty<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared29>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.uncertainty = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for uncertainty: {e}"));
+            self
+        }
+        pub fn value<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<f64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.value = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for value: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared35> for super::Shared35 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared35) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                assessed_at: value.assessed_at?,
+                assessor: value.assessor?,
+                assessor_role: value.assessor_role?,
+                basis: value.basis?,
+                calibration: value.calibration?,
+                context: value.context?,
+                criterion: value.criterion?,
+                effective_at: value.effective_at?,
+                estimand: value.estimand?,
+                method: value.method?,
+                uncertainty: value.uncertainty?,
+                value: value.value?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared35> for Shared35 {
+        fn from(value: super::Shared35) -> Self {
+            Self {
+                assessed_at: Ok(value.assessed_at),
+                assessor: Ok(value.assessor),
+                assessor_role: Ok(value.assessor_role),
+                basis: Ok(value.basis),
+                calibration: Ok(value.calibration),
+                context: Ok(value.context),
+                criterion: Ok(value.criterion),
+                effective_at: Ok(value.effective_at),
+                estimand: Ok(value.estimand),
+                method: Ok(value.method),
+                uncertainty: Ok(value.uncertainty),
+                value: Ok(value.value),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared36 {
+        about: ::std::result::Result<::std::option::Option<super::Shared22>, ::std::string::String>,
+        carrier: ::std::result::Result<super::Shared20, ::std::string::String>,
+        kind: ::std::result::Result<super::Shared21, ::std::string::String>,
+        target_id: ::std::result::Result<super::Shared36TargetId, ::std::string::String>,
+        text: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for Shared36 {
+        fn default() -> Self {
+            Self {
+                about: Ok(Default::default()),
+                carrier: Err("no value supplied for carrier".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
+                target_id: Err("no value supplied for target_id".to_string()),
+                text: Ok(Default::default()),
+            }
+        }
+    }
+    impl Shared36 {
+        pub fn about<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared22>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.about = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for about: {e}"));
+            self
+        }
+        pub fn carrier<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.carrier = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for carrier: {e}"));
+            self
+        }
+        pub fn kind<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared21>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.kind = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
+            self
+        }
+        pub fn target_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared36TargetId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target_id: {e}"));
+            self
+        }
+        pub fn text<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.text = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for text: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared36> for super::Shared36 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared36) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                about: value.about?,
+                carrier: value.carrier?,
+                kind: value.kind?,
+                target_id: value.target_id?,
+                text: value.text?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared36> for Shared36 {
+        fn from(value: super::Shared36) -> Self {
+            Self {
+                about: Ok(value.about),
+                carrier: Ok(value.carrier),
+                kind: Ok(value.kind),
+                target_id: Ok(value.target_id),
+                text: Ok(value.text),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared38 {
+        assertion: ::std::result::Result<super::Shared27, ::std::string::String>,
+        calibration: ::std::result::Result<super::Shared28, ::std::string::String>,
+        method: ::std::result::Result<super::Shared38Method, ::std::string::String>,
+        uncertainty:
+            ::std::result::Result<::std::option::Option<super::Shared29>, ::std::string::String>,
+        value: ::std::result::Result<f64, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared38 {
+        fn default() -> Self {
+            Self {
+                assertion: Err("no value supplied for assertion".to_string()),
+                calibration: Err("no value supplied for calibration".to_string()),
+                method: Err("no value supplied for method".to_string()),
+                uncertainty: Ok(Default::default()),
+                value: Err("no value supplied for value".to_string()),
+            }
+        }
+    }
+    impl Shared38 {
+        pub fn assertion<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared27>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assertion = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assertion: {e}"));
+            self
+        }
+        pub fn calibration<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared28>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.calibration = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for calibration: {e}"));
+            self
+        }
+        pub fn method<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared38Method>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.method = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for method: {e}"));
+            self
+        }
+        pub fn uncertainty<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared29>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.uncertainty = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for uncertainty: {e}"));
+            self
+        }
+        pub fn value<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<f64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.value = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for value: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared38> for super::Shared38 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared38) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                assertion: value.assertion?,
+                calibration: value.calibration?,
+                method: value.method?,
+                uncertainty: value.uncertainty?,
+                value: value.value?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared38> for Shared38 {
+        fn from(value: super::Shared38) -> Self {
+            Self {
+                assertion: Ok(value.assertion),
+                calibration: Ok(value.calibration),
+                method: Ok(value.method),
+                uncertainty: Ok(value.uncertainty),
+                value: Ok(value.value),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared39 {
+        b: ::std::result::Result<::std::option::Option<super::Shared35>, ::std::string::String>,
+        f: ::std::result::Result<::std::option::Option<super::Shared35>, ::std::string::String>,
+        k: ::std::result::Result<::std::option::Option<super::Shared35>, ::std::string::String>,
+        p: ::std::result::Result<::std::option::Option<super::Shared35>, ::std::string::String>,
+        r: ::std::result::Result<::std::option::Option<super::Shared35>, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared39 {
+        fn default() -> Self {
+            Self {
+                b: Ok(Default::default()),
+                f: Ok(Default::default()),
+                k: Ok(Default::default()),
+                p: Ok(Default::default()),
+                r: Ok(Default::default()),
+            }
+        }
+    }
+    impl Shared39 {
+        pub fn b<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared35>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.b = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for b: {e}"));
+            self
+        }
+        pub fn f<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared35>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.f = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for f: {e}"));
+            self
+        }
+        pub fn k<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared35>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.k = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for k: {e}"));
+            self
+        }
+        pub fn p<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared35>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.p = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for p: {e}"));
+            self
+        }
+        pub fn r<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared35>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.r = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for r: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared39> for super::Shared39 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared39) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                b: value.b?,
+                f: value.f?,
+                k: value.k?,
+                p: value.p?,
+                r: value.r?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared39> for Shared39 {
+        fn from(value: super::Shared39) -> Self {
+            Self {
+                b: Ok(value.b),
+                f: Ok(value.f),
+                k: Ok(value.k),
+                p: Ok(value.p),
+                r: Ok(value.r),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct Shared3Kind {
         id: ::std::result::Result<super::Shared3KindId, ::std::string::String>,
         ns: ::std::result::Result<super::Shared3KindNs, ::std::string::String>,
@@ -9906,9 +14513,460 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct Shared48 {
+        hearing_range: ::std::result::Result<
+            ::std::option::Option<super::Shared48HearingRange>,
+            ::std::string::String,
+        >,
+        line_of_sight: ::std::result::Result<
+            ::std::option::Option<super::Shared48LineOfSight>,
+            ::std::string::String,
+        >,
+        modality: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+            ::std::string::String,
+        >,
+        position: ::std::result::Result<
+            ::std::option::Option<super::Shared48Position>,
+            ::std::string::String,
+        >,
+        extra: ::std::result::Result<
+            ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for Shared48 {
+        fn default() -> Self {
+            Self {
+                hearing_range: Ok(Default::default()),
+                line_of_sight: Ok(Default::default()),
+                modality: Ok(Default::default()),
+                position: Ok(Default::default()),
+                extra: Err("no value supplied for extra".to_string()),
+            }
+        }
+    }
+    impl Shared48 {
+        pub fn hearing_range<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared48HearingRange>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.hearing_range = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for hearing_range: {e}"));
+            self
+        }
+        pub fn line_of_sight<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared48LineOfSight>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.line_of_sight = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for line_of_sight: {e}"));
+            self
+        }
+        pub fn modality<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.modality = value
+                .try_into()
+                .map(::std::option::Option::Some)
+                .map_err(|e| format!("error converting supplied value for modality: {e}"));
+            self
+        }
+        pub fn position<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared48Position>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.position = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for position: {e}"));
+            self
+        }
+        pub fn extra<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extra = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extra: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared48> for super::Shared48 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared48) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                hearing_range: value.hearing_range?,
+                line_of_sight: value.line_of_sight?,
+                modality: value.modality?,
+                position: value.position?,
+                extra: value.extra?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared48> for Shared48 {
+        fn from(value: super::Shared48) -> Self {
+            Self {
+                hearing_range: Ok(value.hearing_range),
+                line_of_sight: Ok(value.line_of_sight),
+                modality: Ok(value.modality),
+                position: Ok(value.position),
+                extra: Ok(value.extra),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared49 {
+        access:
+            ::std::result::Result<::std::option::Option<super::Shared42>, ::std::string::String>,
+        assessed_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        assessment_context: ::std::result::Result<super::Shared33, ::std::string::String>,
+        assessor: ::std::result::Result<super::Shared20, ::std::string::String>,
+        assessor_role: ::std::result::Result<super::Shared31, ::std::string::String>,
+        basis: ::std::result::Result<super::Shared32, ::std::string::String>,
+        content_type:
+            ::std::result::Result<::std::option::Option<super::Shared44>, ::std::string::String>,
+        context:
+            ::std::result::Result<::std::option::Option<super::Shared45>, ::std::string::String>,
+        criterion:
+            ::std::result::Result<::std::option::Option<super::Shared34>, ::std::string::String>,
+        effective_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
+        holder: ::std::result::Result<super::Shared20, ::std::string::String>,
+        kind: ::std::result::Result<::std::string::String, ::std::string::String>,
+        metrics:
+            ::std::result::Result<::std::option::Option<super::Shared39>, ::std::string::String>,
+        order: ::std::result::Result<super::Shared40, ::std::string::String>,
+        q: ::std::result::Result<super::Shared38, ::std::string::String>,
+        record_id: ::std::result::Result<super::Shared49RecordId, ::std::string::String>,
+        representation:
+            ::std::result::Result<::std::option::Option<super::Shared43>, ::std::string::String>,
+        source:
+            ::std::result::Result<::std::option::Option<super::Shared25>, ::std::string::String>,
+        target: ::std::result::Result<super::Shared36, ::std::string::String>,
+        truth: ::std::result::Result<::std::option::Option<super::Shared41>, ::std::string::String>,
+        view: ::std::result::Result<super::Shared37, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared49 {
+        fn default() -> Self {
+            Self {
+                access: Ok(Default::default()),
+                assessed_at: Err("no value supplied for assessed_at".to_string()),
+                assessment_context: Err("no value supplied for assessment_context".to_string()),
+                assessor: Err("no value supplied for assessor".to_string()),
+                assessor_role: Err("no value supplied for assessor_role".to_string()),
+                basis: Err("no value supplied for basis".to_string()),
+                content_type: Ok(Default::default()),
+                context: Ok(Default::default()),
+                criterion: Ok(Default::default()),
+                effective_at: Err("no value supplied for effective_at".to_string()),
+                extensions: Err("no value supplied for extensions".to_string()),
+                holder: Err("no value supplied for holder".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
+                metrics: Ok(Default::default()),
+                order: Err("no value supplied for order".to_string()),
+                q: Err("no value supplied for q".to_string()),
+                record_id: Err("no value supplied for record_id".to_string()),
+                representation: Ok(Default::default()),
+                source: Ok(Default::default()),
+                target: Err("no value supplied for target".to_string()),
+                truth: Ok(Default::default()),
+                view: Err("no value supplied for view".to_string()),
+            }
+        }
+    }
+    impl Shared49 {
+        pub fn access<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared42>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.access = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for access: {e}"));
+            self
+        }
+        pub fn assessed_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessed_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessed_at: {e}"));
+            self
+        }
+        pub fn assessment_context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared33>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessment_context = value.try_into().map_err(|e| {
+                format!("error converting supplied value for assessment_context: {e}")
+            });
+            self
+        }
+        pub fn assessor<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor: {e}"));
+            self
+        }
+        pub fn assessor_role<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared31>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor_role = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor_role: {e}"));
+            self
+        }
+        pub fn basis<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.basis = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for basis: {e}"));
+            self
+        }
+        pub fn content_type<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared44>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.content_type = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for content_type: {e}"));
+            self
+        }
+        pub fn context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared45>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.context = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for context: {e}"));
+            self
+        }
+        pub fn criterion<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared34>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.criterion = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for criterion: {e}"));
+            self
+        }
+        pub fn effective_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.effective_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for effective_at: {e}"));
+            self
+        }
+        pub fn extensions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared2>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extensions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
+            self
+        }
+        pub fn holder<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.holder = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for holder: {e}"));
+            self
+        }
+        pub fn kind<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.kind = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
+            self
+        }
+        pub fn metrics<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared39>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.metrics = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for metrics: {e}"));
+            self
+        }
+        pub fn order<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared40>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.order = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for order: {e}"));
+            self
+        }
+        pub fn q<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared38>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.q = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for q: {e}"));
+            self
+        }
+        pub fn record_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared49RecordId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.record_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for record_id: {e}"));
+            self
+        }
+        pub fn representation<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared43>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.representation = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for representation: {e}"));
+            self
+        }
+        pub fn source<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared25>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.source = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for source: {e}"));
+            self
+        }
+        pub fn target<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared36>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target: {e}"));
+            self
+        }
+        pub fn truth<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared41>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.truth = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for truth: {e}"));
+            self
+        }
+        pub fn view<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared37>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.view = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for view: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared49> for super::Shared49 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared49) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                access: value.access?,
+                assessed_at: value.assessed_at?,
+                assessment_context: value.assessment_context?,
+                assessor: value.assessor?,
+                assessor_role: value.assessor_role?,
+                basis: value.basis?,
+                content_type: value.content_type?,
+                context: value.context?,
+                criterion: value.criterion?,
+                effective_at: value.effective_at?,
+                extensions: value.extensions?,
+                holder: value.holder?,
+                kind: value.kind?,
+                metrics: value.metrics?,
+                order: value.order?,
+                q: value.q?,
+                record_id: value.record_id?,
+                representation: value.representation?,
+                source: value.source?,
+                target: value.target?,
+                truth: value.truth?,
+                view: value.view?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared49> for Shared49 {
+        fn from(value: super::Shared49) -> Self {
+            Self {
+                access: Ok(value.access),
+                assessed_at: Ok(value.assessed_at),
+                assessment_context: Ok(value.assessment_context),
+                assessor: Ok(value.assessor),
+                assessor_role: Ok(value.assessor_role),
+                basis: Ok(value.basis),
+                content_type: Ok(value.content_type),
+                context: Ok(value.context),
+                criterion: Ok(value.criterion),
+                effective_at: Ok(value.effective_at),
+                extensions: Ok(value.extensions),
+                holder: Ok(value.holder),
+                kind: Ok(value.kind),
+                metrics: Ok(value.metrics),
+                order: Ok(value.order),
+                q: Ok(value.q),
+                record_id: Ok(value.record_id),
+                representation: Ok(value.representation),
+                source: Ok(value.source),
+                target: Ok(value.target),
+                truth: Ok(value.truth),
+                view: Ok(value.view),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct Shared5 {
         created_at: ::std::result::Result<super::Shared11, ::std::string::String>,
-        document: ::std::result::Result<super::Shared18, ::std::string::String>,
+        document: ::std::result::Result<super::Shared68, ::std::string::String>,
         extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
         profile_kind: ::std::result::Result<super::Shared5ProfileKind, ::std::string::String>,
         revision: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
@@ -9947,7 +15005,7 @@ pub mod builder {
         }
         pub fn document<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Shared18>,
+            T: ::std::convert::TryInto<super::Shared68>,
             T::Error: ::std::fmt::Display,
         {
             self.document = value
@@ -10070,9 +15128,1019 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct Shared50 {
+        assessed_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        assessment_context: ::std::result::Result<super::Shared33, ::std::string::String>,
+        assessor: ::std::result::Result<super::Shared20, ::std::string::String>,
+        assessor_role: ::std::result::Result<super::Shared31, ::std::string::String>,
+        basis: ::std::result::Result<super::Shared32, ::std::string::String>,
+        classification_policy:
+            ::std::result::Result<super::Shared50ClassificationPolicy, ::std::string::String>,
+        criterion: ::std::result::Result<super::Shared34, ::std::string::String>,
+        effective_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
+        holder: ::std::result::Result<super::Shared20, ::std::string::String>,
+        kind: ::std::result::Result<::std::string::String, ::std::string::String>,
+        metrics:
+            ::std::result::Result<::std::option::Option<super::Shared39>, ::std::string::String>,
+        q: ::std::result::Result<super::Shared38, ::std::string::String>,
+        record_id: ::std::result::Result<super::Shared50RecordId, ::std::string::String>,
+        state: ::std::result::Result<super::Shared46, ::std::string::String>,
+        target: ::std::result::Result<super::Shared36, ::std::string::String>,
+        view: ::std::result::Result<super::Shared37, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared50 {
+        fn default() -> Self {
+            Self {
+                assessed_at: Err("no value supplied for assessed_at".to_string()),
+                assessment_context: Err("no value supplied for assessment_context".to_string()),
+                assessor: Err("no value supplied for assessor".to_string()),
+                assessor_role: Err("no value supplied for assessor_role".to_string()),
+                basis: Err("no value supplied for basis".to_string()),
+                classification_policy: Err(
+                    "no value supplied for classification_policy".to_string()
+                ),
+                criterion: Err("no value supplied for criterion".to_string()),
+                effective_at: Err("no value supplied for effective_at".to_string()),
+                extensions: Err("no value supplied for extensions".to_string()),
+                holder: Err("no value supplied for holder".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
+                metrics: Ok(Default::default()),
+                q: Err("no value supplied for q".to_string()),
+                record_id: Err("no value supplied for record_id".to_string()),
+                state: Err("no value supplied for state".to_string()),
+                target: Err("no value supplied for target".to_string()),
+                view: Err("no value supplied for view".to_string()),
+            }
+        }
+    }
+    impl Shared50 {
+        pub fn assessed_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessed_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessed_at: {e}"));
+            self
+        }
+        pub fn assessment_context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared33>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessment_context = value.try_into().map_err(|e| {
+                format!("error converting supplied value for assessment_context: {e}")
+            });
+            self
+        }
+        pub fn assessor<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor: {e}"));
+            self
+        }
+        pub fn assessor_role<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared31>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor_role = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor_role: {e}"));
+            self
+        }
+        pub fn basis<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.basis = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for basis: {e}"));
+            self
+        }
+        pub fn classification_policy<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared50ClassificationPolicy>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.classification_policy = value.try_into().map_err(|e| {
+                format!("error converting supplied value for classification_policy: {e}")
+            });
+            self
+        }
+        pub fn criterion<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared34>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.criterion = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for criterion: {e}"));
+            self
+        }
+        pub fn effective_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.effective_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for effective_at: {e}"));
+            self
+        }
+        pub fn extensions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared2>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extensions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
+            self
+        }
+        pub fn holder<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.holder = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for holder: {e}"));
+            self
+        }
+        pub fn kind<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.kind = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
+            self
+        }
+        pub fn metrics<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared39>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.metrics = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for metrics: {e}"));
+            self
+        }
+        pub fn q<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared38>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.q = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for q: {e}"));
+            self
+        }
+        pub fn record_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared50RecordId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.record_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for record_id: {e}"));
+            self
+        }
+        pub fn state<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared46>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.state = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for state: {e}"));
+            self
+        }
+        pub fn target<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared36>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target: {e}"));
+            self
+        }
+        pub fn view<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared37>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.view = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for view: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared50> for super::Shared50 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared50) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                assessed_at: value.assessed_at?,
+                assessment_context: value.assessment_context?,
+                assessor: value.assessor?,
+                assessor_role: value.assessor_role?,
+                basis: value.basis?,
+                classification_policy: value.classification_policy?,
+                criterion: value.criterion?,
+                effective_at: value.effective_at?,
+                extensions: value.extensions?,
+                holder: value.holder?,
+                kind: value.kind?,
+                metrics: value.metrics?,
+                q: value.q?,
+                record_id: value.record_id?,
+                state: value.state?,
+                target: value.target?,
+                view: value.view?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared50> for Shared50 {
+        fn from(value: super::Shared50) -> Self {
+            Self {
+                assessed_at: Ok(value.assessed_at),
+                assessment_context: Ok(value.assessment_context),
+                assessor: Ok(value.assessor),
+                assessor_role: Ok(value.assessor_role),
+                basis: Ok(value.basis),
+                classification_policy: Ok(value.classification_policy),
+                criterion: Ok(value.criterion),
+                effective_at: Ok(value.effective_at),
+                extensions: Ok(value.extensions),
+                holder: Ok(value.holder),
+                kind: Ok(value.kind),
+                metrics: Ok(value.metrics),
+                q: Ok(value.q),
+                record_id: Ok(value.record_id),
+                state: Ok(value.state),
+                target: Ok(value.target),
+                view: Ok(value.view),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared50ClassificationPolicy {
+        policy_id: ::std::result::Result<
+            super::Shared50ClassificationPolicyPolicyId,
+            ::std::string::String,
+        >,
+        policy_version: ::std::result::Result<
+            super::Shared50ClassificationPolicyPolicyVersion,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for Shared50ClassificationPolicy {
+        fn default() -> Self {
+            Self {
+                policy_id: Err("no value supplied for policy_id".to_string()),
+                policy_version: Err("no value supplied for policy_version".to_string()),
+            }
+        }
+    }
+    impl Shared50ClassificationPolicy {
+        pub fn policy_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared50ClassificationPolicyPolicyId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.policy_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for policy_id: {e}"));
+            self
+        }
+        pub fn policy_version<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared50ClassificationPolicyPolicyVersion>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.policy_version = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for policy_version: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared50ClassificationPolicy> for super::Shared50ClassificationPolicy {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: Shared50ClassificationPolicy,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                policy_id: value.policy_id?,
+                policy_version: value.policy_version?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared50ClassificationPolicy> for Shared50ClassificationPolicy {
+        fn from(value: super::Shared50ClassificationPolicy) -> Self {
+            Self {
+                policy_id: Ok(value.policy_id),
+                policy_version: Ok(value.policy_version),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared51 {
+        access:
+            ::std::result::Result<::std::option::Option<super::Shared48>, ::std::string::String>,
+        assessed_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        assessment_context: ::std::result::Result<super::Shared33, ::std::string::String>,
+        assessor: ::std::result::Result<super::Shared20, ::std::string::String>,
+        assessor_role: ::std::result::Result<super::Shared31, ::std::string::String>,
+        basis: ::std::result::Result<super::Shared32, ::std::string::String>,
+        content: ::std::result::Result<super::Shared47, ::std::string::String>,
+        criterion:
+            ::std::result::Result<::std::option::Option<super::Shared34>, ::std::string::String>,
+        effective_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        episode: ::std::result::Result<super::Shared20, ::std::string::String>,
+        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
+        holder: ::std::result::Result<super::Shared20, ::std::string::String>,
+        kind: ::std::result::Result<::std::string::String, ::std::string::String>,
+        metrics:
+            ::std::result::Result<::std::option::Option<super::Shared39>, ::std::string::String>,
+        q: ::std::result::Result<super::Shared38, ::std::string::String>,
+        record_id: ::std::result::Result<super::Shared51RecordId, ::std::string::String>,
+        target: ::std::result::Result<super::Shared36, ::std::string::String>,
+        view: ::std::result::Result<super::Shared37, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared51 {
+        fn default() -> Self {
+            Self {
+                access: Ok(Default::default()),
+                assessed_at: Err("no value supplied for assessed_at".to_string()),
+                assessment_context: Err("no value supplied for assessment_context".to_string()),
+                assessor: Err("no value supplied for assessor".to_string()),
+                assessor_role: Err("no value supplied for assessor_role".to_string()),
+                basis: Err("no value supplied for basis".to_string()),
+                content: Err("no value supplied for content".to_string()),
+                criterion: Ok(Default::default()),
+                effective_at: Err("no value supplied for effective_at".to_string()),
+                episode: Err("no value supplied for episode".to_string()),
+                extensions: Err("no value supplied for extensions".to_string()),
+                holder: Err("no value supplied for holder".to_string()),
+                kind: Err("no value supplied for kind".to_string()),
+                metrics: Ok(Default::default()),
+                q: Err("no value supplied for q".to_string()),
+                record_id: Err("no value supplied for record_id".to_string()),
+                target: Err("no value supplied for target".to_string()),
+                view: Err("no value supplied for view".to_string()),
+            }
+        }
+    }
+    impl Shared51 {
+        pub fn access<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared48>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.access = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for access: {e}"));
+            self
+        }
+        pub fn assessed_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessed_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessed_at: {e}"));
+            self
+        }
+        pub fn assessment_context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared33>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessment_context = value.try_into().map_err(|e| {
+                format!("error converting supplied value for assessment_context: {e}")
+            });
+            self
+        }
+        pub fn assessor<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor: {e}"));
+            self
+        }
+        pub fn assessor_role<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared31>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessor_role = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessor_role: {e}"));
+            self
+        }
+        pub fn basis<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.basis = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for basis: {e}"));
+            self
+        }
+        pub fn content<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared47>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.content = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for content: {e}"));
+            self
+        }
+        pub fn criterion<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared34>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.criterion = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for criterion: {e}"));
+            self
+        }
+        pub fn effective_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.effective_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for effective_at: {e}"));
+            self
+        }
+        pub fn episode<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.episode = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for episode: {e}"));
+            self
+        }
+        pub fn extensions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared2>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extensions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
+            self
+        }
+        pub fn holder<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.holder = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for holder: {e}"));
+            self
+        }
+        pub fn kind<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.kind = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
+            self
+        }
+        pub fn metrics<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared39>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.metrics = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for metrics: {e}"));
+            self
+        }
+        pub fn q<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared38>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.q = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for q: {e}"));
+            self
+        }
+        pub fn record_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared51RecordId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.record_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for record_id: {e}"));
+            self
+        }
+        pub fn target<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared36>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target: {e}"));
+            self
+        }
+        pub fn view<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared37>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.view = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for view: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared51> for super::Shared51 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared51) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                access: value.access?,
+                assessed_at: value.assessed_at?,
+                assessment_context: value.assessment_context?,
+                assessor: value.assessor?,
+                assessor_role: value.assessor_role?,
+                basis: value.basis?,
+                content: value.content?,
+                criterion: value.criterion?,
+                effective_at: value.effective_at?,
+                episode: value.episode?,
+                extensions: value.extensions?,
+                holder: value.holder?,
+                kind: value.kind?,
+                metrics: value.metrics?,
+                q: value.q?,
+                record_id: value.record_id?,
+                target: value.target?,
+                view: value.view?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared51> for Shared51 {
+        fn from(value: super::Shared51) -> Self {
+            Self {
+                access: Ok(value.access),
+                assessed_at: Ok(value.assessed_at),
+                assessment_context: Ok(value.assessment_context),
+                assessor: Ok(value.assessor),
+                assessor_role: Ok(value.assessor_role),
+                basis: Ok(value.basis),
+                content: Ok(value.content),
+                criterion: Ok(value.criterion),
+                effective_at: Ok(value.effective_at),
+                episode: Ok(value.episode),
+                extensions: Ok(value.extensions),
+                holder: Ok(value.holder),
+                kind: Ok(value.kind),
+                metrics: Ok(value.metrics),
+                q: Ok(value.q),
+                record_id: Ok(value.record_id),
+                target: Ok(value.target),
+                view: Ok(value.view),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared52 {
+        access:
+            ::std::result::Result<::std::option::Option<super::Shared42>, ::std::string::String>,
+        assessment_context: ::std::result::Result<super::Shared33, ::std::string::String>,
+        content_type:
+            ::std::result::Result<::std::option::Option<super::Shared44>, ::std::string::String>,
+        context:
+            ::std::result::Result<::std::option::Option<super::Shared45>, ::std::string::String>,
+        effective_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
+        fact_id: ::std::result::Result<super::Shared52FactId, ::std::string::String>,
+        holder: ::std::result::Result<super::Shared20, ::std::string::String>,
+        order: ::std::result::Result<i64, ::std::string::String>,
+        recorded_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        representation:
+            ::std::result::Result<::std::option::Option<super::Shared43>, ::std::string::String>,
+        source:
+            ::std::result::Result<::std::option::Option<super::Shared25>, ::std::string::String>,
+        target: ::std::result::Result<super::Shared36, ::std::string::String>,
+        truth: ::std::result::Result<::std::option::Option<super::Shared41>, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared52 {
+        fn default() -> Self {
+            Self {
+                access: Ok(Default::default()),
+                assessment_context: Err("no value supplied for assessment_context".to_string()),
+                content_type: Ok(Default::default()),
+                context: Ok(Default::default()),
+                effective_at: Err("no value supplied for effective_at".to_string()),
+                extensions: Err("no value supplied for extensions".to_string()),
+                fact_id: Err("no value supplied for fact_id".to_string()),
+                holder: Err("no value supplied for holder".to_string()),
+                order: Err("no value supplied for order".to_string()),
+                recorded_at: Err("no value supplied for recorded_at".to_string()),
+                representation: Ok(Default::default()),
+                source: Ok(Default::default()),
+                target: Err("no value supplied for target".to_string()),
+                truth: Ok(Default::default()),
+            }
+        }
+    }
+    impl Shared52 {
+        pub fn access<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared42>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.access = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for access: {e}"));
+            self
+        }
+        pub fn assessment_context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared33>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessment_context = value.try_into().map_err(|e| {
+                format!("error converting supplied value for assessment_context: {e}")
+            });
+            self
+        }
+        pub fn content_type<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared44>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.content_type = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for content_type: {e}"));
+            self
+        }
+        pub fn context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared45>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.context = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for context: {e}"));
+            self
+        }
+        pub fn effective_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.effective_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for effective_at: {e}"));
+            self
+        }
+        pub fn extensions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared2>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extensions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
+            self
+        }
+        pub fn fact_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared52FactId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.fact_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for fact_id: {e}"));
+            self
+        }
+        pub fn holder<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.holder = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for holder: {e}"));
+            self
+        }
+        pub fn order<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.order = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for order: {e}"));
+            self
+        }
+        pub fn recorded_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.recorded_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for recorded_at: {e}"));
+            self
+        }
+        pub fn representation<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared43>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.representation = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for representation: {e}"));
+            self
+        }
+        pub fn source<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared25>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.source = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for source: {e}"));
+            self
+        }
+        pub fn target<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared36>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target: {e}"));
+            self
+        }
+        pub fn truth<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared41>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.truth = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for truth: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared52> for super::Shared52 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared52) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                access: value.access?,
+                assessment_context: value.assessment_context?,
+                content_type: value.content_type?,
+                context: value.context?,
+                effective_at: value.effective_at?,
+                extensions: value.extensions?,
+                fact_id: value.fact_id?,
+                holder: value.holder?,
+                order: value.order?,
+                recorded_at: value.recorded_at?,
+                representation: value.representation?,
+                source: value.source?,
+                target: value.target?,
+                truth: value.truth?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared52> for Shared52 {
+        fn from(value: super::Shared52) -> Self {
+            Self {
+                access: Ok(value.access),
+                assessment_context: Ok(value.assessment_context),
+                content_type: Ok(value.content_type),
+                context: Ok(value.context),
+                effective_at: Ok(value.effective_at),
+                extensions: Ok(value.extensions),
+                fact_id: Ok(value.fact_id),
+                holder: Ok(value.holder),
+                order: Ok(value.order),
+                recorded_at: Ok(value.recorded_at),
+                representation: Ok(value.representation),
+                source: Ok(value.source),
+                target: Ok(value.target),
+                truth: Ok(value.truth),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared54 {
+        carrier:
+            ::std::result::Result<::std::option::Option<super::Shared20>, ::std::string::String>,
+        kind: ::std::result::Result<::std::option::Option<super::Shared21>, ::std::string::String>,
+        target_id: ::std::result::Result<
+            ::std::option::Option<super::Shared54TargetId>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for Shared54 {
+        fn default() -> Self {
+            Self {
+                carrier: Ok(Default::default()),
+                kind: Ok(Default::default()),
+                target_id: Ok(Default::default()),
+            }
+        }
+    }
+    impl Shared54 {
+        pub fn carrier<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared20>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.carrier = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for carrier: {e}"));
+            self
+        }
+        pub fn kind<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared21>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.kind = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for kind: {e}"));
+            self
+        }
+        pub fn target_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared54TargetId>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared54> for super::Shared54 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared54) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                carrier: value.carrier?,
+                kind: value.kind?,
+                target_id: value.target_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared54> for Shared54 {
+        fn from(value: super::Shared54) -> Self {
+            Self {
+                carrier: Ok(value.carrier),
+                kind: Ok(value.kind),
+                target_id: Ok(value.target_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared55 {
+        context_id: ::std::result::Result<
+            ::std::option::Option<super::Shared55ContextId>,
+            ::std::string::String,
+        >,
+        fork_id:
+            ::std::result::Result<::std::option::Option<super::Shared53>, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared55 {
+        fn default() -> Self {
+            Self {
+                context_id: Ok(Default::default()),
+                fork_id: Ok(Default::default()),
+            }
+        }
+    }
+    impl Shared55 {
+        pub fn context_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared55ContextId>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.context_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for context_id: {e}"));
+            self
+        }
+        pub fn fork_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared53>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.fork_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for fork_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared55> for super::Shared55 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared55) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                context_id: value.context_id?,
+                fork_id: value.fork_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared55> for Shared55 {
+        fn from(value: super::Shared55) -> Self {
+            Self {
+                context_id: Ok(value.context_id),
+                fork_id: Ok(value.fork_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared56 {
+        max: ::std::result::Result<::std::option::Option<f64>, ::std::string::String>,
+        min: ::std::result::Result<::std::option::Option<f64>, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared56 {
+        fn default() -> Self {
+            Self {
+                max: Ok(Default::default()),
+                min: Ok(Default::default()),
+            }
+        }
+    }
+    impl Shared56 {
+        pub fn max<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<f64>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.max = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for max: {e}"));
+            self
+        }
+        pub fn min<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<f64>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.min = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for min: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared56> for super::Shared56 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared56) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                max: value.max?,
+                min: value.min?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared56> for Shared56 {
+        fn from(value: super::Shared56) -> Self {
+            Self {
+                max: Ok(value.max),
+                min: Ok(value.min),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct Shared6 {
         basis: ::std::result::Result<super::Shared6Basis, ::std::string::String>,
-        body: ::std::result::Result<super::Shared18, ::std::string::String>,
+        body: ::std::result::Result<super::Shared68, ::std::string::String>,
+        cognition_filter:
+            ::std::result::Result<::std::option::Option<super::Shared63>, ::std::string::String>,
         cost:
             ::std::result::Result<::std::option::Option<super::Shared6Cost>, ::std::string::String>,
         created_at: ::std::result::Result<super::Shared11, ::std::string::String>,
@@ -10095,6 +16163,7 @@ pub mod builder {
             Self {
                 basis: Err("no value supplied for basis".to_string()),
                 body: Err("no value supplied for body".to_string()),
+                cognition_filter: Ok(Default::default()),
                 cost: Ok(Default::default()),
                 created_at: Err("no value supplied for created_at".to_string()),
                 extensions: Err("no value supplied for extensions".to_string()),
@@ -10123,12 +16192,22 @@ pub mod builder {
         }
         pub fn body<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Shared18>,
+            T: ::std::convert::TryInto<super::Shared68>,
             T::Error: ::std::fmt::Display,
         {
             self.body = value
                 .try_into()
                 .map_err(|e| format!("error converting supplied value for body: {e}"));
+            self
+        }
+        pub fn cognition_filter<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared63>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.cognition_filter = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for cognition_filter: {e}"));
             self
         }
         pub fn cost<T>(mut self, value: T) -> Self
@@ -10258,6 +16337,7 @@ pub mod builder {
             Ok(Self {
                 basis: value.basis?,
                 body: value.body?,
+                cognition_filter: value.cognition_filter?,
                 cost: value.cost?,
                 created_at: value.created_at?,
                 extensions: value.extensions?,
@@ -10278,6 +16358,7 @@ pub mod builder {
             Self {
                 basis: Ok(value.basis),
                 body: Ok(value.body),
+                cognition_filter: Ok(value.cognition_filter),
                 cost: Ok(value.cost),
                 created_at: Ok(value.created_at),
                 extensions: Ok(value.extensions),
@@ -10289,6 +16370,887 @@ pub mod builder {
                 selection: Ok(value.selection),
                 space_id: Ok(value.space_id),
                 stale: Ok(value.stale),
+                subject_id: Ok(value.subject_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared63 {
+        access:
+            ::std::result::Result<::std::option::Option<super::Shared58>, ::std::string::String>,
+        assessment_context:
+            ::std::result::Result<::std::option::Option<super::Shared55>, ::std::string::String>,
+        belief_context:
+            ::std::result::Result<::std::option::Option<super::Shared62>, ::std::string::String>,
+        category: ::std::result::Result<
+            ::std::option::Option<super::Shared63Category>,
+            ::std::string::String,
+        >,
+        content_type:
+            ::std::result::Result<::std::option::Option<super::Shared60>, ::std::string::String>,
+        holder:
+            ::std::result::Result<::std::option::Option<super::Shared20>, ::std::string::String>,
+        order: ::std::result::Result<::std::option::Option<super::Shared40>, ::std::string::String>,
+        q: ::std::result::Result<::std::option::Option<super::Shared56>, ::std::string::String>,
+        representation:
+            ::std::result::Result<::std::option::Option<super::Shared59>, ::std::string::String>,
+        source:
+            ::std::result::Result<::std::option::Option<super::Shared61>, ::std::string::String>,
+        state: ::std::result::Result<::std::option::Option<super::Shared46>, ::std::string::String>,
+        target:
+            ::std::result::Result<::std::option::Option<super::Shared54>, ::std::string::String>,
+        truth: ::std::result::Result<::std::option::Option<super::Shared57>, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared63 {
+        fn default() -> Self {
+            Self {
+                access: Ok(Default::default()),
+                assessment_context: Ok(Default::default()),
+                belief_context: Ok(Default::default()),
+                category: Ok(Default::default()),
+                content_type: Ok(Default::default()),
+                holder: Ok(Default::default()),
+                order: Ok(Default::default()),
+                q: Ok(Default::default()),
+                representation: Ok(Default::default()),
+                source: Ok(Default::default()),
+                state: Ok(Default::default()),
+                target: Ok(Default::default()),
+                truth: Ok(Default::default()),
+            }
+        }
+    }
+    impl Shared63 {
+        pub fn access<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared58>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.access = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for access: {e}"));
+            self
+        }
+        pub fn assessment_context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared55>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessment_context = value.try_into().map_err(|e| {
+                format!("error converting supplied value for assessment_context: {e}")
+            });
+            self
+        }
+        pub fn belief_context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared62>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.belief_context = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for belief_context: {e}"));
+            self
+        }
+        pub fn category<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared63Category>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.category = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for category: {e}"));
+            self
+        }
+        pub fn content_type<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared60>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.content_type = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for content_type: {e}"));
+            self
+        }
+        pub fn holder<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared20>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.holder = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for holder: {e}"));
+            self
+        }
+        pub fn order<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared40>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.order = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for order: {e}"));
+            self
+        }
+        pub fn q<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared56>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.q = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for q: {e}"));
+            self
+        }
+        pub fn representation<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared59>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.representation = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for representation: {e}"));
+            self
+        }
+        pub fn source<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared61>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.source = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for source: {e}"));
+            self
+        }
+        pub fn state<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared46>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.state = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for state: {e}"));
+            self
+        }
+        pub fn target<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared54>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target: {e}"));
+            self
+        }
+        pub fn truth<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared57>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.truth = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for truth: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared63> for super::Shared63 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared63) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                access: value.access?,
+                assessment_context: value.assessment_context?,
+                belief_context: value.belief_context?,
+                category: value.category?,
+                content_type: value.content_type?,
+                holder: value.holder?,
+                order: value.order?,
+                q: value.q?,
+                representation: value.representation?,
+                source: value.source?,
+                state: value.state?,
+                target: value.target?,
+                truth: value.truth?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared63> for Shared63 {
+        fn from(value: super::Shared63) -> Self {
+            Self {
+                access: Ok(value.access),
+                assessment_context: Ok(value.assessment_context),
+                belief_context: Ok(value.belief_context),
+                category: Ok(value.category),
+                content_type: Ok(value.content_type),
+                holder: Ok(value.holder),
+                order: Ok(value.order),
+                q: Ok(value.q),
+                representation: Ok(value.representation),
+                source: Ok(value.source),
+                state: Ok(value.state),
+                target: Ok(value.target),
+                truth: Ok(value.truth),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared64 {
+        policy_id: ::std::result::Result<super::Shared64PolicyId, ::std::string::String>,
+        policy_version: ::std::result::Result<super::Shared64PolicyVersion, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared64 {
+        fn default() -> Self {
+            Self {
+                policy_id: Err("no value supplied for policy_id".to_string()),
+                policy_version: Err("no value supplied for policy_version".to_string()),
+            }
+        }
+    }
+    impl Shared64 {
+        pub fn policy_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared64PolicyId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.policy_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for policy_id: {e}"));
+            self
+        }
+        pub fn policy_version<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared64PolicyVersion>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.policy_version = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for policy_version: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared64> for super::Shared64 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared64) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                policy_id: value.policy_id?,
+                policy_version: value.policy_version?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared64> for Shared64 {
+        fn from(value: super::Shared64) -> Self {
+            Self {
+                policy_id: Ok(value.policy_id),
+                policy_version: Ok(value.policy_version),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared65 {
+        assessment_context: ::std::result::Result<super::Shared33, ::std::string::String>,
+        assessments: ::std::result::Result<
+            ::std::vec::Vec<super::Shared65AssessmentsItem>,
+            ::std::string::String,
+        >,
+        holder: ::std::result::Result<super::Shared20, ::std::string::String>,
+        presence: ::std::result::Result<super::Shared65Presence, ::std::string::String>,
+        selection: ::std::result::Result<
+            ::std::option::Option<super::Shared65Selection>,
+            ::std::string::String,
+        >,
+        target: ::std::result::Result<super::Shared36, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared65 {
+        fn default() -> Self {
+            Self {
+                assessment_context: Err("no value supplied for assessment_context".to_string()),
+                assessments: Err("no value supplied for assessments".to_string()),
+                holder: Err("no value supplied for holder".to_string()),
+                presence: Err("no value supplied for presence".to_string()),
+                selection: Ok(Default::default()),
+                target: Err("no value supplied for target".to_string()),
+            }
+        }
+    }
+    impl Shared65 {
+        pub fn assessment_context<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared33>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessment_context = value.try_into().map_err(|e| {
+                format!("error converting supplied value for assessment_context: {e}")
+            });
+            self
+        }
+        pub fn assessments<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::Shared65AssessmentsItem>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.assessments = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for assessments: {e}"));
+            self
+        }
+        pub fn holder<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared20>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.holder = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for holder: {e}"));
+            self
+        }
+        pub fn presence<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared65Presence>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.presence = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for presence: {e}"));
+            self
+        }
+        pub fn selection<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared65Selection>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.selection = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for selection: {e}"));
+            self
+        }
+        pub fn target<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared36>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared65> for super::Shared65 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared65) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                assessment_context: value.assessment_context?,
+                assessments: value.assessments?,
+                holder: value.holder?,
+                presence: value.presence?,
+                selection: value.selection?,
+                target: value.target?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared65> for Shared65 {
+        fn from(value: super::Shared65) -> Self {
+            Self {
+                assessment_context: Ok(value.assessment_context),
+                assessments: Ok(value.assessments),
+                holder: Ok(value.holder),
+                presence: Ok(value.presence),
+                selection: Ok(value.selection),
+                target: Ok(value.target),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared65Selection {
+        input_record_ids:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+        policy: ::std::result::Result<super::Shared64, ::std::string::String>,
+        selected_record_id:
+            ::std::result::Result<super::Shared65SelectionSelectedRecordId, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared65Selection {
+        fn default() -> Self {
+            Self {
+                input_record_ids: Err("no value supplied for input_record_ids".to_string()),
+                policy: Err("no value supplied for policy".to_string()),
+                selected_record_id: Err("no value supplied for selected_record_id".to_string()),
+            }
+        }
+    }
+    impl Shared65Selection {
+        pub fn input_record_ids<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.input_record_ids = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for input_record_ids: {e}"));
+            self
+        }
+        pub fn policy<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.policy = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for policy: {e}"));
+            self
+        }
+        pub fn selected_record_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared65SelectionSelectedRecordId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.selected_record_id = value.try_into().map_err(|e| {
+                format!("error converting supplied value for selected_record_id: {e}")
+            });
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared65Selection> for super::Shared65Selection {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: Shared65Selection,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                input_record_ids: value.input_record_ids?,
+                policy: value.policy?,
+                selected_record_id: value.selected_record_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared65Selection> for Shared65Selection {
+        fn from(value: super::Shared65Selection) -> Self {
+            Self {
+                input_record_ids: Ok(value.input_record_ids),
+                policy: Ok(value.policy),
+                selected_record_id: Ok(value.selected_record_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared66 {
+        cognition: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<super::CognitionRecord>>,
+            ::std::string::String,
+        >,
+        structured: ::std::result::Result<
+            ::std::option::Option<::serde_json::Value>,
+            ::std::string::String,
+        >,
+        text: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared66 {
+        fn default() -> Self {
+            Self {
+                cognition: Ok(Default::default()),
+                structured: Ok(Default::default()),
+                text: Err("no value supplied for text".to_string()),
+            }
+        }
+    }
+    impl Shared66 {
+        pub fn cognition<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::CognitionRecord>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.cognition = value
+                .try_into()
+                .map(::std::option::Option::Some)
+                .map_err(|e| format!("error converting supplied value for cognition: {e}"));
+            self
+        }
+        pub fn structured<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::serde_json::Value>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.structured = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for structured: {e}"));
+            self
+        }
+        pub fn text<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.text = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for text: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared66> for super::Shared66 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared66) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                cognition: value.cognition?,
+                structured: value.structured?,
+                text: value.text?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared66> for Shared66 {
+        fn from(value: super::Shared66) -> Self {
+            Self {
+                cognition: Ok(value.cognition),
+                structured: Ok(value.structured),
+                text: Ok(value.text),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared67 {
+        anchors: ::std::result::Result<::std::vec::Vec<super::SourceAnchor>, ::std::string::String>,
+        captured_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        captured_by: ::std::result::Result<super::CapturedBy, ::std::string::String>,
+        source_context_ids:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared67 {
+        fn default() -> Self {
+            Self {
+                anchors: Err("no value supplied for anchors".to_string()),
+                captured_at: Err("no value supplied for captured_at".to_string()),
+                captured_by: Err("no value supplied for captured_by".to_string()),
+                source_context_ids: Err("no value supplied for source_context_ids".to_string()),
+            }
+        }
+    }
+    impl Shared67 {
+        pub fn anchors<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::SourceAnchor>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.anchors = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for anchors: {e}"));
+            self
+        }
+        pub fn captured_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.captured_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for captured_at: {e}"));
+            self
+        }
+        pub fn captured_by<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::CapturedBy>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.captured_by = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for captured_by: {e}"));
+            self
+        }
+        pub fn source_context_ids<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.source_context_ids = value.try_into().map_err(|e| {
+                format!("error converting supplied value for source_context_ids: {e}")
+            });
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared67> for super::Shared67 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared67) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                anchors: value.anchors?,
+                captured_at: value.captured_at?,
+                captured_by: value.captured_by?,
+                source_context_ids: value.source_context_ids?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared67> for Shared67 {
+        fn from(value: super::Shared67) -> Self {
+            Self {
+                anchors: Ok(value.anchors),
+                captured_at: Ok(value.captured_at),
+                captured_by: Ok(value.captured_by),
+                source_context_ids: Ok(value.source_context_ids),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared68 {
+        body: ::std::result::Result<::std::string::String, ::std::string::String>,
+        format: ::std::result::Result<super::Shared68Format, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared68 {
+        fn default() -> Self {
+            Self {
+                body: Err("no value supplied for body".to_string()),
+                format: Err("no value supplied for format".to_string()),
+            }
+        }
+    }
+    impl Shared68 {
+        pub fn body<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.body = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for body: {e}"));
+            self
+        }
+        pub fn format<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared68Format>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.format = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for format: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared68> for super::Shared68 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared68) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                body: value.body?,
+                format: value.format?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared68> for Shared68 {
+        fn from(value: super::Shared68) -> Self {
+            Self {
+                body: Ok(value.body),
+                format: Ok(value.format),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared69 {
+        candidate_id: ::std::result::Result<super::CandidateId, ::std::string::String>,
+        capture_scope: ::std::result::Result<super::Shared14, ::std::string::String>,
+        classification: ::std::result::Result<super::Classification, ::std::string::String>,
+        created_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        expires_at:
+            ::std::result::Result<::std::option::Option<super::Shared11>, ::std::string::String>,
+        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
+        occurred_at:
+            ::std::result::Result<::std::option::Option<super::Shared11>, ::std::string::String>,
+        proposed: ::std::result::Result<super::Proposed, ::std::string::String>,
+        provenance: ::std::result::Result<super::Shared67, ::std::string::String>,
+        revision: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
+        schema_version: ::std::result::Result<super::Shared10, ::std::string::String>,
+        space_id: ::std::result::Result<super::SpaceId, ::std::string::String>,
+        status: ::std::result::Result<::std::string::String, ::std::string::String>,
+        subject_id: ::std::result::Result<super::SubjectId, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared69 {
+        fn default() -> Self {
+            Self {
+                candidate_id: Err("no value supplied for candidate_id".to_string()),
+                capture_scope: Err("no value supplied for capture_scope".to_string()),
+                classification: Err("no value supplied for classification".to_string()),
+                created_at: Err("no value supplied for created_at".to_string()),
+                expires_at: Ok(Default::default()),
+                extensions: Err("no value supplied for extensions".to_string()),
+                occurred_at: Ok(Default::default()),
+                proposed: Err("no value supplied for proposed".to_string()),
+                provenance: Err("no value supplied for provenance".to_string()),
+                revision: Err("no value supplied for revision".to_string()),
+                schema_version: Err("no value supplied for schema_version".to_string()),
+                space_id: Err("no value supplied for space_id".to_string()),
+                status: Err("no value supplied for status".to_string()),
+                subject_id: Err("no value supplied for subject_id".to_string()),
+            }
+        }
+    }
+    impl Shared69 {
+        pub fn candidate_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::CandidateId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.candidate_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for candidate_id: {e}"));
+            self
+        }
+        pub fn capture_scope<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared14>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.capture_scope = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for capture_scope: {e}"));
+            self
+        }
+        pub fn classification<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Classification>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.classification = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for classification: {e}"));
+            self
+        }
+        pub fn created_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.created_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for created_at: {e}"));
+            self
+        }
+        pub fn expires_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared11>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.expires_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for expires_at: {e}"));
+            self
+        }
+        pub fn extensions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared2>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extensions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
+            self
+        }
+        pub fn occurred_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared11>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.occurred_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for occurred_at: {e}"));
+            self
+        }
+        pub fn proposed<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Proposed>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.proposed = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for proposed: {e}"));
+            self
+        }
+        pub fn provenance<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared67>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.provenance = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for provenance: {e}"));
+            self
+        }
+        pub fn revision<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::num::NonZeroU64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.revision = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for revision: {e}"));
+            self
+        }
+        pub fn schema_version<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared10>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.schema_version = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for schema_version: {e}"));
+            self
+        }
+        pub fn space_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::SpaceId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.space_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for space_id: {e}"));
+            self
+        }
+        pub fn status<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.status = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for status: {e}"));
+            self
+        }
+        pub fn subject_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::SubjectId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.subject_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for subject_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared69> for super::Shared69 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared69) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                candidate_id: value.candidate_id?,
+                capture_scope: value.capture_scope?,
+                classification: value.classification?,
+                created_at: value.created_at?,
+                expires_at: value.expires_at?,
+                extensions: value.extensions?,
+                occurred_at: value.occurred_at?,
+                proposed: value.proposed?,
+                provenance: value.provenance?,
+                revision: value.revision?,
+                schema_version: value.schema_version?,
+                space_id: value.space_id?,
+                status: value.status?,
+                subject_id: value.subject_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared69> for Shared69 {
+        fn from(value: super::Shared69) -> Self {
+            Self {
+                candidate_id: Ok(value.candidate_id),
+                capture_scope: Ok(value.capture_scope),
+                classification: Ok(value.classification),
+                created_at: Ok(value.created_at),
+                expires_at: Ok(value.expires_at),
+                extensions: Ok(value.extensions),
+                occurred_at: Ok(value.occurred_at),
+                proposed: Ok(value.proposed),
+                provenance: Ok(value.provenance),
+                revision: Ok(value.revision),
+                schema_version: Ok(value.schema_version),
+                space_id: Ok(value.space_id),
+                status: Ok(value.status),
                 subject_id: Ok(value.subject_id),
             }
         }
@@ -10498,6 +17460,340 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct Shared70 {
+        candidate_id: ::std::result::Result<super::CandidateId, ::std::string::String>,
+        capture_scope: ::std::result::Result<super::Shared14, ::std::string::String>,
+        classification: ::std::result::Result<super::Classification, ::std::string::String>,
+        consumed_by: ::std::result::Result<super::ConsumedBy, ::std::string::String>,
+        content_digest: ::std::result::Result<super::ContentDigest, ::std::string::String>,
+        created_at: ::std::result::Result<super::Shared11, ::std::string::String>,
+        extensions: ::std::result::Result<super::Shared2, ::std::string::String>,
+        occurred_at:
+            ::std::result::Result<::std::option::Option<super::Shared11>, ::std::string::String>,
+        proposed: ::std::result::Result<
+            ::std::option::Option<super::ConsumedProposed>,
+            ::std::string::String,
+        >,
+        provenance: ::std::result::Result<super::Shared67, ::std::string::String>,
+        revision: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
+        schema_version: ::std::result::Result<super::Shared10, ::std::string::String>,
+        space_id: ::std::result::Result<super::SpaceId, ::std::string::String>,
+        status: ::std::result::Result<::std::string::String, ::std::string::String>,
+        subject_id: ::std::result::Result<super::SubjectId, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared70 {
+        fn default() -> Self {
+            Self {
+                candidate_id: Err("no value supplied for candidate_id".to_string()),
+                capture_scope: Err("no value supplied for capture_scope".to_string()),
+                classification: Err("no value supplied for classification".to_string()),
+                consumed_by: Err("no value supplied for consumed_by".to_string()),
+                content_digest: Err("no value supplied for content_digest".to_string()),
+                created_at: Err("no value supplied for created_at".to_string()),
+                extensions: Err("no value supplied for extensions".to_string()),
+                occurred_at: Ok(Default::default()),
+                proposed: Ok(Default::default()),
+                provenance: Err("no value supplied for provenance".to_string()),
+                revision: Err("no value supplied for revision".to_string()),
+                schema_version: Err("no value supplied for schema_version".to_string()),
+                space_id: Err("no value supplied for space_id".to_string()),
+                status: Err("no value supplied for status".to_string()),
+                subject_id: Err("no value supplied for subject_id".to_string()),
+            }
+        }
+    }
+    impl Shared70 {
+        pub fn candidate_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::CandidateId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.candidate_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for candidate_id: {e}"));
+            self
+        }
+        pub fn capture_scope<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared14>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.capture_scope = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for capture_scope: {e}"));
+            self
+        }
+        pub fn classification<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Classification>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.classification = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for classification: {e}"));
+            self
+        }
+        pub fn consumed_by<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::ConsumedBy>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.consumed_by = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for consumed_by: {e}"));
+            self
+        }
+        pub fn content_digest<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::ContentDigest>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.content_digest = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for content_digest: {e}"));
+            self
+        }
+        pub fn created_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared11>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.created_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for created_at: {e}"));
+            self
+        }
+        pub fn extensions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared2>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extensions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
+            self
+        }
+        pub fn occurred_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared11>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.occurred_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for occurred_at: {e}"));
+            self
+        }
+        pub fn proposed<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::ConsumedProposed>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.proposed = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for proposed: {e}"));
+            self
+        }
+        pub fn provenance<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared67>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.provenance = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for provenance: {e}"));
+            self
+        }
+        pub fn revision<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::num::NonZeroU64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.revision = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for revision: {e}"));
+            self
+        }
+        pub fn schema_version<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Shared10>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.schema_version = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for schema_version: {e}"));
+            self
+        }
+        pub fn space_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::SpaceId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.space_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for space_id: {e}"));
+            self
+        }
+        pub fn status<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.status = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for status: {e}"));
+            self
+        }
+        pub fn subject_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::SubjectId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.subject_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for subject_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared70> for super::Shared70 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared70) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                candidate_id: value.candidate_id?,
+                capture_scope: value.capture_scope?,
+                classification: value.classification?,
+                consumed_by: value.consumed_by?,
+                content_digest: value.content_digest?,
+                created_at: value.created_at?,
+                extensions: value.extensions?,
+                occurred_at: value.occurred_at?,
+                proposed: value.proposed?,
+                provenance: value.provenance?,
+                revision: value.revision?,
+                schema_version: value.schema_version?,
+                space_id: value.space_id?,
+                status: value.status?,
+                subject_id: value.subject_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared70> for Shared70 {
+        fn from(value: super::Shared70) -> Self {
+            Self {
+                candidate_id: Ok(value.candidate_id),
+                capture_scope: Ok(value.capture_scope),
+                classification: Ok(value.classification),
+                consumed_by: Ok(value.consumed_by),
+                content_digest: Ok(value.content_digest),
+                created_at: Ok(value.created_at),
+                extensions: Ok(value.extensions),
+                occurred_at: Ok(value.occurred_at),
+                proposed: Ok(value.proposed),
+                provenance: Ok(value.provenance),
+                revision: Ok(value.revision),
+                schema_version: Ok(value.schema_version),
+                space_id: Ok(value.space_id),
+                status: Ok(value.status),
+                subject_id: Ok(value.subject_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct Shared71 {
+        code: ::std::result::Result<::std::string::String, ::std::string::String>,
+        details: ::std::result::Result<
+            ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+            ::std::string::String,
+        >,
+        extensions: ::std::result::Result<
+            ::std::collections::HashMap<
+                super::ExtensionKey,
+                ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+            >,
+            ::std::string::String,
+        >,
+        message: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for Shared71 {
+        fn default() -> Self {
+            Self {
+                code: Err("no value supplied for code".to_string()),
+                details: Ok(Default::default()),
+                extensions: Err("no value supplied for extensions".to_string()),
+                message: Err("no value supplied for message".to_string()),
+            }
+        }
+    }
+    impl Shared71 {
+        pub fn code<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.code = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for code: {e}"));
+            self
+        }
+        pub fn details<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.details = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for details: {e}"));
+            self
+        }
+        pub fn extensions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::collections::HashMap<
+                    super::ExtensionKey,
+                    ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+                >,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.extensions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for extensions: {e}"));
+            self
+        }
+        pub fn message<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.message = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for message: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<Shared71> for super::Shared71 {
+        type Error = super::error::ConversionError;
+        fn try_from(value: Shared71) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                code: value.code?,
+                details: value.details?,
+                extensions: value.extensions?,
+                message: value.message?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::Shared71> for Shared71 {
+        fn from(value: super::Shared71) -> Self {
+            Self {
+                code: Ok(value.code),
+                details: Ok(value.details),
+                extensions: Ok(value.extensions),
+                message: Ok(value.message),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct Shared8 {
         created_at: ::std::result::Result<super::Shared11, ::std::string::String>,
         idempotency_key: ::std::result::Result<
@@ -10629,8 +17925,10 @@ pub mod builder {
     pub struct Shared9 {
         capabilities:
             ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
-        context_ids:
-            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+        context_ids: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+            ::std::string::String,
+        >,
         grant_id: ::std::result::Result<super::GrantId, ::std::string::String>,
         principal_ref: ::std::result::Result<super::PrincipalRef, ::std::string::String>,
         revision: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
@@ -10669,6 +17967,7 @@ pub mod builder {
         {
             self.context_ids = value
                 .try_into()
+                .map(::std::option::Option::Some)
                 .map_err(|e| format!("error converting supplied value for context_ids: {e}"));
             self
         }
@@ -11295,4 +18594,16 @@ pub mod error {
             Self(value.into())
         }
     }
+}
+/// Presence-sensitive array decode: `Some` keeps an explicitly present array
+/// (including `[]`) distinct from an absent member, while an explicit `null`
+/// stays invalid — the schema admits arrays only.
+fn deserialize_presence_sensitive_array<'de, D, T>(
+    deserializer: D,
+) -> ::std::result::Result<::std::option::Option<T>, D::Error>
+where
+    D: ::serde::Deserializer<'de>,
+    T: ::serde::Deserialize<'de>,
+{
+    ::std::result::Result::Ok(::std::option::Option::Some(T::deserialize(deserializer)?))
 }

@@ -78,7 +78,7 @@
     },
     "modules": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ModuleMap",
-      "description": "Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries per-entry functional dialects (e.g. modules.activation). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim."
+      "description": "Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries per-entry functional dialects (e.g. modules.activation). modules.cognition carries the closed CognitionModule (current actor standard records + world facts; capability-flagged spoke-cognition); modules.mental remains open with beliefs derivative-only. Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim."
     },
     "owner": {
       "type": "string",

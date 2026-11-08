@@ -46,6 +46,19 @@ fn invalid_input(field: &str, message: impl Into<String>) -> SpokeResult<()> {
     spoke_reject(SpokeRejectCode::InvalidInput, message, Some(details))
 }
 
+/// §5.2/§6.1: a malformed completed cognition record fails `INVALID_INPUT`
+/// with `details.reason = "invalid_cognition_record"` — distinct from an
+/// unsupported request feature and from the admission byte limit.
+fn invalid_cognition(field: &str, message: impl Into<String>) -> SpokeResult<()> {
+    let mut details = Map::new();
+    details.insert("field".into(), Value::String(field.to_owned()));
+    details.insert(
+        "reason".into(),
+        Value::String("invalid_cognition_record".to_owned()),
+    );
+    spoke_reject(SpokeRejectCode::InvalidInput, message, Some(details))
+}
+
 /// §7.0.7: limit violations fail `INVALID_INPUT` with `details.limit`
 /// naming the exceeded provider limit (`field` is kept for precision).
 fn invalid_limit(field: &str, limit: &str, message: impl Into<String>) -> SpokeResult<()> {
@@ -90,9 +103,16 @@ impl std::io::Write for ByteCounter {
 /// are absent — a deserialized `null` becomes `Option::None` and is skipped
 /// by the generated serializer, and a constructed `Some(Value::Null)` is
 /// stripped here so admission does not depend on how the caller built the
-/// value (the TS measure filters the same members). Nested `null`s are
-/// content and stay. Numbers use the ECMAScript form (`1.0` → `1`) that
-/// `JSON.stringify` produces, so the TS measure counts identical bytes.
+/// value (the TS measure filters the same members). Every other member is
+/// measured exactly as supplied, including an explicitly present empty
+/// `cognition` array when the value carries it: admission bounds the wire
+/// value the caller sent, and dropping a present member would admit bytes
+/// the request still carries. A generated `Content` already omits an empty
+/// `Vec` at serialization (`#[serde(skip_serializing_if = "Vec::is_empty")]`),
+/// which is the carrier's absent-member rule — a typed value cannot express
+/// an explicitly present empty array. Nested `null`s are content and stay.
+/// Numbers use the ECMAScript form (`1.0` → `1`) that `JSON.stringify`
+/// produces, so the TS measure counts identical bytes.
 ///
 /// The canonical bytes are counted through a writer instead of materialized
 /// as a `Vec`: admission only needs the length.
@@ -103,12 +123,9 @@ impl std::io::Write for ByteCounter {
 #[must_use]
 pub fn content_serialized_bytes(content: &impl serde::Serialize) -> usize {
     let value = match serde_json::to_value(content) {
-        Ok(Value::Object(members)) => Value::Object(
-            members
-                .into_iter()
-                .filter(|(_, member)| !member.is_null())
-                .collect(),
-        ),
+        Ok(Value::Object(members)) => {
+            Value::Object(members.into_iter().filter(|(_, member)| !member.is_null()).collect())
+        }
         Ok(other) => other,
         Err(_) => return usize::MAX,
     };
@@ -128,6 +145,25 @@ fn check_content_limit(byte_len: usize, max_content_bytes: usize) -> SpokeResult
         );
     }
     spoke_ok(())
+}
+
+/// C5 entry-point guard (§6.1): every present `Content.cognition` entry must
+/// be a closed standard cognition record with `view = "recorded_at"`. Runs
+/// before byte admission so a malformed carrier fails `INVALID_INPUT` on the
+/// field, never on the budget. A content value that cannot be re-serialized
+/// fails closed the same way.
+fn check_cognition_content(content: &impl serde::Serialize) -> SpokeResult<()> {
+    let value = match serde_json::to_value(content) {
+        Ok(value) => value,
+        Err(_) => return invalid_input("content.cognition", "content is not serializable"),
+    };
+    match crate::cognition::validate_cognition_content(&value) {
+        SpokeResult::Reject(_) => invalid_cognition(
+            "content.cognition",
+            "Content cognition entries must be recorded-at-time records",
+        ),
+        SpokeResult::Ok(()) => spoke_ok(()),
+    }
 }
 
 /// §8.2 freeze maintenance allowlist: while a space is frozen it admits
@@ -207,6 +243,10 @@ pub fn validate_memory_capture(
     request: &MemoryCaptureRequest,
     max_content_bytes: usize,
 ) -> SpokeResult<()> {
+    match check_cognition_content(&request.content) {
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        SpokeResult::Ok(()) => {}
+    }
     check_content_limit(
         content_serialized_bytes(&request.content),
         max_content_bytes,
@@ -272,6 +312,10 @@ pub fn validate_memory_records_create(
     request: &MemoryRecordsCreateRequest,
     max_content_bytes: usize,
 ) -> SpokeResult<()> {
+    match check_cognition_content(&request.content) {
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        SpokeResult::Ok(()) => {}
+    }
     check_content_limit(
         content_serialized_bytes(&request.content),
         max_content_bytes,
@@ -288,11 +332,21 @@ pub fn validate_memory_records_update(
     max_content_bytes: usize,
 ) -> SpokeResult<()> {
     match request {
-        MemoryRecordsUpdateRequest::Variant0 { content, .. } => check_content_limit(
-            content_serialized_bytes(content),
-            max_content_bytes,
-        ),
+        MemoryRecordsUpdateRequest::Variant0 { content, .. } => {
+            match check_cognition_content(content) {
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+                SpokeResult::Ok(()) => {}
+            }
+            check_content_limit(
+                content_serialized_bytes(content),
+                max_content_bytes,
+            )
+        }
         MemoryRecordsUpdateRequest::Variant1 { content: Some(content), .. } => {
+            match check_cognition_content(content) {
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+                SpokeResult::Ok(()) => {}
+            }
             check_content_limit(
                 content_serialized_bytes(content),
                 max_content_bytes,
@@ -476,6 +530,26 @@ mod tests {
                 );
             }
             SpokeResult::Ok(_) => panic!("expected reject for field {field}"),
+        }
+    }
+
+    /// §5.2/§6.1 identity: malformed completed cognition rejects with the
+    /// field and `details.reason = "invalid_cognition_record"`.
+    fn expect_invalid_cognition<T>(result: SpokeResult<T>) {
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                let details = reject.details.as_ref().expect("cognition reject details");
+                assert_eq!(
+                    details.get("field").and_then(Value::as_str),
+                    Some("content.cognition")
+                );
+                assert_eq!(
+                    details.get("reason").and_then(Value::as_str),
+                    Some("invalid_cognition_record")
+                );
+            }
+            SpokeResult::Ok(_) => panic!("expected cognition reject"),
         }
     }
 
@@ -902,14 +976,15 @@ mod tests {
     fn content_serialized_bytes_known_vectors() {
         use spoke_schemas::memory_capture_request::Content;
         // Same explicit byte values are pinned by the TS parity test.
-        let non_ascii = Content { structured: None, text: "héllo".to_string() };
+        let non_ascii = Content { cognition: None, structured: None, text: "héllo".to_string() };
         assert_eq!(content_serialized_bytes(&non_ascii), 17);
         let nested = Content {
+            cognition: None,
             structured: Some(json!({"nested": [true, null]})),
             text: "ab".to_string(),
         };
         assert_eq!(content_serialized_bytes(&nested), 49);
-        let empty = Content { structured: None, text: String::new() };
+        let empty = Content { cognition: None, structured: None, text: String::new() };
         assert_eq!(content_serialized_bytes(&empty), 11);
     }
 
@@ -931,6 +1006,7 @@ mod tests {
         // JCS/ES6 numbers: `1.0` → `1`, `1e2` → `100`. TS `JSON.stringify`
         // counts the same 40 bytes in its parity test.
         let numbers = Content {
+            cognition: None,
             structured: Some(json!({"n": 1.0, "e": 1e2})),
             text: String::new(),
         };
@@ -968,7 +1044,7 @@ mod tests {
             "idempotency_key": "k1",
         }))
         .expect("valid request");
-        request.content = Content { structured: Some(Value::Null), text: String::new() };
+        request.content = Content { cognition: None, structured: Some(Value::Null), text: String::new() };
         assert_eq!(content_serialized_bytes(&request.content), 11);
         assert!(validate_memory_capture(&request, 11).is_ok());
         expect_invalid(validate_memory_capture(&request, 10), "content");
@@ -1039,5 +1115,219 @@ mod tests {
         }))
         .expect("valid request");
         expect_invalid(validate_memory_records_create(&request, 1024), "content");
+    }
+
+    /// Shared C8 lifecycle vectors: the Rust validator must observe the same
+    /// exact canonical admission bytes and the same accept/reject outcome as
+    /// the TS suite for every `content-admission` vector, and the cognition
+    /// guard must run before byte admission.
+    #[test]
+    fn cognition_lifecycle_shared_admission_vectors() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/cognition/memory-lifecycle-vectors.json"
+        );
+        let raw = std::fs::read_to_string(path).expect("lifecycle vectors readable");
+        let file: Value = serde_json::from_str(&raw).expect("lifecycle vectors parse");
+        let vectors = file["vectors"].as_array().expect("vectors array");
+        let mut ran = 0;
+
+        for vector in vectors {
+            if vector["shape"].as_str() != Some("content-admission") {
+                continue;
+            }
+            ran += 1;
+            let id = vector["id"].as_str().expect("vector id");
+            let content = vector["content"].clone();
+            let canonical = vector["canonical_bytes"].as_u64().expect("canonical_bytes") as usize;
+            assert_eq!(
+                content_serialized_bytes(&content),
+                canonical,
+                "{id}: canonical admission bytes"
+            );
+            let max = vector["max_content_bytes"].as_u64().expect("max_content_bytes") as usize;
+            let capture: MemoryCaptureRequest = serde_json::from_value(json!({
+                "space_id": "sp_1",
+                "subject_id": "s1",
+                "content": content,
+                "capture_scope": {"visibility": "shared"},
+                "idempotency_key": "k1",
+            }))
+            .expect("valid capture request");
+            let outcome = validate_memory_capture(&capture, max);
+            match vector["expected"].as_str().expect("expected") {
+                "accept" => {
+                    assert!(canonical <= max, "{id}: content within budget");
+                    assert!(outcome.is_ok(), "{id}: {outcome:?}");
+                }
+                "reject" => match vector["reason"].as_str().expect("reason") {
+                    // The admission budget bounds the complete typed wire
+                    // value: the typed carrier keeps an explicitly present
+                    // empty array, so the deserialized request re-serializes
+                    // to the same canonical bytes and the real validator —
+                    // not only the raw `Value` above — rejects it.
+                    "max_content_bytes" => {
+                        assert!(canonical > max, "{id}: content exceeds the admission limit");
+                        let typed = serde_json::to_value(&capture.content)
+                            .expect("typed content serializes");
+                        assert_eq!(
+                            content_serialized_bytes(&typed),
+                            canonical,
+                            "{id}: typed admission bytes"
+                        );
+                        match outcome {
+                            SpokeResult::Reject(reject) => {
+                                assert_eq!(reject.code, SpokeRejectCode::InvalidInput, "{id}");
+                                assert_eq!(
+                                    reject
+                                        .details
+                                        .as_ref()
+                                        .and_then(|details| details.get("limit"))
+                                        .and_then(Value::as_str),
+                                    Some("max_content_bytes"),
+                                    "{id}: admission limit"
+                                );
+                            }
+                            other => panic!("{id}: expected rejection, got {other:?}"),
+                        }
+                    }
+                    "invalid_cognition_record" => {
+                        // Competing failure: the same content is over budget.
+                        assert!(canonical > max, "{id}: content exceeds the admission limit");
+                        expect_invalid_cognition(outcome);
+                    }
+                    other => panic!("{id}: unknown reason {other:?}"),
+                },
+                other => panic!("{id}: unknown expected {other:?}"),
+            }
+        }
+        assert!(ran >= 5, "lifecycle admission vectors ran: {ran}");
+    }
+
+    #[test]
+    fn cognition_lifecycle_guard_runs_before_byte_admission() {
+        // A structurally complete record whose only violation is the current
+        // view: with an ample budget the reject still lands on the cognition
+        // field, never on max_content_bytes.
+        let malformed_cognition = json!([{
+            "kind": "belief",
+            "record_id": "rec_belief_mem_1",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+                "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+                "target_id": "t_prop_mem_1",
+                "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": { "kind": "evidence", "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_mem_1" }
+            ]},
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:05:00Z",
+            "view": "current",
+            "order": 1,
+            "q": {
+                "value": 0.9,
+                "assertion": "belief_attribution",
+                "method": "elicitation_v1",
+                "calibration": "calibrated"
+            },
+            "extensions": {}
+        }]);
+        // The same content is over the supplied budget: the cognition guard must
+        // still win, so a validator that checked admission first would fail this.
+        let content = json!({ "text": "fine", "cognition": malformed_cognition });
+        let budget = content_serialized_bytes(&content) - 1;
+        assert!(budget > 0, "content has a positive byte measure");
+
+        let request: MemoryCaptureRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "subject_id": "s1",
+            "content": content.clone(),
+            "capture_scope": {"visibility": "shared"},
+            "idempotency_key": "k1",
+        }))
+        .expect("valid capture request");
+        expect_invalid_cognition(validate_memory_capture(&request, budget));
+
+        // The same malformed record is also rejected on create and update.
+        let create: MemoryRecordsCreateRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "subject_id": "s1",
+            "kind": "note",
+            "content": content.clone(),
+            "scope": {"visibility": "shared"},
+            "idempotency_key": "k1",
+        }))
+        .expect("valid create request");
+        expect_invalid_cognition(validate_memory_records_create(&create, budget));
+
+        let update: MemoryRecordsUpdateRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "record_id": "r1",
+            "content": content.clone(),
+            "expected_revision": 1,
+            "idempotency_key": "k1",
+        }))
+        .expect("valid update request");
+        expect_invalid_cognition(validate_memory_records_update(&update, budget));
+    }
+
+    #[test]
+    fn cognition_lifecycle_explicit_empty_cognition_is_measured_as_supplied() {
+        // The wire measure counts the complete value: an explicitly present
+        // empty array is 32 bytes, distinct from an absent member (17).
+        assert_eq!(content_serialized_bytes(&json!({"text": "Memory"})), 17);
+        assert_eq!(content_serialized_bytes(&json!({"text": "Memory", "cognition": []})), 32);
+
+        // The typed `Content` carrier preserves the distinction, so the real
+        // admission boundary accepts at 32 and rejects at 31 exactly like TS.
+        use spoke_schemas::memory_capture_request::Content;
+        let absent: Content = serde_json::from_value(json!({"text": "Memory"}))
+            .expect("absent cognition decodes");
+        let explicit_empty: Content =
+            serde_json::from_value(json!({"text": "Memory", "cognition": []}))
+                .expect("explicit empty cognition decodes");
+        assert!(
+            serde_json::to_value(&absent)
+                .expect("absent content serializes")
+                .get("cognition")
+                .is_none(),
+            "an absent array stays absent"
+        );
+        assert_eq!(
+            serde_json::to_value(&explicit_empty).expect("empty content serializes")["cognition"],
+            json!([]),
+            "an explicit empty array stays present"
+        );
+        assert_eq!(content_serialized_bytes(&absent), 17);
+        assert_eq!(content_serialized_bytes(&explicit_empty), 32);
+
+        let capture = |content: Value| -> MemoryCaptureRequest {
+            serde_json::from_value(json!({
+                "space_id": "sp_1",
+                "subject_id": "s1",
+                "content": content,
+                "capture_scope": {"visibility": "shared"},
+                "idempotency_key": "k1",
+            }))
+            .expect("valid capture request")
+        };
+        assert!(validate_memory_capture(&capture(json!({"text": "Memory"})), 17).is_ok());
+        assert!(
+            validate_memory_capture(&capture(json!({"text": "Memory", "cognition": []})), 32)
+                .is_ok()
+        );
+        expect_invalid(
+            validate_memory_capture(&capture(json!({"text": "Memory", "cognition": []})), 31),
+            "content",
+        );
+
+        // An explicit `null` stays invalid (the schema admits arrays only)
+        // and unknown members stay rejected: both P1 wire guards survive.
+        assert!(serde_json::from_value::<Content>(json!({"text": "Memory", "cognition": null})).is_err());
+        assert!(serde_json::from_value::<Content>(json!({"text": "Memory", "unexpected": 1})).is_err());
     }
 }

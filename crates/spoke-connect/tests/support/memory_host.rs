@@ -533,6 +533,9 @@ impl Store {
             kind,
             text,
             has_structured_content: request["content"].get("structured").is_some(),
+            // The loopback host is the intentionally simpler non-cognition
+            // loopback: it classifies on text/structured material only.
+            has_cognition_content: false,
             occurred_at: None,
             source_context_count: request
                 .get("source_context_ids")
@@ -779,6 +782,7 @@ impl Store {
                 record_id: record.record_id.clone(),
                 kind: record.kind.clone(),
                 content: Content {
+                    cognition: None,
                     text: record.text.clone(),
                     structured: None,
                 },
@@ -1101,11 +1105,14 @@ impl Store {
         if received == chunk_count {
             // Verification runs on the final chunk (§7.31); failures reject
             // IMPORT_CONFLICT and leave nothing staged.
+            // The loopback host stages without cognition reference
+            // translation pairs (non-cognition loopback).
             let outcome = verify_staging(
                 &import.chunks,
                 &import.subject_renames,
                 &identity_map(&import.chunks, "records", "record_id"),
                 &identity_map(&import.chunks, "candidates", "candidate_id"),
+                &[],
             );
             let verified =
                 outcome.verification.bundle_digest_ok && outcome.verification.errors.is_empty();

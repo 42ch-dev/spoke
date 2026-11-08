@@ -24,7 +24,7 @@
     },
     "content": {
       "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
-      "description": "Untrusted captured content (§10)."
+      "description": "Untrusted captured content (§10). Content.cognition is admitted only after closed-record validation; cognition counts as content for classification and budgets; capture creates no retained record or KE."
     },
     "capture_scope": {
       "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/PlacementScope",

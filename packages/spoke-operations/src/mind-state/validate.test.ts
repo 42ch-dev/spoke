@@ -93,13 +93,16 @@ describe("validateMindState", () => {
 
   it("accepts a MindDelta with path only", () => {
     expect(
-      validateMindState({ ...validState, deltas: [{ path: "beliefs" }] }),
+      validateMindState({
+        ...validState,
+        deltas: [{ path: "/modules/mental/beliefs" }],
+      }),
     ).toBe(true);
   });
 
   it("rejects a non-array deltas value", () => {
     expect(
-      validateMindState({ ...validState, deltas: { path: "beliefs" } }),
+      validateMindState({ ...validState, deltas: { path: "/modules/mental/beliefs" } }),
     ).toBe(false);
   });
 

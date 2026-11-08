@@ -1,69 +1,55 @@
 # Strategy — SPOKE
 
-## Positioning
+## Vision
 
-**SPOKE is a protocol repository, not a runtime.**
+**SPOKE is a protocol for interoperable narrative knowledge.**
 
-It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and **ops** so independent products can exchange consistency-check and context-assembly I/O without sharing a database, daemon, or deployment.
+It defines JSON Schema wire contracts for KnowledgeEntry data and operations, attributable cognition, and recorded-at-time Memory. Independent products bind these contracts to their own runtime, storage, and governance.
 
 ## What we build
 
 | Deliverable | Role |
 |-------------|------|
 | **Normative specs** | `.mstar/specs/` — protocol umbrella, L0–L8 layers, data model, ops wire, operations library |
-| **`schemas/`** | Draft-07 SSOT (**24** files — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
+| **`schemas/`** | Draft-07 SSOT (**114** files — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
 | **`@42ch/spoke-schemas`** | Generated TypeScript types (published to npm) |
 | **`@42ch/spoke-operations`** | Hand-written lifecycle helpers, capability-sliced adapter port contracts, and injection orchestration over wire types (published to npm) |
 | **`spoke-schemas`** (Rust crate) | Generated Rust types (published to crates.io) |
 | **`spoke-operations`** (Rust crate) | Hand-written lifecycle helpers, adapter port traits, and injection orchestration over wire types (published to crates.io) |
 | **`fixtures/toy-world/`** | Protocol conformance JSON, AJV/Vitest harness, and reference Adapter examples (`ToyWorldAdapter` in TypeScript and Rust) |
 
-## What we do not build
+## What we don't build
 
 - Shared runtime, daemon, or MCP server
+- Product cognitive inference, ranking, retrieval, storage, or history/replay engines
 - Product mapping packages in consumer repositories until a product binding sprint schedules them
 - Golden product DTO round-trips (protocol `fixtures/toy-world/` — fixtures conformance slice)
 - Publishing fixture, codegen, or adapter packages to registries
 
-## Architecture (three columns)
+## Technology Direction
 
-SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations library** — see [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md).
+SPOKE combines data wire, operations wire, and a pure hand-written operations library. JSON Schema drives coordinated TypeScript and Rust contracts; existing Connect and native JSON carriers carry the same protocol payloads.
 
 | Column | Responsibility | Artifact |
 |--------|----------------|----------|
-| **1. Data wire** | Durable objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**; protocol layers deepen adds Rule, TimelineEvent | `schemas/data/` → `@42ch/spoke-schemas` |
-| **2. Ops wire** | Transport-agnostic request/response families: `upsert`, extract→promote, `relate`, `check`, `assemble` | `schemas/ops/` → `@42ch/spoke-schemas` |
-| **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express, plus the **adapter interface protocol**: capability-sliced ports and injection orchestration for baseline / optional computable / optional fork paths | `@42ch/spoke-operations` / `spoke-operations` |
+| **1. Data wire** | KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, HostCapabilityManifest, Rule, TimelineEvent, and optional cognition/MindState contracts | `schemas/data/` → generated TS/Rust |
+| **2. Ops wire** | Transport-agnostic request/response families for entry lifecycle, relations, checking, context assembly, and Memory | `schemas/ops/` → generated TS/Rust |
+| **3. Ops library** | Pure lifecycle invariants, cognition validation/filtering/projection, capability-sliced adapter ports, and injection orchestration | `@42ch/spoke-operations` / `spoke-operations` |
 
 Product-specific fields live only in `extensions.<namespace>`. Core protocol objects use `additionalProperties: false`. Product adapters implement the operations port contracts, map product DTOs to wire types, and **call** `@42ch/spoke-operations` / `spoke-operations` orchestration entrypoints for shared lifecycle sequences. Adapters own transport, persistence, and **transaction boundaries** (including multi-entry upsert). Active-uniqueness helpers take **caller-supplied peer sets** — batch-local peers from the orchestrator unless the adapter supplies a wider store snapshot.
 
-## Guiding principles
+## Guiding Principles
 
 1. **Wire contracts are truth.** `schemas/` is the only hand-authored source; TypeScript and Rust are generated.
-2. **Open vocabulary, closed envelopes.** `entry_type` and related fields are strings with documented core lists — not `enum` until adapter specs prove stability.
+2. **Open product vocabulary, closed standard contracts.** `entry_type` remains an open string vocabulary; standard cognition shapes and enums follow the accepted family contract, and product-specific fields use extension namespaces.
 3. **Preserve on round-trip.** Adapters MUST not drop unknown extension namespaces or keys.
-4. **Simplicity over premature abstraction.** v0.1 ships schemas and packages; cross-product lifecycle behavior lives in `@42ch/spoke-operations`.
+4. **Simplicity over premature abstraction.** Necessary pure validators, deterministic predicates and projections serve the shared data contract; broader reusable algorithms retain their consumer-demand gate.
 
-## Roadmap pointer
+## Decision Log
 
-| Phase | Focus |
-|-------|-------|
-| **v0.1 (delivered 2026-07-23)** | Spec trio + schemas + codegen + CI verify gate |
-| **Operations library first slice (delivered 2026-07-23)** | `@42ch/spoke-operations` first slice + consumer README EN/CN |
-| **Protocol layers + Rule/TimelineEvent (delivered 2026-07-23)** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` wire schemas; ops harden — see [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) |
-| **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` (OCC, KnowledgeEntry status, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph + AJV harness (`fixtures/toy-world/tests/`; `@42ch/spoke-fixture-toy-world`) |
-| **KnowledgeEntry / TimelineEvent terminology (delivered 2026-07-23)** | Wire + ops + fixtures + docs rename; product expand Standardized Programmable Ontology Knowledge Engine |
-| **Optional Computable (`l2-computable`) (delivered 2026-07-24)** | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project` / `compute` ops + pure validators |
-| **Optional Fork (`l5-fork`) (delivered 2026-07-24)** | `ForkId`; TimelineEvent `fork_id` / `parent_fork_id`; `Scope.fork_id` matcher; fixtures |
-| **Unified version release (delivered 2026-07-25)** | Lockstep bump/assert, annotated tags, CI-gated GitHub Release — [spoke-version-release.md](.mstar/specs/spoke-version-release.md) |
-| **Registry publish (delivered 2026-07-25)** | CI publishes `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm) and `spoke-schemas`, `spoke-operations` (crates.io) on stable tags after verify gates |
-| **CI / codegen harden (delivered 2026-07-25)** | OpaqueJson opaque fields; Rust typify strategy A; schema-count **23** surfaces; `test:release` lockstep script tests |
-| **Adapter interfaces + injection orchestration (delivered 2026-07-26)** | Capability-sliced ports and `orchestrate*` / `orchestrate_*` entrypoints in `@42ch/spoke-operations` and `spoke-operations`; normative sequences in [spoke-operations.md](.mstar/specs/spoke-operations.md) |
-| **Adapter aliases (delivered 2026-07-27)** | Export `BaselineAdapter` / `ComputableAdapter` / `ForkAdapter` / `FullAdapter` in `@42ch/spoke-operations` and `spoke-operations`; integrator docs point to operations packages and `fixtures/toy-world/` reference examples |
-| **ToyWorldAdapter reference (delivered 2026-07-27)** | Runnable `ToyWorldAdapter` in TypeScript and Rust under `fixtures/toy-world/` |
-| **Host capability collaboration (normative)** | `HostCapabilityManifest` wire, baseline-required `HostManifestPort`, five host roles, namespace exclusivity — see [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §HostCapabilityManifest |
-| **Next (when scheduled)** | Toy-world multi-host manifest proof; consumer-repo product bindings that implement ports for concrete products |
-| **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
+- One cross-layer `spoke-cognition` family gives Knowledge, Ignorance, Perception, and Belief shared attribution, identity, absence and filtering semantics across KnowledgeEntry and Memory. L5 remains Temporal; family conformance follows the surfaces a host actually serves.
+- Holder KnowledgeEntry cognition is current authority, while Memory retains independently authorized recorded-at-time assessments. This separation preserves historical attribution and avoids turning retention or derived MindState/MindDelta views into another authority.
+- Closed standard cognition shapes and necessary pure operations are admitted by the coherent family contract and affected-consumer mapping. Product inference and broader reusable algorithms require their own demonstrated need rather than following automatically from wire standardization.
 
 ## See also
 
@@ -72,4 +58,5 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | [`CONCEPTS.md`](CONCEPTS.md) | Domain vocabulary and boundaries |
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella spec and acceptance criteria |
 | [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | L0–L8, capability levels, TimelineScale vocabulary |
+| [`.mstar/specs/spoke-cognition-family-adr.md`](.mstar/specs/spoke-cognition-family-adr.md) | Cognition concepts, authority, conformance and module boundaries |
 | [`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md) | Lockstep SemVer, annotated tags, CI-gated GitHub Release, registry publish |

@@ -62,16 +62,17 @@ title: 领域画像（Domain Profiles）
 
 ## 心智状态（Mental state）
 
-**心智状态**定义叙事主机如何在不共享引擎的前提下互换心智状态数据（信念、目标、意图、情绪、观察可达性）。它作为三个 `modules.*` 方言存在，能力标志 `l5-mind` + `narrative-modules`；时序记录对象（`MindState`）承载派生快照/增量。
+**心智状态**定义叙事主机如何在不共享引擎的前提下互换认知与心智状态数据。它在单一能力标志（`spoke-cognition`）下以三类记录承载四个概念，并配套开放的 `modules.mental` 词汇与派生 `MindState` 记录。
 
 | 已发布词汇 | 线上归宿 | 值 |
 |------------|----------|-----|
-| 心智字段 | `KnowledgeEntry.modules.mental` | 九字段词汇：`identity`、`beliefs`、`attention`、`goals`、`intentions`、`emotions`、`dispositions`、`norms`、`constraints` |
-| 信念标签 | `KnowledgeEntry.modules.belief` | `holder`（entry_id 或 `world`）、`proposition`、`order`（0–3）、七维标签（Truth/Access/Representation/Content/Source/Context） |
-| 事件观察 | `TimelineEvent.modules.observation` | `observers: entry_id[]`、可选 `access`（感知可达性约束） |
-| 时序记录 | `MindState` 线上对象 | `mind_state_id`、`holder_entry_id`、`snapshot`、`deltas` —— 严格派生 |
+| 心智字段 | `KnowledgeEntry.modules.mental` | 九字段词汇：`identity`、`beliefs`、`attention`、`goals`、`intentions`、`emotions`、`dispositions`、`norms`、`constraints`；`beliefs` 承载派生摘要、计数或引用数据 |
+| 标准认知 | `KnowledgeEntry.modules.cognition` | `records[]` 承载信念、epistemic（knowledge/ignorance/undetermined）与感知记录，`world_facts[]` 承载叙事世界事实；每条完整的信念、认知评估或感知记录携带声明的 `q`，并可携带独立指标 |
+| 信念维度 | 信念记录字段 | `order`（0–3）、`truth`（`True`/`False`/`Unknown`）、`access`（`Private`/`Shared`/`Public`）、`representation`（`Explicit`/`Implicit`）、`content_type`（八个标签）、`source`（七个获取路径标签）、`context`（`Deceptive`/`Temporal`/`Counterfactual`/`Neutral`） |
+| 事件观察 | `TimelineEvent.modules.observation` | `observers: CognitionReference[]`（必填；`[]` 表示没有观察者可能感知），可选开放 `access` 约束 |
+| 时序记录 | `MindState` 线上对象 | `mind_state_id`、`holder_entry_id`、`snapshot`、`deltas`、可选 `cognition` 投影 —— 严格派生 |
 
-关键陈述：心智字段与信念标签的常驻家园是持有者 KnowledgeEntry 的 `modules.mental`/`modules.belief`；`MindState` 严格时序/派生（无双权威）；假信念 = 真世界事实 + 假角色信念（一行标签记录）；未被观察的事件 ⇒ 陈旧信念 ⇒ 假信念（Knowledge Access 推导链）。
+关键陈述：持有者 KnowledgeEntry 承载权威值 —— `modules.cognition` 下的标准记录与 `modules.mental` 下的开放心智字段 —— 而 `MindState` 呈现时间轨迹。假信念是一条 `truth: "False"` 的角色信念记录，与它所矛盾的世界事实并存；感知记录描述实际捕获，保留部分、误导、错觉或不被相信的内容。事件可达性元数据说明谁可能感知，不构成实际捕获的声明。过滤在 KnowledgeEntry 表面使用 `Scope.cognition`，在记忆表面使用 `cognition_filter`；两者都按单条记录合取，并显式拒绝不受支持的要求。
 
 ## 相关页面
 

@@ -199,7 +199,9 @@ fn orchestrate_assemble_builds_packet_from_scoped_knowledge_entries() {
     }))
     .expect("AssembleRequest");
 
-    let result = pollster::block_on(orchestrate_assemble(&adapter, request));
+    // The fixture scope carries no current cognition selection, so the
+    // injected product policy is explicitly absent like the other consumers.
+    let result = pollster::block_on(orchestrate_assemble(&adapter, request, None));
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(spoke_schemas::AssembleResponse::Variant0 { packet, .. }) = result {
         assert_eq!(packet.packet_id, "assemble:toy-scope-001");

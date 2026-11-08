@@ -3,10 +3,17 @@ import { describe, expect, it } from "vitest";
 import {
   CAPABILITY_L2_COMPUTABLE,
   CAPABILITY_SPOKE_BASELINE,
+  CAPABILITY_SPOKE_COGNITION,
+  CAPABILITY_SPOKE_MEMORY,
+  CAPABILITY_SPOKE_MEMORY_REFLECTION,
+  CAPABILITY_SPOKE_MEMORY_TRANSFER,
+  cognitionRequirementField,
+  cognitionRequirementPresent,
   dispatchAllowed,
   requiredCapability,
   tokenAuthorizesOp,
 } from "../../src/core/dispatch.js";
+import { negotiatedCapabilities } from "../../src/core/session.js";
 
 /**
  * `tokenAuthorizesOp` parity tests — mirror
@@ -136,5 +143,201 @@ describe("ke remote", () => {
     expect(
       tokenAuthorizesOp(requiredCapability("extract"), [CAPABILITY_SPOKE_BASELINE]),
     ).toBe(false);
+  });
+});
+
+// Memory family (SPOKE memory protocol §4.1/§13) token grants — parity twin
+// of the Rust `core::dispatch::tests` memory block. Three flags gate disjoint
+// op groups, and the token grant is a second, independent boundary next to
+// the negotiated set: a grant carrying only a sibling flag never authorizes a
+// row. The op lists stay explicit so a per-row drift between the languages
+// fails one of the two suites.
+describe("memory family token grants (parity with dispatch.rs)", () => {
+  const MEMORY_CORE_OPS = [
+    "memory.describe",
+    "memory.spaces.list",
+    "memory.spaces.freeze",
+    "memory.spaces.unfreeze",
+    "memory.subjects.ensure",
+    "memory.subjects.get",
+    "memory.subjects.fence",
+    "memory.grants.list",
+    "memory.grants.grant",
+    "memory.grants.revoke",
+    "memory.capture",
+    "memory.candidates.list",
+    "memory.candidates.get",
+    "memory.candidates.dismiss",
+    "memory.candidates.review",
+    "memory.records.create",
+    "memory.records.get",
+    "memory.records.update",
+    "memory.records.delete",
+    "memory.records.list",
+    "memory.records.promote",
+    "memory.recall",
+    "memory.profile.get",
+    "memory.profile.update",
+    "memory.receipts.get",
+  ];
+  const MEMORY_REFLECTION_OPS = [
+    "memory.reflections.state",
+    "memory.reflections.list",
+    "memory.reflections.generate",
+  ];
+  const MEMORY_TRANSFER_OPS = [
+    "memory.exports.create",
+    "memory.exports.get",
+    "memory.imports.stage",
+    "memory.imports.activate",
+    "memory.imports.discard",
+  ];
+
+  const GROUPS = [
+    {
+      ops: MEMORY_CORE_OPS,
+      flag: CAPABILITY_SPOKE_MEMORY,
+      siblings: [
+        CAPABILITY_SPOKE_MEMORY_REFLECTION,
+        CAPABILITY_SPOKE_MEMORY_TRANSFER,
+      ],
+    },
+    {
+      ops: MEMORY_REFLECTION_OPS,
+      flag: CAPABILITY_SPOKE_MEMORY_REFLECTION,
+      siblings: [
+        CAPABILITY_SPOKE_MEMORY,
+        CAPABILITY_SPOKE_MEMORY_TRANSFER,
+      ],
+    },
+    {
+      ops: MEMORY_TRANSFER_OPS,
+      flag: CAPABILITY_SPOKE_MEMORY_TRANSFER,
+      siblings: [
+        CAPABILITY_SPOKE_MEMORY,
+        CAPABILITY_SPOKE_MEMORY_REFLECTION,
+      ],
+    },
+  ];
+
+  it("authorizes each memory op only for its own gating flag", () => {
+    for (const group of GROUPS) {
+      for (const op of group.ops) {
+        expect(tokenAuthorizesOp(requiredCapability(op), [group.flag]), op).toBe(
+          true,
+        );
+        for (const sibling of group.siblings) {
+          expect(
+            tokenAuthorizesOp(requiredCapability(op), [sibling]),
+            op,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+});
+
+describe("spoke-cognition family (parity with dispatch.rs)", () => {
+  it("has one canonical family constant and no op-table row", () => {
+    expect(CAPABILITY_SPOKE_COGNITION).toBe("spoke-cognition");
+    // The requirement is payload-only: no op names the family, so an
+    // unnegotiated family never denies an ordinary call.
+    for (const op of [
+      "upsert",
+      "check",
+      "assemble",
+      "extract",
+      "port.scope.list_knowledge_entries",
+      "memory.records.list",
+      "memory.recall",
+    ]) {
+      expect(requiredCapability(op), `${op} must not require the family`).not.toBe(
+        CAPABILITY_SPOKE_COGNITION,
+      );
+    }
+  });
+
+  it("locates the op's declared requirement member on the raw payload", () => {
+    // Only the actual carrier of the dispatched operation can demand
+    // cognition; every slot below comes from the registered request schema.
+    expect(
+      cognitionRequirementField("check", {
+        scope: { scope_id: "s", cognition: { view: "current" } },
+      }),
+    ).toBe("scope.cognition");
+    expect(
+      cognitionRequirementField("port.scope.list_knowledge_entries", {
+        scope: { scope_id: "s", cognition: { view: "current" } },
+      }),
+    ).toBe("scope.cognition");
+    expect(
+      cognitionRequirementField("memory.records.list", {
+        cognition_filter: { state: { eq: "known" } },
+      }),
+    ).toBe("cognition_filter");
+    // A present `null` is a requirement (malformed), never "absent".
+    expect(
+      cognitionRequirementField("memory.recall", { cognition_filter: null }),
+    ).toBe("cognition_filter");
+    // The slots are disjoint per op, so unrelated data can never stand in
+    // front of the op's real requirement.
+    expect(
+      cognitionRequirementField("memory.records.list", {
+        cognition: {},
+        cognition_filter: { q_min: 0.5 },
+      }),
+    ).toBe("cognition_filter");
+    expect(cognitionRequirementPresent("upsert", {})).toBe(false);
+    expect(
+      cognitionRequirementPresent("port.scope.list_knowledge_entries", {
+        scope: { scope_id: "s", viewpoint: "kb_mira" },
+      }),
+    ).toBe(false);
+    expect(
+      cognitionRequirementPresent("port.finding.put", { findings: [] }),
+    ).toBe(false);
+    expect(cognitionRequirementPresent("check", { scope: "s" })).toBe(false);
+    // Tool arguments, a Memory filter on a Scope op, and any opaque
+    // `cognition` member elsewhere are ordinary payload data.
+    expect(
+      cognitionRequirementPresent("tools.math.add", {
+        arguments: {},
+        cognition: "tool metadata",
+      }),
+    ).toBe(false);
+    expect(
+      cognitionRequirementPresent("port.scope.list_knowledge_entries", {
+        scope: { scope_id: "s" },
+        cognition_filter: { state: { eq: "known" } },
+      }),
+    ).toBe(false);
+    expect(
+      cognitionRequirementPresent("upsert", { cognition: { view: "recorded_at" } }),
+    ).toBe(false);
+    expect(
+      cognitionRequirementPresent("memory.records.list", {
+        scope: { scope_id: "s", cognition: { view: "current" } },
+      }),
+    ).toBe(false);
+    // A Memory content write's `content.cognition` is written data, not a
+    // request requirement; its placement `scope` is unrelated payload too.
+    expect(
+      cognitionRequirementPresent("memory.records.create", {
+        content: { cognition: { records: [] } },
+        scope: { space_id: "s", subject_id: "sub" },
+      }),
+    ).toBe(false);
+    expect(
+      cognitionRequirementPresent("check", {
+        scope: { scope_id: "s", cognition: null },
+      }),
+    ).toBe(true);
+  });
+
+  it("never derives the family from the legacy flag", () => {
+    // The negotiation is the plain intersection: `l5-mind` on one side grants
+    // nothing, and no alias exists on either side.
+    expect(negotiatedCapabilities(["l5-mind"], ["spoke-cognition"])).toEqual([]);
+    expect(negotiatedCapabilities(["spoke-cognition"], ["l5-mind"])).toEqual([]);
   });
 });

@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/data/mind-state.schema.json",
   "title": "MindState",
-  "description": "First-class temporal mental-state record under optional capability l5-mind. Strictly derivative of the holder KnowledgeEntry's modules.mental / modules.belief (settled home); never a second authority. Distinct from KnowledgeEntry ontology labels such as entry_type: \"character\" or profile \"mind\". Engines (belief revision, ToM inference) are product-owned; SPOKE owns the wire shape.",
+  "description": "First-class temporal mental-state record under optional capability spoke-cognition. Strictly derivative of the holder KnowledgeEntry's modules.mental / modules.cognition (settled home); never a second authority. Distinct from KnowledgeEntry ontology labels such as entry_type: \"character\" or profile \"mind\". Engines (belief revision, ToM inference) are product-owned; SPOKE owns the wire shape.",
   "type": "object",
   "required": [
     "schema_version",
@@ -22,7 +22,7 @@
     "holder_entry_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Reference to the mental actor's KnowledgeEntry (entry_id). This record is a temporal derivative of that entry's modules.mental / modules.belief."
+      "description": "Reference to the mental actor's KnowledgeEntry (entry_id). This record is a temporal derivative of that entry's modules.mental / modules.cognition (settled home); never a second authority."
     },
     "canonical_name": {
       "type": "string",
@@ -51,6 +51,10 @@
     "source_anchor": {
       "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json",
       "description": "Optional manuscript or scene anchor."
+    },
+    "cognition": {
+      "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionProjection",
+      "description": "Optional derivative projection of the selected holder-side cognition authority with all retained matching assessments and trace; never a second authority."
     },
     "created_at": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"

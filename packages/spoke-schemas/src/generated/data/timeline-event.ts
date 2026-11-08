@@ -5,7 +5,7 @@
  */
 
 /**
- * First-class when-axis temporal object (L5). Distinct from KnowledgeEntry ontology labels such as entry_type: "event" (KB fact node, not this wire type). Optional modules.* carries capability-flagged functional dialects (e.g. modules.observation: who could perceive the event + perceptual-access constraints; companion wire-slice to l5-mind).
+ * First-class when-axis temporal object (L5). Distinct from KnowledgeEntry ontology labels such as entry_type: "event" (KB fact node, not this wire type). Optional modules.* carries capability-flagged functional dialects (e.g. modules.observation: who could perceive the event + perceptual-access constraints; companion wire-slice to spoke-cognition).
  */
 export interface TimelineEvent {
   /**
@@ -140,7 +140,7 @@ export interface ComputableLogChange {
   next?: unknown;
 }
 /**
- * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules; l5-mind for event observation); opt-in. Carries event observation metadata (e.g. modules.observation: observers + access). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.
+ * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules; spoke-cognition for event observation); opt-in. Carries event observation metadata: modules.observation is the closed ObservationModule (observers: CognitionReference[] — [] is explicitly no could-perceive observers; optional access). Missing module = no observation metadata; a Perception record = actual capture. Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.
  */
 export interface ModuleMap {
   [k: string]:

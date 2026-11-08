@@ -24,6 +24,8 @@ use serde_json::Value;
 use spoke_operations::{SpokeReject, SpokeRejectCode};
 use spoke_schemas::Scope;
 
+use crate::core::{CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE};
+
 mod multi_peer_router;
 mod remote_adapter;
 mod responder;
@@ -48,6 +50,49 @@ pub use serve_ports::{
 pub use transport::{
     loopback_transport_pair, LoopbackTransport, LoopbackTransportPair, Transport, TransportError,
 };
+
+// ── `port.*` capability map (D4 catalogue) ────────────────────────────────
+//
+// One product map, two readers: the responder's serve gate and the router's
+// selection table. Core keeps its op-only table (`core::dispatch`, which
+// answers `None` for `port.*` deliberately), so the product rows live here
+// once instead of being re-declared per surface.
+
+/// Optional family capability for the fork timeline query. The core
+/// capability table has no `l5-fork` op row (the fork query is a remote
+/// `port.*` op), so the product map that requires it owns the one canonical
+/// spelling.
+const CAPABILITY_L5_FORK: &str = "l5-fork";
+
+/// Required capability for a `port.*` op of the D4 catalogue (frozen
+/// contract §5.2), or `None` for an op outside it. Every baseline row
+/// requires `spoke-baseline`; the optional families require their negotiated
+/// family capability (`l2-computable` / `l5-fork`).
+///
+/// This is the requirement only — each surface keeps its own evaluation and
+/// failure shape (serve-gate deny vs. selection reject), and neither surface
+/// gains an op the other does not have.
+pub(crate) fn port_op_requirement(op: &str) -> Option<&'static str> {
+    match op {
+        "port.knowledge.get" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.knowledge.put" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.relation.get" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.relation.put" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.scope.list_knowledge_entries" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.scope.list_timeline_events" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.finding.put" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.rule.list" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.host.list_peer_manifests" => Some(CAPABILITY_SPOKE_BASELINE),
+        // Optional families (D4 catalogue): project / compute require the
+        // `l2-computable` family capability; the fork timeline query
+        // requires `l5-fork` — all evaluated against the negotiated
+        // capabilities (both-hello intersection).
+        "port.computable.project" => Some(CAPABILITY_L2_COMPUTABLE),
+        "port.computable.compute" => Some(CAPABILITY_L2_COMPUTABLE),
+        "port.fork.list_timeline_events" => Some(CAPABILITY_L5_FORK),
+        _ => None,
+    }
+}
 
 // ── `ke-ownership` conditional requirement (frozen F2) ─────────────────────
 //
@@ -125,4 +170,25 @@ pub(crate) fn validate_scope_declaration(
     Scope::deserialize(scope)
         .map(Some)
         .map_err(|error| invalid(error.to_string()))
+}
+
+/// The baseline shape verdict for a payload that also declares the optional
+/// `Scope.cognition` selection: the same declared-`Scope` gate with that one
+/// member removed.
+///
+/// Used only after the full decode already failed on such a payload, to decide
+/// whether the failure belongs to the baseline Scope (which keeps its original
+/// shape-first denial) or to the new optional subtree, whose raw §2.2
+/// diagnosis then answers instead. Same generated `Scope` decode — no second
+/// schema, no re-implemented member list.
+pub(crate) fn baseline_scope_shape(op: &str, payload: &Value) -> Result<(), SpokeReject> {
+    let Some(scope) = payload.get("scope").and_then(Value::as_object) else {
+        return validate_scope_declaration(op, payload).map(|_| ());
+    };
+    if !scope.contains_key("cognition") {
+        return validate_scope_declaration(op, payload).map(|_| ());
+    }
+    let mut baseline = scope.clone();
+    baseline.remove("cognition");
+    validate_scope_declaration(op, &serde_json::json!({ "scope": baseline })).map(|_| ())
 }

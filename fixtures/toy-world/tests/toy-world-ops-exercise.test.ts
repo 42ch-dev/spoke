@@ -5,7 +5,6 @@ import {
   assertRevisionMatch,
   buildAssemblePacket,
   filterKnowledgeEntriesByScope,
-  knowledgeEntryMatchesScope,
   timelineEventMatchesScope,
   transitionFindingStatus,
   validateComputableLogEntry,
@@ -56,15 +55,25 @@ describe("fixtures/toy-world ops exercise", () => {
       entry_types: ["character", "location"],
     };
 
-    expect(knowledgeEntryMatchesScope(mira(), scope)).toBe(true);
-    expect(knowledgeEntryMatchesScope(harbor(), scope)).toBe(true);
-    expect(filterKnowledgeEntriesByScope([mira(), harbor()], scope)).toHaveLength(2);
-    expect(
-      knowledgeEntryMatchesScope(mira(), {
-        scope_id: "toy-scope-001",
-        source_id: "manuscript:tw-ch1",
-      }),
-    ).toBe(true);
+    const filtered = filterKnowledgeEntriesByScope([mira(), harbor()], scope);
+    expect(filtered.ok).toBe(true);
+    if (filtered.ok) {
+      expect(filtered.value.map((entry) => entry.entry_id)).toEqual([
+        "kb_tw_mira",
+        "kb_tw_harbor",
+      ]);
+    }
+
+    const bySource = filterKnowledgeEntriesByScope([mira(), harbor()], {
+      scope_id: "toy-scope-001",
+      source_id: "manuscript:tw-ch1",
+    });
+    expect(bySource.ok).toBe(true);
+    if (bySource.ok) {
+      expect(bySource.value.map((entry) => entry.entry_id)).toEqual([
+        "kb_tw_mira",
+      ]);
+    }
     expect(
       timelineEventMatchesScope(timelineEvent(), {
         scope_id: "toy-scope-001",
@@ -121,5 +130,10 @@ describe("fixtures/toy-world ops exercise", () => {
 
     expect(validateMindState(pre)).toBe(true);
     expect(validateMindState(post)).toBe(true);
+
+    // C4: the post-transfer state retains explicit-empty deltas because Bo
+    // could not perceive the hidden transfer (MindDelta.path grammar is
+    // pinned by the mind-state schema and the fixture loop above).
+    expect(post.deltas).toEqual([]);
   });
 });

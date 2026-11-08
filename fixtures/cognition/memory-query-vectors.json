@@ -1,0 +1,961 @@
+{
+  "schema": "spoke.cognition.memory-query-vectors/1",
+  "description": "Shared C9 vectors: one authorized cognition-filtered source set consumed by the reference engine conformance runner and by the typed SQLite Memory provider. Each consumer derives eligible ids in its own record order and sorts them to the shared id-ascending list; every record shares one created_at, so a recall page orders by kind weight (fact 3, note 1) and then by record_id, which is not the list order. Same bare ids in different namespaces, exact assessment-context ids with wildcard/exact/absent forks, inclusive q boundaries and a missing optional categorical are distinct identities, not a zero.",
+  "records": [
+    {
+      "record_id": "rec_cog_alice_high",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Alice expects the gate to be shut.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_alice_high",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "truth": "Unknown",
+            "q": {
+              "value": 0.8,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_ctx_fork",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Erin expects the review to pass in one fork.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_erin_forked",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "erin" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_erin" },
+              "target_id": "t_prop_3",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "erin" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_erin_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_review", "fork_id": "fork_9" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "truth": "True",
+            "q": {
+              "value": 0.7,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_ctx_plain",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Erin expects the review to pass outside any fork.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_erin_plain",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "erin" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_erin" },
+              "target_id": "t_prop_3",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "erin" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_erin_2" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_review" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "truth": "True",
+            "q": {
+              "value": 0.7,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_forked",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Alice expects the gate to be shut in one fork.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_alice_forked",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_2" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default", "fork_id": "fork_7" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "truth": "Unknown",
+            "q": {
+              "value": 0.8,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_full",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Alice is certain the gate is shut.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_alice_full",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_3" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "q": {
+              "value": 1.0,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_low",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Alice assigns zero probability to the gate being open.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_alice_low",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_2",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_4" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "q": {
+              "value": 0.0,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_none",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": { "text": "The gate is painted blue." }
+    },
+    {
+      "record_id": "rec_cog_ns_holder",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "A same-bare-id holder in another namespace expects the gate shut.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_ns_holder",
+            "holder": { "kind": "principal", "namespace": "system_b", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_b", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_ns_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "truth": "False",
+            "q": {
+              "value": 0.8,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_ns_target",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Dana expects a same-bare-id target carrier in another namespace.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_ns_target",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "dana" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_b", "id": "ke_alice" },
+              "target_id": "t_prop_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "dana" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_ns_2" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "truth": "False",
+            "q": {
+              "value": 0.8,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_rank_excluded",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "A higher-ranked fact whose cognition belongs to another holder.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_rank_excluded",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "helen" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_helen" },
+              "target_id": "t_prop_7",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "helen" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_helen_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "truth": "True",
+            "q": {
+              "value": 0.9,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_rank_note",
+      "revision": 1,
+      "kind": "note",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Frank expects the gate to stay open.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_frank_note",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "frank" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_frank" },
+              "target_id": "t_prop_4",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "frank" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_frank_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "truth": "True",
+            "q": {
+              "value": 0.6,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_rank_zfact",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Frank also holds the same expectation as a retained fact.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_frank_fact",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "frank" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_frank" },
+              "target_id": "t_prop_8",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "frank" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_frank_2" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "truth": "True",
+            "q": {
+              "value": 0.6,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_trap",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Two assessments that never satisfy one conjunction together.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_trap_holder",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_alice" },
+              "target_id": "t_prop_2",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_5" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "q": {
+              "value": 0.2,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          },
+          {
+            "kind": "belief",
+            "record_id": "bel_trap_target",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "bo" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_bo" },
+              "target_id": "t_prop_1",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "bo" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_6" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "q": {
+              "value": 0.9,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_zero_access",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Gina assigns zero probability and declares a private access.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_gina_declared",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "gina" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_gina" },
+              "target_id": "t_prop_5",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "gina" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_gina_1" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "access": "Private",
+            "truth": "False",
+            "q": {
+              "value": 0.0,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    },
+    {
+      "record_id": "rec_cog_zero_missing",
+      "revision": 1,
+      "kind": "fact",
+      "created_at": "2026-07-23T06:00:00Z",
+      "content": {
+        "text": "Gina assigns zero probability and declares no access.",
+        "cognition": [
+          {
+            "kind": "belief",
+            "record_id": "bel_gina_missing",
+            "holder": { "kind": "principal", "namespace": "system_a", "id": "gina" },
+            "target": {
+              "carrier": { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_gina" },
+              "target_id": "t_prop_6",
+              "kind": "proposition"
+            },
+            "assessor": { "kind": "principal", "namespace": "system_a", "id": "gina" },
+            "assessor_role": "holder_self_report",
+            "basis": {
+              "kind": "evidence",
+              "evidence": [
+                { "kind": "knowledge_entry", "namespace": "system_a", "id": "ke_evt_gina_2" }
+              ]
+            },
+            "assessment_context": { "context_id": "ctx_default" },
+            "effective_at": "2026-07-23T06:00:00Z",
+            "assessed_at": "2026-07-23T06:00:00Z",
+            "view": "recorded_at",
+            "order": 1,
+            "truth": "False",
+            "q": {
+              "value": 0.0,
+              "assertion": "belief_attribution",
+              "method": "elicitation_v1",
+              "calibration": "calibrated"
+            },
+            "extensions": {}
+          }
+        ]
+      }
+    }
+  ],
+  "queries": [
+    {
+      "id": "eligible-conjunction",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "target": { "target_id": "t_prop_1" },
+        "category": "belief",
+        "q": { "min": 0.5, "max": 1.0 }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_alice_high", "rec_cog_forked", "rec_cog_full"],
+        "page_ids": ["rec_cog_alice_high", "rec_cog_forked", "rec_cog_full"],
+        "total_authorized": 3,
+        "truncated": false
+      }
+    },
+    {
+      "id": "fork-eq",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "assessment_context": { "fork_id": { "eq": "fork_7" } },
+        "q": { "min": 0.5 }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_forked"],
+        "page_ids": ["rec_cog_forked"],
+        "total_authorized": 1,
+        "truncated": false
+      }
+    },
+    {
+      "id": "fork-absent",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "assessment_context": { "fork_id": { "absent": true } },
+        "q": { "min": 0.5 }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_alice_high", "rec_cog_full"],
+        "page_ids": ["rec_cog_alice_high", "rec_cog_full"],
+        "total_authorized": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "truth-absent",
+      "filter": { "truth": { "absent": true } },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_full", "rec_cog_low", "rec_cog_trap"],
+        "page_ids": ["rec_cog_full", "rec_cog_low", "rec_cog_trap"],
+        "total_authorized": 3,
+        "truncated": false
+      }
+    },
+    {
+      "id": "truth-eq-unknown",
+      "filter": { "truth": { "eq": "Unknown" } },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_alice_high", "rec_cog_forked"],
+        "page_ids": ["rec_cog_alice_high", "rec_cog_forked"],
+        "total_authorized": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "single-entry-conjunction-positive",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "target": { "target_id": "t_prop_2" }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_low", "rec_cog_trap"],
+        "page_ids": ["rec_cog_low", "rec_cog_trap"],
+        "total_authorized": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "empty-result",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "carol" }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": [],
+        "page_ids": [],
+        "total_authorized": 0,
+        "truncated": false
+      }
+    },
+    {
+      "id": "page-first",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "target": { "target_id": "t_prop_1" },
+        "q": { "min": 0.5 }
+      },
+      "budget": { "max_items": 2 },
+      "expect": {
+        "eligible_ids": ["rec_cog_alice_high", "rec_cog_forked", "rec_cog_full"],
+        "page_ids": ["rec_cog_alice_high", "rec_cog_forked"],
+        "total_authorized": 3,
+        "truncated": true
+      }
+    },
+    {
+      "id": "page-after",
+      "after": "page-first",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "target": { "target_id": "t_prop_1" },
+        "q": { "min": 0.5 }
+      },
+      "budget": { "max_items": 2 },
+      "expect": {
+        "eligible_ids": ["rec_cog_alice_high", "rec_cog_forked", "rec_cog_full"],
+        "page_ids": ["rec_cog_full"],
+        "total_authorized": 3,
+        "truncated": false
+      }
+    },
+    {
+      "id": "overflow-first",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "target": { "target_id": "t_prop_1" },
+        "q": { "min": 0.5 }
+      },
+      "budget": { "max_items": 10, "max_bytes": 1 },
+      "expect": {
+        "eligible_ids": ["rec_cog_alice_high", "rec_cog_forked", "rec_cog_full"],
+        "page_ids": ["rec_cog_alice_high"],
+        "overflow_record_id": "rec_cog_alice_high",
+        "total_authorized": 3,
+        "truncated": true
+      }
+    },
+    {
+      "id": "namespace-holder-exact",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_b", "id": "alice" }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_ns_holder"],
+        "page_ids": ["rec_cog_ns_holder"],
+        "total_authorized": 1,
+        "truncated": false
+      }
+    },
+    {
+      "id": "namespace-target-carrier",
+      "filter": {
+        "target": {
+          "carrier": { "kind": "knowledge_entry", "namespace": "system_b", "id": "ke_alice" }
+        }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_ns_target"],
+        "page_ids": ["rec_cog_ns_target"],
+        "total_authorized": 1,
+        "truncated": false
+      }
+    },
+    {
+      "id": "context-exact-wildcard-fork",
+      "filter": {
+        "assessment_context": { "context_id": "ctx_review" }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_ctx_fork", "rec_cog_ctx_plain"],
+        "page_ids": ["rec_cog_ctx_fork", "rec_cog_ctx_plain"],
+        "total_authorized": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "context-exact-absent-fork",
+      "filter": {
+        "assessment_context": { "context_id": "ctx_review", "fork_id": { "absent": true } }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_ctx_plain"],
+        "page_ids": ["rec_cog_ctx_plain"],
+        "total_authorized": 1,
+        "truncated": false
+      }
+    },
+    {
+      "id": "context-exact-fork-eq",
+      "filter": {
+        "assessment_context": { "context_id": "ctx_review", "fork_id": { "eq": "fork_9" } }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_ctx_fork"],
+        "page_ids": ["rec_cog_ctx_fork"],
+        "total_authorized": 1,
+        "truncated": false
+      }
+    },
+    {
+      "id": "context-absent-id",
+      "filter": {
+        "assessment_context": { "context_id": "ctx_missing" }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": [],
+        "page_ids": [],
+        "total_authorized": 0,
+        "truncated": false
+      }
+    },
+    {
+      "id": "q-inclusive-zero",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "gina" },
+        "q": { "min": 0.0, "max": 0.0 }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_zero_access", "rec_cog_zero_missing"],
+        "page_ids": ["rec_cog_zero_access", "rec_cog_zero_missing"],
+        "total_authorized": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "q-inclusive-0.8",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "target": { "target_id": "t_prop_1" },
+        "q": { "min": 0.8, "max": 0.8 }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_alice_high", "rec_cog_forked"],
+        "page_ids": ["rec_cog_alice_high", "rec_cog_forked"],
+        "total_authorized": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "categorical-absent-not-zero",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "gina" },
+        "q": { "min": 0.0, "max": 0.0 },
+        "access": { "absent": true }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_zero_missing"],
+        "page_ids": ["rec_cog_zero_missing"],
+        "total_authorized": 1,
+        "truncated": false
+      }
+    },
+    {
+      "id": "rank-excluded-budget",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "frank" }
+      },
+      "budget": { "max_items": 1 },
+      "expect": {
+        "eligible_ids": ["rec_cog_rank_note", "rec_cog_rank_zfact"],
+        "page_ids": ["rec_cog_rank_zfact"],
+        "total_authorized": 2,
+        "truncated": true
+      }
+    },
+    {
+      "id": "rank-excluded-byte-budget",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "frank" }
+      },
+      "budget": { "max_items": 10, "max_bytes": 1 },
+      "expect": {
+        "eligible_ids": ["rec_cog_rank_note", "rec_cog_rank_zfact"],
+        "page_ids": ["rec_cog_rank_zfact"],
+        "overflow_record_id": "rec_cog_rank_zfact",
+        "total_authorized": 2,
+        "truncated": true
+      }
+    },
+    {
+      "id": "rank-order-not-list-order",
+      "filter": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "frank" }
+      },
+      "budget": { "max_items": 10 },
+      "expect": {
+        "eligible_ids": ["rec_cog_rank_note", "rec_cog_rank_zfact"],
+        "page_ids": ["rec_cog_rank_zfact", "rec_cog_rank_note"],
+        "total_authorized": 2,
+        "truncated": false
+      }
+    }
+  ],
+  "reflection": {
+    "selection": { "mode": "subject_all" },
+    "profile_revisions": { "personality": 1 },
+    "filters": {
+      "narrow": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "q": { "min": 0.5 }
+      },
+      "same_sources": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "alice" },
+        "q": { "min": 0.5, "max": 1.0 }
+      },
+      "disjoint": {
+        "holder": { "kind": "principal", "namespace": "system_a", "id": "bo" }
+      }
+    },
+    "expect": {
+      "narrow_eligible_ids": ["rec_cog_alice_high", "rec_cog_forked", "rec_cog_full"],
+      "same_sources_eligible_ids": ["rec_cog_alice_high", "rec_cog_forked", "rec_cog_full"],
+      "disjoint_eligible_ids": ["rec_cog_trap"],
+      "source_set_digest_changes": false,
+      "state_digest_changes": true
+    }
+  }
+}

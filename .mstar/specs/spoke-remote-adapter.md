@@ -140,7 +140,7 @@ RemoteAdapter enforces envelope-authentication (protocol_version 2 post-hello ru
 - **Invoke — outbound:** every `ConnectInvokeRequest` carries a `spoke-connect-invoke-request-jcs-v1` signature over `{session_id, sequence, request_id, op, payload}` (plus `auth` when attached), computed with the adapter's hello-identity seed. The pending waiter registers synchronously before signing, and sends serialize in allocation order.
 - **Invoke — inbound:** every `ConnectInvokeResponse` runs the correlation echo check first and then `spoke-connect-invoke-response-jcs-v1` verification over the exact wire branch against the peer's hello Ed25519 public key. A forged, tampered, stripped-signature, or session-unbound response fails only that waiter and leaves session state untouched; the session stays usable.
 
-The `authenticate_*` / `verify_*` helpers are module-internal (TS) / crate-private (Rust); consumers reach enforcement only through the adapter surface. Rejections surface as `SpokeResult` rejects with `INTERNAL_ERROR` and `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} (D7 rows).
+The `authenticate_*` / `verify_*` helpers are module-internal (TS) / crate-private (Rust); dialer/client consumers reach enforcement through the adapter surface, and responder-side hosts through the public responder faces (D14 `connectResponder`; serving/FFI faces D13/D16), which keep the helpers unexported. Rejections surface as `SpokeResult` rejects with `INTERNAL_ERROR` and `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} (D7 rows).
 
 ### D11 — Multi-peer capability router (shipped)
 

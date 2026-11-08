@@ -163,7 +163,7 @@ Keep the byte contract and the schema-valid fixture separate; they serve differe
 
 ### Node floor ≥ 22 rationale
 
-Node 22 is the supported consumer runtime floor. The production probe (`webcryptoEd25519Available`) tests the host's required Ed25519 key imports and its result selects the backend: accepting hosts take WebCrypto, the rest fall back to `@noble/ed25519`. Both backends keep the same seed/sign semantics and must satisfy the golden vectors. CI runs the suite on Node 24.
+Node 22 is the supported consumer runtime floor. The production probe (`webcryptoEd25519Available`) tests one PKCS8 Ed25519 private/sign-key import, and its cached result selects the backend for signing and verification alike: hosts whose probe accepts take WebCrypto, the rest fall back to `@noble/ed25519`. Verification's SPKI public-key import is not itself probed. Both backends keep the same seed/sign semantics and must satisfy the golden vectors. CI runs the suite on Node 24.
 
 ## Why This Matters
 

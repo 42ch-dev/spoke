@@ -20,6 +20,19 @@ const timestampParityCases = JSON.parse(
   ),
 ) as { accept: string[]; reject: string[] };
 
+// Shared cross-language mental-field contract (schema MindDelta pattern ↔ TS
+// validateMindState ↔ Rust validate_mind_state): the same accept/reject path
+// lists are asserted by all three layers.
+const mentalFieldCases = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../fixtures/mental-field-cases.json",
+    ),
+    "utf8",
+  ),
+) as { accept: string[]; reject: string[] };
+
 const validState: MindState = {
   schema_version: 1,
   mind_state_id: "mind_tw_bo_pre_transfer",
@@ -134,6 +147,24 @@ describe("validateMindState", () => {
       expect(
         validateMindState({ ...validState, occurred_at: timestamp }),
         `expected ${JSON.stringify(timestamp)} to be rejected`,
+      ).toBe(false);
+    }
+  });
+
+  it("accepts every mental-field path in the shared fixture", () => {
+    for (const path of mentalFieldCases.accept) {
+      expect(
+        validateMindState({ ...validState, deltas: [{ path }] }),
+        `expected ${JSON.stringify(path)} to be accepted`,
+      ).toBe(true);
+    }
+  });
+
+  it("rejects every non-vocabulary mental-field path in the shared fixture", () => {
+    for (const path of mentalFieldCases.reject) {
+      expect(
+        validateMindState({ ...validState, deltas: [{ path }] }),
+        `expected ${JSON.stringify(path)} to be rejected`,
       ).toBe(false);
     }
   });

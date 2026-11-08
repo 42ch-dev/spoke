@@ -480,6 +480,45 @@ mod tests {
     }
 
     #[test]
+    fn validate_mind_state_mental_field_parity_with_shared_fixture() {
+        // Shared cross-language mental-field contract (schema MindDelta
+        // pattern ↔ TS validateMindState ↔ this validator): the same fixture
+        // is asserted by all three layers, so the mental field vocabulary can
+        // never drift between layers again.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/mental-field-cases.json");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        let cases: Value = serde_json::from_str(&raw)
+            .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+
+        for value in cases["accept"].as_array().expect("accept list") {
+            let mut state = valid_mind_state();
+            state
+                .as_object_mut()
+                .unwrap()
+                .insert("deltas".into(), json!([{ "path": value }]));
+            assert!(
+                validate_mind_state(&state).is_ok(),
+                "expected {} to be accepted",
+                value
+            );
+        }
+        for value in cases["reject"].as_array().expect("reject list") {
+            let mut state = valid_mind_state();
+            state
+                .as_object_mut()
+                .unwrap()
+                .insert("deltas".into(), json!([{ "path": value }]));
+            assert!(
+                validate_mind_state(&state).is_reject(),
+                "expected {} to be rejected",
+                value
+            );
+        }
+    }
+
+    #[test]
     fn validate_mind_state_rejects_invalid_schema_version() {
         let mut state = valid_mind_state();
         state

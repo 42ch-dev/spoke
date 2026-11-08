@@ -209,6 +209,39 @@ describe("fixtures/toy-world schema conformance", () => {
     );
   });
 
+  it("matches the shared mental-field fixture on a complete MindState", () => {
+    // Schema leg of the shared cross-language contract: the same fixture is
+    // asserted by the TS and Rust guards, so the MindDelta pattern can never
+    // drift from them again.
+    const validateMindState = compileSchemaValidator(ajv, SCHEMA_IDS.mindState);
+    const complete = loadFixture<MindState>("mind_tw_bo_pre_transfer.json");
+    const [baseDelta = {}] = complete.deltas ?? [];
+    const cases = JSON.parse(
+      readFileSync(join(FIXTURES_ROOT, "../mental-field-cases.json"), "utf8"),
+    ) as { accept: string[]; reject: string[] };
+
+    for (const path of cases.accept) {
+      const valid = validateMindState({
+        ...complete,
+        deltas: [{ ...baseDelta, path }],
+      });
+
+      expect(
+        validateMindState.errors,
+        JSON.stringify(validateMindState.errors),
+      ).toBeNull();
+      expect(valid, `expected ${JSON.stringify(path)} to be accepted`).toBe(
+        true,
+      );
+    }
+    for (const path of cases.reject) {
+      expect(
+        validateMindState({ ...complete, deltas: [{ ...baseDelta, path }] }),
+        `expected ${JSON.stringify(path)} to be rejected`,
+      ).toBe(false);
+    }
+  });
+
   it("illustrates modules.observation on the hidden-transfer TimelineEvent", () => {
     const transfer = loadFixture<TimelineEvent>("evt_tw_hidden_transfer.json");
     const observation = transfer.modules?.observation as

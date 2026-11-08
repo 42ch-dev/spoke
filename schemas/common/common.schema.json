@@ -237,7 +237,7 @@
       "properties": {
         "path": {
           "type": "string",
-          "pattern": "^/modules/mental/[^/]+(/.*)?$|^/modules/cognition/(records|world_facts)/.+$",
+          "pattern": "^/modules/mental/(identity|beliefs|attention|goals|intentions|emotions|dispositions|norms|constraints)(/.*)?$|^/modules/cognition/(records|world_facts)/.+$",
           "description": "RFC 6901 JSON Pointer with one of these exact roots: /modules/mental/<field>... for any of the nine mental fields; /modules/cognition/records/... for derivative standard cognition; /modules/cognition/world_facts/... for narrated-world facts. No dot-path and no path targeting the MindState itself as authority."
         },
         "previous": {

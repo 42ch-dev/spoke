@@ -34,7 +34,7 @@
   "dependencies": {
     "@42ch/spoke-schemas": "workspace:*",
     "@noble/hashes": "^2.4.0",
-    "canonicalize": "3.0.0"
+    "canonicalize": "5.1.0"
   },
   "devDependencies": {
     "typescript": "^5.3.0",

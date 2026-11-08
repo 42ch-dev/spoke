@@ -122,8 +122,8 @@ importers:
         specifier: ^2.4.0
         version: 2.4.0
       canonicalize:
-        specifier: 3.0.0
-        version: 3.0.0
+        specifier: 5.1.0
+        version: 5.1.0
       ws:
         specifier: ^8.22.1
         version: 8.22.1
@@ -159,8 +159,8 @@ importers:
         specifier: ^2.4.0
         version: 2.4.0
       canonicalize:
-        specifier: 3.0.0
-        version: 3.0.0
+        specifier: 5.1.0
+        version: 5.1.0
     devDependencies:
       typescript:
         specifier: ^5.3.0
@@ -1032,9 +1032,9 @@ packages:
     resolution: {integrity: sha512-LMDU/U2yA4IPIY8KT0NsNPWEYZvAMkbgyspxJ6btJaYV+WMDOHAZCmB0lsTObiHaRS1V/ztKAl7+TSkTqXyeoA==}
     engines: {node: '>=20.19.0'}
 
-  canonicalize@3.0.0:
-    resolution: {integrity: sha512-yYLfHyDMIXRyRqsKBRLX023riFLpXY2YOfdtqKXZRZy9qsfOJ9U+4F9YZL7MEzL5+ziN2x2nlBvY/Voi3EBljA==}
-    engines: {node: '>=18'}
+  canonicalize@5.1.0:
+    resolution: {integrity: sha512-bab9+WefZljqQ8jT0qRwVmTyzAUU63K97QIQD3agynIBrb6sa5M2eAy8Hv8K3p4V9+ONVYZKtGYl4Dg+/5Gumw==}
+    engines: {node: '>=22'}
     hasBin: true
 
   ccount@2.0.1:
@@ -2391,7 +2391,7 @@ snapshots:
 
   cac@7.1.0: {}
 
-  canonicalize@3.0.0: {}
+  canonicalize@5.1.0: {}
 
   ccount@2.0.1: {}
 

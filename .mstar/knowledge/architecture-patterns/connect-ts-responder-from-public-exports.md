@@ -1,22 +1,37 @@
 ---
 module: spoke-connect
 date: 2026-08-06
+last_updated: 2026-11-09
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
 plan_id: connect-demo-mvp
-related_components: ["spoke-connect", "spoke-operations", "spoke-schemas"]
-tags: [connect-responder, envelope-auth, public-exports, dispatch-gate, transport-seam, ts-interop]
-applies_when: ["building a TypeScript responder or host that speaks protocol_version 2 connect", "reimplementing a protocol algorithm over public library primitives because the library keeps helpers module-internal", "hosting a BaselinePorts adapter behind a connect session with per-invoke dispatch gating", "integrating a third-party peer against the strict library client where canonical bytes must match exactly", "porting the responder recipe to another language against the Rust reference behavior"]
+related_components:
+  - spoke-connect
+  - spoke-operations
+  - spoke-schemas
+tags:
+  - connect-responder
+  - envelope-auth
+  - public-exports
+  - dispatch-gate
+  - transport-seam
+  - ts-interop
+applies_when:
+  - building a TypeScript responder or host that speaks protocol_version 2 connect
+  - reimplementing a protocol algorithm over public library primitives because the library keeps helpers module-internal
+  - hosting a BaselinePorts adapter behind a connect session with per-invoke dispatch gating
+  - integrating a third-party peer against the strict library client where canonical bytes must match exactly
+  - porting the responder recipe to another language against the Rust reference behavior
 ---
 
 # Building a connect responder in TypeScript from public exports
 
 ## Context
 
-`@42ch/spoke-connect` is a **client** library. Its protocol_version 2 per-envelope authentication helpers (`authenticateSession` / `verifySessionAuth` / `authenticateInvokeRequest` / `verifyInvokeRequestAuth` / `authenticateInvokeResponse` / `verifyInvokeResponseAuth` in `src/core/envelope-auth.ts`) are **module-internal by design** (spec D10 — consumers reach enforcement only through the RemoteAdapter surface). A third-party TypeScript **responder** (server-side host) still has to speak protocol_version 2 itself: it signs the `ConnectSession` snapshot it emits, verifies every inbound `ConnectInvokeRequest` before dispatch, and signs every `ConnectInvokeResponse`. Because the helpers are internal, the responder reimplements the three post-hello algorithm ids over the **public** primitives — the crypto and session-core exports from the package root plus the pinned RFC 8785 JCS canonicalizer.
+`@42ch/spoke-connect` ships a strict **client** surface and the public `connectResponder` orchestration (`@42ch/spoke-connect/remote`), which runs the responder handshake and serve loop for a host. The package's protocol_version 2 per-envelope authentication helpers (`authenticateSession` / `verifySessionAuth` / `authenticateInvokeRequest` / `verifyInvokeRequestAuth` / `authenticateInvokeResponse` / `verifyInvokeResponseAuth` in `src/core/envelope-auth.ts`) remain **module-internal by design** (spec D10 — consumers reach enforcement only through the RemoteAdapter surface). A TypeScript **responder** built without that factory — a third-party host that owns its own transport and dispatch — still has to speak protocol_version 2 itself: it signs the `ConnectSession` snapshot it emits, verifies every inbound `ConnectInvokeRequest` before dispatch, and signs every `ConnectInvokeResponse`. Because the helpers are internal, such a responder reimplements the three post-hello algorithm ids over the **public** primitives — the crypto and session-core exports from the package root plus the pinned RFC 8785 JCS canonicalizer.
 
-This pattern is the recipe proven by the demo responder (`examples/connect-demo/server/src/host/` — `envelope-auth.ts`, `connect-host.ts`, `port-dispatch.ts`), which mirrors the library's canonical responder-phase reference (`packages/spoke-connect-ts/tests/remote/loopback-host.ts`). The same construction is normative in `.mstar/specs/spoke-connect.md` §Envelope authentication (protocol_version 2) and enforced by `.mstar/specs/spoke-remote-adapter.md` D10.
+This pattern is the low-level construction `connectResponder` encapsulates, and it mirrors the library's canonical responder-phase reference (`packages/spoke-connect-ts/tests/remote/loopback-host.ts`). The demo drives that public factory directly (`examples/connect-demo/server/src/transport/ws-server.ts`). The same construction is normative in `.mstar/specs/spoke-connect.md` §Envelope authentication (protocol_version 2) and enforced by `.mstar/specs/spoke-remote-adapter.md` D10.
 
 ## Guidance
 

@@ -1,19 +1,32 @@
 ---
 module: spoke-connect
 date: 2026-08-01
-last_updated: 2026-08-03
+last_updated: 2026-11-09
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["building the first language-SDK slice for spoke-connect", "porting the connect session core to a new language", "choosing crypto / JCS / framing dependencies for a connect client", "adding a browser-or-Node connect client", "extending session-core capability parity across TS and Rust"]
-tags: [spoke-connect, connect-ts, path-a, pure-ts, websocket-framing, jcs, webcrypto, golden-vectors, session-core-parity]
+applies_when:
+  - building the first language-SDK slice for spoke-connect
+  - porting the connect session core to a new language
+  - choosing crypto / JCS / framing dependencies for a connect client
+  - adding a browser-or-Node connect client
+  - extending session-core capability parity across TS and Rust
+tags:
+  - spoke-connect
+  - connect-ts
+  - pure-ts
+  - websocket-framing
+  - jcs
+  - webcrypto
+  - golden-vectors
+  - session-core-parity
 ---
 
-# pure-TS-minimal connect client SDK (first slice)
+# pure-TS-minimal connect client SDK
 
 ## Context
 
-The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) locks **pure-TS-minimal** as the primary Path A client stack: WebSocket as an ordered reliable stream carrying one JSON connect envelope per message, WebCrypto Ed25519 with an `@noble/ed25519` fallback, RFC 8785 JCS canonicalization, and a small behavior port of the Rust session core — no js-libp2p mesh, no WASM. Identity-byte reproducibility in JavaScript is proven by the CI-gated identity proof (`tooling/connect-identity-proof/proof.mjs`), and `packages/spoke-connect-ts` (`@42ch/spoke-connect`) is the landed first slice: a pure-TS client library published on npm whose `src/core/` mirrors the pure Rust core accept/reject outcomes without sharing code.
+The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) locks **pure-TS-minimal** as the primary Path A client stack: WebSocket as an ordered reliable stream carrying one JSON connect envelope per message, WebCrypto Ed25519 with an `@noble/ed25519` fallback, RFC 8785 JCS canonicalization, and a small behavior port of the Rust session core — no js-libp2p mesh, no WASM. Identity-byte reproducibility in JavaScript is proven by the CI-gated identity proof (`tooling/connect-identity-proof/proof.mjs`), and `packages/spoke-connect-ts` (`@42ch/spoke-connect`) is the pure-TS implementation of that stack: a client library published on npm whose `src/core/` mirrors the pure Rust core accept/reject outcomes without sharing code.
 
 ## Guidance
 

@@ -2027,6 +2027,17 @@ pub fn cognition_record_matches_filter(record: &CognitionRecord, filter: &Cognit
     true
 }
 
+/// Reject a cognition request that fails the closed wire-shape grammar.
+///
+/// Intentionally distinct from `scope::unsupported_cognition_requirement`, and
+/// not a consolidation candidate: the result is generic so producers can return
+/// it directly as `SpokeResult<T>`, the caller supplies `message` because each
+/// gate names its own failure, and `details` carries no `field` since these
+/// gates have no single request path to point at.
+///
+/// Both helpers are load-bearing for the same wire contract: the identical
+/// `reason: "unsupported_cognition_requirement"` string, asserted at
+/// `adapter/orchestrate.rs:3452`, `assemble.rs:688` and `scope.rs:1191`.
 fn unsupported_requirement<T>(message: &str) -> SpokeResult<T> {
     let mut details = Map::new();
     details.insert(

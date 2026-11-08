@@ -1975,19 +1975,27 @@ impl SqliteMemoryProvider {
         if space.imported_reflections.contains(reflection_id) {
             return true;
         }
+        // A pin that cannot be decoded can never reproduce its basis.
         let Ok(selection) =
             serde_json::from_value::<ReadSelection>(reflection["selection"].clone())
         else {
-            return false;
+            return true;
         };
         let filter = reflection
             .get("filter")
             .filter(|value| !value.is_null())
             .cloned();
-        let cognition_filter = reflection
+        let cognition_filter = match reflection
             .get("cognition_filter")
             .filter(|value| !value.is_null())
-            .and_then(|value| serde_json::from_value::<CognitionFilter>(value.clone()).ok());
+        {
+            None => None,
+            Some(value) => match serde_json::from_value::<CognitionFilter>(value.clone()) {
+                Ok(filter) => Some(filter),
+                // A pin that cannot be decoded can never reproduce its basis.
+                Err(_) => return true,
+            },
+        };
         let (current, _sources, _profiles) = Self::basis_for(
             space,
             subject_id,

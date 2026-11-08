@@ -65,7 +65,7 @@ pnpm test
 pnpm run typecheck
 ```
 
-The two-node interop test (`tests/two-node.test.ts`) runs an in-process `ws` server and client over `127.0.0.1:<ephemeral>` with bounded waits only. CI runs the suite on Node 20.x — Node ≥ 20.19 takes the WebCrypto Ed25519 path; older patches fall back to `@noble/ed25519`. The package engine floor is Node ≥ 20.19.0 (`@noble/hashes` floor, and the first Node line that accepts WebCrypto Ed25519).
+The two-node interop test (`tests/two-node.test.ts`) runs an in-process `ws` server and client over `127.0.0.1:<ephemeral>` with bounded waits only. CI runs the suite on Node 24. The package engine floor is Node ≥ 22 — Node ≥ 22.4 takes the WebCrypto Ed25519 path; Node 22.0–22.3 (and older lines) fall back to `@noble/ed25519` through the runtime probe.
 
 ## Scope
 

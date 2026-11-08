@@ -101,6 +101,12 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+      - name: Verify committed xcframework freshness
+        run: |
+          ./tooling/connect/verify-xcframework-drift.sh \
+            crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework \
+            "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework"
+
       - name: Fail on committed Swift consumer smoke
         if: always() && steps.committed_smoke.outcome == 'failure'
         run: exit 1

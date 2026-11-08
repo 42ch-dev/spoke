@@ -269,6 +269,7 @@ fn abi_layout_report() {
     );
     report_callbacks();
     report_field_types();
+    constness_control();
 }
 
 /// Prints every non-callback record member the header declares, as the Rust
@@ -326,10 +327,10 @@ fn report_field_types() {
 /// The producer must report the field's own type: a `*mut u8` field is
 /// reported as `*mut u8` — never the `*const u8` a coercing accessor could
 /// silently satisfy — and the exact-identity check rejects that const spelling.
-/// The gate's carrier run (`cargo test --lib abi_layout`) executes this with the
-/// report; it never reaches the shipped library.
-#[test]
-fn abi_layout_field_type_constness_control() {
+/// Called from `abi_layout_report` rather than declared as its own `#[test]`,
+/// for the same one-writer reason as `report_callbacks`; it never reaches the
+/// shipped library.
+fn constness_control() {
     #[repr(C)]
     struct PointerConstnessProbe {
         mutable: *mut u8,

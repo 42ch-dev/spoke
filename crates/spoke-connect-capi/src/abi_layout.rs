@@ -21,6 +21,12 @@
 //! whose type stops matching the named one is a compile error rather than a
 //! silently different report.
 //!
+//! Non-callback members are reported a third way: as the Rust type of the
+//! field itself. A same-size retype — `int64_t` to `uint64_t`, a dropped
+//! `const` — leaves every size, alignment and offset unchanged, so only the
+//! member type identifies it; the gate renders that Rust type back into the C
+//! type the header must declare.
+//!
 //! The report runs under `cargo test -p spoke-connect-capi --lib abi_layout --
 //! --nocapture`, which the gate drives itself; it is a verification surface and
 //! never part of the carrier's exported ABI.
@@ -88,6 +94,22 @@ macro_rules! callback_member {
             stringify!($record),
             stringify!($field),
             type_name::<$alias>()
+        );
+    }};
+}
+
+/// Reports one non-callback member as `SPOKE_CONNECT_ABI_FIELD_TYPE
+/// <record>.<field> <rust type>`. The coerced field accessor is the typed
+/// probe: it only compiles while the field keeps exactly the reported type, so
+/// the line states the field's own type — not a restatement of it.
+macro_rules! field_type {
+    ($record:ty, $field:ident, $ty:ty) => {{
+        let _: fn($record) -> $ty = |record| record.$field;
+        println!(
+            "SPOKE_CONNECT_ABI_FIELD_TYPE {}.{} {}",
+            stringify!($record),
+            stringify!($field),
+            type_name::<$ty>()
         );
     }};
 }
@@ -219,6 +241,59 @@ fn abi_layout_report() {
         ]
     );
     report_callbacks();
+    report_field_types();
+}
+
+/// Prints every non-callback record member the header declares, as the Rust
+/// type the carrier's mirror actually has.
+///
+/// Callback members are deliberately absent: the callback axis already
+/// compares their whole signature, which is strictly stronger than the member
+/// type alone. What this adds is the member type the size/offset assertions
+/// cannot see — an `int64_t` / `uint64_t` swap or a dropped `const` keeps every
+/// offset and every size intact.
+///
+/// Called from `abi_layout_report` for the same one-writer reason as
+/// `report_callbacks`.
+fn report_field_types() {
+    field_type!(SpokeConnectSlice, data, *const u8);
+    field_type!(SpokeConnectSlice, len, usize);
+
+    field_type!(SpokeConnectBuffer, data, *mut u8);
+    field_type!(SpokeConnectBuffer, len, usize);
+
+    field_type!(SpokeConnectOptionalBuffer, present, u8);
+    field_type!(SpokeConnectOptionalBuffer, value, SpokeConnectBuffer);
+
+    field_type!(SpokeConnectOptionalU64, present, u8);
+    field_type!(SpokeConnectOptionalU64, value, u64);
+
+    field_type!(SpokeConnectForeignBuffer, data, *const u8);
+    field_type!(SpokeConnectForeignBuffer, len, usize);
+    field_type!(SpokeConnectForeignBuffer, release_context, *mut c_void);
+
+    field_type!(
+        SpokeConnectForeignError,
+        message,
+        SpokeConnectForeignBuffer
+    );
+    field_type!(SpokeConnectForeignError, code, SpokeConnectForeignBuffer);
+    field_type!(SpokeConnectForeignError, kind, SpokeConnectForeignBuffer);
+    field_type!(
+        SpokeConnectForeignError,
+        wire_code,
+        SpokeConnectForeignBuffer
+    );
+
+    field_type!(SpokeConnectError, message, SpokeConnectBuffer);
+    field_type!(SpokeConnectError, code, SpokeConnectBuffer);
+    field_type!(SpokeConnectError, kind, SpokeConnectBuffer);
+    field_type!(SpokeConnectError, wire_code, SpokeConnectBuffer);
+    field_type!(SpokeConnectError, expected, u64);
+    field_type!(SpokeConnectError, actual, i64);
+
+    field_type!(SpokeConnectPeerKey, peer_id, SpokeConnectSlice);
+    field_type!(SpokeConnectPeerKey, public_key, SpokeConnectSlice);
 }
 
 /// Prints every callback typedef and every callback-table member the header

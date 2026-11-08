@@ -26,7 +26,7 @@ Full consumer guide, with a complete runnable session:
 | `include/spoke_connect.hpp` | C++17 header-only convenience layer over the C contract: move-only ownership, borrowed views, structured `Result` values and the callback bridges |
 | `native/osx-arm64/libspoke_connect_capi.dylib` | macOS arm64 carrier, install name `@rpath/libspoke_connect_capi.dylib` |
 | `native/win-x64/` | Windows x64 carrier: `spoke_connect_capi.dll` plus the Rust-produced `spoke_connect_capi.dll.lib` import library |
-| `native/provenance.json` | Per RID: source revision, target, `rustc -Vv`, compiler version, build flags, header SHA-256 and native SHA-256 |
+| `native/provenance.json` | Per RID: source revision, target, `rustc -Vv`, compiler version, build flags, C and C++ header SHA-256 and native SHA-256 |
 | `Smoke/main.cpp` | C++17 smoke (raw C ABI): golden-vector assertions, a ports round trip over a host-owned loopback, and the rejection/ownership rules |
 | `Smoke/convenience.cpp` | C++17 smoke (convenience layer): the value/ownership layer, the core functions and objects, the session and tool callbacks, and the router |
 | `Smoke/support.hpp` | Shared smoke support: the golden-vector read and parse, the assertion primitives, and the convenience-group entry point |
@@ -141,7 +141,7 @@ toolchain and hashes of the shipped files. It accepts the two committed targets,
 
 `node tooling/connect/cpp-build.mjs --verify --target <triple>` is the read-only
 counterpart consumers run: it re-reads the committed entry and hashes the
-committed header and staged native, so a copy that no longer matches the record
+committed C and C++ headers and staged native, so a copy that no longer matches the record
 fails instead of being quietly re-recorded. The C contract header is pinned to
 LF (`crates/spoke-connect/bindings/cpp/include/spoke_connect.h text eol=lf` in
 `.gitattributes`) for that check's sake — the recorded `headerSha256` has to

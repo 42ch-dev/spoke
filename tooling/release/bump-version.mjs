@@ -2,7 +2,7 @@
 /**
  * Bump lockstep SemVer across all SSOT surfaces, then run assert-lockstep-version.
  *
- * CLI: node tooling/release/bump-version.mjs <X.Y.Z> [--tag [message]]
+ * CLI: node tooling/release/bump-version.mjs <X.Y.Z>
  *
  * Normative: `.mstar/specs/spoke-version-release.md`
  */
@@ -28,7 +28,6 @@ import {
   replacePyprojectVersion,
   resolveCargoLockPackageNames,
 } from "./lockstep-surfaces.mjs";
-import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 import { runGitCliff } from "./run-git-cliff.mjs";
 import { SEMVER_PATTERN, isSemVerGreater } from "./semver.mjs";
 
@@ -128,16 +127,15 @@ function replaceWorkspacePackageVersion(contents, version) {
 }
 
 /**
- * @returns {{ targetVersion: string; tag: boolean; tagMessage: string | null }}
+ * @returns {{ targetVersion: string }}
  */
 function parseArgs() {
   const argv = process.argv.slice(2).filter((arg) => arg !== "--");
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h") {
-    console.log(`Usage: node tooling/release/bump-version.mjs <X.Y.Z> [--tag [message]]
+    console.log(`Usage: node tooling/release/bump-version.mjs <X.Y.Z>
 
 Bump all lockstep version surfaces to X.Y.Z, run assert-lockstep-version, then exit.
-With --tag, create a local annotated tag vX.Y.Z only when the target version is
-already committed (lockstep match on a clean tree). Refused when bumping or dirty.`);
+X.Y.Z must be strictly greater than the current version.`);
     process.exit(argv.length === 0 ? 1 : 0);
   }
 
@@ -147,18 +145,11 @@ already committed (lockstep match on a clean tree). Refused when bumping or dirt
     process.exit(1);
   }
 
-  const tagIndex = argv.indexOf("--tag");
-  if (tagIndex === -1) {
-    return { targetVersion, tag: false, tagMessage: null };
+  if (argv.length !== 1) {
+    console.error(`Unexpected arguments: ${argv.slice(1).join(" ")}`);
+    process.exit(1);
   }
-
-  const messageParts = argv.slice(tagIndex + 1);
-  const tagMessage =
-    messageParts.length > 0
-      ? messageParts.join(" ")
-      : `Release v${targetVersion}`;
-
-  return { targetVersion, tag: true, tagMessage };
+  return { targetVersion };
 }
 
 /**
@@ -354,145 +345,12 @@ function runAssert(version) {
   }
 }
 
-/**
- * @returns {boolean}
- */
-function isWorkingTreeClean() {
-  const result = spawnSync(
-    "git",
-    ["status", "--porcelain", "--ignore-submodules"],
-    {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-    },
-  );
-
-  if (result.status !== 0) {
-    console.error("bump-version: failed to read git status.");
-    process.exit(result.status ?? 1);
-  }
-
-  return result.stdout.trim().length === 0;
-}
-
-/**
- * @param {string} version
- * @param {string} [message]
- * @returns {string}
- */
-function defaultTagMessage(version, message) {
-  return message ?? `Release v${version}`;
-}
-
-/**
- * @param {string} version
- * @param {string} message
- */
-function printTagInstructions(version, message) {
-  const tagName = `v${version}`;
-  const tagMessage = defaultTagMessage(version, message);
-  console.log(`  git tag -a ${tagName} -m "${tagMessage}"`);
-  console.log(`  git push origin ${tagName}`);
-}
-
-/**
- * @param {string} version
- * @param {string} message
- */
-function printCommitAndTagInstructions(version, message) {
-  console.log("Next steps:");
-  console.log("  git add -A");
-  console.log(`  git commit -m "chore(release): bump version to ${version}"`);
-  console.log("  git push");
-  printTagInstructions(version, message);
-}
-
-/**
- * @param {string} reason
- * @param {string} version
- * @param {string} message
- */
-function refuseTag(reason, version, message) {
-  console.error(`bump-version: refusing --tag: ${reason}`);
-  console.error("");
-  printCommitAndTagInstructions(version, message);
-  process.exit(1);
-}
-
-/**
- * @param {string} version
- * @param {string} message
- */
-function createAnnotatedTag(version, message) {
-  const tagName = `v${version}`;
-  const tagMessage = defaultTagMessage(version, message);
-  const result = spawnSync("git", ["tag", "-a", tagName, "-m", tagMessage], {
-    cwd: REPO_ROOT,
-    stdio: "inherit",
-  });
-
-  if (result.status !== 0) {
-    console.error(`bump-version: failed to create annotated tag ${tagName}.`);
-    process.exit(result.status ?? 1);
-  }
-
-  console.log(`Created annotated tag ${tagName} (local only; not pushed).`);
-  console.log(`  git push origin ${tagName}`);
-}
-
-const { targetVersion, tag, tagMessage } = parseArgs();
+const { targetVersion } = parseArgs();
 const currentVersion = JSON.parse(readRepoFile(CANONICAL_PATH)).version;
 
 if (typeof currentVersion !== "string" || currentVersion.length === 0) {
   console.error(`${CANONICAL_PATH}: missing or invalid "version" field`);
   process.exit(1);
-}
-
-if (currentVersion === targetVersion) {
-  console.log(
-    `Version already ${targetVersion}; ensuring changelog section, Cargo.lock, and re-running assert.`,
-  );
-  const { packageNames: cargoLockPackageNames } = readCargoWorkspaceMembers();
-  const cargoLockContents = readRepoFile(CARGO_LOCK_PATH);
-  writeRepoFile(
-    CARGO_LOCK_PATH,
-    replaceCargoLockPackageVersions(
-      cargoLockContents,
-      targetVersion,
-      cargoLockPackageNames,
-    ),
-  );
-  const changelog = existsSync(repoPath(CHANGELOG_PATH))
-    ? readRepoFile(CHANGELOG_PATH)
-    : "";
-  if (!extractChangelogSection(changelog, targetVersion)) {
-    updateChangelog(targetVersion);
-  } else {
-    console.log(
-      `${CHANGELOG_PATH} already has a section for ${targetVersion}; skipping git-cliff.`,
-    );
-  }
-  runAssert(targetVersion);
-  if (tag) {
-    if (!isWorkingTreeClean()) {
-      refuseTag(
-        "working tree is dirty; tag only after commit on a clean tree.",
-        targetVersion,
-        tagMessage ?? `Release v${targetVersion}`,
-      );
-    }
-    createAnnotatedTag(
-      targetVersion,
-      tagMessage ?? `Release v${targetVersion}`,
-    );
-  } else {
-    console.log("");
-    printTagInstructions(
-      targetVersion,
-      tagMessage ?? `Release v${targetVersion}`,
-    );
-  }
-  process.exit(0);
 }
 
 if (!isSemVerGreater(targetVersion, currentVersion)) {
@@ -580,15 +438,7 @@ runAssert(targetVersion);
 console.log(`Bumped lockstep version ${currentVersion} → ${targetVersion}.`);
 console.log("");
 
-if (tag) {
-  refuseTag(
-    "version bump writes uncommitted changes; tag after commit.",
-    targetVersion,
-    tagMessage ?? `Release v${targetVersion}`,
-  );
-}
-
-printCommitAndTagInstructions(
-  targetVersion,
-  tagMessage ?? `Release v${targetVersion}`,
-);
+console.log("Next steps:");
+console.log("  git add -A");
+console.log(`  git commit -m "chore(release): bump version to ${targetVersion}"`);
+console.log("  git push");

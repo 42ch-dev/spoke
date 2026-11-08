@@ -1,19 +1,34 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterEach, describe, it } from "node:test";
-import { CANONICAL_PATH } from "./lockstep-surfaces.mjs";
+import {
+  CANONICAL_PATH,
+  CARGO_WORKSPACE_PATH,
+  parseCargoPathDependencyPins,
+  parseCargoWorkspaceMembers,
+  resolveCargoLockPackageNames,
+} from "./lockstep-surfaces.mjs";
+import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 import { parseSemVer } from "./semver.mjs";
 import {
   cleanupTempRepo,
   createTempRepo,
   findCargoMemberManifest,
+  REPO_ROOT,
   initGitRepo,
   readCanonicalVersion,
   runReleaseScript,
 } from "./test-harness.mjs";
 /** @type {string[]} */
 const tempDirs = [];
+
+function git(repoRoot, ...args) {
+  const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
+}
 
 /**
  * Next patch release relative to a lockstep fixture version (drops prerelease).
@@ -138,23 +153,104 @@ describe("bump-version.mjs", () => {
   it("refuses a non-increasing target SemVer", () => {
     const repoRoot = createTempRepo();
     tempDirs.push(repoRoot);
-
     const current = readCanonicalVersion(repoRoot);
-    // Equal target is an intentional idempotent path (changelog/assert only).
-    // Strictly lower SemVer must refuse before any git-cliff work.
+    writeFileSync(join(repoRoot, "CHANGELOG.md"), `# Changelog\n\n## [${current}]\n\nExisting notes.\n`);
+    initGitRepo(repoRoot);
+
+    const paths = git(repoRoot, "ls-files", "-z").split("\0").filter(Boolean);
+    const snapshot = () => ({
+      files: paths.map((path) => {
+        const full = join(repoRoot, path);
+        return [path, readFileSync(full, "utf8"), statSync(full, { bigint: true }).mtimeNs];
+      }),
+      status: git(repoRoot, "status", "--porcelain"),
+      refs: git(repoRoot, "show-ref", "--head"),
+    });
+    const before = snapshot();
     const lower = strictlyLowerRelease(current);
-    assert.notEqual(lower, current);
-
-    const result = runReleaseScript(
-      "bump-version.mjs",
+    for (const args of [
+      [current],
       [lower],
-      repoRoot,
-    );
+      [current, "--tag"],
+      [nextPatchRelease(current), "--tag", "Release"],
+    ]) {
+      const result = runReleaseScript("bump-version.mjs", args, repoRoot);
+      assert.notEqual(result.status, 0, args.join(" "));
+      assert.match(result.stderr, args.length === 1 ? /must be greater than current/ : /Unexpected arguments/);
+      assert.deepEqual(snapshot(), before, `${args.join(" ")} must not mutate the fixture`);
+    }
+  });
 
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /must be greater than current/);
+  it("promotes existing notes and bumps all fixture pins including optional aliases", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+    const current = readCanonicalVersion(repoRoot);
+    const parsed = parseSemVer(current);
+    assert.ok(parsed);
+    const target = `${parsed.major}.${parsed.minor + 1}.0`;
+    const connectPath = findCargoMemberManifest(repoRoot, "spoke-connect");
+    const original = readFileSync(connectPath, "utf8");
+    const withOptional = original
+      .replace(`spoke-schemas = { version = "${current}", path = "../spoke-schemas" }`,
+        `schemas = { package = "spoke-schemas", version = "${current}", path = "../spoke-schemas", optional = true }`)
+      .replace(`spoke-operations = { version = "${current}", path = "../spoke-operations" }`,
+        `spoke-operations = { version = "${current}", path = "../spoke-operations", optional = true }`);
+    assert.notEqual(withOptional, original);
+    assert.equal((withOptional.match(/path = "\.\.\/spoke-[^"]+", optional = true/g) ?? []).length, 2);
+    writeFileSync(connectPath, withOptional);
+    const capiPath = findCargoMemberManifest(repoRoot, "spoke-connect-capi");
+    const capiBefore = readFileSync(capiPath, "utf8");
+    const excluded = ["tooling/codegen/rust-gen/Cargo.toml", "pnpm-lock.yaml"];
+    for (const path of excluded) {
+      mkdirSync(dirname(join(repoRoot, path)), { recursive: true });
+      cpSync(join(REPO_ROOT, path), join(repoRoot, path));
+    }
+    const excludedBefore = excluded.map((path) => readFileSync(join(repoRoot, path), "utf8"));
+    const changelog = `# Changelog\n\n## [${current}]\n\nOld notes.\n\n## [${target}]\n\n### Fixed\n\n- Correct release notes.\n`;
+    writeFileSync(join(repoRoot, "CHANGELOG.md"), changelog);
+    const workspace = readFileSync(join(repoRoot, CARGO_WORKSPACE_PATH), "utf8");
+    const members = parseCargoWorkspaceMembers(workspace);
+    const names = resolveCargoLockPackageNames(workspace, (member) =>
+      readFileSync(join(repoRoot, member, "Cargo.toml"), "utf8"));
+    const pinsBefore = members.map((member) => {
+      const path = join(repoRoot, member, "Cargo.toml");
+      return parseCargoPathDependencyPins(readFileSync(path, "utf8"), names, path);
+    });
+    initGitRepo(repoRoot);
+    const result = runReleaseScript("bump-version.mjs", [target], repoRoot);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const pinsAfter = members.map((member) => {
+      const path = join(repoRoot, member, "Cargo.toml");
+      return parseCargoPathDependencyPins(readFileSync(path, "utf8"), names, path);
+    });
+    assert.deepEqual(pinsAfter, pinsBefore.map((pins) => pins.map((pin) => ({ ...pin, version: target }))));
+    const connectAfter = readFileSync(connectPath, "utf8");
+    assert.ok(connectAfter.includes(`schemas = { package = "spoke-schemas", version = "${target}", path = "../spoke-schemas", optional = true }`));
+    assert.ok(connectAfter.includes(`spoke-operations = { version = "${target}", path = "../spoke-operations", optional = true }`));
+    assert.equal(readFileSync(capiPath, "utf8"), capiBefore);
+    assert.deepEqual(excluded.map((path) => readFileSync(join(repoRoot, path), "utf8")), excludedBefore);
+    const updated = readFileSync(join(repoRoot, "CHANGELOG.md"), "utf8");
+    assert.equal((updated.match(new RegExp(`^## \\[${escapeRegExp(target)}\\]`, "gm")) ?? []).length, 1);
+    assert.equal(updated.match(/^## \[([^\]]+)\]/m)?.[1], target);
+    assert.equal(extractChangelogSection(updated, target), "### Fixed\n\n- Correct release notes.\n");
+    const check = runReleaseScript("assert-lockstep-version.mjs", [], repoRoot);
+    assert.equal(check.status, 0, check.stderr || check.stdout);
+  });
 
-    assert.equal(readCanonicalVersion(repoRoot), current);
+  it("generates a missing changelog section from fixture conventional commits", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+    const current = readCanonicalVersion(repoRoot);
+    const target = nextPatchRelease(current);
+    writeFileSync(join(repoRoot, "CHANGELOG.md"), `# Changelog\n\n## [${current}]\n\nOld notes.\n`);
+    initGitRepo(repoRoot);
+    writeFileSync(join(repoRoot, "fixture.txt"), "fixture\n");
+    git(repoRoot, "add", "fixture.txt");
+    git(repoRoot, "commit", "-m", "fix: preserve fixture release notes");
+    const result = runReleaseScript("bump-version.mjs", [target], repoRoot);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const notes = extractChangelogSection(readFileSync(join(repoRoot, "CHANGELOG.md"), "utf8"), target);
+    assert.match(notes ?? "", /preserve fixture release notes/i);
   });
 });
 

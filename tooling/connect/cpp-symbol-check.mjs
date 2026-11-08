@@ -102,6 +102,13 @@ const INVENTED_SYMBOL = "spoke_connect_drift_probe";
 const HPP_GUARD_END = "#endif /* SPOKE_CONNECT_HPP */";
 /** The name the planted `.hpp` mutation declares, for a readable control. */
 const HPP_MUTATION_MARKER = "spoke_connect_hpp_exception_syntax_probe";
+/**
+ * The two C++ inclusion probes, matching the smoke's build configurations. The
+ * disabled label is also the `.hpp` mutation's selector: the planted `throw`
+ * only fails under a no-exception configuration.
+ */
+const CXX_DISABLED_LABEL = "C++17 inclusion (no exceptions, no RTTI; .h + .hpp)";
+const CXX_ENABLED_LABEL = "C++17 inclusion (exceptions enabled; .h + .hpp)";
 
 /**
  * The carrier's record-layout report lines (`abi_layout.rs`) and the header's
@@ -1122,7 +1129,7 @@ function probeCommands(declarations, headerPath, libraryPath, tempDir) {
       ],
     });
     commands.push({
-      label: "C++17 inclusion (no exceptions, no RTTI; .h + .hpp)",
+      label: CXX_DISABLED_LABEL,
       command: "cl.exe",
       args: [
         "/nologo",
@@ -1136,6 +1143,22 @@ function probeCommands(declarations, headerPath, libraryPath, tempDir) {
         "/c",
         cxxSource,
         `/Fo:${join(tempDir, "spoke_connect_probe_cxx.obj")}`,
+      ],
+    });
+    commands.push({
+      label: CXX_ENABLED_LABEL,
+      command: "cl.exe",
+      args: [
+        "/nologo",
+        "/TP",
+        "/std:c++17",
+        "/EHsc",
+        "/W4",
+        "/WX",
+        `/I${includeDir}`,
+        "/c",
+        cxxSource,
+        `/Fo:${join(tempDir, "spoke_connect_probe_cxx_exceptions.obj")}`,
       ],
     });
   } else {
@@ -1155,7 +1178,7 @@ function probeCommands(declarations, headerPath, libraryPath, tempDir) {
       ],
     });
     commands.push({
-      label: "C++17 inclusion (no exceptions, no RTTI; .h + .hpp)",
+      label: CXX_DISABLED_LABEL,
       command: "clang++",
       args: [
         "-std=c++17",
@@ -1169,6 +1192,23 @@ function probeCommands(declarations, headerPath, libraryPath, tempDir) {
         cxxSource,
         "-o",
         join(tempDir, "spoke_connect_probe_cxx.o"),
+      ],
+    });
+    commands.push({
+      label: CXX_ENABLED_LABEL,
+      command: "clang++",
+      args: [
+        "-std=c++17",
+        "-fexceptions",
+        "-fno-rtti",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        `-I${includeDir}`,
+        "-c",
+        cxxSource,
+        "-o",
+        join(tempDir, "spoke_connect_probe_cxx_exceptions.o"),
       ],
     });
   }
@@ -1381,7 +1421,7 @@ function selfTest(headerPath, libraryPath, tempDir, carrier, declarations) {
 
   const mutatedHeader = join(mutatedDir, basename(headerPath));
   const mutatedCommands = probeCommands(declarations, mutatedHeader, libraryPath, tempDir);
-  const cxxProbe = mutatedCommands.find((entry) => entry.label.startsWith("C++17 inclusion"));
+  const cxxProbe = mutatedCommands.find((entry) => entry.label === CXX_DISABLED_LABEL);
   if (!cxxProbe) {
     fail("self-test: the probe entry point no longer compiles a C++ inclusion probe");
   }

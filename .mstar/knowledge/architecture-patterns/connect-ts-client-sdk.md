@@ -150,7 +150,7 @@ Keep the byte contract and the schema-valid fixture separate; they serve differe
 
 ### Node floor ≥ 22 rationale
 
-Node 22 is the supported consumer runtime floor. Node ≥ 22.4 accepts WebCrypto Ed25519; Node 22.0–22.3 (and older lines) fall back to `@noble/ed25519` through the runtime probe. CI runs the suite on Node 24; the fallback keeps the same seed/sign semantics.
+Node 22 is the supported consumer runtime floor. Whether a host accepts WebCrypto Ed25519 is a runtime and browser capability rather than a fixed version cut-off, so the production probe (`webcryptoEd25519Available`) decides: accepting hosts take WebCrypto, the rest fall back to `@noble/ed25519`. Both backends keep the same seed/sign semantics and must satisfy the golden vectors. CI runs the suite on Node 24.
 
 ## Why This Matters
 

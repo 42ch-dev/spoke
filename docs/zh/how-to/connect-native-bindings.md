@@ -144,7 +144,7 @@ git lfs pull      # 取回载体动态库；全新 clone 会自动 smudge
 - `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib` —— macOS arm64 载体
 - `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll` —— Windows x64 载体
 
-提交的 C/C++ 载体面向 macOS arm64（`osx-arm64`）与 Windows x64（`win-x64`）。`spoke_connect.h`、`spoke_connect.hpp` 与目标平台的原生文件都取自同一仓库 tag `vX.Y.Z`。两个载体动态库是 Git LFS 对象（`.gitattributes`）；头文件、Windows 导入库与 `provenance.json` 是普通 Git 对象。
+提交的 C/C++ 载体面向 macOS arm64（`osx-arm64`）与 Windows x64（`win-x64`）。`spoke_connect.h`、`spoke_connect.hpp` 与目标平台的原生文件都取自同一仓库 tag `vX.Y.Z`。两个载体动态库是 Git LFS 对象（`.gitattributes`）；头文件、Windows 导入库与 `provenance.json` 是普通 Git 对象。每个 RID 的 provenance 记录两个头文件和原生产物的哈希。
 
 C++17 头文件为 header-only，并包含 C 头文件。`spoke::connect` 把同一会话核心包装为可移动的 RAII 句柄、显式的 `Result` 错误通道、返回缓冲区的借用文本视图，以及传输、ports 与工具面的宿主回调桥。C99 头文件仍是 C 宿主的 ABI 契约 —— 状态值加原始记录与回调表布局。
 

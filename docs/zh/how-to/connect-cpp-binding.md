@@ -21,7 +21,7 @@ C/C++ 渠道提供两个手写头文件与每个平台一个已提交载体。`s
 | `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib` | macOS arm64 载体，安装名 `@rpath/libspoke_connect_capi.dylib` |
 | `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll` | Windows x64 载体 |
 | `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll.lib` | Windows 链接步骤所用的 Rust 生成导入库 |
-| `crates/spoke-connect/bindings/cpp/native/provenance.json` | 每个 RID：源码修订、target、`rustc -Vv`、编译器版本、构建标志、头文件与产物哈希 |
+| `crates/spoke-connect/bindings/cpp/native/provenance.json` | 每个 RID：源码修订、target、`rustc -Vv`、编译器版本、构建标志、C 和 C++ 头文件与产物哈希 |
 | `crates/spoke-connect/bindings/cpp/README.md` | 绑定 README（完整调用契约） |
 
 两个载体动态库（`*.dylib`、`*.dll`）存放在 Git LFS 中 —— 普通 clone 只会留下指针文件，编译前请先取回真实二进制：

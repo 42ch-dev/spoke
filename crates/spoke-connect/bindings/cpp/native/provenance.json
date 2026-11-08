@@ -21,6 +21,7 @@
         "rustFlags": []
       },
       "headerSha256": "7b4b4472f8a3d877978f1d0805c4acdfc6f02c99d44a1643a33a54a3aeec88a1",
+      "hppSha256": "eb5fe1ec7b1f3ebf479175774bd86b515c2ab937d33590e134e657c62600f605",
       "artifacts": [
         {
           "path": "libspoke_connect_capi.dylib",
@@ -51,6 +52,7 @@
         ]
       },
       "headerSha256": "7b4b4472f8a3d877978f1d0805c4acdfc6f02c99d44a1643a33a54a3aeec88a1",
+      "hppSha256": "eb5fe1ec7b1f3ebf479175774bd86b515c2ab937d33590e134e657c62600f605",
       "artifacts": [
         {
           "path": "spoke_connect_capi.dll",

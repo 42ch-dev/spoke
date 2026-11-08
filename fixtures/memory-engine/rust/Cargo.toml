@@ -13,7 +13,7 @@ spoke-schemas = { path = "../../../crates/spoke-schemas" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
-sha2 = "0.10"
+sha2 = "0.11"
 ryu = "1"
 
 [dev-dependencies]

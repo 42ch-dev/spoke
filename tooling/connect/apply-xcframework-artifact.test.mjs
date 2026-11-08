@@ -79,7 +79,7 @@ function runFixture({
     }));
     put("jobs.json", JSON.stringify({ jobs: [{ name: "xcframework", status: jobStatus, conclusion: jobConclusion ?? conclusion, steps }] }));
     put("metadata", `Xcframework|${invalidSource ? "0".repeat(40) : producerSha}|${status}|${conclusion}`);
-    put("bin/gh", `#!/bin/sh\nif [ "$2" = view ]; then\n  case "$*" in *--template*) cat "$FIXTURE_ROOT/metadata" ;; *) cat "$FIXTURE_ROOT/jobs.json" ;; esac\nelif [ "$2" = download ]; then\n  cp -Rp "$FIXTURE_ROOT/artifact/." "$7"\nelse exit 1; fi\n`, { mode: 0o755 });
+    put("bin/gh", `#!/bin/sh\nif [ "$2" = view ]; then\n  case "$*" in *--template*) cat "$FIXTURE_ROOT/metadata" ;; *) cat "$FIXTURE_ROOT/jobs.json" ;; esac\nelif [ "$2" = download ]; then\n  dir=""\n  prev=""\n  for arg in "$@"; do\n    [ "$prev" = "--dir" ] && dir="$arg"\n    case "$arg" in --dir=*) dir="\${arg#--dir=}" ;; esac\n    prev="$arg"\n  done\n  cp -Rp "$FIXTURE_ROOT/artifact/." "$dir"\nelse exit 1; fi\n`, { mode: 0o755 });
     if (transferWithoutDelivery) {
       // Transfer boundary stub that reports success without delivering any
       // bytes: the script must refuse via the delivered-byte verification

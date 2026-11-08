@@ -22,8 +22,9 @@
 # before staging, stages LFS pointers via .gitattributes clean filter, writes
 # the sibling `provenance.json` + manifest copy from the run's own facts plus
 # that observed compiler, and prints the suggested commit line. Requires `gh`,
-# `rsync` and `python3` (the record is emitted with `json.dump` and re-parsed
-# before staging). Run as a maintainer with normal credentials — never
+# `rsync`, `python3` (the record is emitted with `json.dump` and re-parsed
+# before staging) and `shasum` (mandatory checksum verification before and
+# after transfer). Run as a maintainer with normal credentials — never
 # GITHUB_TOKEN (token pushes don't re-trigger workflows and can't carry LFS
 # objects).
 #
@@ -81,6 +82,10 @@ if ! command -v rsync >/dev/null 2>&1; then
 fi
 if ! command -v python3 >/dev/null 2>&1; then
   echo "error: python3 required (provenance record emission and validation)" >&2
+  exit 1
+fi
+if ! command -v shasum >/dev/null 2>&1; then
+  echo "error: shasum required (mandatory checksum verification before and after transfer)" >&2
   exit 1
 fi
 

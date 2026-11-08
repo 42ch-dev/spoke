@@ -113,7 +113,7 @@ Pages summarize each topic and link the normative body in `.mstar/specs/` — th
 
 The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-15` from the checkout's Rust sources — pinned toolchain 1.98.1, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. Every pull request runs it; pushes run it when the FFI surface changes. The job builds the committed Swift package and runs the functional smoke against its macOS library. The built xcframework and its hash manifest are uploaded as a refresh artifact.
 
-Refresh the committed artifact from a run in one command (requires the `gh` CLI and `rsync`):
+Refresh the committed artifact from a run in one command (requires the `gh` CLI, `rsync`, `python3`, and `shasum`):
 
 ```bash
 ./tooling/connect/apply-xcframework-artifact.sh <run-id>
@@ -138,6 +138,8 @@ Primary path — **New release** on GitHub Actions, then merge the PR:
 3. Merge the opened PR (keep the `release` label), or close it to abort. CI runs [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml): creates annotated tag `vX.Y.Z`, verify gates, GitHub Release from [`CHANGELOG.md`](CHANGELOG.md), and on stable / alpha tags (no `-rc.` suffix) publishes npm + crates.io.
 
 [`CHANGELOG.md`](CHANGELOG.md) is the release-notes source (Keep a Changelog via [git-cliff](https://git-cliff.org)). Preview locally: `pnpm run release:changelog -- --unreleased`.
+
+The changelog runner resolves the workspace `git-cliff` first, then a PATH installation, followed by `pnpm dlx` or `npx` using the root `devDependencies` pin.
 
 Pre-release tags `vX.Y.Z-rc.N` create a GitHub pre-release. Tags without `-rc.` publish to npm and crates.io.
 

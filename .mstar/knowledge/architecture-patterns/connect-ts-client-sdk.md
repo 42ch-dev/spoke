@@ -23,7 +23,7 @@ The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) loc
 |---|---|
 | Visibility | Published on npm as `@42ch/spoke-connect` (publish governed by the connect publish strategy); versioned in lockstep with the monorepo |
 | Version | Tracks the monorepo lockstep SemVer — asserted by `verify:version`, bumped by `release:bump` |
-| Engine floor | `node >= 20.19.0` (see Node floor rationale below) |
+| Engine floor | `node >= 22` (see Node floor rationale below) |
 | Module style | ESM (`"type": "module"`); monorepo-internal imports resolve TypeScript sources under `NodeNext` |
 | Isomorphism | `src/` modules (`identity`, `crypto`, `jcs`, `framing`, `core/`) are browser-swappable — no `ws` import; Node-only pieces (`ws` adapter, `connectClient`) live in the `src/node/` subpath, not the root barrel |
 | Root barrel | Exports identity, crypto, framing, JCS, and the whole core barrel; `src/node/` is imported by explicit subpath |
@@ -40,7 +40,7 @@ The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) loc
 
 ### JCS pin + golden-byte gate
 
-`canonicalHelloBytes(peerId, nonce, host)` canonicalizes **exactly** `{protocol_version, peer_id, nonce, host}` (top-level `extensions` and `signature` excluded) with the pinned `canonicalize@3.0.0` package. Tests assert the output against `GOLDEN_JCS_HEX` (264 bytes) — the **golden-byte gate**: if a dependency update ever diverges, port the hand-rolled JCS subset from the proof script into the module instead of weakening the golden vector. Absent optional manifest members (e.g. `host.authority`) are omitted, never emitted as `null` — `canonicalize` drops `undefined` members, matching Rust `skip_serializing_if`; an explicit `null` would change the canonical bytes and break verify against Rust.
+`canonicalHelloBytes(peerId, nonce, host)` canonicalizes **exactly** `{protocol_version, peer_id, nonce, host}` (top-level `extensions` and `signature` excluded) with the pinned `canonicalize@5.1.0` package. Tests assert the output against `GOLDEN_JCS_HEX` (264 bytes) — the **golden-byte gate**: if a dependency update ever diverges, port the hand-rolled JCS subset from the proof script into the module instead of weakening the golden vector. Absent optional manifest members (e.g. `host.authority`) are omitted, never emitted as `null` — `canonicalize` drops `undefined` members, matching Rust `skip_serializing_if`; an explicit `null` would change the canonical bytes and break verify against Rust.
 
 ### WS framing (one JSON document per message, fail-closed)
 
@@ -148,9 +148,9 @@ cross-language bytes (JCS, sig, peer_id) — add or extend a Rust-produced
 
 Keep the byte contract and the schema-valid fixture separate; they serve different test classes and conflating them silently blesses a schema drift.
 
-### Node floor ≥ 20.19 rationale
+### Node floor ≥ 22 rationale
 
-20.19.0 is the `@noble/hashes` floor **and** the first Node line that accepts WebCrypto Ed25519. CI runs the suite on Node 20.x — WebCrypto Ed25519 on ≥ 20.19, `@noble/ed25519` on older patches; the fallback keeps the same seed/sign semantics.
+Node 22 is the supported consumer runtime floor. Node ≥ 22.4 accepts WebCrypto Ed25519; Node 22.0–22.3 (and older lines) fall back to `@noble/ed25519` through the runtime probe. CI runs the suite on Node 24; the fallback keeps the same seed/sign semantics.
 
 ## Why This Matters
 

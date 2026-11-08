@@ -169,14 +169,15 @@ Both `README.md` and `README_CN.md` MUST contain a dynamic shields.io GitHub Rel
 
 **Bump → assert contract:** `bump-version.mjs` writes all surfaces from `lockstep-surfaces.mjs`, updates `CHANGELOG.md` for the target tag via git-cliff (`cliff.toml`), then spawns assert (same entrypoint as CI). Exit non-zero if assert fails; no success message on drift.
 
-**CLI:** `node tooling/release/bump-version.mjs <X.Y.Z> [--tag [message]]` (root: `pnpm run release:bump -- X.Y.Z [--tag [message]]` — pass `--` before arguments when using pnpm).
+**CLI:** `node tooling/release/bump-version.mjs <X.Y.Z>` (root: `pnpm run release:bump -- X.Y.Z` — pass `--` before arguments when using pnpm).
 
 | Mode | Behavior |
 |------|----------|
-| Bump (`current ≠ target`) | Writes all lockstep surfaces, updates `CHANGELOG.md`, runs assert, prints commit + tag next steps. |
-| Already at target (`current = target`) | Re-runs assert only; prints tag push instructions. |
-| `--tag` on clean tree at target | Creates **local annotated tag** `vX.Y.Z` (optional message; default `Release vX.Y.Z`). Script never pushes. |
-| `--tag` during bump or on dirty tree | **Refused** (non-zero exit) with printed commit/tag instructions — commit first, then re-run same version with `--tag`. |
+| Strictly greater target (`target > current`) | Writes every lockstep surface and workspace dependency pin, updates `Cargo.lock` and `CHANGELOG.md`, and runs assert. An existing target changelog section is promoted to the top rather than duplicated. |
+| Equal or lower target (`target ≤ current`) | Refused with a non-zero exit before any manifest, lockfile, changelog, tag or branch mutation. |
+| Unsupported CLI arguments | Refused before mutation. |
+
+The signed **New release** workflow owns the bump PR. The top-level **Release** workflow (`release.yml`) owns annotated release-tag creation and publication when that PR is merged; closing the PR aborts the cut. The bump CLI owns version, lockfile and changelog updates.
 
 ## Consumer pinning
 

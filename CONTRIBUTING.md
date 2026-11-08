@@ -6,7 +6,7 @@ Agent and harness invariants live in [`AGENTS.md`](AGENTS.md). Normative release
 
 ## Prerequisites
 
-- Node.js `^22.18.0 || ^24.11.0 || >=26.0.0` and pnpm ≥ 11.21 (Node range tracks tsup 9's `engines`; pnpm pinned via the root packageManager field)
+- Node.js `^22.18.0 || ^24.11.0 || >=26.0.0` and pnpm ≥ 11.21 (Node range tracks tsup 9's `engines`; pnpm pinned via the root packageManager field). Published runtime packages set their own consumer floor instead: `@42ch/spoke-operations` and `@42ch/spoke-connect` declare `engines.node: ">=22"`, and `@42ch/spoke-connect` keeps `canonicalize` at 5.1.0
 - Rust toolchain (stable) for `spoke-schemas` / `spoke-operations` crates
 - git-lfs — the committed Swift xcframework static libraries and C carrier dynamic libraries are LFS objects
 

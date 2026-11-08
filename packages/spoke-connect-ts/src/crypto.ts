@@ -10,10 +10,10 @@
  * - PKCS8 / SPKI DER wrapping (RFC 8410) for WebCrypto import.
  * - Signatures are raw 64 bytes, encoded base64url without padding.
  * - Backend matrix: WebCrypto `Ed25519` when `crypto.subtle` accepts it,
- *   else `@noble/ed25519`. Availability varies by Node patch — 20.19+ and
- *   22.4+ accept Ed25519 keys, older patches reject them — so the runtime
- *   probe (`webcryptoEd25519Available`) decides; both paths must satisfy
- *   the golden sign/verify vectors.
+ *   else `@noble/ed25519`. Acceptance is a runtime/browser capability with
+ *   no fixed version cut-off, so the runtime probe
+ *   (`webcryptoEd25519Available`) decides; both paths must satisfy the
+ *   golden sign/verify vectors.
  */
 
 import * as nobleEd25519 from "@noble/ed25519";
@@ -93,9 +93,10 @@ export function ed25519PubkeyToSpki(pubkey: Uint8Array): Uint8Array {
 let probe: Promise<boolean> | null = null;
 
 /**
- * Whether this runtime's WebCrypto accepts Ed25519 keys. Availability varies
- * by Node patch (20.19+/22.4+ accept; older reject) and by browser; the
- * probe decides, and the `@noble` fallback covers unsupported hosts.
+ * Whether this runtime's WebCrypto accepts Ed25519 keys. Acceptance depends
+ * on the runtime or browser capability, not a patch-level cutoff, so this
+ * probe decides per host; the `@noble` fallback covers hosts that reject it,
+ * and both backends satisfy the same golden vectors.
  */
 export function webcryptoEd25519Available(): Promise<boolean> {
   probe ??= (async () => {

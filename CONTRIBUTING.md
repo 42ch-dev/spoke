@@ -34,6 +34,8 @@ Useful scripts (repo root):
 
 Schema changes and generated output belong in the **same** commit.
 
+The Kotlin Gradle wrapper verifies the pinned distribution's SHA-256 checksum and uses a 60-second network timeout when downloading it.
+
 Rust crates (from repo root):
 
 ```bash

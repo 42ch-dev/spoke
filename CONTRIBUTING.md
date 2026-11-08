@@ -125,7 +125,7 @@ The script verifies the run's provenance — the `Xcframework` workflow, a succe
 
 The Windows lane of [`cpp-connect.yml`](.github/workflows/cpp-connect.yml) checks out with `lfs: true`, builds the carrier (`node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.98.1`) and uploads `spoke-connect-win-x64`: the DLL, the import library and the refreshed `provenance.json`. Refresh the committed carrier by copying that artifact over `native/win-x64/` and committing the binaries together with the record that describes them — the recorded `headerSha256` / `hppSha256` / artifact hashes must match the committed bytes, never the other way round.
 
-Both carrier lanes check the C ABI and run the C++ smoke against the committed carrier before building, then repeat those checks on the rebuilt carrier. `node tooling/connect/cpp-build.mjs --verify --target <triple>` is available to verify the recorded hashes of the committed C and C++ headers and native. The C contract header is pinned to LF (`text eol=lf` in `.gitattributes`).
+Both carrier lanes check the C ABI and run the C++ smoke against the committed carrier before building, then repeat those checks on the rebuilt carrier. `node tooling/connect/cpp-build.mjs --verify --target <triple>` is available to verify the recorded hashes of the committed C and C++ headers and native. The C `.h` and C++ `.hpp` headers are pinned to LF (`text eol=lf` in `.gitattributes`) so the recorded `headerSha256` and `hppSha256` describe their bytes on every platform.
 
 ## Release
 

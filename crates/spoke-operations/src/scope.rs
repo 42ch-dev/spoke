@@ -206,6 +206,10 @@ pub fn cognition_records_of_authorized_entries(
     spoke_ok(records)
 }
 
+/// Kept separate from `cognition::unsupported_requirement` even though both emit the same
+/// `reason: "unsupported_cognition_requirement"` wire contract: scope call sites need a raw
+/// `SpokeReject` with a fixed message and a `field` path, not a generic result with a
+/// caller-supplied message and no `field`.
 fn unsupported_cognition_requirement(field: &str) -> SpokeReject {
     let mut details = Map::new();
     details.insert(

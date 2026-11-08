@@ -21,12 +21,22 @@
 //! whose type stops matching the named one is a compile error rather than a
 //! silently different report.
 //!
+//! Non-callback members are reported a third way: as the Rust type of the
+//! field itself. A same-size retype — `int64_t` to `uint64_t`, a dropped
+//! `const` — leaves every size, alignment and offset unchanged, so only the
+//! member type identifies it; the gate renders that Rust type back into the C
+//! type the header must declare. The type is inferred from the field accessor
+//! with no expected return type, so a coercion (`*mut u8` to `*const u8`)
+//! cannot stand in for the field's own spelling, and the report stops unless
+//! that inferred type is exactly the declared one.
+//!
 //! The report runs under `cargo test -p spoke-connect-capi --lib abi_layout --
 //! --nocapture`, which the gate drives itself; it is a verification surface and
 //! never part of the carrier's exported ABI.
 
-use std::any::type_name;
+use std::any::{type_name, TypeId};
 use std::ffi::c_void;
+use std::marker::PhantomData;
 use std::mem::{align_of, offset_of, size_of};
 
 use crate::remote_adapter::{
@@ -88,6 +98,45 @@ macro_rules! callback_member {
             stringify!($record),
             stringify!($field),
             type_name::<$alias>()
+        );
+    }};
+}
+
+/// The type a field accessor returns, inferred with no expected type in the
+/// return position (so a coercion like `*mut u8` to `*const u8` cannot stand
+/// in for it), plus whether that type is exactly `$ty` — `TypeId` identity,
+/// where a convertible type is a different id.
+fn field_type_outcome<R, T: 'static, E: 'static>(
+    _: fn(R) -> T,
+    _: PhantomData<E>,
+) -> (&'static str, bool) {
+    (type_name::<T>(), TypeId::of::<T>() == TypeId::of::<E>())
+}
+
+/// Reports one non-callback member as `SPOKE_CONNECT_ABI_FIELD_TYPE
+/// <record>.<field> <rust type>`. The reported type is the accessor's own
+/// inferred type, and the identity check stops the report unless it is exactly
+/// the declared one, so the line states the field's type — never a coercion
+/// toward an expected one.
+macro_rules! field_type {
+    ($record:ty, $field:ident, $ty:ty) => {{
+        let (reported, exact) = field_type_outcome(
+            |record: $record| record.$field,
+            PhantomData::<$ty>,
+        );
+        assert!(
+            exact,
+            "carrier field type drift at {}.{}: report declares {}, the field has {}",
+            stringify!($record),
+            stringify!($field),
+            type_name::<$ty>(),
+            reported
+        );
+        println!(
+            "SPOKE_CONNECT_ABI_FIELD_TYPE {}.{} {}",
+            stringify!($record),
+            stringify!($field),
+            reported
         );
     }};
 }
@@ -219,6 +268,89 @@ fn abi_layout_report() {
         ]
     );
     report_callbacks();
+    report_field_types();
+}
+
+/// Prints every non-callback record member the header declares, as the Rust
+/// type the carrier's mirror actually has.
+///
+/// Callback members are deliberately absent: the callback axis already
+/// compares their whole signature, which is strictly stronger than the member
+/// type alone. What this adds is the member type the size/offset assertions
+/// cannot see — an `int64_t` / `uint64_t` swap or a dropped `const` keeps every
+/// offset and every size intact.
+///
+/// Called from `abi_layout_report` for the same one-writer reason as
+/// `report_callbacks`.
+fn report_field_types() {
+    field_type!(SpokeConnectSlice, data, *const u8);
+    field_type!(SpokeConnectSlice, len, usize);
+
+    field_type!(SpokeConnectBuffer, data, *mut u8);
+    field_type!(SpokeConnectBuffer, len, usize);
+
+    field_type!(SpokeConnectOptionalBuffer, present, u8);
+    field_type!(SpokeConnectOptionalBuffer, value, SpokeConnectBuffer);
+
+    field_type!(SpokeConnectOptionalU64, present, u8);
+    field_type!(SpokeConnectOptionalU64, value, u64);
+
+    field_type!(SpokeConnectForeignBuffer, data, *const u8);
+    field_type!(SpokeConnectForeignBuffer, len, usize);
+    field_type!(SpokeConnectForeignBuffer, release_context, *mut c_void);
+
+    field_type!(
+        SpokeConnectForeignError,
+        message,
+        SpokeConnectForeignBuffer
+    );
+    field_type!(SpokeConnectForeignError, code, SpokeConnectForeignBuffer);
+    field_type!(SpokeConnectForeignError, kind, SpokeConnectForeignBuffer);
+    field_type!(
+        SpokeConnectForeignError,
+        wire_code,
+        SpokeConnectForeignBuffer
+    );
+
+    field_type!(SpokeConnectError, message, SpokeConnectBuffer);
+    field_type!(SpokeConnectError, code, SpokeConnectBuffer);
+    field_type!(SpokeConnectError, kind, SpokeConnectBuffer);
+    field_type!(SpokeConnectError, wire_code, SpokeConnectBuffer);
+    field_type!(SpokeConnectError, expected, u64);
+    field_type!(SpokeConnectError, actual, i64);
+
+    field_type!(SpokeConnectPeerKey, peer_id, SpokeConnectSlice);
+    field_type!(SpokeConnectPeerKey, public_key, SpokeConnectSlice);
+}
+
+/// The producer must report the field's own type: a `*mut u8` field is
+/// reported as `*mut u8` — never the `*const u8` a coercing accessor could
+/// silently satisfy — and the exact-identity check rejects that const spelling.
+/// The gate's carrier run (`cargo test --lib abi_layout`) executes this with the
+/// report; it never reaches the shipped library.
+#[test]
+fn abi_layout_field_type_constness_control() {
+    #[repr(C)]
+    struct PointerConstnessProbe {
+        mutable: *mut u8,
+    }
+
+    let (reported, exact) = field_type_outcome(
+        |record: PointerConstnessProbe| record.mutable,
+        PhantomData::<*mut u8>,
+    );
+    assert_eq!(reported, "*mut u8");
+    assert!(exact);
+
+    let (reported, exact) = field_type_outcome(
+        |record: PointerConstnessProbe| record.mutable,
+        PhantomData::<*const u8>,
+    );
+    assert_eq!(reported, "*mut u8");
+    assert!(
+        !exact,
+        "a *mut u8 field must not satisfy the *const u8 report"
+    );
 }
 
 /// Prints every callback typedef and every callback-table member the header

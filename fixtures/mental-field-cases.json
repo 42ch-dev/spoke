@@ -1,0 +1,20 @@
+{
+  "accept": [
+    "/modules/mental/identity",
+    "/modules/mental/beliefs",
+    "/modules/mental/attention",
+    "/modules/mental/goals",
+    "/modules/mental/intentions",
+    "/modules/mental/emotions",
+    "/modules/mental/dispositions",
+    "/modules/mental/norms",
+    "/modules/mental/constraints",
+    "/modules/mental/beliefs/0/label"
+  ],
+  "reject": [
+    "/modules/mental/temperament",
+    "/modules/mental/",
+    "/modules/mental",
+    "/modules/mental/Beliefs"
+  ]
+}

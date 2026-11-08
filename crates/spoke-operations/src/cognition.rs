@@ -2027,6 +2027,9 @@ pub fn cognition_record_matches_filter(record: &CognitionRecord, filter: &Cognit
     true
 }
 
+/// Kept separate from `scope::unsupported_cognition_requirement` even though both emit the same
+/// `reason: "unsupported_cognition_requirement"` wire contract: these gates return a generic
+/// result with a caller-supplied message and no `field`, not a raw reject carrying a `field` path.
 fn unsupported_requirement<T>(message: &str) -> SpokeResult<T> {
     let mut details = Map::new();
     details.insert(

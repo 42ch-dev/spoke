@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,7 +21,7 @@ const bundle = "crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI
 function runFixture({
   failures = [freshness], missing, invalidSource, invalidManifest, invalidProvenance, invalidCheckout,
   status = "completed", conclusion = "failure",
-  jobStatus = "completed", jobConclusion, cancelledStep, advanceHead, allowSha,
+  jobStatus = "completed", jobConclusion, cancelledStep, advanceHead, allowSha, transferWithoutDelivery,
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "xcframework-apply-"));
   const put = (path, content, options) => {
@@ -43,13 +43,6 @@ function runFixture({
     put(".github/workflows/xcframework.yml", 'toolchain: 1.98.1\ntargets: aarch64-apple-darwin\nXCFRAMEWORK_LOCKED: "1"\n');
     put(`${bundle}/Info.plist`, "old plist\n");
     put(`${bundle}/macos-arm64/libspoke_connect.a`, "old native\n");
-    // The committed bundle predates the staged artifact. This machine's
-    // openrsync skips same-size files whose coarse mtimes fall in the same
-    // second, which would turn "old" into a silent no-op apply, so pin the
-    // committed bytes to an explicitly older mtime.
-    const stale = new Date(Date.now() - 60000);
-    utimesSync(join(root, bundle, "Info.plist"), stale, stale);
-    utimesSync(join(root, bundle, "macos-arm64/libspoke_connect.a"), stale, stale);
     git("init", "-q");
     git("add", ".");
     git("commit", "-qm", "fixture");
@@ -62,6 +55,17 @@ function runFixture({
     const manifest = `${digest(plist)}  ./Info.plist\n${invalidManifest ? "0".repeat(64) : digest(native)}  ./macos-arm64/libspoke_connect.a\n`;
     put(`${artifact}/Info.plist`, plist);
     put(`${artifact}/macos-arm64/libspoke_connect.a`, native);
+    // Every committed bundle file mirrors its artifact counterpart in exact
+    // size and mtime with different bytes, so the default rsync size/mtime
+    // shortcut skips them deterministically and would silently leave the old
+    // bytes. Delivery must therefore be content-aware and byte-verified. The
+    // mtime is floored to a whole second: rsync compares seconds, and a
+    // sub-second value could round up to the next second and break the
+    // equality this fixture relies on.
+    for (const rel of ["Info.plist", "macos-arm64/libspoke_connect.a"]) {
+      const second = new Date(Math.floor(statSync(join(root, artifact, rel)).mtime.getTime() / 1000) * 1000);
+      utimesSync(join(root, bundle, rel), second, second);
+    }
     put("artifact/spoke_connectFFI.xcframework.sha256", manifest);
     put("artifact/provenance.json", JSON.stringify({
       sourceHead: invalidProvenance ? "0".repeat(40) : producerSha,
@@ -75,7 +79,13 @@ function runFixture({
     }));
     put("jobs.json", JSON.stringify({ jobs: [{ name: "xcframework", status: jobStatus, conclusion: jobConclusion ?? conclusion, steps }] }));
     put("metadata", `Xcframework|${invalidSource ? "0".repeat(40) : producerSha}|${status}|${conclusion}`);
-    put("bin/gh", `#!/bin/sh\nif [ "$2" = view ]; then\n  case "$*" in *--template*) cat "$FIXTURE_ROOT/metadata" ;; *) cat "$FIXTURE_ROOT/jobs.json" ;; esac\nelif [ "$2" = download ]; then\n  cp -R "$FIXTURE_ROOT/artifact/." "$7"\nelse exit 1; fi\n`, { mode: 0o755 });
+    put("bin/gh", `#!/bin/sh\nif [ "$2" = view ]; then\n  case "$*" in *--template*) cat "$FIXTURE_ROOT/metadata" ;; *) cat "$FIXTURE_ROOT/jobs.json" ;; esac\nelif [ "$2" = download ]; then\n  cp -Rp "$FIXTURE_ROOT/artifact/." "$7"\nelse exit 1; fi\n`, { mode: 0o755 });
+    if (transferWithoutDelivery) {
+      // Transfer boundary stub that reports success without delivering any
+      // bytes: the script must refuse via the delivered-byte verification
+      // instead of staging the untouched old bundle.
+      put("bin/rsync", "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    }
     const result = spawnSync("bash", [script, "123", ...(allowSha === true ? ["--allow-sha", producerSha] : allowSha ? ["--allow-sha", allowSha] : [])], {
       cwd: root, encoding: "utf8", env: { ...env, FIXTURE_ROOT: root, PATH: `${join(root, "bin")}:${process.env.PATH}` },
     });
@@ -150,6 +160,18 @@ describe("cross-head --allow-sha override", () => {
       conclusion: "success", failures: [], advanceHead: true, allowSha: "2".repeat(40),
     });
     assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+    assert.equal(record, undefined);
+  });
+});
+
+describe("delivered-byte verification", () => {
+  it("refuses a transfer that reports success without delivering the manifest bytes", () => {
+    const { result, contents, record } = runFixture({
+      conclusion: "success", failures: [], transferWithoutDelivery: true,
+    });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.match(result.stderr, /did NOT match/);
     assert.equal(contents, "old native\n");
     assert.equal(record, undefined);
   });

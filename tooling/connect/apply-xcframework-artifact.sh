@@ -17,7 +17,9 @@
 # committed carrier to a head it was never built from — and its embedded
 # manifest must equal the artifact manifest byte-for-byte, which
 # also yields the observed compiler version), rsyncs the artifact over the
-# committed tree (LFS pointers staged via .gitattributes clean filter), writes
+# committed tree (checksum-based so same-size same-mtime files are not
+# silently skipped), re-verifies the delivered tree against the manifest
+# before staging, stages LFS pointers via .gitattributes clean filter, writes
 # the sibling `provenance.json` + manifest copy from the run's own facts plus
 # that observed compiler, and prints the suggested commit line. Requires `gh`,
 # `rsync` and `python3` (the record is emitted with `json.dump` and re-parsed
@@ -237,8 +239,18 @@ PY
   exit 1
 fi
 
+# Content-aware transfer: rsync's default size/mtime shortcut skips same-size
+# files sharing a coarse mtime and reports success while leaving the old bytes,
+# so compare checksums instead (-c). The delivered tree is additionally
+# re-verified against the authenticated manifest below, before staging.
 echo "==> rsync artifact over committed tree"
-rsync -a --delete "${BUILT}/" "${XCFRAMEWORK_DIR}/"
+rsync -a -c --delete "${BUILT}/" "${XCFRAMEWORK_DIR}/"
+
+# A transfer that reports success without delivering the authenticated bytes
+# must never produce successful provenance: re-check the actual destination
+# bytes against the same manifest before any staging or sidecar write.
+echo "==> verify delivered bundle against hash manifest"
+(cd "${XCFRAMEWORK_DIR}" && shasum -a 256 -c "${MANIFEST}")
 
 # LFS guard: without git-lfs the .gitattributes clean filter is missing and
 # `git add` would stage raw ~120 MB binaries instead of pointers.

@@ -11,8 +11,11 @@
 # Downloads the xcframework artifact from <run-id>, verifies the run's
 # provenance (workflow, conclusion, headSha), checksum-verifies the artifact
 # against its mandatory hash manifest, validates the producer record the CI
-# now ships inside the artifact (its sourceHead must equal the run head and
-# its embedded manifest must equal the artifact manifest byte-for-byte, which
+# now ships inside the artifact (its sourceHead and its actual checkoutRevision
+# must both equal the run head — a pull-request virtual merge records a merge
+# checkout while declaring the PR head, and accepting it would bind the
+# committed carrier to a head it was never built from — and its embedded
+# manifest must equal the artifact manifest byte-for-byte, which
 # also yields the observed compiler version), rsyncs the artifact over the
 # committed tree (LFS pointers staged via .gitattributes clean filter), writes
 # the sibling `provenance.json` + manifest copy from the run's own facts plus
@@ -25,7 +28,9 @@
 # Provenance gate (fail-closed, runs before the download): accept successful
 # runs or failures limited to the committed freshness and consumer smoke checks,
 # with successful build, manifest, provenance and upload steps in either case.
-# The run head must match HEAD unless --allow-sha pins it.
+# The run head must match HEAD unless --allow-sha pins it. The override only
+# relaxes that destination check; the producer record must still show a
+# checkout of exactly the declared run head.
 
 set -euo pipefail
 
@@ -207,6 +212,13 @@ if record.get("sourceHead") != os.environ["RUN_HEAD_SHA"]:
     print(
         "error: artifact provenance sourceHead %s != run head %s"
         % (record.get("sourceHead"), os.environ["RUN_HEAD_SHA"]),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+if record.get("checkoutRevision") != os.environ["RUN_HEAD_SHA"]:
+    print(
+        "error: artifact provenance checkoutRevision %s != run head %s — the producer did not build at the declared head"
+        % (record.get("checkoutRevision"), os.environ["RUN_HEAD_SHA"]),
         file=sys.stderr,
     )
     raise SystemExit(1)

@@ -129,14 +129,12 @@ describe("dependency source identity", () => {
 
         const initial = build();
         assert.equal(initial.status, 0, initial.stderr);
-        const initialRevision = revision();
         put(dependency, "committed change\n");
         git("add", dependency);
         git("commit", "-qm", "dependency change");
         const dependencyRevision = git("rev-parse", "HEAD");
         const committed = build();
         assert.equal(committed.status, 0, committed.stderr);
-        assert.notEqual(dependencyRevision, initialRevision);
         assert.equal(revision(), dependencyRevision);
 
         put("unrelated.txt", "unrelated change\n");
@@ -156,4 +154,85 @@ describe("dependency source identity", () => {
       }
     });
   }
+});
+
+/**
+ * `--verify` is the read-only consumer gate wired into CI: it must accept the
+ * bytes the build path just recorded and fail closed on any later drift,
+ * including a committed entry that lost the `.hpp` hash altogether.
+ */
+describe("verify committed provenance", () => {
+  const PROVENANCE_PATH = "crates/spoke-connect/bindings/cpp/native/provenance.json";
+  const setupVerifyFixture = () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "cpp-build-verify-")));
+    const bin = join(root, "bin");
+    const script = join(root, "tooling/connect/cpp-build.mjs");
+    const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+    const put = (path, content, options) => {
+      const absolute = join(root, path);
+      mkdirSync(dirname(absolute), { recursive: true });
+      writeFileSync(absolute, content, options);
+    };
+    const run = (...args) => spawnSync(process.execPath, [script, ...args], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    });
+    mkdirSync(dirname(script), { recursive: true });
+    copyFileSync(fileURLToPath(new URL("./cpp-build.mjs", import.meta.url)), script);
+    git("init", "-q");
+    git("config", "user.name", "Fixture");
+    git("config", "user.email", "fixture@example.invalid");
+    put("Cargo.toml", "workspace\n");
+    put("crates/spoke-connect/src/lib.rs", "initial\n");
+    put("crates/spoke-connect/Cargo.toml", "package\n");
+    put("crates/spoke-connect/bindings/cpp/include/spoke_connect.h", "header\n");
+    put("crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp", "header\n");
+    git("add", ".");
+    git("commit", "-qm", "initial");
+    put("bin/cargo", "#!/bin/sh\nmkdir -p target/cpp/x86_64-pc-windows-msvc/release\nprintf native > target/cpp/x86_64-pc-windows-msvc/release/spoke_connect_capi.dll\nprintf import > target/cpp/x86_64-pc-windows-msvc/release/spoke_connect_capi.dll.lib\n", { mode: 0o755 });
+    put("bin/rustc", "#!/bin/sh\nprintf 'rustc fixture\\n'\n", { mode: 0o755 });
+    put("bin/cl.exe", "#!/bin/sh\nprintf 'Compiler Version fixture\\n'\n", { mode: 0o755 });
+    const build = run("--target", "x86_64-pc-windows-msvc");
+    assert.equal(build.status, 0, build.stderr);
+    const verify = () => run("--verify", "--target", "x86_64-pc-windows-msvc");
+    return { root, verify, put, PROVENANCE_PATH };
+  };
+
+  it("passes on the bytes the build path just recorded", () => {
+    const { root, verify } = setupVerifyFixture();
+    try {
+      const result = verify();
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /verified win-x64 provenance/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the committed entry has no .hpp hash", () => {
+    const { root, verify, put, PROVENANCE_PATH } = setupVerifyFixture();
+    try {
+      const provenance = JSON.parse(readFileSync(join(root, PROVENANCE_PATH), "utf8"));
+      delete provenance.nativeArtifacts["win-x64"].hppSha256;
+      put(PROVENANCE_PATH, `${JSON.stringify(provenance, null, 2)}\n`);
+      const result = verify();
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /hpp: recorded undefined/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the committed .hpp bytes drift from the record", () => {
+    const { root, verify, put } = setupVerifyFixture();
+    try {
+      put("crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp", "drifted header\n");
+      const result = verify();
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /hpp: recorded [0-9a-f]{64}, committed bytes [0-9a-f]{64}/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

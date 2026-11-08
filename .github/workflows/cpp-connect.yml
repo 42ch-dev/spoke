@@ -93,6 +93,11 @@ jobs:
             throw "cl.exe version probe failed with exit code $LASTEXITCODE"
           }
 
+      - name: Verify committed Windows provenance
+        id: committed_provenance
+        continue-on-error: true
+        run: node tooling/connect/cpp-build.mjs --verify --target x86_64-pc-windows-msvc
+
       - name: Check committed C ABI symbols
         id: committed_symbols
         continue-on-error: true
@@ -134,7 +139,7 @@ jobs:
           retention-days: 5
 
       - name: Fail on committed carrier errors
-        if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
+        if: always() && (steps.committed_provenance.outcome == 'failure' || steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
         run: exit 1
 
 
@@ -191,6 +196,11 @@ jobs:
 
 
 
+      - name: Verify committed macOS provenance
+        id: committed_provenance
+        continue-on-error: true
+        run: node tooling/connect/cpp-build.mjs --verify --target aarch64-apple-darwin
+
       - name: Check C ABI symbols
         id: committed_symbols
         continue-on-error: true
@@ -226,5 +236,5 @@ jobs:
           retention-days: 5
 
       - name: Fail on committed carrier errors
-        if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
+        if: always() && (steps.committed_provenance.outcome == 'failure' || steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
         run: exit 1

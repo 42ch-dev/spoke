@@ -1,9 +1,11 @@
 //! RemoteAdapter + message-oriented Transport (frozen contract:
 //! `.mstar/specs/spoke-remote-adapter.md`).
 //!
-//! This module is gated behind the `remote-adapter` cargo feature so default
-//! connect builds stay lean (no `spoke-operations` dependency); the TS
-//! equivalent is the `./remote` subpath export.
+//! This module is gated behind the `remote-adapter` cargo feature;
+//! `spoke-operations` is an unconditional dependency of every connect build
+//! (the generic node dispatch shares its cognition-requirement diagnosis
+//! regardless of this feature). The TS equivalent is the `./remote` subpath
+//! export.
 //!
 //! Public surface: [`RemoteAdapter`] (async `BaselinePorts` + read-only
 //! session info + `close` + tool serving via

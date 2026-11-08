@@ -22,9 +22,10 @@
 # GITHUB_TOKEN (token pushes don't re-trigger workflows and can't carry LFS
 # objects).
 #
-# Provenance gate (fail-closed, runs before the download): accept a successful
-# Xcframework run or one failing only the committed consumer smoke after a
-# successful upload. The run head must match HEAD unless --allow-sha pins it.
+# Provenance gate (fail-closed, runs before the download): accept successful
+# runs or failures limited to the committed freshness and consumer smoke checks,
+# with successful build, manifest, provenance and upload steps in either case.
+# The run head must match HEAD unless --allow-sha pins it.
 
 set -euo pipefail
 
@@ -91,15 +92,48 @@ if [[ "${RUN_WORKFLOW}" != "${WF_NAME}" ]]; then
   exit 1
 fi
 
-if [[ "${RUN_CONCLUSION}" == "failure" ]]; then
-  FAILED_STEPS="$(gh run view "${RUN_ID}" --json jobs --template '{{range .jobs}}{{range .steps}}{{if eq .conclusion "failure"}}{{.name}}{{println}}{{end}}{{end}}{{end}}')"
-  UPLOADED="$(gh run view "${RUN_ID}" --json jobs --template '{{range .jobs}}{{range .steps}}{{if and (eq .name "Upload xcframework artifact") (eq .conclusion "success")}}yes{{end}}{{end}}{{end}}')"
-  if [[ "${FAILED_STEPS}" != "Fail on committed Swift consumer smoke" || "${UPLOADED}" != "yes" ]]; then
-    echo "error: run ${RUN_ID} did not fail solely on committed consumer smoke with a successful upload" >&2
-    exit 1
-  fi
-elif [[ "${RUN_CONCLUSION}" != "success" ]]; then
+if [[ "${RUN_CONCLUSION}" != "success" && "${RUN_CONCLUSION}" != "failure" ]]; then
   echo "error: run ${RUN_ID} conclusion '${RUN_CONCLUSION}' is not acceptable" >&2
+  exit 1
+fi
+if ! gh run view "${RUN_ID}" --json jobs | python3 -c '
+import json
+import sys
+
+try:
+    jobs = json.load(sys.stdin)["jobs"]
+    if len(jobs) != 1 or jobs[0]["name"] != "xcframework":
+        raise ValueError("expected exactly the xcframework job")
+    job = jobs[0]
+    if job["status"] != "completed" or job["conclusion"] != sys.argv[1]:
+        raise ValueError("job status or conclusion does not match run")
+    steps = job["steps"]
+    names = [step["name"] for step in steps]
+    required = {
+        "Build Swift xcframework (staged, locked)",
+        "Write xcframework hash manifest",
+        "Record xcframework build provenance",
+        "Upload xcframework artifact",
+    }
+    allowed_failures = {
+        "Verify committed xcframework freshness",
+        "Fail on committed Swift consumer smoke",
+    }
+    if len(names) != len(set(names)):
+        raise ValueError("duplicate step names")
+    outcomes = {step["name"]: step["conclusion"] for step in steps}
+    if any(outcomes.get(name) != "success" for name in required):
+        raise ValueError("build, manifest, provenance or upload did not succeed")
+    if any(step["status"] != "completed" or step["conclusion"] not in ("success", "failure", "skipped") for step in steps):
+        raise ValueError("incomplete or cancelled step")
+    failures = {name for name, conclusion in outcomes.items() if conclusion == "failure"}
+    if failures - allowed_failures or bool(failures) != (sys.argv[1] == "failure"):
+        raise ValueError("failure is not limited to committed freshness or consumer smoke")
+except (KeyError, TypeError, ValueError) as error:
+    print("error: invalid producer job: %s" % error, file=sys.stderr)
+    sys.exit(1)
+' "${RUN_CONCLUSION}"; then
+  echo "error: run ${RUN_ID} did not meet the xcframework producer outcome gate" >&2
   exit 1
 fi
 

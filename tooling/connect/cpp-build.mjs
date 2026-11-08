@@ -73,6 +73,8 @@ const BUILD_SOURCE_PATHS = [
   "crates/spoke-connect-capi",
   "crates/spoke-connect/src",
   "crates/spoke-connect/Cargo.toml",
+  "crates/spoke-operations",
+  "crates/spoke-schemas",
 ];
 
 const TARGETS = {

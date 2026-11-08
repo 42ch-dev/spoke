@@ -21,7 +21,7 @@ The carrier wraps the same public Rust facade the generated **native bindings** 
 | `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib` | macOS arm64 carrier, install name `@rpath/libspoke_connect_capi.dylib` |
 | `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll` | Windows x64 carrier |
 | `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll.lib` | The Rust-produced import library the Windows link step consumes |
-| `crates/spoke-connect/bindings/cpp/native/provenance.json` | Per RID: source revision, target, `rustc -Vv`, compiler version, build flags, header and artifact hashes |
+| `crates/spoke-connect/bindings/cpp/native/provenance.json` | Per RID: source revision, target, `rustc -Vv`, compiler version, build flags, C and C++ header and artifact hashes |
 | `crates/spoke-connect/bindings/cpp/README.md` | The binding README with the full calling contract |
 
 The two carrier libraries (`*.dylib`, `*.dll`) are stored in Git LFS — a plain clone leaves pointer files behind, so fetch the real bytes before compiling:

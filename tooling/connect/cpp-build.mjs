@@ -7,7 +7,7 @@
  * `bindings/cpp/native/<rid>/` directory, and refreshes that RID's entry in
  * `bindings/cpp/native/provenance.json` (source revision, target, `rustc -Vv`,
  * compiler version, build flags — the exact cargo argv plus the Rust flags this
- * recipe injects — header SHA-256, native SHA-256).
+ * recipe injects — C and C++ header SHA-256, native SHA-256).
  *
  * Targets (closed set — the C++ channel ships osx-arm64 + win-x64 only):
  *
@@ -43,7 +43,7 @@
  * default happens to be installed.
  *
  * `--verify` is the read-only consumer check: it re-reads the committed
- * provenance and hashes the committed header and staged native for one RID,
+ * provenance and hashes the committed headers and staged native for one RID,
  * failing when a recorded SHA-256 no longer describes those bytes. It builds
  * nothing and writes nothing, so it runs against any checkout — including one
  * whose header bytes drifted from the record (CRLF from a Windows
@@ -61,6 +61,7 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CARRIER_PACKAGE = "spoke-connect-capi";
 const CPP_DIR = join(REPO_ROOT, "crates", "spoke-connect", "bindings", "cpp");
 const HEADER = join(CPP_DIR, "include", "spoke_connect.h");
+const HPP = join(CPP_DIR, "include", "spoke_connect.hpp");
 const PROVENANCE = join(CPP_DIR, "native", "provenance.json");
 const TARGET_DIR_FLAG = "target/cpp";
 const TARGET_DIR = join(REPO_ROOT, TARGET_DIR_FLAG);
@@ -260,7 +261,7 @@ export function readProvenance(path) {
 
 /**
  * The committed entry for `spec.rid` has to describe the bytes a consumer
- * receives: the contract header and every staged native the entry lists. The
+ * receives: both headers and every staged native the entry lists. The
  * read-only shape is the point — the build path records what it just hashed,
  * so only a reader can catch a checkout whose bytes no longer match the record.
  */
@@ -276,6 +277,13 @@ function verifyProvenance(spec) {
     problems.push(
       `header: recorded ${entry.headerSha256}, committed bytes ${headerSha256} ` +
         `(${relative(REPO_ROOT, HEADER)})`,
+    );
+  }
+  const hppSha256 = sha256(HPP);
+  if (entry.hppSha256 !== hppSha256) {
+    problems.push(
+      `hpp: recorded ${entry.hppSha256}, committed bytes ${hppSha256} ` +
+        `(${relative(REPO_ROOT, HPP)})`,
     );
   }
   for (const artifact of spec.artifacts) {
@@ -299,7 +307,7 @@ function verifyProvenance(spec) {
   }
   console.log(
     `cpp-build: verified ${spec.rid} provenance (header ${headerSha256}, ` +
-      `natives ${spec.artifacts.length})`,
+      `hpp ${hppSha256}, natives ${spec.artifacts.length})`,
   );
 }
 
@@ -357,6 +365,7 @@ function main() {
     compilerVersion: compilerVersion(args.target),
     buildFlags: { cargoArgs, rustFlags },
     headerSha256: sha256(HEADER),
+    hppSha256: sha256(HPP),
     artifacts,
   };
 
@@ -375,6 +384,7 @@ function main() {
     console.log(`  native/${spec.rid}/${artifact.path}  sha256=${artifact.sha256}`);
   }
   console.log(`  header sha256=${entry.headerSha256}`);
+  console.log(`  hpp sha256=${entry.hppSha256}`);
   console.log(`  source revision=${entry.sourceRevision}`);
   console.log(`  provenance: ${relative(REPO_ROOT, PROVENANCE)}`);
 }

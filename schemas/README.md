@@ -10,7 +10,7 @@ Normative docs: [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md) (umbrel
 schemas/
 ├── README.md                           # this file
 ├── common/
-│   ├── common.schema.json              # SchemaVersion, ExtensionMap, Scope, TimelineScale, ForkId, BodyAttribute, ComputableFieldMap, ComputableLogChange, ComputableLogEntry, shared ids
+│   ├── common.schema.json              # SchemaVersion, ExtensionMap, Scope, TimelineScale, ForkId, BodyAttribute, ComputableFieldMap, ComputableLogChange, ComputableLogEntry, MentalFieldMap, MindDelta, shared ids
 │   └── error-envelope.schema.json      # shared ops error shape
 ├── data/
 │   ├── knowledge-entry.schema.json
@@ -20,7 +20,8 @@ schemas/
 │   ├── assemble-packet.schema.json
 │   ├── rule.schema.json                # L6 declarative constraint input
 │   ├── timeline-event.schema.json      # L5 when-axis temporal object
-│   ├── mind-state.schema.json          # L5 temporal mental-state record (l5-mind)
+│   ├── mind-state.schema.json          # L5 temporal mental-state record (spoke-cognition)
+│   ├── cognition.schema.json           # spoke-cognition records, filters, selections, projections
 │   ├── host-capability-manifest.schema.json  # host roles, capabilities, namespaces
 │   └── tool-descriptor.schema.json     # declared tool ABI (tools.<ns>.<tool_id>)
 │   ├── memory-space.schema.json
@@ -133,7 +134,7 @@ connect/
 └── connect-auth-response.schema.json  # method-specific proof
 ```
 
-**Total:** **113** hand-authored schema files (2 common + 23 data + 82 ops + 6 connect). 79 new `spoke-memory` schemas (13 data + 66 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `mind-state` under the opt-in `l5-mind` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
+**Total:** **114** hand-authored schema files (2 common + 24 data + 82 ops + 6 connect). 79 `spoke-memory` schemas (13 data + 66 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `cognition` and `mind-state` under the opt-in `spoke-cognition` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -295,5 +296,6 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 111 | `ops/memory-imports-activate-response.schema.json` | done |
 | 112 | `ops/memory-imports-discard-request.schema.json` | done |
 | 113 | `ops/memory-imports-discard-response.schema.json` | done |
+| 114 | `data/cognition.schema.json` | done |
 
-**Total:** 113 schema files (34 pre-existing + 79 spoke-memory: 13 data models + 33 op request/response pairs).
+**Total:** 114 schema files (35 pre-existing + 79 spoke-memory: 13 data models + 33 op request/response pairs).

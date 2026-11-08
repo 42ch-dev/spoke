@@ -14,6 +14,106 @@ export type Mode = "subject_all";
 export type Mode1 = "shared_only";
 export type Mode2 = "selected_contexts";
 /**
+ * Typed reference kind. `world` identifies the designated narrated-world authority and is invalid as the holder of Belief, epistemic or Perception records. Memory.subject_id is not implicitly a holder; a Memory cognition holder explicitly uses `memory_subject` when intended.
+ */
+export type CognitionReferenceKind =
+  "knowledge_entry" | "timeline_event" | "memory_record" | "memory_subject" | "principal" | "world" | "external";
+export type CognitionTargetKind = "proposition" | "question" | "perceived_content" | "episode";
+/**
+ * Closed fork predicate: {eq: fork} addresses one fork identity; {absent: true} addresses the context identity whose stored fork_id is absent. An omitted fork_id is a wildcard over forked and no-fork contexts and is never an exact no-fork address.
+ */
+export type ForkIdPredicate =
+  | {
+      eq: string;
+    }
+  | {
+      absent: Absent;
+    };
+export type Absent = true;
+/**
+ * No-record is a projection state, not a fourth enum value.
+ */
+export type EpistemicState = "known" | "ignorant" | "undetermined";
+/**
+ * Higher-order depth. order 0 is retained for the shared vocabulary; current actor Belief records normally use 1-3 and narrated order-0 facts use WorldFactRecord.
+ */
+export type BeliefOrder = 0 | 1 | 2 | 3;
+/**
+ * Categorical predicate: {eq} matches only a present value; {absent: true} matches only an explicitly absent optional field. A required field cannot use the absent form.
+ */
+export type TruthPredicate =
+  | {
+      eq: Truth;
+    }
+  | {
+      absent: Absent1;
+    };
+/**
+ * truth = "Unknown" is not holder ignorance.
+ */
+export type Truth = "True" | "False" | "Unknown";
+export type Absent1 = true;
+export type BeliefAccessPredicate =
+  | {
+      eq: BeliefAccess;
+    }
+  | {
+      absent: Absent2;
+    };
+/**
+ * Distribution label, never authorization.
+ */
+export type BeliefAccess = "Private" | "Shared" | "Public";
+export type Absent2 = true;
+export type RepresentationPredicate =
+  | {
+      eq: Representation;
+    }
+  | {
+      absent: Absent3;
+    };
+export type Representation = "Explicit" | "Implicit";
+export type Absent3 = true;
+export type BeliefContentTypePredicate =
+  | {
+      eq: BeliefContentType;
+    }
+  | {
+      absent: Absent4;
+    };
+export type BeliefContentType =
+  | "Location"
+  | "Contents/Physical State"
+  | "Identity/Relation"
+  | "Epistemic"
+  | "Desire/Intention"
+  | "Emotion"
+  | "Trait/Value"
+  | "Action/Event";
+export type Absent4 = true;
+export type BeliefSourcePredicate =
+  | {
+      eq: AcquisitionPath;
+    }
+  | {
+      absent: Absent5;
+    };
+/**
+ * Acquisition label, not actual-perception proof.
+ */
+export type AcquisitionPath =
+  "Narration" | "Perception" | "Memory" | "Testimony" | "Inference" | "Imagination" | "Unknown";
+export type Absent5 = true;
+export type BeliefContextPredicate =
+  | {
+      eq: BeliefContext;
+    }
+  | {
+      absent: Absent6;
+    };
+export type BeliefContext = "Deceptive" | "Temporal" | "Counterfactual" | "Neutral";
+export type Absent6 = true;
+/**
  * Opaque pagination cursor bound to principal, space, subject, selection/filter, snapshot marker and engine_policy_version. Any state or grant change invalidates it with CURSOR_INVALID (§7.0.7, MEM-R026).
  */
 export type Cursor = string;
@@ -26,6 +126,7 @@ export interface MemoryRecordsListRequest {
   subject_id: SubjectId;
   selection: ReadSelection;
   filter?: ProvenanceFilter;
+  cognition_filter?: CognitionFilter;
   /**
    * Optional record-kind filter.
    */
@@ -75,6 +176,60 @@ export interface ProvenanceFilter {
    * @minItems 1
    */
   source_context_ids: [string, ...string[]];
+}
+/**
+ * Optional recorded-at-time cognition hard filter; a record matches only if at least one Content.cognition entry satisfies the complete conjunction. Binds cursor identity; composes with selection and provenance filter by AND.
+ */
+export interface CognitionFilter {
+  holder?: CognitionReference;
+  target?: TargetPredicate;
+  assessment_context?: ContextPredicate;
+  category?: "epistemic" | "perception" | "belief";
+  state?: EpistemicState;
+  q?: QRange;
+  order?: BeliefOrder;
+  truth?: TruthPredicate;
+  access?: BeliefAccessPredicate;
+  representation?: RepresentationPredicate;
+  content_type?: BeliefContentTypePredicate;
+  source?: BeliefSourcePredicate;
+  belief_context?: BeliefContextPredicate;
+}
+/**
+ * Complete namespace-bearing reference identity. Producers use one namespace only for ids assigned by the same identity authority; independent systems use distinct namespaces unless they deliberately share that authority.
+ */
+export interface CognitionReference {
+  kind: CognitionReferenceKind;
+  /**
+   * Non-empty, opaque within kind/namespace. Identity is never established by bare id or equal text.
+   */
+  id: string;
+  /**
+   * Required identity realm for every kind; for `external` it is the declared external namespace. A reference's identity is the complete (kind, namespace, id) tuple. Pure validation checks only this shape — never global uniqueness, registry resolution or I/O.
+   */
+  namespace: string;
+}
+export interface TargetPredicate {
+  carrier?: CognitionReference;
+  target_id?: string;
+  kind?: CognitionTargetKind;
+}
+export interface ContextPredicate {
+  context_id?: string;
+  fork_id?: ForkIdPredicate;
+}
+/**
+ * Inclusive comparisons over the declared foundational q.value; uncalibrated but declared values participate identically. At least one of min/max required (minProperties 1); min <= max is enforced by validators.
+ */
+export interface QRange {
+  /**
+   * Finite 0..1, inclusive.
+   */
+  min?: number;
+  /**
+   * Finite 0..1, inclusive; min <= max (enforced by validators).
+   */
+  max?: number;
 }
 /**
  * Optional transport metadata.

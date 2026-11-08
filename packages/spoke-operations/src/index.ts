@@ -46,7 +46,8 @@ export {
 } from "./knowledge-entry/ownership.js";
 
 export {
-  knowledgeEntryMatchesScope,
+  assertSupportedCognitionSelection,
+  cognitionRecordsOfAuthorizedEntries,
   filterKnowledgeEntriesByScope,
   timelineEventMatchesScope,
   filterTimelineEventsByScope,
@@ -77,6 +78,29 @@ export {
 } from "./computable/validate.js";
 
 export { validateMindState } from "./mind-state/validate.js";
+
+export {
+  validateCognitionRecord,
+  validateCognitionContent,
+  validateCognitionModule,
+  validateObservationModule,
+  validateCognitionFilter,
+  validateCognitionSelection,
+  validateCognitionProjection,
+} from "./cognition/validate.js";
+
+export {
+  cognitionRecordMatchesFilter,
+  selectCognitionRecords,
+  projectCognitionRecords,
+  type CurrentViewPolicy,
+  type CognitiveView,
+  type CognitionContext,
+  type CognitionTarget,
+  type CognitionProjection,
+  type CognitionProjectionItem,
+  type CognitionProjectionItemSelection,
+} from "./cognition/select.js";
 
 export {
   toolCapabilityId,

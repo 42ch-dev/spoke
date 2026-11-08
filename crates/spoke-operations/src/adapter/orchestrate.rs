@@ -5,6 +5,7 @@ use crate::adapter::ports::{
     KnowledgeEntryPort, RelationPort,
 };
 use crate::assemble::{build_assemble_packet, BuildAssemblePacketInput, KnowledgeEntryForAssemble};
+use crate::cognition::CurrentViewPolicy;
 use crate::computable::{validate_compute_request, validate_project_request};
 use crate::extensions::ExtensionMap;
 use crate::knowledge_entry::{
@@ -15,7 +16,10 @@ use crate::occ::assert_revision_match;
 use crate::promote::{apply_promote_acceptance, validate_promote_request};
 use crate::relate::{validate_relate_request, RelateMode, ValidateRelateRequestContext};
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
-use crate::scope::{filter_knowledge_entries_by_scope, filter_timeline_events_by_scope};
+use crate::scope::{
+    assert_supported_cognition_selection, authorize_knowledge_entries_by_scope,
+    filter_knowledge_entries_by_scope, filter_timeline_events_by_scope,
+};
 use crate::upsert::{validate_upsert_knowledge_entry, ValidateUpsertKnowledgeEntryContext};
 
 const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
@@ -381,34 +385,49 @@ pub async fn orchestrate_check<F>(
 where
     F: FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>,
 {
-    let rules = match resolve_check_rules(ports, &request).await {
-        SpokeResult::Ok(rules) => rules,
-        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
-    };
-
     let scope = match scope_from_check_request(&request.scope) {
         SpokeResult::Ok(scope) => scope,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let entries_result = match ports.list_knowledge_entries(&scope).await {
+    // Unavailable or unsupported cognition requirements reject the whole request
+    // before any port read or checker/finding side effect.
+    if let SpokeResult::Reject(reject) =
+        assert_supported_cognition_selection(scope.cognition.as_ref(), "scope.cognition")
+    {
+        return SpokeResult::Reject(reject);
+    }
+
+    let rules = match resolve_check_rules(ports, &request).await {
+        SpokeResult::Ok(rules) => rules,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+
+    // The port sees baseline Scope fields only; cognition is applied locally
+    // after disclosure, so a broader provider result can never reach the checker.
+    let baseline_scope = baseline_only_scope(&scope);
+
+    let entries_result = match ports.list_knowledge_entries(&baseline_scope).await {
         SpokeResult::Ok(entries) => entries,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let events_result = match ports.list_timeline_events(&scope).await {
+    let events_result = match ports.list_timeline_events(&baseline_scope).await {
         SpokeResult::Ok(events) => events,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let entries: Vec<KnowledgeEntry> = filter_knowledge_entries_by_scope(&entries_result, &scope)
-        .into_iter()
-        .cloned()
-        .collect();
-    let events: Vec<TimelineEvent> = filter_timeline_events_by_scope(&events_result, &scope)
-        .into_iter()
-        .cloned()
-        .collect();
+    let authorized_entries = match filter_knowledge_entries_by_scope(&entries_result, &scope) {
+        SpokeResult::Ok(entries) => entries,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+    let entries: Vec<KnowledgeEntry> =
+        authorized_entries.into_iter().cloned().collect();
+    let events: Vec<TimelineEvent> =
+        filter_timeline_events_by_scope(&events_result, &baseline_scope)
+            .into_iter()
+            .cloned()
+            .collect();
 
     let check_result = run_checker(CheckRunInput {
         request,
@@ -439,10 +458,20 @@ fn assemble_extensions(request: &AssembleRequest) -> SpokeResult<Option<Extensio
     }
 }
 
+/// The KE port is queried with baseline Scope fields only. Cognition is a
+/// derivative selection applied locally after disclosure, so an unauthorized
+/// record can never influence the query, count or projection.
+fn baseline_only_scope(scope: &Scope) -> Scope {
+    let mut baseline = scope.clone();
+    baseline.cognition = None;
+    baseline
+}
+
 fn assemble_packet_response(
     scope: &Scope,
     entries: &[KnowledgeEntry],
     request: &AssembleRequest,
+    current_view_policy: Option<&dyn CurrentViewPolicy>,
 ) -> SpokeResult<AssembleResponse> {
     let for_assemble: Vec<KnowledgeEntryForAssemble> = entries
         .iter()
@@ -461,6 +490,8 @@ fn assemble_packet_response(
         knowledge_entries: &for_assemble,
         extensions: extensions.as_ref(),
         max_entries: request.max_entries.map(|value| value.get() as usize),
+        cognition_selection: scope.cognition.as_ref(),
+        current_view_policy,
     }) {
         SpokeResult::Ok(packet) => packet,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
@@ -470,34 +501,44 @@ fn assemble_packet_response(
 }
 
 /// Query scoped KnowledgeEntries/events, apply scope helpers, build AssemblePacket.
+/// A current cognition selection requires the injected product policy; it is
+/// called only after authorization and its identity is traced in the packet.
 pub async fn orchestrate_assemble(
     ports: &impl BaselinePorts,
     request: AssembleRequest,
+    current_view_policy: Option<&dyn CurrentViewPolicy>,
 ) -> SpokeResult<AssembleResponse> {
     let scope = match scope_from_assemble_request(&request.scope) {
         SpokeResult::Ok(scope) => scope,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
+    if let SpokeResult::Reject(reject) =
+        assert_supported_cognition_selection(scope.cognition.as_ref(), "scope.cognition")
+    {
+        return SpokeResult::Reject(reject);
+    }
+    let baseline_scope = baseline_only_scope(&scope);
 
-    let entries_result = match ports.list_knowledge_entries(&scope).await {
+    let entries_result = match ports.list_knowledge_entries(&baseline_scope).await {
         SpokeResult::Ok(entries) => entries,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let events_result = match ports.list_timeline_events(&scope).await {
+    let events_result = match ports.list_timeline_events(&baseline_scope).await {
         SpokeResult::Ok(events) => events,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
     // Events are loaded/filtered for sequence parity; packet builders use entries only.
-    let _events = filter_timeline_events_by_scope(&events_result, &scope);
+    let _events = filter_timeline_events_by_scope(&events_result, &baseline_scope);
 
-    let entries: Vec<KnowledgeEntry> = filter_knowledge_entries_by_scope(&entries_result, &scope)
-        .into_iter()
-        .cloned()
-        .collect();
+    let entries: Vec<KnowledgeEntry> =
+        authorize_knowledge_entries_by_scope(&entries_result, &baseline_scope)
+            .into_iter()
+            .cloned()
+            .collect();
 
-    assemble_packet_response(&scope, &entries, &request)
+    assemble_packet_response(&scope, &entries, &request, current_view_policy)
 }
 
 /// Project Session computable view via ComputablePort after request validation.
@@ -578,6 +619,12 @@ where
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
+    if let SpokeResult::Reject(reject) =
+        assert_supported_cognition_selection(scope.cognition.as_ref(), "scope.cognition")
+    {
+        return SpokeResult::Reject(reject);
+    }
+
     let fork_scope = match require_fork_scope(&scope) {
         SpokeResult::Ok(scope) => scope,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
@@ -588,7 +635,11 @@ where
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let entries_result = match ports.list_knowledge_entries(&scope).await {
+    // Baseline scope only: cognition is enforced locally after disclosure.
+    let baseline_scope = baseline_only_scope(&scope);
+    let baseline_fork_scope = baseline_only_scope(&fork_scope);
+
+    let entries_result = match ports.list_knowledge_entries(&baseline_scope).await {
         SpokeResult::Ok(entries) => entries,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -596,19 +647,25 @@ where
     let fork_timeline = ports
         .as_fork_timeline()
         .expect("require_port_method gated availability");
-    let events_result = match fork_timeline.list_fork_timeline_events(&fork_scope).await {
+    let events_result = match fork_timeline
+        .list_fork_timeline_events(&baseline_fork_scope)
+        .await
+    {
         SpokeResult::Ok(events) => events,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let entries: Vec<KnowledgeEntry> = filter_knowledge_entries_by_scope(&entries_result, &scope)
-        .into_iter()
-        .cloned()
-        .collect();
-    let events: Vec<TimelineEvent> = filter_timeline_events_by_scope(&events_result, &scope)
-        .into_iter()
-        .cloned()
-        .collect();
+    let authorized_entries = match filter_knowledge_entries_by_scope(&entries_result, &scope) {
+        SpokeResult::Ok(entries) => entries,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+    let entries: Vec<KnowledgeEntry> =
+        authorized_entries.into_iter().cloned().collect();
+    let events: Vec<TimelineEvent> =
+        filter_timeline_events_by_scope(&events_result, &baseline_scope)
+            .into_iter()
+            .cloned()
+            .collect();
 
     let check_result = run_checker(CheckRunInput {
         request,
@@ -633,6 +690,7 @@ where
 pub async fn orchestrate_fork_assemble(
     ports: &impl ForkPorts,
     request: AssembleRequest,
+    current_view_policy: Option<&dyn CurrentViewPolicy>,
 ) -> SpokeResult<AssembleResponse> {
     if let SpokeResult::Reject(reject) =
         require_port_method(ports.as_fork_timeline().is_some(), "listForkTimelineEvents")
@@ -649,8 +707,15 @@ pub async fn orchestrate_fork_assemble(
         SpokeResult::Ok(scope) => scope,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
+    if let SpokeResult::Reject(reject) =
+        assert_supported_cognition_selection(scope.cognition.as_ref(), "scope.cognition")
+    {
+        return SpokeResult::Reject(reject);
+    }
+    let baseline_scope = baseline_only_scope(&scope);
+    let baseline_fork_scope = baseline_only_scope(&fork_scope);
 
-    let entries_result = match ports.list_knowledge_entries(&scope).await {
+    let entries_result = match ports.list_knowledge_entries(&baseline_scope).await {
         SpokeResult::Ok(entries) => entries,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -658,20 +723,24 @@ pub async fn orchestrate_fork_assemble(
     let fork_timeline = ports
         .as_fork_timeline()
         .expect("require_port_method gated availability");
-    let events_result = match fork_timeline.list_fork_timeline_events(&fork_scope).await {
+    let events_result = match fork_timeline
+        .list_fork_timeline_events(&baseline_fork_scope)
+        .await
+    {
         SpokeResult::Ok(events) => events,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
     // Events are loaded/filtered for sequence parity; packet builders use entries only.
-    let _events = filter_timeline_events_by_scope(&events_result, &scope);
+    let _events = filter_timeline_events_by_scope(&events_result, &baseline_scope);
 
-    let entries: Vec<KnowledgeEntry> = filter_knowledge_entries_by_scope(&entries_result, &scope)
-        .into_iter()
-        .cloned()
-        .collect();
+    let entries: Vec<KnowledgeEntry> =
+        authorize_knowledge_entries_by_scope(&entries_result, &baseline_scope)
+            .into_iter()
+            .cloned()
+            .collect();
 
-    assemble_packet_response(&scope, &entries, &request)
+    assemble_packet_response(&scope, &entries, &request, current_view_policy)
 }
 
 /// Library-boundary gate: non-empty correlation id and non-empty source list.
@@ -914,6 +983,10 @@ mod tests {
         events: Vec<TimelineEvent>,
         rules: HashMap<String, Rule>,
         findings: Vec<Finding>,
+        knowledge_entry_list_calls: usize,
+        timeline_list_calls: usize,
+        rule_list_calls: usize,
+        findings_put_calls: usize,
     }
 
     struct MemoryBaselinePorts {
@@ -930,6 +1003,14 @@ mod tests {
         fn with_entry(entry: KnowledgeEntry) -> Self {
             let mut store = MemoryStore::default();
             store.entries.insert(entry.entry_id.clone(), entry);
+            Self::new(store)
+        }
+
+        fn with_entries(entries: Vec<KnowledgeEntry>) -> Self {
+            let mut store = MemoryStore::default();
+            for entry in entries {
+                store.entries.insert(entry.entry_id.clone(), entry);
+            }
             Self::new(store)
         }
     }
@@ -993,12 +1074,18 @@ mod tests {
     #[async_trait]
     impl ScopeQueryPort for MemoryBaselinePorts {
         async fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-            let store = self.store.lock().expect("store lock");
-            spoke_ok(store.entries.values().cloned().collect())
+            let mut store = self.store.lock().expect("store lock");
+            store.knowledge_entry_list_calls += 1;
+            let mut entries: Vec<KnowledgeEntry> = store.entries.values().cloned().collect();
+            // HashMap iteration order is arbitrary; deterministic listing keeps
+            // limit/source-set assertions independent of hash order.
+            entries.sort_by(|left, right| left.entry_id.cmp(&right.entry_id));
+            spoke_ok(entries)
         }
 
         async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-            let store = self.store.lock().expect("store lock");
+            let mut store = self.store.lock().expect("store lock");
+            store.timeline_list_calls += 1;
             spoke_ok(store.events.clone())
         }
     }
@@ -1007,6 +1094,7 @@ mod tests {
     impl FindingPort for MemoryBaselinePorts {
         async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
             let mut store = self.store.lock().expect("store lock");
+            store.findings_put_calls += 1;
             store.findings.extend(findings.iter().cloned());
             spoke_ok(findings)
         }
@@ -1015,7 +1103,8 @@ mod tests {
     #[async_trait]
     impl RuleQueryPort for MemoryBaselinePorts {
         async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-            let store = self.store.lock().expect("store lock");
+            let mut store = self.store.lock().expect("store lock");
+            store.rule_list_calls += 1;
             let mut resolved = Vec::new();
             for rule_ref in rule_refs {
                 match store.rules.get(rule_ref) {
@@ -2382,6 +2471,156 @@ mod tests {
         let _ = (entry, event, rule, request);
     }
 
+    /// Served check keeps an explicitly present `[]` as a refinement that
+    /// matches nothing: the request decode, the wire conversion into the typed
+    /// Scope and the served filters must not widen it to an omitted wildcard.
+    /// Covers all three Scope lists plus their non-empty form.
+    #[test]
+    fn orchestrate_check_preserves_explicit_empty_scope_refinements() {
+        let entry = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_check_empty",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        }));
+        let event = timeline_event(json!({
+            "schema_version": 1,
+            "timeline_event_id": "te_empty",
+            "canonical_name": "Arrival",
+            "extensions": {}
+        }));
+        let mut store = MemoryStore::default();
+        store.entries.insert(entry.entry_id.clone(), entry);
+        store.events.push(event);
+        let ports = MemoryBaselinePorts::new(store);
+
+        let supplied = |scope: Value| -> (usize, usize) {
+            let request = check_request(json!({ "scope": scope }));
+            let mut seen = (0usize, 0usize);
+            let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
+                seen = (input.entries.len(), input.events.len());
+                spoke_ok(Vec::new())
+            }));
+            assert!(result.is_ok());
+            seen
+        };
+
+        // Omitted lists are wildcards; present-empty matches nothing; a
+        // non-empty list is the AND refinement.
+        assert_eq!(supplied(json!({ "scope_id": "world_1" })), (1, 1));
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "entry_ids": [] })),
+            (0, 1)
+        );
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "entry_ids": ["kb_check_empty"] })),
+            (1, 1)
+        );
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "entry_types": [] })),
+            (0, 1)
+        );
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "entry_types": ["character"] })),
+            (1, 1)
+        );
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "timeline_event_ids": [] })),
+            (1, 0)
+        );
+        assert_eq!(
+            supplied(json!({ "scope_id": "world_1", "timeline_event_ids": ["te_empty"] })),
+            (1, 1)
+        );
+    }
+
+    /// An explicit `[]` never widens the authorization boundary: it blocks
+    /// entries the viewpoint admits, and a non-empty refinement still cannot
+    /// pull in an entry the disclosure predicate withholds.
+    #[test]
+    fn orchestrate_check_explicit_scope_refinements_keep_disclosure_precedence() {
+        let ports = MemoryBaselinePorts::new(store_with_entries(viewpoint_entries()));
+
+        let supplied = |scope: Value| -> Vec<String> {
+            let request = check_request(json!({ "scope": scope }));
+            let mut supplied = Vec::new();
+            let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
+                supplied = sorted_entry_ids(&input.entries);
+                spoke_ok(Vec::new())
+            }));
+            assert!(result.is_ok());
+            supplied
+        };
+
+        // The viewpoint admits kb_mine; the explicit empty refinement matches nothing.
+        assert!(supplied(json!({
+            "scope_id": "world_1",
+            "viewpoint": "kb_mira",
+            "entry_ids": [],
+        }))
+        .is_empty());
+        // The refinement names an owner-private holder, but the foreign
+        // viewpoint withholds it.
+        assert!(supplied(json!({
+            "scope_id": "world_1",
+            "viewpoint": "kb_rival",
+            "entry_ids": ["kb_mine"],
+        }))
+        .is_empty());
+        // A non-empty refinement intersects the authorized set.
+        assert_eq!(
+            supplied(json!({
+                "scope_id": "world_1",
+                "viewpoint": "kb_mira",
+                "entry_ids": ["kb_mine", "kb_theirs"],
+            })),
+            ["kb_mine"]
+        );
+    }
+
+    /// The assemble request carries its own generated Scope copy; the served
+    /// packet builder must observe the same present-empty semantics.
+    #[test]
+    fn orchestrate_assemble_preserves_explicit_empty_entry_refinement() {
+        let entry = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_assemble_empty",
+            "entry_type": "character",
+            "canonical_name": "Assemble Hero",
+            "status": "provisional",
+            "body": { "summary": "Context snippet" },
+            "extensions": {}
+        }));
+        let ports = MemoryBaselinePorts::with_entry(entry);
+
+        let packet_ids = |scope: Value| -> Vec<String> {
+            let request = assemble_request(json!({ "scope": scope }));
+            match pollster::block_on(orchestrate_assemble(&ports, request, None)) {
+                SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) => packet
+                    .entries
+                    .iter()
+                    .map(|entry| entry.entry_id.clone())
+                    .collect(),
+                SpokeResult::Ok(_) | SpokeResult::Reject(_) => {
+                    panic!("expected assemble success")
+                }
+            }
+        };
+
+        assert_eq!(
+            packet_ids(json!({ "scope_id": "world_1" })),
+            ["kb_assemble_empty"]
+        );
+        assert!(packet_ids(json!({ "scope_id": "world_1", "entry_ids": [] })).is_empty());
+        assert_eq!(
+            packet_ids(json!({ "scope_id": "world_1", "entry_ids": ["kb_assemble_empty"] })),
+            ["kb_assemble_empty"]
+        );
+    }
+
     #[test]
     fn orchestrate_check_lets_embedded_rules_win_by_rule_id_over_refs() {
         let entry = ke(json!({
@@ -2476,7 +2715,7 @@ mod tests {
             "max_entries": 10
         }));
 
-        let result = pollster::block_on(orchestrate_assemble(&ports, request));
+        let result = pollster::block_on(orchestrate_assemble(&ports, request, None));
         assert!(result.is_ok());
         if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
             assert_eq!(packet.packet_id, "assemble:world_1");
@@ -2735,7 +2974,7 @@ mod tests {
             "scope": { "scope_id": "world_1", "viewpoint": "kb_mira" }
         }));
 
-        let result = pollster::block_on(orchestrate_assemble(&ports, request));
+        let result = pollster::block_on(orchestrate_assemble(&ports, request, None));
         assert!(result.is_ok());
         if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
             let mut entry_ids: Vec<String> = packet
@@ -2757,7 +2996,7 @@ mod tests {
             "scope": { "scope_id": "world_1", "viewpoint": "kb_rival" }
         }));
 
-        let result = pollster::block_on(orchestrate_assemble(&ports, request));
+        let result = pollster::block_on(orchestrate_assemble(&ports, request, None));
         assert!(result.is_ok());
         if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
             let mut entry_ids: Vec<String> = packet
@@ -2801,7 +3040,7 @@ mod tests {
             "scope": { "scope_id": "world_1", "viewpoint": "kb_mira", "fork_id": "fork_a" }
         }));
 
-        let result = pollster::block_on(orchestrate_fork_assemble(&ports, request));
+        let result = pollster::block_on(orchestrate_fork_assemble(&ports, request, None));
         assert!(result.is_ok());
         if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
             let mut entry_ids: Vec<String> = packet
@@ -2828,5 +3067,753 @@ mod tests {
                 SpokeResult::Reject(reject) => panic!("{context}: {reject:?}"),
             }
         }
+    }
+
+    // === P2/T2 authorization-first cognition assembly ===
+
+    struct FirstInputPolicy;
+
+    impl crate::CurrentViewPolicy for FirstInputPolicy {
+        fn select(&self, assessments: &[&spoke_schemas::CognitionRecord]) -> Option<String> {
+            assessments.first().map(|record| match record {
+                spoke_schemas::CognitionRecord::BeliefRecord(record) => {
+                    record.record_id.as_str().to_owned()
+                }
+                spoke_schemas::CognitionRecord::EpistemicAssessment(record) => {
+                    record.record_id.as_str().to_owned()
+                }
+                spoke_schemas::CognitionRecord::PerceptionRecord(record) => {
+                    record.record_id.as_str().to_owned()
+                }
+            })
+        }
+    }
+
+    fn cognition_assembly_entry() -> KnowledgeEntry {
+        ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_mira",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "confirmed",
+            "owner": "kb_mira",
+            "disclosure": "owner-private",
+            "body": { "summary": "Protagonist" },
+            "extensions": {},
+            "modules": {
+                "cognition": {
+                    "records": [{
+                        "kind": "belief",
+                        "record_id": "rec_assemble",
+                        "holder": {
+                            "kind": "knowledge_entry",
+                            "namespace": "world_a",
+                            "id": "kb_mira"
+                        },
+                        "target": {
+                            "carrier": {
+                                "kind": "knowledge_entry",
+                                "namespace": "world_a",
+                                "id": "kb_box"
+                            },
+                            "target_id": "t_marble",
+                            "kind": "proposition",
+                            "text": "Mira hides the marble"
+                        },
+                        "assessor": {
+                            "kind": "principal",
+                            "namespace": "world_a",
+                            "id": "assessor_self"
+                        },
+                        "assessor_role": "holder_self_report",
+                        "basis": {
+                            "kind": "evidence",
+                            "evidence": [{
+                                "kind": "knowledge_entry",
+                                "namespace": "world_a",
+                                "id": "kb_box"
+                            }]
+                        },
+                        "assessment_context": {
+                            "context_id": "ctx_main",
+                            "fork_id": "fork_alpha"
+                        },
+                        "effective_at": "2026-07-23T09:00:00Z",
+                        "assessed_at": "2026-07-23T09:05:00Z",
+                        "view": "current",
+                        "order": 1,
+                        "q": {
+                            "value": 0.9,
+                            "assertion": "belief_attribution",
+                            "method": "direct_report",
+                            "calibration": "uncalibrated"
+                        },
+                        "extensions": {}
+                    }],
+                    "world_facts": [],
+                    "extensions": {}
+                }
+            }
+        }))
+    }
+
+    fn cognition_assembly_request(viewpoint: &str, fork_id: Option<&str>) -> AssembleRequest {
+        let mut scope = json!({
+            "scope_id": "world_1",
+            "viewpoint": viewpoint,
+            "cognition": {
+                "view": "current",
+                "filter": {
+                    "holder": {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_mira"
+                    }
+                },
+                "selection_policy": {
+                    "policy_id": "pol_t2_first_input",
+                    "policy_version": "v1"
+                }
+            }
+        });
+        if let Some(fork_id) = fork_id {
+            if let Some(object) = scope.as_object_mut() {
+                object.insert("fork_id".into(), json!(fork_id));
+            }
+        }
+        assemble_request(json!({ "scope": scope }))
+    }
+
+    #[test]
+    fn cognition_assemble_withholds_private_records_from_foreign_viewpoint() {
+        let ports = MemoryBaselinePorts::with_entry(cognition_assembly_entry());
+        let request = cognition_assembly_request("kb_rival", None);
+
+        let result = pollster::block_on(orchestrate_assemble(
+            &ports,
+            request,
+            Some(&FirstInputPolicy),
+        ));
+
+        match result {
+            SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) => {
+                let projection = packet.cognition.expect("selection produces a projection");
+                assert!(projection.items.is_empty());
+            }
+            _ => panic!("expected assemble success"),
+        }
+    }
+
+    #[test]
+    fn cognition_assemble_projects_authorized_current_records_with_trace() {
+        let ports = MemoryBaselinePorts::with_entry(cognition_assembly_entry());
+        let request = cognition_assembly_request("kb_mira", None);
+
+        let result = pollster::block_on(orchestrate_assemble(
+            &ports,
+            request,
+            Some(&FirstInputPolicy),
+        ));
+
+        match result {
+            SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) => {
+                let projection = packet.cognition.expect("authorized projection");
+                assert_eq!(projection.items.len(), 1);
+                let item = &projection.items[0];
+                assert_eq!(item.holder.id.as_str(), "kb_mira");
+                assert_eq!(item.target.carrier.id.as_str(), "kb_box");
+                assert_eq!(item.assessment_context.context_id.as_str(), "ctx_main");
+                let selection = item.selection.as_ref().expect("current view trace");
+                assert_eq!(selection.selected_record_id.as_str(), "rec_assemble");
+                assert_eq!(selection.policy.policy_id.as_str(), "pol_t2_first_input");
+                assert_eq!(
+                    selection
+                        .input_record_ids
+                        .iter()
+                        .map(|record_id| record_id.as_str())
+                        .collect::<Vec<_>>(),
+                    ["rec_assemble"]
+                );
+                // Slim packet entries are unchanged by the derivative projection.
+                assert_eq!(packet.entries.len(), 1);
+                assert_eq!(packet.entries[0].entry_id, "kb_mira");
+                assert_eq!(packet.entries[0].snippet.as_deref(), Some("Protagonist"));
+            }
+            _ => panic!("expected assemble success"),
+        }
+    }
+
+    #[test]
+    fn cognition_fork_assemble_uses_authorized_records_and_baseline_scope() {
+        let ports = MemoryForkPorts::new(MemoryBaselinePorts::with_entry(
+            cognition_assembly_entry(),
+        ));
+        let request = cognition_assembly_request("kb_mira", Some("fork_a"));
+
+        let result = pollster::block_on(orchestrate_fork_assemble(
+            &ports,
+            request,
+            Some(&FirstInputPolicy),
+        ));
+
+        match result {
+            SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) => {
+                let projection = packet.cognition.expect("authorized projection");
+                assert_eq!(projection.items.len(), 1);
+            }
+            _ => panic!("expected fork assemble success"),
+        }
+        let fork_calls = ports.fork_list_calls.lock().expect("fork calls");
+        assert_eq!(fork_calls.len(), 1);
+        assert!(fork_calls[0].cognition.is_none());
+    }
+
+    #[test]
+    fn cognition_assemble_requires_policy_for_current_view() {
+        let ports = MemoryBaselinePorts::with_entry(cognition_assembly_entry());
+        let request = cognition_assembly_request("kb_mira", None);
+
+        let result = pollster::block_on(orchestrate_assemble(&ports, request, None));
+
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+            }
+            _ => panic!("expected policy-required reject"),
+        }
+    }
+
+    #[test]
+    fn cognition_assemble_baseline_packet_has_no_projection() {
+        let ports = MemoryBaselinePorts::with_entry(cognition_assembly_entry());
+        let request = assemble_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_mira" }
+        }));
+
+        let result = pollster::block_on(orchestrate_assemble(&ports, request, None));
+
+        match result {
+            SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) => {
+                assert!(packet.cognition.is_none());
+            }
+            _ => panic!("expected assemble success"),
+        }
+    }
+
+    #[test]
+    fn closed_request_decode_rejects_unknown_cognition_predicate() {
+        let unknown = json!({
+            "scope": {
+                "scope_id": "world_1",
+                "viewpoint": "kb_mira",
+                "cognition": {
+                    "view": "current",
+                    "filter": { "q_min": 0.5 },
+                    "selection_policy": { "policy_id": "pol_t2", "policy_version": "v1" }
+                }
+            }
+        });
+
+        assert!(
+            serde_json::from_value::<AssembleRequest>(unknown.clone()).is_err(),
+            "unknown cognition predicate must fail request decode, not be stripped"
+        );
+        assert!(
+            serde_json::from_value::<CheckRequest>(unknown).is_err(),
+            "unknown cognition predicate must fail request decode, not be stripped"
+        );
+
+        let valid: CheckRequest = serde_json::from_value(json!({
+            "scope": {
+                "scope_id": "world_1",
+                "viewpoint": "kb_mira",
+                "cognition": {
+                    "view": "current",
+                    "filter": { "q": { "min": 0.2, "max": 0.8 } },
+                    "selection_policy": { "policy_id": "pol_t2", "policy_version": "v1" }
+                }
+            }
+        }))
+        .expect("known cognition predicate decodes");
+
+        match valid.scope.cognition.expect("selection retained") {
+            spoke_schemas::check_request::CognitionSelection::Current { filter, .. } => {
+                let q = filter.q.expect("q range retained");
+                assert_eq!(q.min, Some(0.2));
+                assert_eq!(q.max, Some(0.8));
+            }
+            other => panic!("unexpected selection variant: {other:?}"),
+        }
+    }
+
+    fn cognition_check_entry(entry_id: &str, record_id: &str) -> KnowledgeEntry {
+        ke(json!({
+            "schema_version": 1,
+            "entry_id": entry_id,
+            "entry_type": "character",
+            "canonical_name": entry_id,
+            "status": "confirmed",
+            "body": {},
+            "extensions": {},
+            "modules": {
+                "cognition": {
+                    "records": [{
+                        "kind": "belief",
+                        "record_id": record_id,
+                        "holder": { "kind": "knowledge_entry", "namespace": "world_a", "id": entry_id },
+                        "target": {
+                            "carrier": { "kind": "knowledge_entry", "namespace": "world_a", "id": "kb_box" },
+                            "target_id": "t_marble",
+                            "kind": "proposition",
+                            "text": "Mira hides the marble"
+                        },
+                        "assessor": { "kind": "principal", "namespace": "world_a", "id": "assessor_self" },
+                        "assessor_role": "holder_self_report",
+                        "basis": {
+                            "kind": "evidence",
+                            "evidence": [{ "kind": "knowledge_entry", "namespace": "world_a", "id": "kb_box" }]
+                        },
+                        "assessment_context": { "context_id": "ctx_main", "fork_id": "fork_alpha" },
+                        "effective_at": "2026-07-23T09:00:00Z",
+                        "assessed_at": "2026-07-23T09:05:00Z",
+                        "view": "current",
+                        "order": 1,
+                        "q": {
+                            "value": 0.9,
+                            "assertion": "belief_attribution",
+                            "method": "direct_report",
+                            "calibration": "uncalibrated"
+                        },
+                        "extensions": {}
+                    }],
+                    "world_facts": [],
+                    "extensions": {}
+                }
+            }
+        }))
+    }
+
+    #[test]
+    fn cognition_check_filters_overbroad_entries_before_checker() {
+        let ports = MemoryBaselinePorts::with_entries(vec![
+            cognition_check_entry("kb_mira", "rec_mira"),
+            cognition_check_entry("kb_theo", "rec_theo"),
+        ]);
+        let request = check_request(json!({
+            "scope": {
+                "scope_id": "world_1",
+                "cognition": {
+                    "view": "current",
+                    "filter": {
+                        "holder": { "kind": "knowledge_entry", "namespace": "world_a", "id": "kb_theo" }
+                    },
+                    "selection_policy": { "policy_id": "pol_t2", "policy_version": "v1" }
+                }
+            }
+        }));
+        let mut checker_entry_ids: Vec<String> = Vec::new();
+        let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
+            checker_entry_ids = input
+                .entries
+                .iter()
+                .map(|entry| entry.entry_id.as_str().to_owned())
+                .collect();
+            spoke_ok(Vec::<Finding>::new())
+        }));
+
+        assert!(result.is_ok(), "scoped check must succeed: {result:?}");
+        assert_eq!(checker_entry_ids, vec!["kb_theo".to_owned()]);
+        let store = ports.store.lock().expect("store lock");
+        assert_eq!(store.findings_put_calls, 1);
+        assert!(store.findings.is_empty());
+    }
+
+    #[test]
+    fn cognition_fork_check_rejects_unavailable_view_before_ports() {
+        let ports = MemoryForkPorts::new(MemoryBaselinePorts::with_entry(cognition_assembly_entry()));
+        let request = check_request(json!({
+            "scope": {
+                "scope_id": "world_1",
+                "fork_id": "fork_a",
+                "cognition": { "view": "recorded_at", "filter": {} }
+            }
+        }));
+
+        let result = pollster::block_on(orchestrate_fork_check(&ports, request, |_input| {
+            spoke_ok(Vec::<Finding>::new())
+        }));
+
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                let details = reject.details.expect("unsupported requirement details");
+                assert_eq!(
+                    details.get("reason").and_then(Value::as_str),
+                    Some("unsupported_cognition_requirement")
+                );
+                assert_eq!(
+                    details.get("field").and_then(Value::as_str),
+                    Some("scope.cognition.view")
+                );
+            }
+            SpokeResult::Ok(_) => panic!("unavailable recorded_at view must reject"),
+        }
+        assert!(ports.fork_list_calls.lock().expect("fork calls").is_empty());
+        let store = ports.baseline.store.lock().expect("store lock");
+        assert_eq!(store.knowledge_entry_list_calls, 0);
+        assert_eq!(store.timeline_list_calls, 0);
+        assert_eq!(store.findings_put_calls, 0);
+    }
+
+    // === P2/T2 shared authorization/assembly vectors through the public path ===
+
+    use crate::cognition::CurrentViewPolicy;
+    use crate::result::SpokeReject;
+    use spoke_schemas::data::cognition::CognitionRecord as VectorRecord;
+    use std::path::Path;
+
+    fn load_assembly_vectors() -> Vec<Value> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/cognition/assembly-vectors.json");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        let document: Value = serde_json::from_str(&raw)
+            .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+        document
+            .get("vectors")
+            .and_then(Value::as_array)
+            .expect("assembly-vectors.json must carry a vectors array")
+            .clone()
+    }
+
+    struct VectorPolicy {
+        selects_first: bool,
+        fixed: Option<String>,
+    }
+
+    impl CurrentViewPolicy for VectorPolicy {
+        fn select(&self, assessments: &[&VectorRecord]) -> Option<String> {
+            if !self.selects_first {
+                return self.fixed.clone();
+            }
+            assessments.first().map(|record| match record {
+                VectorRecord::BeliefRecord(record) => record.record_id.to_string(),
+                VectorRecord::EpistemicAssessment(record) => record.record_id.to_string(),
+                VectorRecord::PerceptionRecord(record) => record.record_id.to_string(),
+            })
+        }
+    }
+
+    fn vector_policy(vector: &Value) -> Option<VectorPolicy> {
+        match vector.get("policy_selects") {
+            Some(Value::String(value)) if value == "first_input" => Some(VectorPolicy {
+                selects_first: true,
+                fixed: None,
+            }),
+            Some(Value::String(value)) => Some(VectorPolicy {
+                selects_first: false,
+                fixed: Some(value.clone()),
+            }),
+            _ => None,
+        }
+    }
+
+    fn vector_calls(store: &MemoryStore, checker_calls: usize) -> Value {
+        json!({
+            "listKnowledgeEntries": store.knowledge_entry_list_calls,
+            "listTimelineEvents": store.timeline_list_calls,
+            "listRules": store.rule_list_calls,
+            "putFindings": store.findings_put_calls,
+            "checker": checker_calls,
+        })
+    }
+
+    fn reference_tuple(reference: &Value) -> Value {
+        json!([
+            reference["kind"],
+            reference["namespace"],
+            reference["id"],
+        ])
+    }
+
+    /// Wire-level summary so the assertion is independent of generated
+    /// per-module Rust re-declarations of the cognition family.
+    fn cognition_summary(cognition: &Value) -> Value {
+        let items: Vec<Value> = cognition
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|item| {
+                let holder = &item["holder"];
+                let target = &item["target"];
+                let carrier = &target["carrier"];
+                let context = &item["assessment_context"];
+                let selection = item.get("selection");
+                json!({
+                    "presence": item["presence"],
+                    "holder": reference_tuple(holder),
+                    "target": [
+                        reference_tuple(carrier),
+                        target["kind"],
+                        target["target_id"],
+                    ],
+                    "context": [
+                        context["context_id"],
+                        context.get("fork_id").cloned().unwrap_or(Value::Null),
+                    ],
+                    "assessments": item["assessments"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|record| record["record_id"].clone())
+                        .collect::<Vec<_>>(),
+                    "selected": selection
+                        .map(|selection| selection["selected_record_id"].clone())
+                        .unwrap_or(Value::Null),
+                    "policy": selection
+                        .map(|selection| json!([
+                            selection["policy"]["policy_id"],
+                            selection["policy"]["policy_version"],
+                        ]))
+                        .unwrap_or(Value::Null),
+                    "input_record_ids": selection
+                        .map(|selection| selection["input_record_ids"].clone())
+                        .unwrap_or(Value::Null),
+                })
+            })
+            .collect();
+        json!({ "view": cognition["view"], "items": items })
+    }
+
+    fn vector_carrier_records(entries: &[KnowledgeEntry]) -> Vec<Value> {
+        entries
+            .iter()
+            .flat_map(|entry| {
+                entry
+                    .modules
+                    .iter()
+                    .filter(|(key, _)| key.as_str() == "cognition")
+                    .filter_map(|(_, value)| match value {
+                        spoke_schemas::knowledge_entry::KnowledgeEntryModulesValue::Object(map) => {
+                            map.get("records").and_then(Value::as_array).cloned()
+                        }
+                        spoke_schemas::knowledge_entry::KnowledgeEntryModulesValue::Array(_) => None,
+                    })
+                    .flatten()
+            })
+            .collect()
+    }
+
+    fn assert_vector_error(reject: &SpokeReject, expected: &Value, id: &str) {
+        assert_eq!(
+            reject.code.as_str(),
+            expected["code"].as_str().expect("expected error code"),
+            "vector {id} reject code"
+        );
+        let details = reject.details.clone().unwrap_or_default();
+        if let Some(reason) = expected.get("reason").and_then(Value::as_str) {
+            assert_eq!(
+                details.get("reason").and_then(Value::as_str),
+                Some(reason),
+                "vector {id} reject reason"
+            );
+        }
+        if let Some(field) = expected.get("field").and_then(Value::as_str) {
+            assert_eq!(
+                details.get("field").and_then(Value::as_str),
+                Some(field),
+                "vector {id} reject field"
+            );
+        }
+    }
+
+    fn vector_entries(vector: &Value) -> Vec<KnowledgeEntry> {
+        vector
+            .get("entries")
+            .and_then(Value::as_array)
+            .expect("vector entries")
+            .iter()
+            .map(|entry| {
+                serde_json::from_value::<KnowledgeEntry>(entry.clone())
+                    .expect("vector entry deserializes")
+            })
+            .collect()
+    }
+
+    fn run_assembly_vector(vector: &Value) {
+        let id = vector.get("id").and_then(Value::as_str).expect("vector id");
+        let expected = vector.get("expected").expect("vector expected");
+        let expected_calls = vector.get("expected_calls").expect("vector calls");
+        let entries = vector_entries(vector);
+        let scope = vector.get("scope").cloned().expect("vector scope");
+        let ports = MemoryBaselinePorts::with_entries(entries.clone());
+        let operation = vector
+            .get("operation")
+            .and_then(Value::as_str)
+            .expect("vector operation");
+
+        if operation == "check" {
+            let request = check_request(json!({ "scope": scope }));
+            let mut checker_calls = 0_usize;
+            let mut checker_entry_ids: Vec<String> = Vec::new();
+            let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
+                checker_calls += 1;
+                checker_entry_ids.extend(
+                    input
+                        .entries
+                        .iter()
+                        .map(|entry| entry.entry_id.as_str().to_owned()),
+                );
+                spoke_ok(Vec::new())
+            }));
+
+            let calls = {
+                let store = ports.store.lock().expect("store lock");
+                vector_calls(&store, checker_calls)
+            };
+            assert_eq!(calls, *expected_calls, "vector {id} call boundary");
+
+            if let Some(error) = expected.get("error") {
+                match result {
+                    SpokeResult::Reject(reject) => assert_vector_error(&reject, error, id),
+                    SpokeResult::Ok(_) => panic!("vector {id} must reject"),
+                }
+                return;
+            }
+
+            let response = match result {
+                SpokeResult::Ok(response) => response,
+                SpokeResult::Reject(reject) => panic!("vector {id} rejected: {reject:?}"),
+            };
+            let wire = serde_json::to_value(&response).expect("check response serializes");
+            let expected_entry_ids: Vec<&str> = expected["checker_entry_ids"]
+                .as_array()
+                .expect("checker entry ids")
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            assert_eq!(
+                checker_entry_ids,
+                expected_entry_ids
+                    .iter()
+                    .map(|value| (*value).to_owned())
+                    .collect::<Vec<_>>(),
+                "vector {id} checker entry ids"
+            );
+            let persisted = expected["findings_persisted"].as_u64().unwrap_or(0) as usize;
+            assert_eq!(
+                wire["findings"].as_array().map_or(0, Vec::len),
+                persisted,
+                "vector {id} persisted findings"
+            );
+            return;
+        }
+
+        let mut request_wire = json!({ "scope": scope });
+        if let Some(max_entries) = vector.get("max_entries") {
+            request_wire["max_entries"] = max_entries.clone();
+        }
+        let request = assemble_request(request_wire);
+        let policy = vector_policy(vector);
+        let result = pollster::block_on(orchestrate_assemble(
+            &ports,
+            request,
+            policy.as_ref().map(|policy| policy as &dyn CurrentViewPolicy),
+        ));
+
+        let calls = {
+            let store = ports.store.lock().expect("store lock");
+            vector_calls(&store, 0)
+        };
+        assert_eq!(calls, *expected_calls, "vector {id} call boundary");
+
+        if let Some(error) = expected.get("error") {
+            match result {
+                SpokeResult::Reject(reject) => assert_vector_error(&reject, error, id),
+                SpokeResult::Ok(_) => panic!("vector {id} must reject"),
+            }
+            return;
+        }
+
+        let response = match result {
+            SpokeResult::Ok(response) => response,
+            SpokeResult::Reject(reject) => panic!("vector {id} rejected: {reject:?}"),
+        };
+        let wire = serde_json::to_value(&response).expect("assemble response serializes");
+        let packet = &wire["packet"];
+        let entry_ids: Vec<&str> = packet["entries"]
+            .as_array()
+            .expect("packet entries")
+            .iter()
+            .filter_map(|entry| entry["entry_id"].as_str())
+            .collect();
+        let expected_entry_ids: Vec<&str> = expected["entry_ids"]
+            .as_array()
+            .expect("expected entry ids")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert_eq!(entry_ids, expected_entry_ids, "vector {id} slim entry ids");
+
+        if expected
+            .get("cognition_absent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            assert!(
+                packet.get("cognition").is_none(),
+                "vector {id} cognition must be absent"
+            );
+            return;
+        }
+
+        let cognition = packet
+            .get("cognition")
+            .unwrap_or_else(|| panic!("vector {id} must carry a cognition projection"));
+        let expected_summary = json!({
+            "view": expected["view"],
+            "items": expected["items"],
+        });
+        assert_eq!(
+            cognition_summary(cognition),
+            expected_summary,
+            "vector {id} projection summary mismatch"
+        );
+
+        // Every retained assessment is the complete input record: holder,
+        // target, assessor, basis, context and probability references survive.
+        let input_records = vector_carrier_records(&entries);
+        for item in cognition["items"].as_array().into_iter().flatten() {
+            for assessment in item["assessments"].as_array().into_iter().flatten() {
+                let record_id = assessment["record_id"].as_str().expect("record id");
+                let input = input_records
+                    .iter()
+                    .find(|record| record["record_id"].as_str() == Some(record_id))
+                    .unwrap_or_else(|| panic!("vector {id} retains unknown record {record_id}"));
+                assert_eq!(
+                    assessment, input,
+                    "vector {id} must retain complete record {record_id}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cognition_assembly_shared_vectors_execute_every_id() {
+        let vectors = load_assembly_vectors();
+        let mut executed = std::collections::HashSet::new();
+        for vector in &vectors {
+            run_assembly_vector(vector);
+            let id = vector.get("id").and_then(Value::as_str).expect("vector id");
+            assert!(executed.insert(id.to_owned()), "duplicate vector id {id}");
+        }
+        assert_eq!(
+            executed.len(),
+            vectors.len(),
+            "every shared assembly vector id must be executed exactly once"
+        );
     }
 }

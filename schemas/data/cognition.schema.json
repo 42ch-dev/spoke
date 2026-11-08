@@ -1,0 +1,1461 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/cognition.schema.json",
+  "title": "CognitionRecord",
+  "description": "Closed standard cognition records for the spoke-cognition family: Belief, epistemic (knowledge/ignorance/undetermined) and Perception. Every completed standard record requires a declared foundational q for its identified cognitive assertion; a declared basis may remain uncalibrated and supplies no default probability, evidence, interval or calibration. Absent is never serialized as null. Expressed as closed variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain.",
+  "oneOf": [
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefRecord"
+    },
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/EpistemicAssessment"
+    },
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/PerceptionRecord"
+    }
+  ],
+  "definitions": {
+    "CognitionReferenceKind": {
+      "title": "CognitionReferenceKind",
+      "type": "string",
+      "enum": [
+        "knowledge_entry",
+        "timeline_event",
+        "memory_record",
+        "memory_subject",
+        "principal",
+        "world",
+        "external"
+      ],
+      "description": "Typed reference kind. `world` identifies the designated narrated-world authority and is invalid as the holder of Belief, epistemic or Perception records. Memory.subject_id is not implicitly a holder; a Memory cognition holder explicitly uses `memory_subject` when intended."
+    },
+    "CognitionReference": {
+      "title": "CognitionReference",
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "namespace"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReferenceKind"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty, opaque within kind/namespace. Identity is never established by bare id or equal text."
+        },
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "Required identity realm for every kind; for `external` it is the declared external namespace. A reference's identity is the complete (kind, namespace, id) tuple. Pure validation checks only this shape — never global uniqueness, registry resolution or I/O."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Complete namespace-bearing reference identity. Producers use one namespace only for ids assigned by the same identity authority; independent systems use distinct namespaces unless they deliberately share that authority."
+    },
+    "CognitionContext": {
+      "title": "CognitionContext",
+      "type": "object",
+      "required": [
+        "context_id"
+      ],
+      "properties": {
+        "context_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty; product-selected, no protocol default."
+        },
+        "fork_id": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ForkId",
+          "description": "Existing opaque L5 fork identity."
+        }
+      },
+      "additionalProperties": false
+    },
+    "CognitionTargetKind": {
+      "title": "CognitionTargetKind",
+      "type": "string",
+      "enum": [
+        "proposition",
+        "question",
+        "perceived_content",
+        "episode"
+      ]
+    },
+    "CognitionTarget": {
+      "title": "CognitionTarget",
+      "type": "object",
+      "required": [
+        "carrier",
+        "target_id",
+        "kind"
+      ],
+      "properties": {
+        "carrier": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference"
+        },
+        "target_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty and stable within carrier."
+        },
+        "kind": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionTargetKind"
+        },
+        "text": {
+          "type": "string",
+          "description": "Representational content, never identity."
+        },
+        "about": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionTarget",
+          "description": "Higher-order target; bounded by Belief order <= 3."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Compound target identity is (carrier, kind, target_id, assessment_context.context_id, assessment_context.fork_id). There is no target registry or lookup operation."
+    },
+    "AcquisitionPath": {
+      "title": "AcquisitionPath",
+      "type": "string",
+      "enum": [
+        "Narration",
+        "Perception",
+        "Memory",
+        "Testimony",
+        "Inference",
+        "Imagination",
+        "Unknown"
+      ],
+      "description": "Acquisition label, not actual-perception proof."
+    },
+    "AssessmentBasis": {
+      "title": "AssessmentBasis",
+      "oneOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/EvidenceBasis"
+        },
+        {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/PriorBasis"
+        }
+      ],
+      "description": "Every completed standard assessment has either a non-empty evidence basis or an explicit declared subjective/prior/model basis. A declared basis may remain uncalibrated; it supplies no default probability, evidence, interval or calibration. Raw or unassessed source material remains outside CognitionRecord and has no AssessmentBasis."
+    },
+    "EvidenceBasis": {
+      "title": "EvidenceBasis",
+      "type": "object",
+      "required": [
+        "kind",
+        "evidence"
+      ],
+      "properties": {
+        "kind": {
+          "const": "evidence",
+          "type": "string",
+          "title": "Kind"
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference"
+          },
+          "description": "Non-empty. Evidence references identify support only; they neither authenticate evidence nor grant access."
+        },
+        "acquisition": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AcquisitionPath"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PriorBasis": {
+      "title": "PriorBasis",
+      "type": "object",
+      "required": [
+        "kind",
+        "description"
+      ],
+      "properties": {
+        "kind": {
+          "const": "prior",
+          "type": "string",
+          "title": "Kind"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty declared subjective/prior/model basis."
+        },
+        "acquisition": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AcquisitionPath"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CognitionCriterion": {
+      "title": "CognitionCriterion",
+      "type": "object",
+      "required": [
+        "criterion_id"
+      ],
+      "properties": {
+        "criterion_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty stable criterion identifier."
+        },
+        "expression": {
+          "type": "string",
+          "description": "Human/product-readable rule; not executable protocol logic."
+        }
+      },
+      "additionalProperties": false
+    },
+    "UncertaintyKind": {
+      "title": "UncertaintyKind",
+      "type": "string",
+      "enum": [
+        "subjective_credible",
+        "statistical_confidence",
+        "other"
+      ]
+    },
+    "ProbabilityUncertainty": {
+      "title": "ProbabilityUncertainty",
+      "type": "object",
+      "required": [
+        "kind",
+        "lower",
+        "upper"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/UncertaintyKind"
+        },
+        "lower": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "0 <= lower <= upper <= 1 (upper bound enforced by validators; unquantified uncertainty is an absent `uncertainty`, never a fabricated zero-width interval)."
+        },
+        "upper": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "level": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1,
+          "description": "0 < level < 1 when the kind declares a nominal level."
+        },
+        "description": {
+          "type": "string",
+          "description": "Required when kind = \"other\" (enforced by validators; draft-07 conditionals are not derivable by the codegen toolchain)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Uncertainty describes the estimate; it is not another cognitive score."
+    },
+    "CognitiveAssertion": {
+      "title": "CognitiveAssertion",
+      "type": "string",
+      "enum": [
+        "belief_attribution",
+        "actual_capture",
+        "knowledge_criterion",
+        "ignorance_criterion",
+        "assessor_indeterminacy"
+      ],
+      "description": "The identified cognitive assertion q concerns; not extraction fidelity, world truth or a product prediction."
+    },
+    "CalibrationStatus": {
+      "title": "CalibrationStatus",
+      "type": "string",
+      "enum": [
+        "calibrated",
+        "uncalibrated",
+        "unknown"
+      ],
+      "description": "Declared status of an estimator/method, not proof from one record."
+    },
+    "DeclaredProbability": {
+      "title": "DeclaredProbability",
+      "type": "object",
+      "required": [
+        "value",
+        "assertion",
+        "method",
+        "calibration"
+      ],
+      "properties": {
+        "value": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Finite, 0..1. 0 and 1 are admitted only as deliberately assigned values, never label defaults."
+        },
+        "assertion": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitiveAssertion"
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty estimation/elicitation method."
+        },
+        "calibration": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CalibrationStatus"
+        },
+        "uncertainty": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/ProbabilityUncertainty"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Required foundational q. Holder, target, assessor, basis, criterion where applicable, context and effective/assessment times plus q.assertion form the complete estimand identity."
+    },
+    "AssessorRole": {
+      "title": "AssessorRole",
+      "type": "string",
+      "enum": [
+        "holder_self_report",
+        "external_judgment",
+        "product_assessment"
+      ]
+    },
+    "MetricEstimand": {
+      "title": "MetricEstimand",
+      "type": "string",
+      "enum": [
+        "holder_credence",
+        "capture",
+        "correspondence",
+        "knowledge_criterion",
+        "recording_fidelity"
+      ]
+    },
+    "CognitionMetric": {
+      "title": "CognitionMetric",
+      "type": "object",
+      "required": [
+        "value",
+        "estimand",
+        "assessor",
+        "assessor_role",
+        "basis",
+        "context",
+        "effective_at",
+        "assessed_at",
+        "method",
+        "calibration"
+      ],
+      "properties": {
+        "value": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Finite, 0..1."
+        },
+        "estimand": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/MetricEstimand"
+        },
+        "assessor": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference"
+        },
+        "assessor_role": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AssessorRole"
+        },
+        "basis": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AssessmentBasis"
+        },
+        "context": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionContext"
+        },
+        "effective_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "assessed_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "criterion": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionCriterion",
+          "description": "Required for knowledge_criterion/correspondence estimands (enforced by validators; draft-07 conditionals are not derivable by the codegen toolchain)."
+        },
+        "calibration": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CalibrationStatus"
+        },
+        "uncertainty": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/ProbabilityUncertainty"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Optional distinct metric. A metric key is present only when its distinct estimate exists; the key-to-estimand mapping is fixed and product-local measurements belong in existing extensions.<product>, not new keys."
+    },
+    "CognitionMetrics": {
+      "title": "CognitionMetrics",
+      "type": "object",
+      "properties": {
+        "b": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionMetric",
+          "description": "estimand = holder_credence. Distinct from q."
+        },
+        "p": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionMetric",
+          "description": "estimand = capture."
+        },
+        "f": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionMetric",
+          "description": "estimand = correspondence."
+        },
+        "k": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionMetric",
+          "description": "estimand = knowledge_criterion."
+        },
+        "r": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionMetric",
+          "description": "estimand = recording_fidelity."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Category-compatible metrics only (Belief permits b/r; Perception permits p/f/r; epistemic permits k/r), enforced by validators."
+    },
+    "CognitiveView": {
+      "title": "CognitiveView",
+      "type": "string",
+      "enum": [
+        "current",
+        "recorded_at"
+      ],
+      "description": "view = \"current\" is valid only in holder-side current input/authority; view = \"recorded_at\" is required in Memory and valid for explicitly supplied historical input. A projection does not change either value into an authority grant."
+    },
+    "BeliefOrder": {
+      "title": "BeliefOrder",
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "description": "Higher-order depth. order 0 is retained for the shared vocabulary; current actor Belief records normally use 1-3 and narrated order-0 facts use WorldFactRecord."
+    },
+    "Truth": {
+      "title": "Truth",
+      "type": "string",
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "truth = \"Unknown\" is not holder ignorance."
+    },
+    "BeliefAccess": {
+      "title": "BeliefAccess",
+      "type": "string",
+      "enum": [
+        "Private",
+        "Shared",
+        "Public"
+      ],
+      "description": "Distribution label, never authorization."
+    },
+    "Representation": {
+      "title": "Representation",
+      "type": "string",
+      "enum": [
+        "Explicit",
+        "Implicit"
+      ]
+    },
+    "BeliefContentType": {
+      "title": "BeliefContentType",
+      "type": "string",
+      "enum": [
+        "Location",
+        "Contents/Physical State",
+        "Identity/Relation",
+        "Epistemic",
+        "Desire/Intention",
+        "Emotion",
+        "Trait/Value",
+        "Action/Event"
+      ]
+    },
+    "BeliefContext": {
+      "title": "BeliefContext",
+      "type": "string",
+      "enum": [
+        "Deceptive",
+        "Temporal",
+        "Counterfactual",
+        "Neutral"
+      ]
+    },
+    "BeliefRecord": {
+      "title": "BeliefRecord",
+      "type": "object",
+      "required": [
+        "kind",
+        "record_id",
+        "holder",
+        "target",
+        "assessor",
+        "assessor_role",
+        "basis",
+        "assessment_context",
+        "effective_at",
+        "assessed_at",
+        "view",
+        "order",
+        "q",
+        "extensions"
+      ],
+      "properties": {
+        "kind": {
+          "const": "belief",
+          "type": "string",
+          "title": "Kind"
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty; unique within its carrier."
+        },
+        "holder": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference",
+          "description": "Actor/group; never kind = world."
+        },
+        "target": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionTarget",
+          "description": "Proposition or higher-order proposition target. For order = 1, target.about is absent; for order 2 or 3, about is present and the chain depth is consistent with order (chain never exceeds 3; enforced by validators)."
+        },
+        "assessor": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference"
+        },
+        "assessor_role": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AssessorRole"
+        },
+        "basis": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AssessmentBasis"
+        },
+        "assessment_context": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionContext"
+        },
+        "effective_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
+          "description": "When the assessed state/content applies."
+        },
+        "assessed_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
+          "description": "When this assessor made the assessment."
+        },
+        "view": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitiveView"
+        },
+        "criterion": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionCriterion"
+        },
+        "q": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/DeclaredProbability",
+          "description": "assertion = belief_attribution; attribution confidence, never holder credence b."
+        },
+        "metrics": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionMetrics"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        },
+        "order": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefOrder"
+        },
+        "truth": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/Truth"
+        },
+        "access": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefAccess"
+        },
+        "representation": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/Representation"
+        },
+        "content_type": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefContentType"
+        },
+        "source": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AcquisitionPath",
+          "description": "Acquisition label, not actual-perception proof."
+        },
+        "context": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefContext"
+        }
+      },
+      "additionalProperties": false
+    },
+    "EpistemicState": {
+      "title": "EpistemicState",
+      "type": "string",
+      "enum": [
+        "known",
+        "ignorant",
+        "undetermined"
+      ],
+      "description": "No-record is a projection state, not a fourth enum value."
+    },
+    "EpistemicAssessment": {
+      "title": "EpistemicAssessment",
+      "type": "object",
+      "required": [
+        "kind",
+        "record_id",
+        "holder",
+        "target",
+        "assessor",
+        "assessor_role",
+        "basis",
+        "assessment_context",
+        "effective_at",
+        "assessed_at",
+        "view",
+        "state",
+        "criterion",
+        "classification_policy",
+        "q",
+        "extensions"
+      ],
+      "properties": {
+        "kind": {
+          "const": "epistemic",
+          "type": "string",
+          "title": "Kind"
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty; unique within its carrier."
+        },
+        "holder": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference",
+          "description": "Actor/group; never kind = world."
+        },
+        "target": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionTarget",
+          "description": "Proposition or question."
+        },
+        "assessor": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference"
+        },
+        "assessor_role": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AssessorRole"
+        },
+        "basis": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AssessmentBasis"
+        },
+        "assessment_context": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionContext"
+        },
+        "effective_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "assessed_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "view": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitiveView"
+        },
+        "state": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/EpistemicState"
+        },
+        "criterion": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionCriterion",
+          "description": "Required binary knowledge criterion."
+        },
+        "classification_policy": {
+          "type": "object",
+          "required": [
+            "policy_id",
+            "policy_version"
+          ],
+          "properties": {
+            "policy_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "policy_version": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false,
+          "description": "Owns only categorical interpretation under the stated criterion."
+        },
+        "q": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/DeclaredProbability",
+          "description": "known uses assertion = knowledge_criterion; ignorant uses ignorance_criterion; undetermined uses assessor_indeterminacy (q supplies no bound on knowledge and does not validate any attached metric)."
+        },
+        "metrics": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionMetrics"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ObservationAccess": {
+      "title": "ObservationAccess",
+      "type": "object",
+      "properties": {
+        "position": {
+          "description": "Open: string or structured object.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "line_of_sight": {
+          "description": "Open: boolean or structured object.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "hearing_range": {
+          "description": "Open: boolean or structured object.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "modality": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": {},
+      "description": "Actual capture constraints if known; not event observability. Open: unknown keys round-trip verbatim."
+    },
+    "PerceptionRecord": {
+      "title": "PerceptionRecord",
+      "type": "object",
+      "required": [
+        "kind",
+        "record_id",
+        "holder",
+        "target",
+        "assessor",
+        "assessor_role",
+        "basis",
+        "assessment_context",
+        "effective_at",
+        "assessed_at",
+        "view",
+        "episode",
+        "content",
+        "q",
+        "extensions"
+      ],
+      "properties": {
+        "kind": {
+          "const": "perception",
+          "type": "string",
+          "title": "Kind"
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty; unique within its carrier."
+        },
+        "holder": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference",
+          "description": "Actor/group; never kind = world."
+        },
+        "target": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionTarget",
+          "description": "Perceived_content or episode; target carrier/episode identity must agree with `episode` (enforced by validators)."
+        },
+        "assessor": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference"
+        },
+        "assessor_role": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AssessorRole"
+        },
+        "basis": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AssessmentBasis"
+        },
+        "assessment_context": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionContext"
+        },
+        "effective_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "assessed_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "view": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitiveView"
+        },
+        "episode": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference",
+          "description": "timeline_event, memory_record or external episode."
+        },
+        "content": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
+          "description": "Actual experienced/captured content; key required. Partial, misleading, illusory or disbelieved content remains valid."
+        },
+        "access": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/ObservationAccess",
+          "description": "Actual capture constraints if known; not event observability."
+        },
+        "criterion": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionCriterion"
+        },
+        "q": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/DeclaredProbability",
+          "description": "assertion = actual_capture."
+        },
+        "metrics": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionMetrics",
+          "description": "Optional metrics.f separately assesses correspondence under its own criterion."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Perception is actual capture, separate from access metadata and optional correspondence. Event access alone never creates a Perception record or default p/q."
+    },
+    "WorldFactRecord": {
+      "title": "WorldFactRecord",
+      "type": "object",
+      "required": [
+        "fact_id",
+        "holder",
+        "target",
+        "order",
+        "assessment_context",
+        "effective_at",
+        "recorded_at",
+        "extensions"
+      ],
+      "properties": {
+        "fact_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "holder": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference",
+          "description": "kind = world; the designated narrated-world authority, never an actor holder."
+        },
+        "target": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionTarget",
+          "description": "Proposition."
+        },
+        "order": {
+          "const": 0,
+          "type": "integer",
+          "title": "Order"
+        },
+        "truth": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/Truth"
+        },
+        "access": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefAccess"
+        },
+        "representation": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/Representation"
+        },
+        "content_type": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefContentType"
+        },
+        "source": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AcquisitionPath"
+        },
+        "context": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefContext"
+        },
+        "assessment_context": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionContext"
+        },
+        "effective_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "recorded_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Narrated order-0 world facts; live on the designated world-state KnowledgeEntry and may be co-located only where the existing world-fact contract permits. holder still disambiguates."
+    },
+    "CognitionModule": {
+      "title": "CognitionModule",
+      "type": "object",
+      "required": [
+        "records",
+        "world_facts",
+        "extensions"
+      ],
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefRecord"
+              },
+              {
+                "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/EpistemicAssessment"
+              },
+              {
+                "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/PerceptionRecord"
+              }
+            ]
+          },
+          "description": "BeliefRecord | EpistemicAssessment | PerceptionRecord. Current actor records live on the holder's KnowledgeEntry under modules.cognition."
+        },
+        "world_facts": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/WorldFactRecord"
+          }
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "KnowledgeEntry.modules.cognition carrier. modules.belief retires as current authority; modules.mental.beliefs may contain only derivative summary/count/reference data. Other modules.mental values remain open and optional."
+    },
+    "ObservationModule": {
+      "title": "ObservationModule",
+      "type": "object",
+      "required": [
+        "observers"
+      ],
+      "properties": {
+        "observers": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference"
+          },
+          "description": "Required; [] is explicitly no could-perceive observers. Missing module = no observation metadata; observers: [] = explicit empty could-perceive set; a Perception record = actual capture. None normalizes into another."
+        },
+        "access": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/ObservationAccess"
+        }
+      },
+      "additionalProperties": false,
+      "description": "TimelineEvent.modules.observation carrier: could-perceive access metadata, never actual capture."
+    },
+    "TargetPredicate": {
+      "title": "TargetPredicate",
+      "type": "object",
+      "properties": {
+        "carrier": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference"
+        },
+        "target_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionTargetKind"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ForkIdPredicate": {
+      "title": "ForkIdPredicate",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "eq"
+          ],
+          "properties": {
+            "eq": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "absent"
+          ],
+          "properties": {
+            "absent": {
+              "const": true,
+              "type": "boolean",
+              "title": "Absent"
+            }
+          },
+          "additionalProperties": false
+        }
+      ],
+      "description": "Closed fork predicate: {eq: fork} addresses one fork identity; {absent: true} addresses the context identity whose stored fork_id is absent. An omitted fork_id is a wildcard over forked and no-fork contexts and is never an exact no-fork address."
+    },
+    "ContextPredicate": {
+      "title": "ContextPredicate",
+      "type": "object",
+      "properties": {
+        "context_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fork_id": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/ForkIdPredicate"
+        }
+      },
+      "additionalProperties": false
+    },
+    "QRange": {
+      "title": "QRange",
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Finite 0..1, inclusive."
+        },
+        "max": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Finite 0..1, inclusive; min <= max (enforced by validators)."
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1,
+      "description": "Inclusive comparisons over the declared foundational q.value; uncalibrated but declared values participate identically. At least one of min/max required (minProperties 1); min <= max is enforced by validators."
+    },
+    "TruthPredicate": {
+      "title": "TruthPredicate",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "eq"
+          ],
+          "properties": {
+            "eq": {
+              "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/Truth"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "absent"
+          ],
+          "properties": {
+            "absent": {
+              "const": true,
+              "type": "boolean",
+              "title": "Absent"
+            }
+          },
+          "additionalProperties": false
+        }
+      ],
+      "description": "Categorical predicate: {eq} matches only a present value; {absent: true} matches only an explicitly absent optional field. A required field cannot use the absent form."
+    },
+    "BeliefAccessPredicate": {
+      "title": "BeliefAccessPredicate",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "eq"
+          ],
+          "properties": {
+            "eq": {
+              "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefAccess"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "absent"
+          ],
+          "properties": {
+            "absent": {
+              "const": true,
+              "type": "boolean",
+              "title": "Absent"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RepresentationPredicate": {
+      "title": "RepresentationPredicate",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "eq"
+          ],
+          "properties": {
+            "eq": {
+              "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/Representation"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "absent"
+          ],
+          "properties": {
+            "absent": {
+              "const": true,
+              "type": "boolean",
+              "title": "Absent"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "BeliefContentTypePredicate": {
+      "title": "BeliefContentTypePredicate",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "eq"
+          ],
+          "properties": {
+            "eq": {
+              "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefContentType"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "absent"
+          ],
+          "properties": {
+            "absent": {
+              "const": true,
+              "type": "boolean",
+              "title": "Absent"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "BeliefSourcePredicate": {
+      "title": "BeliefSourcePredicate",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "eq"
+          ],
+          "properties": {
+            "eq": {
+              "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/AcquisitionPath"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "absent"
+          ],
+          "properties": {
+            "absent": {
+              "const": true,
+              "type": "boolean",
+              "title": "Absent"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "BeliefContextPredicate": {
+      "title": "BeliefContextPredicate",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "eq"
+          ],
+          "properties": {
+            "eq": {
+              "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefContext"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "absent"
+          ],
+          "properties": {
+            "absent": {
+              "const": true,
+              "type": "boolean",
+              "title": "Absent"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "CognitionFilter": {
+      "title": "CognitionFilter",
+      "type": "object",
+      "properties": {
+        "holder": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference"
+        },
+        "target": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/TargetPredicate"
+        },
+        "assessment_context": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/ContextPredicate"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "epistemic",
+            "perception",
+            "belief"
+          ]
+        },
+        "state": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/EpistemicState"
+        },
+        "q": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/QRange"
+        },
+        "order": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefOrder"
+        },
+        "truth": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/TruthPredicate"
+        },
+        "access": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefAccessPredicate"
+        },
+        "representation": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/RepresentationPredicate"
+        },
+        "content_type": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefContentTypePredicate"
+        },
+        "source": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefSourcePredicate"
+        },
+        "belief_context": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefContextPredicate"
+        }
+      },
+      "additionalProperties": false,
+      "description": "All supplied predicates are ANDed on one record with the same holder/target/assessment context; predicates never join across different targets or records. Reference predicates compare the complete (kind, namespace, id) tuple; id predicates never compare bare strings across namespaces. There is no OR, text similarity, ranking, cutoff default, optional-metric filter, or implicit source/calibration/criterion constraint in the core grammar; schema-unknown predicates and unimplemented dimensions fail the whole request as unsupported_cognition_requirement (P2 behavior)."
+    },
+    "SelectionPolicyIdentity": {
+      "title": "SelectionPolicyIdentity",
+      "type": "object",
+      "required": [
+        "policy_id",
+        "policy_version"
+      ],
+      "properties": {
+        "policy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "CognitionSelection": {
+      "title": "CognitionSelection",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "view",
+            "filter",
+            "selection_policy"
+          ],
+          "properties": {
+            "view": {
+              "const": "current",
+              "type": "string",
+              "title": "View"
+            },
+            "filter": {
+              "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionFilter"
+            },
+            "selection_policy": {
+              "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/SelectionPolicyIdentity",
+              "description": "Explicitly supplied product policy; the library verifies only that the selected id belongs to the traced inputs and supplies no policy algorithm."
+            }
+          },
+          "additionalProperties": false,
+          "title": "OneOf"
+        },
+        {
+          "type": "object",
+          "required": [
+            "view",
+            "filter"
+          ],
+          "properties": {
+            "view": {
+              "const": "recorded_at",
+              "type": "string",
+              "title": "View"
+            },
+            "filter": {
+              "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionFilter"
+            }
+          },
+          "additionalProperties": false,
+          "title": "OneOf"
+        }
+      ],
+      "description": "Scope.cognition carrier (capability-flagged; requires the negotiated spoke-cognition flag)."
+    },
+    "CognitionProjectionItem": {
+      "title": "CognitionProjectionItem",
+      "type": "object",
+      "required": [
+        "holder",
+        "target",
+        "assessment_context",
+        "presence",
+        "assessments"
+      ],
+      "properties": {
+        "holder": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionReference"
+        },
+        "target": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionTarget"
+        },
+        "assessment_context": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionContext"
+        },
+        "presence": {
+          "type": "string",
+          "enum": [
+            "assessed",
+            "no_record"
+          ],
+          "description": "A no_record item is emitted only when the filter exactly addresses holder + complete target identity + assessment context_id + an explicit fork predicate (eq or absent), and the authorized source has no record for that compound key before optional category/dimension/q predicates. An omitted fork_id is a wildcard and never produces no_record."
+        },
+        "assessments": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/BeliefRecord"
+              },
+              {
+                "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/EpistemicAssessment"
+              },
+              {
+                "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/PerceptionRecord"
+              }
+            ]
+          },
+          "description": "All retained authorized matching assessments; disagreements remain and selection does not overwrite or merge them."
+        },
+        "selection": {
+          "type": "object",
+          "required": [
+            "policy",
+            "input_record_ids",
+            "selected_record_id"
+          ],
+          "properties": {
+            "policy": {
+              "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/SelectionPolicyIdentity"
+            },
+            "input_record_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "selected_record_id": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Must be one of input_record_ids."
+            }
+          },
+          "additionalProperties": false,
+          "description": "Required iff view = current and presence = assessed; recorded-at-time projection has no current selection."
+        }
+      },
+      "additionalProperties": false
+    },
+    "CognitionProjection": {
+      "title": "CognitionProjection",
+      "type": "object",
+      "required": [
+        "view",
+        "items",
+        "extensions"
+      ],
+      "properties": {
+        "view": {
+          "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitiveView"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/cognition.schema.json#/definitions/CognitionProjectionItem"
+          }
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Attribution-preserving projection with no projection-global effective context: every item carries its complete assessment_context, and one projection may retain items from different context ids and forks selected by the filter. A valid empty selection has items: [] and infers no context. MindState.cognition and AssemblePacket.cognition carry derivative projections; a current projection does not change either value into an authority grant."
+    }
+  }
+}

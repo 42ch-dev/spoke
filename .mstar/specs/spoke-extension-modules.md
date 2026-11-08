@@ -16,7 +16,7 @@ Integrators use this ADR to choose **core**, **`modules.*`**, or **`extensions.<
 | Bag | Audience | Wire today | Examples |
 |-----|----------|------------|----------|
 | **Core fields** | All baseline hosts | On the wire — closed protocol objects | `entry_id`, `body.summary`, `canonical_name`, `schema_version` |
-| **Optional modules (`modules.*`)** | Cross-product **functional** dialects | **Optional, capability-flagged (`narrative-modules`; `l5-mind` for event observation)** — open `ModuleMap` on KnowledgeEntry + AssemblePacket + TimelineEvent | `modules.activation`, `modules.placement`, `modules.activation_trace`, `modules.mental`, `modules.belief`, `modules.observation` |
+| **Optional modules (`modules.*`)** | Cross-product **functional** dialects | **Optional, capability-flagged (`narrative-modules`; `spoke-cognition` supplies the closed cognition/observation semantics)** — open `ModuleMap` on KnowledgeEntry + AssemblePacket + TimelineEvent | `modules.activation`, `modules.placement`, `modules.activation_trace`, `modules.cognition`, `modules.mental`, `modules.observation` |
 | **`extensions.<product>`** | One product / adapter | On the wire — required `ExtensionMap` on durable data objects | `extensions.nexus.world_id`, `extensions.toy.display_hint` |
 
 ### Core fields
@@ -34,13 +34,13 @@ Cross-product **functional** dialects shared by narrative hosts that need the sa
 | `modules.activation` | Lore / knowledge activation keys and related trigger metadata (KnowledgeEntry) |
 | `modules.placement` | Packet-level injection placement hints (AssemblePacket) |
 | `modules.activation_trace` | Packet-level activation provenance (AssemblePacket) |
-| `modules.mental` | Actor / group mental-state fields, nine-field vocabulary — durable authority (KnowledgeEntry) |
-| `modules.belief` | Per-proposition belief labels, seven closed dimensions — durable authority (KnowledgeEntry) |
-| `modules.observation` | Event observation metadata — who could perceive + access constraints (TimelineEvent) |
+| `modules.cognition` | Closed standard cognition records and narrated WorldFact records; current holder/world authority (KnowledgeEntry) |
+| `modules.mental` | Actor / group open nine-field mental-state vocabulary (KnowledgeEntry); `beliefs` is derivative only |
+| `modules.observation` | Event could-perceive observers and open access metadata (TimelineEvent) |
 
 **Not a `modules.*` dialect:** Narrative Knowledge Pack **catalog metadata** (`title` / `version` / `creator`) lives on the **product transport envelope** that wraps atoms for import/export. Pack ≠ AssemblePacket (durable library interchange vs ephemeral assemble output). Do not place pack catalog fields on KnowledgeEntry or AssemblePacket `modules`. See [`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md).
 
-**Status on the wire:** optional `modules` (`ModuleMap`) is **shipped** on `KnowledgeEntry`, `AssemblePacket`, and `TimelineEvent` (event observation). The bag is **capability-flagged** (`narrative-modules` in [`spoke-protocol-layers.md`](spoke-protocol-layers.md); `l5-mind` for event-observation semantics): opt-in; absent and empty `modules` are valid; baseline hosts need not emit or parse it. Inner dialect field tables stay **handbook-defined** (open bag — unknown module keys round-trip). Schema fragment: [`schemas/common/common.schema.json#/definitions/ModuleMap`](../../schemas/common/common.schema.json).
+**Status on the wire:** optional `modules` (`ModuleMap`) is **shipped** on `KnowledgeEntry`, `AssemblePacket`, and `TimelineEvent` (event observation). The bag is **capability-flagged** (`narrative-modules` in [`spoke-protocol-layers.md`](spoke-protocol-layers.md); `spoke-cognition` supplies the closed cognition and observation semantics): opt-in; absent and empty `modules` are valid; baseline hosts need not emit or parse it. Unknown module keys round-trip, while `modules.cognition` itself is a closed dialect. Schema fragment: [`schemas/common/common.schema.json#/definitions/ModuleMap`](../../schemas/common/common.schema.json).
 
 ### `extensions.<product>`
 
@@ -113,9 +113,9 @@ Empty `extensions: {}` is valid. Absent or empty `modules` is valid. Core fields
 | Lore activation keys shared across narrative hosts | `modules.activation` (inner shape handbook-defined) |
 | Portable Knowledge Pack catalog metadata | Product transport envelope (not `modules.*` on KE / AssemblePacket) |
 | Packet placement / activation provenance | `modules.placement` / `modules.activation_trace` (inner shapes handbook-defined) |
-| Actor / group mental-state fields (nine fields) | `modules.mental` (holder KnowledgeEntry; inner shape handbook-defined; `narrative-modules`) |
-| Per-proposition belief labels (seven dimensions) | `modules.belief` (holder KnowledgeEntry; inner shape handbook-defined; `narrative-modules`) |
-| Event observation metadata (who perceived an event + access constraints) | `modules.observation` (`TimelineEvent.modules`; inner shape handbook-defined; `narrative-modules` bag, `l5-mind` semantics) |
+| Standard Belief / epistemic / actual-Perception records and WorldFact | `modules.cognition` (holder or designated world-state KnowledgeEntry; closed shapes; `narrative-modules` + `spoke-cognition`) |
+| Other actor / group mental-state fields (nine fields) | `modules.mental` (holder KnowledgeEntry; inner shape handbook-defined; `narrative-modules`) |
+| Event could-perceive metadata and access constraints | `modules.observation` (`TimelineEvent.modules`; closed observer shape with open access keys; `narrative-modules` + `spoke-cognition`) |
 | Product world id, UI hint, adapter DTO | `extensions.<your-product>` |
 | Host roles / owned namespaces | `HostCapabilityManifest` core fields (`roles`, `namespaces[]`) |
 | Deployment metadata on a host | `HostCapabilityManifest.extensions` |
@@ -133,5 +133,5 @@ Empty `extensions: {}` is valid. Absent or empty `modules` is valid. Core fields
 | Lore-activation handbook | `modules.activation` field tables (sibling handbook) |
 | Narrative Knowledge Pack handbook | KE/Relation bundle + product envelope catalog metadata; Seed vs Pool (sibling handbook) |
 | Assemble module recipes handbook | `modules.placement` + `modules.activation_trace` (sibling handbook) |
-| Mental-state handbook | `modules.mental` / `modules.belief` / `modules.observation` field tables (sibling handbook) |
-| l5-mind ADR | `l5-mind` flag; `MindState` naming, placement, ownership boundary |
+| Mental-state handbook | `modules.cognition` / `modules.mental` / `modules.observation` vocabulary and checker outputs |
+| Cognition family ADR / data contract | [`spoke-cognition-family-adr.md`](spoke-cognition-family-adr.md); [`spoke-cognition-data-contract.md`](spoke-cognition-data-contract.md) |

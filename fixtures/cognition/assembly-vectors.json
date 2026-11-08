@@ -1,0 +1,2660 @@
+{
+  "description": "P2/T2 KE authorization and attribution-preserving assembly vectors shared by TS and Rust. Every vector runs through the public operation path with a recording baseline port: authorization/disclosure first, cognition second, and an unavailable historical view rejects before any source output, checker or finding persistence.",
+  "vectors": [
+    {
+      "id": "authorization-private-holder-records-withheld",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "Mira Vale",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_private",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          },
+          "owner": "kb_mira",
+          "disclosure": "owner-private"
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "viewpoint": "kb_rival",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_first_input",
+            "policy_version": "v1"
+          }
+        }
+      },
+      "policy_selects": "first_input",
+      "expected": {
+        "view": "current",
+        "items": [],
+        "entry_ids": []
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "authorization-own-viewpoint-records-visible",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "Mira Vale",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_private",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          },
+          "owner": "kb_mira",
+          "disclosure": "owner-private"
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "viewpoint": "kb_mira",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_first_input",
+            "policy_version": "v1"
+          }
+        }
+      },
+      "policy_selects": "first_input",
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": [
+              "knowledge_entry",
+              "world_a",
+              "kb_mira"
+            ],
+            "target": [
+              [
+                "knowledge_entry",
+                "world_a",
+                "kb_box"
+              ],
+              "proposition",
+              "t_marble"
+            ],
+            "context": [
+              "ctx_main",
+              "fork_alpha"
+            ],
+            "assessments": [
+              "rec_private"
+            ],
+            "selected": "rec_private",
+            "policy": [
+              "pol_t2_first_input",
+              "v1"
+            ],
+            "input_record_ids": [
+              "rec_private"
+            ]
+          }
+        ],
+        "entry_ids": [
+          "kb_mira"
+        ]
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "multi-context-retains-every-authorized-item",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "Mira Vale",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_nofork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_alt_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_alt",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            },
+            "target": {
+              "carrier": {
+                "kind": "knowledge_entry",
+                "namespace": "world_a",
+                "id": "kb_box"
+              },
+              "target_id": "t_marble",
+              "kind": "proposition"
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_first_input",
+            "policy_version": "v1"
+          }
+        }
+      },
+      "policy_selects": "first_input",
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": [
+              "knowledge_entry",
+              "world_a",
+              "kb_mira"
+            ],
+            "target": [
+              [
+                "knowledge_entry",
+                "world_a",
+                "kb_box"
+              ],
+              "proposition",
+              "t_marble"
+            ],
+            "context": [
+              "ctx_main",
+              "fork_alpha"
+            ],
+            "assessments": [
+              "rec_ctx_main_fork"
+            ],
+            "selected": "rec_ctx_main_fork",
+            "policy": [
+              "pol_t2_first_input",
+              "v1"
+            ],
+            "input_record_ids": [
+              "rec_ctx_main_fork"
+            ]
+          },
+          {
+            "presence": "assessed",
+            "holder": [
+              "knowledge_entry",
+              "world_a",
+              "kb_mira"
+            ],
+            "target": [
+              [
+                "knowledge_entry",
+                "world_a",
+                "kb_box"
+              ],
+              "proposition",
+              "t_marble"
+            ],
+            "context": [
+              "ctx_main",
+              null
+            ],
+            "assessments": [
+              "rec_ctx_main_nofork"
+            ],
+            "selected": "rec_ctx_main_nofork",
+            "policy": [
+              "pol_t2_first_input",
+              "v1"
+            ],
+            "input_record_ids": [
+              "rec_ctx_main_nofork"
+            ]
+          },
+          {
+            "presence": "assessed",
+            "holder": [
+              "knowledge_entry",
+              "world_a",
+              "kb_mira"
+            ],
+            "target": [
+              [
+                "knowledge_entry",
+                "world_a",
+                "kb_box"
+              ],
+              "proposition",
+              "t_marble"
+            ],
+            "context": [
+              "ctx_alt",
+              "fork_alpha"
+            ],
+            "assessments": [
+              "rec_ctx_alt_fork"
+            ],
+            "selected": "rec_ctx_alt_fork",
+            "policy": [
+              "pol_t2_first_input",
+              "v1"
+            ],
+            "input_record_ids": [
+              "rec_ctx_alt_fork"
+            ]
+          }
+        ],
+        "entry_ids": [
+          "kb_mira"
+        ]
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "current-view-policy-trace-retains-disagreement",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "Mira Vale",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_disagreement_a",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.8,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_disagreement_b",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_2"
+                  },
+                  "assessor_role": "external_judgment",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T10:00:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "Unknown",
+                  "q": {
+                    "value": 0.55,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_majority",
+            "policy_version": "v2"
+          }
+        }
+      },
+      "policy_selects": "rec_disagreement_b",
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": [
+              "knowledge_entry",
+              "world_a",
+              "kb_mira"
+            ],
+            "target": [
+              [
+                "knowledge_entry",
+                "world_a",
+                "kb_box"
+              ],
+              "proposition",
+              "t_marble"
+            ],
+            "context": [
+              "ctx_main",
+              "fork_alpha"
+            ],
+            "assessments": [
+              "rec_disagreement_a",
+              "rec_disagreement_b"
+            ],
+            "selected": "rec_disagreement_b",
+            "policy": [
+              "pol_t2_majority",
+              "v2"
+            ],
+            "input_record_ids": [
+              "rec_disagreement_a",
+              "rec_disagreement_b"
+            ]
+          }
+        ],
+        "entry_ids": [
+          "kb_mira"
+        ]
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "no-record-exact-source-address",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "Mira Vale",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_nofork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_alt_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_alt",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            },
+            "target": {
+              "carrier": {
+                "kind": "knowledge_entry",
+                "namespace": "world_a",
+                "id": "kb_box"
+              },
+              "target_id": "t_absent",
+              "kind": "proposition"
+            },
+            "assessment_context": {
+              "context_id": "ctx_main",
+              "fork_id": {
+                "eq": "fork_alpha"
+              }
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_first_input",
+            "policy_version": "v1"
+          }
+        }
+      },
+      "policy_selects": null,
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "no_record",
+            "holder": [
+              "knowledge_entry",
+              "world_a",
+              "kb_mira"
+            ],
+            "target": [
+              [
+                "knowledge_entry",
+                "world_a",
+                "kb_box"
+              ],
+              "proposition",
+              "t_absent"
+            ],
+            "context": [
+              "ctx_main",
+              "fork_alpha"
+            ],
+            "assessments": [],
+            "selected": null,
+            "policy": null,
+            "input_record_ids": null
+          }
+        ],
+        "entry_ids": [
+          "kb_mira"
+        ]
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "exact-address-optional-predicate-yields-no-item",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "Mira Vale",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_nofork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_alt_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_alt",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            },
+            "target": {
+              "carrier": {
+                "kind": "knowledge_entry",
+                "namespace": "world_a",
+                "id": "kb_box"
+              },
+              "target_id": "t_marble",
+              "kind": "proposition"
+            },
+            "assessment_context": {
+              "context_id": "ctx_main",
+              "fork_id": {
+                "eq": "fork_alpha"
+              }
+            },
+            "q": {
+              "max": 0.1
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_first_input",
+            "policy_version": "v1"
+          }
+        }
+      },
+      "policy_selects": null,
+      "expected": {
+        "view": "current",
+        "items": [],
+        "entry_ids": [
+          "kb_mira"
+        ]
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "wildcard-omitted-fork-empty-projection",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "Mira Vale",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_nofork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_alt_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_alt",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            },
+            "target": {
+              "carrier": {
+                "kind": "knowledge_entry",
+                "namespace": "world_a",
+                "id": "kb_box"
+              },
+              "target_id": "t_marble",
+              "kind": "proposition"
+            },
+            "assessment_context": {
+              "context_id": "ctx_unknown"
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_first_input",
+            "policy_version": "v1"
+          }
+        }
+      },
+      "policy_selects": null,
+      "expected": {
+        "view": "current",
+        "items": [],
+        "entry_ids": [
+          "kb_mira"
+        ]
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "recorded-at-view-unavailable-rejects-before-source-output",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "Mira Vale",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_nofork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_alt_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_alt",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "cognition": {
+          "view": "recorded_at",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            }
+          }
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "INVALID_INPUT",
+          "reason": "unsupported_cognition_requirement",
+          "field": "scope.cognition.view"
+        }
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 0,
+        "listTimelineEvents": 0,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "invalid-current-carrier-module-rejected",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "Mira Vale",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_bad_view",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "recorded_at",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_first_input",
+            "policy_version": "v1"
+          }
+        }
+      },
+      "policy_selects": "first_input",
+      "expected": {
+        "error": {
+          "code": "INVALID_INPUT",
+          "reason": "invalid_cognition_record",
+          "field": "modules.cognition"
+        }
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "baseline-absent-cognition-unchanged",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "Mira Vale",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_main_nofork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                },
+                {
+                  "kind": "belief",
+                  "record_id": "rec_ctx_alt_fork",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_alt",
+                    "fork_id": "fork_alpha"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1"
+      },
+      "expected": {
+        "cognition_absent": true,
+        "entry_ids": [
+          "kb_mira"
+        ]
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "multi-entry-nonzero-limit-projects-authorized-source-set",
+      "operation": "assemble",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_a",
+          "entry_type": "character",
+          "canonical_name": "kb_a",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_a",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_a"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_a"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        },
+        {
+          "schema_version": 1,
+          "entry_id": "kb_b",
+          "entry_type": "character",
+          "canonical_name": "kb_b",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_b",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_b"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_b"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.8,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        },
+        {
+          "schema_version": 1,
+          "entry_id": "kb_c",
+          "entry_type": "character",
+          "canonical_name": "kb_c",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_c",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_c"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_c"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.7,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "q": {
+              "min": 0.5
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_first_input",
+            "policy_version": "v1"
+          }
+        }
+      },
+      "max_entries": 2,
+      "policy_selects": "first_input",
+      "expected": {
+        "view": "current",
+        "items": [
+          {
+            "presence": "assessed",
+            "holder": [
+              "knowledge_entry",
+              "world_a",
+              "kb_a"
+            ],
+            "target": [
+              [
+                "knowledge_entry",
+                "world_a",
+                "kb_box"
+              ],
+              "proposition",
+              "t_marble"
+            ],
+            "context": [
+              "ctx_a",
+              null
+            ],
+            "assessments": [
+              "rec_a"
+            ],
+            "selected": "rec_a",
+            "policy": [
+              "pol_t2_first_input",
+              "v1"
+            ],
+            "input_record_ids": [
+              "rec_a"
+            ]
+          },
+          {
+            "presence": "assessed",
+            "holder": [
+              "knowledge_entry",
+              "world_a",
+              "kb_b"
+            ],
+            "target": [
+              [
+                "knowledge_entry",
+                "world_a",
+                "kb_box"
+              ],
+              "proposition",
+              "t_marble"
+            ],
+            "context": [
+              "ctx_b",
+              null
+            ],
+            "assessments": [
+              "rec_b"
+            ],
+            "selected": "rec_b",
+            "policy": [
+              "pol_t2_first_input",
+              "v1"
+            ],
+            "input_record_ids": [
+              "rec_b"
+            ]
+          },
+          {
+            "presence": "assessed",
+            "holder": [
+              "knowledge_entry",
+              "world_a",
+              "kb_c"
+            ],
+            "target": [
+              [
+                "knowledge_entry",
+                "world_a",
+                "kb_box"
+              ],
+              "proposition",
+              "t_marble"
+            ],
+            "context": [
+              "ctx_c",
+              null
+            ],
+            "assessments": [
+              "rec_c"
+            ],
+            "selected": "rec_c",
+            "policy": [
+              "pol_t2_first_input",
+              "v1"
+            ],
+            "input_record_ids": [
+              "rec_c"
+            ]
+          }
+        ],
+        "entry_ids": [
+          "kb_a",
+          "kb_b"
+        ]
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    },
+    {
+      "id": "check-filters-overbroad-entries-before-checker",
+      "operation": "check",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "kb_mira",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_mira_ctx_main",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        },
+        {
+          "schema_version": 1,
+          "entry_id": "kb_theo",
+          "entry_type": "character",
+          "canonical_name": "kb_theo",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_theo_ctx_alt",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_theo"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_alt"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_theo"
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_first_input",
+            "policy_version": "v1"
+          }
+        }
+      },
+      "expected": {
+        "checker_entry_ids": [
+          "kb_theo"
+        ],
+        "findings_persisted": 0
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 1,
+        "checker": 1
+      }
+    },
+    {
+      "id": "check-authorization-withholds-before-cognition",
+      "operation": "check",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "kb_mira",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_private_check",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          },
+          "owner": "kb_mira",
+          "disclosure": "owner-private"
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "viewpoint": "kb_rival",
+        "cognition": {
+          "view": "current",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            }
+          },
+          "selection_policy": {
+            "policy_id": "pol_t2_first_input",
+            "policy_version": "v1"
+          }
+        }
+      },
+      "expected": {
+        "checker_entry_ids": [],
+        "findings_persisted": 0
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 1,
+        "listTimelineEvents": 1,
+        "listRules": 0,
+        "putFindings": 1,
+        "checker": 1
+      }
+    },
+    {
+      "id": "check-recorded-at-unavailable-rejects-before-checker",
+      "operation": "check",
+      "entries": [
+        {
+          "schema_version": 1,
+          "entry_id": "kb_mira",
+          "entry_type": "character",
+          "canonical_name": "kb_mira",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "modules": {
+            "cognition": {
+              "records": [
+                {
+                  "kind": "belief",
+                  "record_id": "rec_check_recorded",
+                  "holder": {
+                    "kind": "knowledge_entry",
+                    "namespace": "world_a",
+                    "id": "kb_mira"
+                  },
+                  "target": {
+                    "carrier": {
+                      "kind": "knowledge_entry",
+                      "namespace": "world_a",
+                      "id": "kb_box"
+                    },
+                    "target_id": "t_marble",
+                    "kind": "proposition",
+                    "text": "Mira hides the marble"
+                  },
+                  "assessor": {
+                    "kind": "principal",
+                    "namespace": "world_a",
+                    "id": "assessor_self"
+                  },
+                  "assessor_role": "holder_self_report",
+                  "basis": {
+                    "kind": "evidence",
+                    "evidence": [
+                      {
+                        "kind": "knowledge_entry",
+                        "namespace": "world_a",
+                        "id": "kb_box"
+                      }
+                    ]
+                  },
+                  "assessment_context": {
+                    "context_id": "ctx_main"
+                  },
+                  "effective_at": "2026-07-23T09:00:00Z",
+                  "assessed_at": "2026-07-23T09:05:00Z",
+                  "view": "current",
+                  "order": 1,
+                  "truth": "True",
+                  "q": {
+                    "value": 0.9,
+                    "assertion": "belief_attribution",
+                    "method": "direct_report",
+                    "calibration": "uncalibrated"
+                  },
+                  "extensions": {}
+                }
+              ],
+              "world_facts": [],
+              "extensions": {}
+            }
+          }
+        }
+      ],
+      "scope": {
+        "scope_id": "world_1",
+        "cognition": {
+          "view": "recorded_at",
+          "filter": {
+            "holder": {
+              "kind": "knowledge_entry",
+              "namespace": "world_a",
+              "id": "kb_mira"
+            }
+          }
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "INVALID_INPUT",
+          "reason": "unsupported_cognition_requirement",
+          "field": "scope.cognition.view"
+        }
+      },
+      "expected_calls": {
+        "listKnowledgeEntries": 0,
+        "listTimelineEvents": 0,
+        "listRules": 0,
+        "putFindings": 0,
+        "checker": 0
+      }
+    }
+  ]
+}

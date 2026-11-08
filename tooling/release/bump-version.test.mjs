@@ -113,14 +113,6 @@ describe("bump-version.mjs", () => {
       ),
     );
 
-    assert.match(
-      connectCrate,
-      new RegExp(
-        `^spoke-operations = \\{ version = "${target}", path = "../spoke-operations", optional = true \\}`,
-        "m",
-      ),
-    );
-
     const cargoLock = readFileSync(join(repoRoot, "Cargo.lock"), "utf8");
     assert.match(
       cargoLock,

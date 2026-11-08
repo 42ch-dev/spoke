@@ -72,6 +72,7 @@ use spoke_schemas::{
     ProjectResponse, Relation, Rule, Scope, TimelineEvent,
 };
 
+use crate::cognition::WIRE_INVALID_INPUT;
 use crate::core::{
     check_response_correlation, derive_peer_id_from_ed25519_pubkey, dispatch_allowed, is_allowlisted,
     sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, CoreError, Correlation,
@@ -372,6 +373,19 @@ pub(crate) fn map_error_envelope(error: &WireErrorEnvelope) -> SpokeReject {
     if error.code == EnvelopeAuthError::CODE {
         return SpokeReject {
             code: SpokeRejectCode::InternalError,
+            message: error.message.clone(),
+            details: Some(details),
+        };
+    }
+    // Dispatch-layer validation verdict (consumer contract §2.2): the host
+    // spelled the wire code in the Connect dispatch vocabulary, which is not
+    // a `SpokeRejectCode` literal. Map it to the internal `INVALID_INPUT`
+    // spelling and preserve the verdict's `details` verbatim — the generic
+    // unknown-code branch would replace the message and drop `reason`/
+    // `field`.
+    if error.code == WIRE_INVALID_INPUT {
+        return SpokeReject {
+            code: SpokeRejectCode::InvalidInput,
             message: error.message.clone(),
             details: Some(details),
         };
@@ -2200,5 +2214,136 @@ mod tests {
         }
         // Exhaustion makes the session unusable (no wrap-around) — Closed.
         assert_eq!(adapter.state(), RemoteAdapterState::Closed);
+    }
+
+    // ── Cognition capability over a real session (consumer contract §2) ────
+
+    /// Dial a real loopback session where BOTH signed hellos declare
+    /// `capabilities`. The host serves no ports face: every cognition case
+    /// here is a rejection or a guard pass-through, so nothing can be served
+    /// accidentally.
+    async fn dial_cognition_session(
+        capabilities: &[&str],
+    ) -> (Arc<RemoteAdapter>, Arc<crate::remote::responder::ConnectResponder>) {
+        use crate::remote::responder::{connect_responder, ConnectResponderOptions};
+
+        let pair = loopback_transport_pair();
+        let host_seed = [0x11u8; 32];
+        let client_seed = [0x22u8; 32];
+        let host_pubkey = ed25519_dalek::SigningKey::from_bytes(&host_seed)
+            .verifying_key()
+            .to_bytes();
+        let client_pubkey = ed25519_dalek::SigningKey::from_bytes(&client_seed)
+            .verifying_key()
+            .to_bytes();
+        let host_peer = derive_peer_id_from_ed25519_pubkey(&host_pubkey);
+        let client_peer = derive_peer_id_from_ed25519_pubkey(&client_pubkey);
+        let manifest = |host_id: &str| -> HostCapabilityManifest {
+            serde_json::from_value(json!({
+                "schema_version": 1,
+                "host_id": host_id,
+                "roles": ["data-store"],
+                "capabilities": capabilities,
+                "namespaces": ["world_a"],
+                "extensions": {},
+            }))
+            .expect("valid manifest")
+        };
+        let host = connect_responder(ConnectResponderOptions {
+            transport: Arc::new(pair.server),
+            identity: RemoteIdentity { seed: host_seed },
+            manifest: manifest("cognition-host"),
+            allowlist: vec![client_peer.clone()],
+            peer_keys: HashMap::from([(client_peer, client_pubkey)]),
+            ports: None,
+            invoke_timeout_ms: None,
+        })
+        .await;
+        let adapter = connect_remote_adapter(RemoteAdapterOptions {
+            transport: Arc::new(pair.client),
+            local_identity: RemoteIdentity { seed: client_seed },
+            local_manifest: manifest("cognition-client"),
+            remote_pubkey: host_pubkey,
+            allowlist: vec![host_peer],
+            invoke_timeout_ms: None,
+            capability_token: None,
+        })
+        .await
+        .expect("dial");
+        (adapter, host)
+    }
+
+    fn cognition_scope_payload() -> Value {
+        json!({
+            "scope": {
+                "scope_id": "world_1",
+                "cognition": {
+                    "view": "current",
+                    "filter": {"q_min": 0.5},
+                    "selection_policy": {"policy_id": "policy_t3", "policy_version": "v1"},
+                },
+            },
+        })
+    }
+
+    /// The client-visible half of the raw requirement rejection: the complete
+    /// §2.2 envelope crosses the session and survives the adapter mapping.
+    #[tokio::test]
+    async fn cognition_raw_unsupported_requirement_crosses_the_session() {
+        let (adapter, host) =
+            dial_cognition_session(&["spoke-baseline", "spoke-cognition"]).await;
+        let result: SpokeResult<Value> = adapter
+            .invoke_mapped(
+                "port.scope.list_knowledge_entries",
+                cognition_scope_payload(),
+            )
+            .await;
+        match result {
+            SpokeResult::Ok(value) => panic!("must reject, served {value}"),
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                let details = reject.details.as_ref().expect("details present");
+                assert_eq!(
+                    details.get("reason").and_then(Value::as_str),
+                    Some("unsupported_cognition_requirement")
+                );
+                assert_eq!(
+                    details.get("field").and_then(Value::as_str),
+                    Some("scope.cognition.filter.q_min")
+                );
+            }
+        }
+        adapter.close();
+        host.close();
+    }
+
+    /// A cognition-bearing request on a session whose both-sided intersection
+    /// lacks the family answers the existing `capability_missing` branch, and
+    /// the adapter maps it through the D7 row with the wire code preserved.
+    #[tokio::test]
+    async fn cognition_requirement_without_the_family_maps_to_port_missing() {
+        let (adapter, host) = dial_cognition_session(&["spoke-baseline"]).await;
+        let result: SpokeResult<Value> = adapter
+            .invoke_mapped(
+                "port.scope.list_knowledge_entries",
+                cognition_scope_payload(),
+            )
+            .await;
+        match result {
+            SpokeResult::Ok(value) => panic!("must reject, served {value}"),
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("wire_code"))
+                        .and_then(Value::as_str),
+                    Some("capability_missing")
+                );
+            }
+        }
+        adapter.close();
+        host.close();
     }
 }

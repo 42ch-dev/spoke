@@ -21,6 +21,10 @@ pub struct CandidateMaterial<'a> {
     pub text: &'a str,
     /// Whether `proposed.content.structured` is present.
     pub has_structured_content: bool,
+    /// Whether `proposed.content.cognition` carries at least one recorded
+    /// assessment: recorded-at-time cognition counts as content exactly like
+    /// `structured` (§6.7), while an explicitly present empty array does not.
+    pub has_cognition_content: bool,
     /// Optional event time carried by the candidate (§6.7).
     pub occurred_at: Option<DateTime<Utc>>,
     /// `provenance.source_context_ids` length.
@@ -29,14 +33,28 @@ pub struct CandidateMaterial<'a> {
     pub anchor_count: usize,
 }
 
+/// Whether supplied Content carries actual recorded cognition.
+///
+/// Only a non-empty `cognition` array is content (§6.1, §6.7). An explicitly
+/// present empty array remains part of the wire value — admission measures it —
+/// but it records no assessment, so it must not keep a contentless candidate
+/// alive or count as retained cognition.
+pub fn content_has_cognition(content: &serde_json::Value) -> bool {
+    content
+        .get("cognition")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|records| !records.is_empty())
+}
+
 /// Advisory classification for one candidate (§6.7).
 ///
 /// The reviewer decision remains authoritative; this function never mutates
 /// candidate state and never auto-promotes.
 ///
 /// Policy, evaluated in this fixed order:
-/// 1. no text and no structured content → `drop` (`empty_content`);
-/// 2. text-only candidate below [`MIN_TEXT_BYTES`] → `drop` (`insufficient_text`);
+/// 1. no text, no structured content and no cognition → `drop` (`empty_content`);
+/// 2. text-only candidate below [`MIN_TEXT_BYTES`] with neither structured
+///    content nor cognition → `drop` (`insufficient_text`);
 /// 3. text at or above [`FRAGMENT_TEXT_BYTES`] → `fragment` (`oversized_content`,
 ///    plus `multiple_claims` when four or more sentence runs are present);
 /// 4. otherwise → `promote`, annotated with the kind class and the provenance
@@ -50,11 +68,13 @@ pub fn classify_candidate(material: &CandidateMaterial<'_>) -> Classification {
     } else {
         "product_kind"
     };
+    let has_content =
+        material.has_structured_content || material.has_cognition_content;
 
-    if material.text.trim().is_empty() && !material.has_structured_content {
+    if material.text.trim().is_empty() && !has_content {
         return classified(Disposition::Drop, vec!["empty_content"], 0.0);
     }
-    if material.text.len() < MIN_TEXT_BYTES && !material.has_structured_content {
+    if material.text.len() < MIN_TEXT_BYTES && !has_content {
         return classified(Disposition::Drop, vec!["insufficient_text", kind_code], 0.2);
     }
     if material.text.len() >= FRAGMENT_TEXT_BYTES {
@@ -108,6 +128,7 @@ mod tests {
             kind,
             text,
             has_structured_content: false,
+            has_cognition_content: false,
             occurred_at: None,
             source_context_count: 0,
             anchor_count: 0,
@@ -155,6 +176,59 @@ mod tests {
             .rationale_codes
             .iter()
             .any(|code| code == "insufficient_text"));
+    }
+
+    #[test]
+    fn cognition_only_content_is_promoted() {
+        // Recorded-at-time cognition counts as content: a candidate with no
+        // text and no structured value still carries retainable material.
+        let mut input = material("note", "   \n\t ");
+        input.has_cognition_content = true;
+        let classification = classify_candidate(&input);
+        assert_eq!(classification.disposition, Disposition::Promote);
+        assert!(!classification
+            .rationale_codes
+            .iter()
+            .any(|code| code == "empty_content"));
+    }
+
+    #[test]
+    fn short_text_with_cognition_is_promoted() {
+        let mut input = material("event", "key");
+        input.has_cognition_content = true;
+        let classification = classify_candidate(&input);
+        assert_eq!(classification.disposition, Disposition::Promote);
+        assert!(!classification
+            .rationale_codes
+            .iter()
+            .any(|code| code == "insufficient_text"));
+    }
+
+    #[test]
+    fn empty_without_cognition_still_drops() {
+        // Cognition presence is load-bearing for the drop decision: with all
+        // three carriers absent the candidate still drops as empty.
+        let classification = classify_candidate(&material("note", "   \n\t "));
+        assert_eq!(classification.disposition, Disposition::Drop);
+        assert_eq!(
+            classification.rationale_codes,
+            vec!["empty_content".to_string()]
+        );
+    }
+
+    #[test]
+    fn explicit_empty_cognition_is_not_content() {
+        // An explicitly present empty array is preserved on the wire (admission
+        // measures it) but records no assessment, so it cannot keep a
+        // contentless candidate alive.
+        assert!(!content_has_cognition(&json!({ "text": "   \n\t " })));
+        assert!(!content_has_cognition(
+            &json!({ "text": "   \n\t ", "cognition": [] })
+        ));
+        assert!(content_has_cognition(&json!({
+            "text": "   \n\t ",
+            "cognition": [{ "kind": "belief" }]
+        })));
     }
 
     #[test]

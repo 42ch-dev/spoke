@@ -1924,6 +1924,140 @@ async fn profile_update_stales_the_pinned_reflection() {
     assert_eq!(wire(&listed)["reflections"][0]["stale"], true);
 }
 
+/// §6.9/§7 fail-closed pins: a reflection whose pinned `selection` or
+/// `cognition_filter` cannot be decoded can never reproduce its basis, so the
+/// existing `stale` member reports it instead of reading fresh — while a valid
+/// pin keeps its current path. The pins are typed members of the list row, so a
+/// corrupt pin surfaces through `reflections.state`, whose `stale` does not
+/// embed them.
+#[tokio::test]
+async fn unreadable_pinned_reflection_members_read_stale() {
+    let path = temp_state_path("reflection-corrupt-pins");
+    let provider = seeded(SqliteMemoryProvider::open(&path).expect("store opens"));
+    provider.provision_profile(
+        SPACE,
+        json!({
+            "schema_version": 1,
+            "space_id": SPACE,
+            "subject_id": SUBJECT,
+            "profile_kind": "personality",
+            "document": {},
+            "revision": 1,
+        }),
+    );
+    provider.provision_record(
+        SPACE,
+        stored_record(
+            "rec_pin",
+            "fact",
+            "2026-07-23T06:00:00Z",
+            context_scope(CONTEXT_SELECTION),
+            &[CONTEXT_SELECTION],
+            json!({
+                "text": "source rec_pin",
+                "cognition": [belief_at("bel_alice", "alice", 0.9)],
+            }),
+        ),
+    );
+    let alice = holder_filter("alice", 0.5);
+    let operator = principal(OPERATOR);
+
+    let state_of = |cognition: &Value| {
+        provider.get_reflection_state(
+            &operator,
+            serde_json::from_value::<MemoryReflectionsStateRequest>(json!({
+                "space_id": SPACE,
+                "subject_id": SUBJECT,
+                "selection": context_selection(),
+                "cognition_filter": cognition,
+            }))
+            .expect("state request"),
+        )
+    };
+    let current = wire(&expect_ok(state_of(&alice).await));
+    assert_eq!(current["basis"]["record_count"], json!(1), "{current}");
+    assert_eq!(current["stale"], json!(false), "a valid pin is current");
+    expect_ok(
+        provider
+            .generate_reflection(
+                &operator,
+                serde_json::from_value::<MemoryReflectionsGenerateRequest>(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": context_selection(),
+                    "cognition_filter": alice.clone(),
+                    "expected_state_digest": current["state_digest"],
+                    "idempotency_key": "gen-pin-alice",
+                }))
+                .expect("generate request"),
+            )
+            .await,
+    );
+    provider.run_worker();
+
+    // Positive controls: before any pin is corrupted, the published reflection
+    // reads fresh through both the list row and the state member.
+    let listed = wire(&expect_ok(
+        provider
+            .list_reflections(
+                &operator,
+                serde_json::from_value::<MemoryReflectionsListRequest>(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "limit": 10,
+                }))
+                .expect("list request"),
+            )
+            .await,
+    ));
+    assert_eq!(
+        listed["reflections"].as_array().expect("reflections").len(),
+        1,
+        "{listed}"
+    );
+    assert_eq!(listed["reflections"][0]["stale"], json!(false), "{listed}");
+    assert_eq!(wire(&expect_ok(state_of(&alice).await))["stale"], json!(false));
+
+    // The list row embeds the pinned members, so it cannot encode a corrupt
+    // pin; `reflections.state` carries the fail-closed verdict instead.
+    let valid_bytes = stored_document(&path);
+    let reflection_id = {
+        let document: Value =
+            serde_json::from_str(&valid_bytes).expect("stored document is json");
+        document["spaces"][SPACE]["reflections"]
+            .as_object()
+            .expect("stored reflections")
+            .keys()
+            .next()
+            .expect("the published reflection")
+            .clone()
+    };
+    let corrupt_member = |member: &str, value: Value| {
+        let mut document: Value =
+            serde_json::from_str(&valid_bytes).expect("stored document is json");
+        document["spaces"][SPACE]["reflections"][reflection_id.as_str()][member] = value;
+        write_stored_document(
+            &path,
+            &serde_json::to_string(&document).expect("corrupt document serializes"),
+        );
+    };
+
+    // Exactly one stored member is corrupted per round.
+    corrupt_member("selection", json!({ "kinds": 42 }));
+    assert_eq!(
+        wire(&expect_ok(state_of(&alice).await))["stale"],
+        json!(true),
+        "an unreadable pinned selection is stale"
+    );
+
+    corrupt_member("cognition_filter", json!({ "q": { "min": "high" } }));
+    assert_eq!(
+        wire(&expect_ok(state_of(&alice).await))["stale"],
+        json!(true),
+        "an unreadable pinned cognition filter is stale"
+    );
+}
+
 #[tokio::test]
 async fn reflection_generation_admission_gates_fail_closed() {
     let provider = provider();

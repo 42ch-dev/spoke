@@ -72,9 +72,10 @@
  * added, (c) a callback argument retyped to a same-size record — which no
  * layout or offset check can see — (d) exception syntax planted in the
  * convenience header, (e) one record field offset perturbed in the carrier
- * report, and (f) a non-callback record member retyped with a same-size swap
- * (which the layout assertions cannot see) must all fail their comparison.
- * Temporary files are removed on success and on failure.
+ * report, (f) a non-callback record member retyped with a same-size swap
+ * (which the layout assertions cannot see), and (g) a pointer record member's
+ * `const` dropped (which no size, alignment or offset changes) must all fail
+ * their comparison. Temporary files are removed on success and on failure.
  */
 
 import {
@@ -1296,6 +1297,42 @@ function selfTest(headerPath, libraryPath, tempDir, carrier, declarations) {
   }
   console.log(
     `negative mutation (struct field type): FAILED as expected (${fieldMismatches[0]})`,
+  );
+
+  // A pointer-constness mutation: `SpokeConnectSlice.data` becomes mutable in
+  // the header, which keeps every size, alignment, offset and symbol — so only
+  // the field-type comparison can fail on it, and it must fail on the const
+  // spelling rather than an unrelated member.
+  const unconstText = headerText.replace(
+    /(typedef struct SpokeConnectSlice \{\s*)const uint8_t \*data;/,
+    "$1uint8_t *data;",
+  );
+  if (unconstText === headerText) {
+    fail("self-test: could not locate const SpokeConnectSlice.data to unconst");
+  }
+  const unconstPath = join(tempDir, "spoke_connect_field_constness_header.h");
+  writeFileSync(unconstPath, unconstText);
+  const constMismatches = compareFieldTypes(
+    unconstText,
+    unconstPath,
+    parseRecords(unconstText, unconstPath),
+    carrier,
+  ).mismatches;
+  if (
+    !constMismatches.some(
+      (entry) =>
+        entry.startsWith("field SpokeConnectSlice.data:") &&
+        entry.includes("header uint8_t *") &&
+        entry.includes("carrier const uint8_t *"),
+    )
+  ) {
+    fail(
+      "self-test: the pointer constness mutation did not fail on the const " +
+        `spelling (${constMismatches.length > 0 ? constMismatches.join("; ") : "no mismatch"})`,
+    );
+  }
+  console.log(
+    `negative mutation (struct field constness): FAILED as expected (${constMismatches[0]})`,
   );
 
   // A record-layout mutation: one reported offset moves while every record and

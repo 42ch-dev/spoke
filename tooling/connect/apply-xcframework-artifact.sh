@@ -24,7 +24,9 @@
 # that observed compiler, and prints the suggested commit line. Requires `gh`,
 # `rsync`, `python3` (the record is emitted with `json.dump` and re-parsed
 # before staging) and `shasum` (mandatory checksum verification before and
-# after transfer). Run as a maintainer with normal credentials — never
+# after transfer); `git-lfs` is also required, since the `.a` carriers must
+# stage as LFS pointers rather than raw binaries. Run as a maintainer with
+# normal credentials — never
 # GITHUB_TOKEN (token pushes don't re-trigger workflows and can't carry LFS
 # objects).
 #

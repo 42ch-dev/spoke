@@ -113,7 +113,7 @@ Release workflows publish `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42c
 | Script | `tooling/release/assert-lockstep-version.mjs` |
 | SSOT manifest | `tooling/release/lockstep-surfaces.mjs` (shared with bump script) |
 | Root script | `pnpm run verify:version` → `node tooling/release/assert-lockstep-version.mjs` |
-| CI job | `verify-version` in `ci.yml` — checkout + Node 20 only; runs in parallel with other jobs |
+| CI job | `verify-version` in `ci.yml` — checkout + Node 24 only; runs in parallel with other jobs |
 | On failure | Non-zero exit; prints expected (canonical) vs actual per surface |
 
 On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `SPOKE_RELEASE_TAG`: stable tags (`vX.Y.Z`) require exact match to canonical `package.json` version; RC tags (`vX.Y.Z-rc.N`) compare base `X.Y.Z` only (prerelease suffix is not part of lockstep manifests).

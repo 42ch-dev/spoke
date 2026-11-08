@@ -285,9 +285,10 @@ git add "${XCFRAMEWORK_DIR}"
 #
 # The declared recipe (toolchain pin, Apple targets, --locked) is read from the
 # workflow file at the RUN's own head, so it states what the producer declared
-# rather than what this checkout happens to say now. The actual compiler/Xcode
-# banner is deliberately not recorded: the run log does not print it, and
-# writing a version here would be invention.
+# rather than what this checkout happens to say now. The producer record's
+# `rustcVersion` is required non-empty (the producer's full `rustc -Vv` output,
+# not the declared toolchain pin) and is copied verbatim into this sidecar's
+# `observedRustc`.
 SIDECAR_DIR="$(dirname "${XCFRAMEWORK_DIR}")"
 MANIFEST_NAME="$(basename "${MANIFEST}")"
 MANIFEST_SHA="$(shasum -a 256 "${MANIFEST}" | cut -d' ' -f1)"

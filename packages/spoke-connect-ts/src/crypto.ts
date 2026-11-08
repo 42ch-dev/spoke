@@ -11,8 +11,10 @@
  * - Signatures are raw 64 bytes, encoded base64url without padding.
  * - Backend matrix: WebCrypto `Ed25519` when `crypto.subtle` accepts it,
  *   else `@noble/ed25519`. The runtime probe (`webcryptoEd25519Available`)
- *   tests this host's required Ed25519 key imports and its result selects
- *   the backend; both paths must satisfy the golden sign/verify vectors.
+ *   tests one PKCS8 private/sign-key import, and its cached result
+ *   selects the backend for both sign and verify (verification's SPKI
+ *   import is not itself probed); both paths must satisfy the golden
+ *   sign/verify vectors.
  */
 
 import * as nobleEd25519 from "@noble/ed25519";
@@ -92,9 +94,11 @@ export function ed25519PubkeyToSpki(pubkey: Uint8Array): Uint8Array {
 let probe: Promise<boolean> | null = null;
 
 /**
- * Whether this runtime's WebCrypto accepts Ed25519 keys. The probe tests this
- * host's required Ed25519 key imports, and its result selects WebCrypto or
- * the `@noble` fallback; both backends satisfy the same golden vectors.
+ * Whether this runtime's WebCrypto accepts Ed25519 keys. The probe tests one
+ * PKCS8 private/sign-key import (`["sign"]` only), and its cached result
+ * selects WebCrypto or the `@noble` fallback for both sign and verify;
+ * verification's SPKI import is not itself probed. Both backends satisfy
+ * the same golden vectors.
  */
 export function webcryptoEd25519Available(): Promise<boolean> {
   probe ??= (async () => {

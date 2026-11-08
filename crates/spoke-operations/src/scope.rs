@@ -206,17 +206,9 @@ pub fn cognition_records_of_authorized_entries(
     spoke_ok(records)
 }
 
-/// Reject value for a request that cannot serve a cognition selection.
-///
-/// Intentionally distinct from `cognition::unsupported_requirement`, and not a
-/// consolidation candidate: this helper returns the `SpokeReject` value itself
-/// because the scope call sites wrap it in `SpokeResult::Reject(..)`, keeps the
-/// message fixed, and always carries the request JSON path as `details.field`
-/// so callers can point at the offending selection.
-///
-/// Both helpers are load-bearing for the same wire contract: the identical
-/// `reason: "unsupported_cognition_requirement"` string, asserted at
-/// `adapter/orchestrate.rs:3452`, `assemble.rs:688` and `scope.rs:1191`.
+/// Kept separate from `cognition::unsupported_requirement`: scope call sites need a raw
+/// `SpokeReject` with a fixed message and a `field` path, not a generic result with a
+/// caller-supplied message and no `field`.
 fn unsupported_cognition_requirement(field: &str) -> SpokeReject {
     let mut details = Map::new();
     details.insert(

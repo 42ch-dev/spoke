@@ -88,7 +88,7 @@ The responder runs two phases over the transport, exactly as the loopback host d
 Gate serialization: `peek → verify → advance` must run to completion per request (the async verify would otherwise let a second request peek against the pre-advance counter and be mis-rejected as `inbound_sequence_mismatch`). Queue invokes on a `gateTail` promise; the dispatch phase after the gate may interleave — out-of-order completions are legal on the wire.
 
 ```ts
-// Gate phase — the serialized core of the serve loop (demo connect-host.ts).
+// Gate phase — the custom serialized gate: peek → verify → advance, one request at a time.
 async function runGate(doc: ConnectInvokeRequest): Promise<GateResult> {
   const current = session;
   if (current === null || doc.session_id !== current.session_id) {
@@ -156,7 +156,7 @@ expect(run.fetched).toEqual(run.updated);          // signed response verified b
 
 ## Why This Matters
 
-The enforcement boundary is deliberate: consumers reach envelope authentication only through the RemoteAdapter surface, so a third-party responder has no shared helper to import — it must reimplement the three algorithm ids from the spec over public primitives. That is exactly where interop is won or lost: the strict library client rejects anything that is not the exact canonical bytes (JCS with the pinned canonicalizer, canonical base64url, locked field sets), so any field-set drift, order dependence, or decoder slack on the responder side surfaces as `auth_failed` — visible, but only if the responder is tested against the real client. The demo responder proves the recipe end to end, and its shape doubles as the porting reference for other languages against the Rust reference behavior.
+The enforcement boundary is deliberate: consumers reach envelope authentication only through the RemoteAdapter surface, so a responder that cannot adopt the shipped `connectResponder` has no shared helper to import — it must reimplement the three algorithm ids from the spec over public primitives, with the same canonical-byte obligations. That is exactly where interop is won or lost: the strict library client rejects anything that is not the exact canonical bytes (JCS with the pinned canonicalizer, canonical base64url, locked field sets), so any field-set drift, order dependence, or decoder slack on the responder side surfaces as `auth_failed` — visible, but only if that responder is tested against the real client. Hosts that can use the public factory get this orchestration shipped; the demo exercises exactly that integration (`examples/connect-demo/server/src/transport/ws-server.ts`). The manual recipe remains the reference for the low-level option and for ports to other languages against the Rust reference behavior — those ports are not runtime-proven by the demo.
 
 ## When to Apply
 

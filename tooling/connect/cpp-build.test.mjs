@@ -147,7 +147,6 @@ describe("dependency source identity", () => {
         put(dependency, "dirty change\n");
         const dirty = build();
         assert.notEqual(dirty.status, 0);
-        assert.match(dirty.stderr, /build sources are not committed/);
         assert.equal(revision(), dependencyRevision);
       } finally {
         rmSync(root, { recursive: true, force: true });

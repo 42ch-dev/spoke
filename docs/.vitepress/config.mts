@@ -35,6 +35,7 @@ const enNav = [
   { text: 'Explanation', link: '/explanation/concepts' },
   { text: 'Packages', link: '/packages/quick-start' },
   { text: 'Release', link: '/release/versioning' },
+  { text: 'For agents', link: '/agents' },
 ]
 
 const enSidebar = [
@@ -95,6 +96,11 @@ const enSidebar = [
     items: [{ text: 'Version & release', link: '/release/versioning' }],
   },
   {
+    text: 'For agents',
+    collapsed: false,
+    items: [{ text: 'Agent reading contract', link: '/agents' }],
+  },
+  {
     text: 'Maintainers',
     collapsed: false,
     items: [
@@ -118,6 +124,7 @@ const zhNav = [
   { text: '讲解', link: '/zh/explanation/concepts' },
   { text: '软件包', link: '/zh/packages/quick-start' },
   { text: '发布', link: '/zh/release/versioning' },
+  { text: '面向 Agent', link: '/zh/agents' },
 ]
 
 const zhSidebar = [
@@ -176,6 +183,11 @@ const zhSidebar = [
     text: '发布',
     collapsed: false,
     items: [{ text: '版本与发布', link: '/zh/release/versioning' }],
+  },
+  {
+    text: '面向 Agent',
+    collapsed: false,
+    items: [{ text: 'Agent 阅读契约', link: '/zh/agents' }],
   },
   {
     text: '维护者',

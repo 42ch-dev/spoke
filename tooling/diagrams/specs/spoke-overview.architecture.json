@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "How independent products interoperate through SPOKE",
+    "output": "docs/public/diagrams/spoke-overview.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1200,
+      680
+    ]
+  },
+  "components": [
+    {
+      "id": "product-a",
+      "type": "external",
+      "label": "Product A",
+      "sublabel": "own runtime",
+      "pos": [
+        20,
+        170
+      ],
+      "size": [
+        140,
+        76
+      ]
+    },
+    {
+      "id": "adapter-a",
+      "type": "backend",
+      "label": "Product A adapter",
+      "sublabel": "implements port families",
+      "pos": [
+        210,
+        170
+      ],
+      "size": [
+        170,
+        76
+      ]
+    },
+    {
+      "id": "wire",
+      "type": "messagebus",
+      "label": "SPOKE wire contracts",
+      "sublabel": "schemas/ JSON Schema SSOT",
+      "pos": [
+        470,
+        145
+      ],
+      "size": [
+        260,
+        126
+      ]
+    },
+    {
+      "id": "adapter-b",
+      "type": "backend",
+      "label": "Product B adapter",
+      "sublabel": "implements port families",
+      "pos": [
+        820,
+        170
+      ],
+      "size": [
+        170,
+        76
+      ]
+    },
+    {
+      "id": "product-b",
+      "type": "external",
+      "label": "Product B",
+      "sublabel": "own runtime",
+      "pos": [
+        1040,
+        170
+      ],
+      "size": [
+        140,
+        76
+      ]
+    },
+    {
+      "id": "store-a",
+      "type": "database",
+      "label": "Product A store",
+      "sublabel": "adapter-owned",
+      "pos": [
+        225,
+        360
+      ],
+      "size": [
+        140,
+        68
+      ]
+    },
+    {
+      "id": "store-b",
+      "type": "database",
+      "label": "Product B store",
+      "sublabel": "adapter-owned",
+      "pos": [
+        835,
+        360
+      ],
+      "size": [
+        140,
+        68
+      ]
+    },
+    {
+      "id": "connect",
+      "type": "security",
+      "label": "Connect (optional)",
+      "sublabel": "signed cross-process envelopes",
+      "pos": [
+        510,
+        360
+      ],
+      "size": [
+        180,
+        68
+      ]
+    },
+    {
+      "id": "pkg",
+      "type": "backend",
+      "label": "npm + crates.io packages",
+      "sublabel": "generated TS and Rust",
+      "pos": [
+        480,
+        15
+      ],
+      "size": [
+        240,
+        60
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "a-calls-adapter",
+      "from": "product-a",
+      "to": "adapter-a",
+      "label": "calls",
+      "variant": "emphasis",
+      "labelDy": -58
+    },
+    {
+      "id": "a-adapter-store",
+      "from": "adapter-a",
+      "to": "store-a",
+      "label": "ports",
+      "labelAt": [
+        330,
+        303
+      ]
+    },
+    {
+      "id": "a-adapter-wire",
+      "from": "adapter-a",
+      "to": "wire",
+      "label": "data + ops",
+      "variant": "emphasis",
+      "labelDy": -40
+    },
+    {
+      "id": "wire-b-adapter",
+      "from": "wire",
+      "to": "adapter-b",
+      "label": "same shapes",
+      "variant": "emphasis",
+      "labelDy": -40
+    },
+    {
+      "id": "b-adapter-product",
+      "from": "adapter-b",
+      "to": "product-b",
+      "label": "API",
+      "labelDy": -58
+    },
+    {
+      "id": "b-adapter-store",
+      "from": "adapter-b",
+      "to": "store-b",
+      "label": "ports",
+      "labelAt": [
+        940,
+        303
+      ]
+    },
+    {
+      "id": "connect-b",
+      "from": "connect",
+      "to": "adapter-b",
+      "label": "signed invoke",
+      "variant": "dashed"
+    },
+    {
+      "id": "pkg-wire",
+      "from": "wire",
+      "to": "pkg",
+      "label": "codegen",
+      "labelDy": -38
+    },
+    {
+      "id": "a-connect",
+      "from": "adapter-a",
+      "to": "connect",
+      "label": "spoke-connect",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One wire dialect",
+      "items": [
+        "Data objects and ops envelopes are JSON Schema files under schemas/",
+        "TypeScript and Rust types are generated from the same source"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Product-owned runtime",
+      "items": [
+        "Each adapter owns storage, ranking, retrieval and transport",
+        "The operations library applies protocol gates before persistence"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Opt-in interaction",
+      "items": [
+        "Baseline products exchange shapes in process",
+        "spoke-connect adds signed cross-process envelopes"
+      ]
+    }
+  ]
+}

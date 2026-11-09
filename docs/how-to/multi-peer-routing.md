@@ -35,8 +35,8 @@ let router = connect_multi_peer_router(MultiPeerRouterOptions {
     host_id: Some("storefront-router".into()),
 });
 
-let north = connect_remote_adapter(/* dial options */)?;
-let south = connect_remote_adapter(/* dial options */)?;
+let north = connect_remote_adapter(/* dial options */).await?;
+let south = connect_remote_adapter(/* dial options */).await?;
 
 let north_id = router.register_peer(north)?; // Ok(peer_id)
 router.register_peer(south)?;                // idempotent on peer_id
@@ -47,7 +47,7 @@ router.unregister_peer(&north_id); // selection drops it; the adapter stays open
 
 | Operation | Behavior |
 |-----------|----------|
-| `registerPeer(adapter)` / `register_peer(&adapter)` | Accepts an established adapter, returns its `peer_id`, caches its manifest. Re-registering the same `peer_id` replaces the stored adapter (idempotent). The adapter must have an established session — dial first. |
+| `registerPeer(adapter)` / `register_peer(adapter)` | Accepts an established adapter, returns its `peer_id`, caches its manifest. Re-registering the same `peer_id` replaces the stored adapter (idempotent). The adapter must have an established session — dial first. |
 | `unregisterPeer(peerId)` / `unregister_peer(&peer_id)` | Removes the peer from selection. Unregistering an unknown `peer_id` leaves the registry unchanged. The adapter's lifecycle stays with the consumer — the router leaves the adapter open. |
 | `listPeers()` / `list_peers()` | Registered `peer_id`s in registration order. |
 

@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "KnowledgeEntry status transitions",
+    "output": "docs/public/diagrams/knowledge-entry-status.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1000,
+      720
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Active lifecycle"
+    },
+    {
+      "id": "terminal",
+      "label": "Terminal status"
+    }
+  ],
+  "states": [
+    {
+      "id": "provisional",
+      "type": "start",
+      "label": "provisional",
+      "sublabel": "extracted or drafted",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "width": 100
+    },
+    {
+      "id": "confirmed",
+      "type": "success",
+      "label": "confirmed",
+      "sublabel": "accepted authority",
+      "lane": "main",
+      "col": 1,
+      "step": "02",
+      "width": 100
+    },
+    {
+      "id": "deprecated",
+      "type": "waiting",
+      "label": "deprecated",
+      "sublabel": "retained, not current",
+      "lane": "main",
+      "col": 2,
+      "step": "03",
+      "width": 100
+    },
+    {
+      "id": "merged",
+      "type": "neutral",
+      "label": "merged",
+      "sublabel": "absorbed",
+      "lane": "terminal",
+      "col": 0,
+      "tag": "terminal",
+      "width": 100
+    },
+    {
+      "id": "deleted",
+      "type": "failure",
+      "label": "deleted",
+      "sublabel": "tombstone",
+      "lane": "terminal",
+      "col": 1,
+      "tag": "terminal",
+      "width": 100
+    }
+  ],
+  "transitions": [
+    {
+      "id": "promote",
+      "from": "provisional",
+      "to": "confirmed",
+      "label": "promote",
+      "variant": "emphasis"
+    },
+    {
+      "id": "retire",
+      "from": "confirmed",
+      "to": "deprecated",
+      "label": "retire",
+      "variant": "dashed",
+      "route": "top-channel"
+    },
+    {
+      "id": "absorb",
+      "from": "confirmed",
+      "to": "merged",
+      "label": "absorb",
+      "variant": "dashed"
+    },
+    {
+      "id": "delete",
+      "from": "deprecated",
+      "to": "deleted",
+      "label": "delete",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Terminal states",
+      "items": [
+        "merged and deleted accept only a self-transition",
+        "A terminal entry cannot be promoted again"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Restore path",
+      "items": [
+        "deprecated restores to confirmed",
+        "deprecated cannot move to merged; restore first, then absorb"
+      ]
+    }
+  ]
+}

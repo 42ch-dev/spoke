@@ -148,13 +148,13 @@ Expected rejects return `SpokeResult` — a discriminated `{ ok: true }` / `{ ok
 Rust:
 
 ```rust
-use spoke_operations::{orchestrate_upsert, BaselinePorts};
+use spoke_operations::{orchestrate_upsert, BaselinePorts, SpokeResult};
 use spoke_operations::spoke_schemas::{UpsertRequest, UpsertResponse};
 
 async fn upsert(adapter: &impl BaselinePorts, request: UpsertRequest) {
     match orchestrate_upsert(adapter, request).await {
-        Ok(response) => println!("persisted: {:?}", response.knowledge_entries),
-        Err(reject) => println!("rejected: {} — {}", reject.code, reject.message),
+        SpokeResult::Ok(response) => println!("persisted: {:?}", response.knowledge_entries),
+        SpokeResult::Reject(reject) => println!("rejected: {} — {}", reject.code, reject.message),
     }
 }
 ```

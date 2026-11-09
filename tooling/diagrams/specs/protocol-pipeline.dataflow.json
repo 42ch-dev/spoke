@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Source material to assembled context",
+    "output": "docs/public/diagrams/protocol-pipeline.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      660
+    ]
+  },
+  "stages": [
+    {
+      "label": "Source"
+    },
+    {
+      "label": "Extract"
+    },
+    {
+      "label": "Model"
+    },
+    {
+      "label": "Check"
+    },
+    {
+      "label": "Assemble"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "source",
+      "type": "external",
+      "label": "Source material",
+      "sublabel": "manuscript or locator",
+      "stage": 0,
+      "row": 1
+    },
+    {
+      "id": "extract",
+      "type": "backend",
+      "label": "extract",
+      "sublabel": "ke-extraction",
+      "stage": 1,
+      "row": 1
+    },
+    {
+      "id": "entry",
+      "type": "backend",
+      "label": "KnowledgeEntry",
+      "sublabel": "L0-L4 envelope",
+      "stage": 2,
+      "row": 1
+    },
+    {
+      "id": "rule",
+      "type": "backend",
+      "label": "Rule",
+      "sublabel": "declarative input",
+      "stage": 3,
+      "row": 0
+    },
+    {
+      "id": "check",
+      "type": "backend",
+      "label": "check",
+      "sublabel": "checker callback",
+      "stage": 3,
+      "row": 1
+    },
+    {
+      "id": "assemble",
+      "type": "backend",
+      "label": "assemble",
+      "sublabel": "wire-only packet",
+      "stage": 4,
+      "row": 1
+    },
+    {
+      "id": "finding",
+      "type": "backend",
+      "label": "Finding",
+      "sublabel": "checker output",
+      "stage": 4,
+      "row": 2
+    }
+  ],
+  "flows": [
+    {
+      "id": "f1",
+      "from": "source",
+      "to": "extract",
+      "label": "referenced content",
+      "variant": "dashed",
+      "labelAt": [
+        203,
+        320
+      ]
+    },
+    {
+      "id": "f2",
+      "from": "extract",
+      "to": "entry",
+      "label": "provisional candidates",
+      "variant": "emphasis",
+      "labelAt": [
+        418,
+        320
+      ]
+    },
+    {
+      "id": "f3",
+      "from": "entry",
+      "to": "check",
+      "label": "scoped entries",
+      "variant": "emphasis",
+      "labelAt": [
+        633,
+        320
+      ]
+    },
+    {
+      "id": "f4",
+      "from": "rule",
+      "to": "check",
+      "label": "rules[]",
+      "labelAt": [
+        745,
+        214
+      ]
+    },
+    {
+      "id": "f5",
+      "from": "check",
+      "to": "finding",
+      "label": "Finding[]",
+      "variant": "emphasis",
+      "labelAt": [
+        852,
+        330
+      ]
+    },
+    {
+      "id": "f6",
+      "from": "entry",
+      "to": "assemble",
+      "label": "scope",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "right",
+      "via": [
+        [
+          530,
+          440
+        ],
+        [
+          1045,
+          440
+        ],
+        [
+          1045,
+          271
+        ]
+      ],
+      "labelAt": [
+        745,
+        456
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Wire only",
+      "items": [
+        "extract returns provisional KnowledgeEntry candidates",
+        "assemble returns an AssemblePacket, never a merged check response"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Product engines",
+      "items": [
+        "The extractor callback is injected by the host",
+        "Ranking, retrieval and token budgeting stay product-local"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Separate concerns",
+      "items": [
+        "Rule is declarative input; Finding is checker output",
+        "TimelineEvent tracks the when-axis beside these shapes"
+      ]
+    }
+  ]
+}

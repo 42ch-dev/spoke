@@ -21,13 +21,15 @@ The host's identity and capabilities come from its manifest. The demo server adv
 export const DEMO_SERVER_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
   host_id: "demo-inference-host",
-  roles: ["checker", "assembler"],
+  roles: ["checker", "assembler", "input-source"],
   capabilities: [
     "spoke-baseline",
     TOY_WORLD_ROLL_DICE_ID,
     TOY_WORLD_LORE_LOOKUP_ID,
     "l2-computable",
     "l5-fork",
+    "ke-extraction",
+    "ke-ownership",
   ],
   namespaces: [DEMO_SCOPE_ID, TOY_WORLD_NAMESPACE],
   tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
@@ -237,6 +239,8 @@ export const DEMO_CLIENT_MANIFEST: HostCapabilityManifest = {
     TOY_WORLD_LORE_LOOKUP_ID,
     "l2-computable",
     "l5-fork",
+    "ke-extraction",
+    "ke-ownership",
   ],
   namespaces: [DEMO_SCOPE_ID, "toy_world"],
   tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
@@ -305,7 +309,11 @@ The adapter implements the async `BaselinePorts` six families, so you call knowl
 
   // Step 3 — list: seed corpus + submitted entry + engine-derived artifacts.
   const listed = requireOk(
-    await adapter.listKnowledgeEntries({ scope_id: DEMO_SCOPE_ID }),
+    await adapter.listKnowledgeEntries({
+      scope_id: DEMO_SCOPE_ID,
+      // DEMO_VIEWPOINT_HOLDER_ID = "demo-harbor/character/mira"
+      viewpoint: DEMO_VIEWPOINT_HOLDER_ID,
+    }),
   );
 
   // Step 4 — findings round-trip.

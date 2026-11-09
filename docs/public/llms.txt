@@ -1,0 +1,68 @@
+# SPOKE
+
+> SPOKE (Standardized Programmable Ontology Knowledge Engine) is a protocol repository: hand-authored JSON Schemas for narrative KnowledgeEntry data and ops wire shapes, with generated TypeScript and Rust packages. Products keep their own storage, engines and transports; they exchange these shapes.
+
+Canonical machine-readable bundle: https://spoke.42ch.dev/llms-full.txt
+Agent reading contract: https://spoke.42ch.dev/agents
+
+## Ground truth, in order
+
+1. `schemas/` — hand-authored JSON Schema. Field names, required sets and enums are authoritative here.
+2. `.mstar/specs/` — normative prose specs (protocol, data model, ops, memory, connect, bindings).
+3. `docs/reference/` — integrator field tables derived from the schemas.
+4. `docs/how-to/` and `docs/tutorials/` — task procedures and code samples.
+5. `docs/explanation/` — concepts and boundaries.
+6. `README.md` — human entry point; not a normative source.
+
+If a page contradicts `schemas/`, the schema wins.
+
+## Start here for an agent task
+
+- Building an adapter or orchestrating ops: /how-to/implement-adapter, /how-to/orchestrate-ops
+- Checking a wire object or op envelope: /reference/data-model, /reference/ops
+- Adding or verifying a capability flag: /reference/protocol, /explanation/concepts
+- Serving or consuming memory: /reference/memory
+- Opening a cross-process session: /reference/connect, /how-to/connect-ts-client
+- Implementing a RemoteAdapter or native binding: /how-to/connect-remote-adapter, /how-to/connect-native-bindings
+- Running the reference implementation: /how-to/walk-toy-world
+- Pinning versions: /packages/quick-start, /release/versioning
+
+## Agent entry
+
+- [For agents](https://spoke.42ch.dev/agents): Reading order, fact hierarchy, task routing, capability table, and common traps.
+
+## Reference
+
+- [Protocol](https://spoke.42ch.dev/reference/protocol): Schema inventory, capability flags, extensions and modules contract.
+- [Data model](https://spoke.42ch.dev/reference/data-model): Field tables for KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, HostCapabilityManifest, Rule, TimelineEvent, cognition records, ownership governance.
+- [MindState](https://spoke.42ch.dev/reference/mind-state): Derivative L5 mental-state record and its deltas.
+- [Memory](https://spoke.42ch.dev/reference/memory): 33 `memory.*` ops, 13 data models, grants, receipts, digests.
+- [Ops wire](https://spoke.42ch.dev/reference/ops): Scope, upsert, promote, relate, check, assemble, project, compute, extract envelopes.
+- [Connect](https://spoke.42ch.dev/reference/connect): Six envelopes, identity, signatures, ordering, dispatch gate, RemoteAdapter and bindings.
+
+## How-to
+
+- [Implement an adapter](https://spoke.42ch.dev/how-to/implement-adapter): Port families by capability, OCC and persistence rules.
+- [Orchestrate operations](https://spoke.42ch.dev/how-to/orchestrate-ops): `orchestrate*` entrypoints and injected callbacks.
+- [TypeScript client](https://spoke.42ch.dev/how-to/connect-ts-client): `@42ch/spoke-connect` session, hello and invoke.
+- [RemoteAdapter over Transport](https://spoke.42ch.dev/how-to/connect-remote-adapter): Baseline ports proxied over a message-oriented transport.
+- [Remote tools](https://spoke.42ch.dev/how-to/connect-remote-tools): `tools.<ns>.<tool_id>` descriptors and invoke.
+- [Multi-peer routing](https://spoke.42ch.dev/how-to/multi-peer-routing): Router selection across peer sessions.
+- [Native bindings](https://spoke.42ch.dev/how-to/connect-native-bindings): C#, Kotlin, Swift, Go, Python and C/C++ surfaces.
+- [C and C++ (C ABI)](https://spoke.42ch.dev/how-to/connect-cpp-binding): Hand-written header, carriers and linking.
+- [RemoteAdapter from native bindings](https://spoke.42ch.dev/how-to/remote-adapter-native-binding): Synchronous FFI adapter and router.
+- [ToyWorld reference adapter](https://spoke.42ch.dev/how-to/walk-toy-world): Full TypeScript adapter and Rust fixture.
+- [Install and first entry](https://spoke.42ch.dev/tutorials/install-and-first-entry): Package install, first KnowledgeEntry, first promote.
+- [First connect session](https://spoke.42ch.dev/tutorials/first-connect-session): Hello, session, one invoke.
+- [Integrate a RemoteAdapter](https://spoke.42ch.dev/tutorials/integrate-remote-adapter): End-to-end transport wiring.
+
+## Explanation
+
+- [Concepts](https://spoke.42ch.dev/explanation/concepts): Nine protocol layers, capability levels, dual-concern pairs.
+- [Connect architecture](https://spoke.42ch.dev/explanation/connect): Session core, embedding model, version and auth boundaries.
+- [Domain profiles](https://spoke.42ch.dev/explanation/domain-profiles): Publishing ontology vocabulary over open strings and `modules.*`.
+
+## Packages and release
+
+- [Package quick-start](https://spoke.42ch.dev/packages/quick-start): npm and crates.io install pins and package roles.
+- [Version and release](https://spoke.42ch.dev/release/versioning): Lockstep SemVer, tags and prereleases.

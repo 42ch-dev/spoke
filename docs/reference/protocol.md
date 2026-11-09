@@ -24,7 +24,7 @@ The wire inventory is **114 committed `*.schema.json` files**: 2 common + 24 dat
 
 ## Extensions contract
 
-Every durable object carries the required `extensions.<namespace>` bag; core fields stay closed (`additionalProperties: false`).
+Every durable record object — KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, HostCapabilityManifest, Rule, TimelineEvent, CognitionRecord, MindState — carries the required `extensions.<namespace>` bag; core fields stay closed (`additionalProperties: false`). `ToolDescriptor` is a closed descriptor without an extensions bag.
 
 | Bag | Shape | Role |
 |-----|-------|------|

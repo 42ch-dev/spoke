@@ -24,7 +24,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 ## 扩展契约
 
-每个持久对象携带必填的 `extensions.<namespace>` 字段袋；核心字段保持封闭（`additionalProperties: false`）。
+每个持久记录对象 —— KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、HostCapabilityManifest、Rule、TimelineEvent、CognitionRecord、MindState —— 携带必填的 `extensions.<namespace>` 字段袋；核心字段保持封闭（`additionalProperties: false`）。`ToolDescriptor` 是没有 extensions 字段袋的封闭描述符。
 
 | 字段袋 | 形状 | 角色 |
 |--------|------|------|

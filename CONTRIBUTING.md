@@ -45,14 +45,13 @@ cargo test -p spoke-fixture-toy-world
 cargo test -p spoke-connect
 ```
 
-If `~/.cargo/config.toml` sets `-Zno-embed-metadata` (an unstable flag
-incompatible with stable rustc), prefix cargo commands with `RUSTFLAGS=""`:
+When `~/.cargo/config.toml` sets the nightly-only `-Zno-embed-metadata` flag, run local cargo commands with the nightly toolchain:
 
 ```bash
-RUSTFLAGS="" cargo test -p spoke-connect
+cargo +nightly test -p spoke-connect
 ```
 
-CI does not need this workaround.
+CI runs on stable rustc and needs no local override.
 
 ### Workspace / path dependencies
 
@@ -90,6 +89,9 @@ These stay private to the monorepo (not published to registries):
 |---------|------|
 | `@42ch/spoke-fixture-toy-world` | `fixtures/toy-world/` |
 | `@42ch/spoke-codegen` | `tooling/codegen/` |
+| `@42ch/spoke-demo-server` | `examples/connect-demo/server/` |
+| `@42ch/spoke-demo-client` | `examples/connect-demo/client/` |
+| `spoke-fixture-memory-engine` (Rust, `publish = false`) | `fixtures/memory-engine/rust/` |
 
 ## Pull requests and CI
 

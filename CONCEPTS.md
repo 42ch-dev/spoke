@@ -2,7 +2,7 @@
 
 Core terms for the SPOKE protocol repository. Each entry defines what the term means *in SPOKE wire form*.
 
-**Product name:** **SPOKE** = **Standardized Programmable Ontology Knowledge Engine** (acronym unchanged).
+**Product name:** **SPOKE** = **Standardized Programmable Ontology Knowledge Engine**.
 
 ---
 
@@ -38,7 +38,7 @@ L5 Timeline projection tier vocabulary on the wire: core values `brief`, `narrat
 
 ### Scope
 
-Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`, `fork_id`, `extensions`). Optional `extensions` carries product-scoped query metadata; protocol matchers ignore it. Product-local scope ids map via op `extensions`, `Scope.extensions`, or adapters — not required `Scope` fields. `fork_id` matches `TimelineEvent.fork_id` by strict equality (`l5-fork`); events without `fork_id` do not match.
+Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`, `fork_id`, `viewpoint` under `ke-ownership`, `cognition` under `spoke-cognition`, `extensions`). Optional `extensions` carries product-scoped query metadata; protocol matchers ignore it. Product-local scope ids map via op `extensions`, `Scope.extensions`, or adapters — not required `Scope` fields. `fork_id` matches `TimelineEvent.fork_id` by strict equality (`l5-fork`); events without `fork_id` do not match.
 
 ### Domain Profile
 
@@ -144,7 +144,7 @@ How a host language embeds connect session rules. **Path A (language-direct)** =
 
 ### Session (connect)
 
-Established cross-process invocation context: `session_id`, `initiator_peer_id` / `responder_peer_id`, `opened_at`, `negotiated_capabilities` (MUST include `spoke-connect` when both hosts declare it), `initial_sequence` (0 for protocol version 1). Per-session monotonic `sequence` ordering with `request_id` correlation; each peer keeps its own outbound counter. Distinct from [Session (computable lifecycle)](#session-computable-lifecycle) — the `l2-computable` projection lifecycle on `body.state` / `body.computable`.
+Established cross-process invocation context: `session_id`, `initiator_peer_id` / `responder_peer_id`, `opened_at`, `negotiated_capabilities` (MUST include `spoke-connect` when both hosts declare it), `initial_sequence` (const 0 for protocol versions 1 and 2). Per-session monotonic `sequence` ordering with `request_id` correlation; each peer keeps its own outbound counter. Distinct from [Session (computable lifecycle)](#session-computable-lifecycle) — the `l2-computable` projection lifecycle on `body.state` / `body.computable`.
 
 ### peer_id
 

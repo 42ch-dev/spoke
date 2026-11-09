@@ -1,0 +1,222 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "orchestratePromote: one validated write through adapter ports",
+    "output": "docs/public/diagrams/adapter-promote.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1000,
+      880
+    ]
+  },
+  "participants": [
+    {
+      "id": "app",
+      "type": "frontend",
+      "label": "Product code",
+      "sublabel": "caller"
+    },
+    {
+      "id": "orch",
+      "type": "backend",
+      "label": "Orchestrator",
+      "sublabel": "orchestratePromote"
+    },
+    {
+      "id": "gate",
+      "type": "security",
+      "label": "Pure gates",
+      "sublabel": "validators + OCC"
+    },
+    {
+      "id": "ports",
+      "type": "backend",
+      "label": "Adapter ports",
+      "sublabel": "product implements"
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": "Product store",
+      "sublabel": "durable state"
+    }
+  ],
+  "segments": [
+    {
+      "from": 166,
+      "to": 262,
+      "label": "Load current state"
+    },
+    {
+      "from": 278,
+      "to": 500,
+      "label": "Validate and accept"
+    },
+    {
+      "from": 516,
+      "to": 664,
+      "label": "Persist with OCC"
+    },
+    {
+      "from": 680,
+      "to": 742,
+      "label": "Respond"
+    }
+  ],
+  "messages": [
+    {
+      "from": "app",
+      "to": "orch",
+      "y": 190,
+      "label": "PromoteRequest",
+      "variant": "emphasis"
+    },
+    {
+      "from": "orch",
+      "to": "ports",
+      "y": 232,
+      "label": "getKnowledgeEntry(entry_id)"
+    },
+    {
+      "from": "ports",
+      "to": "store",
+      "y": 274,
+      "label": "read stored entry"
+    },
+    {
+      "from": "store",
+      "to": "ports",
+      "y": 316,
+      "label": "stored entry | not found",
+      "variant": "return"
+    },
+    {
+      "from": "ports",
+      "to": "orch",
+      "y": 358,
+      "label": "SpokeResult",
+      "variant": "return"
+    },
+    {
+      "from": "orch",
+      "to": "gate",
+      "y": 400,
+      "label": "status + revision gate",
+      "variant": "security"
+    },
+    {
+      "from": "orch",
+      "to": "gate",
+      "y": 442,
+      "label": "validate + accept",
+      "variant": "security"
+    },
+    {
+      "from": "gate",
+      "to": "orch",
+      "y": 484,
+      "label": "ok | SpokeReject",
+      "variant": "return"
+    },
+    {
+      "from": "orch",
+      "to": "ports",
+      "y": 526,
+      "label": "putKnowledgeEntry(entry, expectedBaseRevision)",
+      "variant": "emphasis"
+    },
+    {
+      "from": "ports",
+      "to": "store",
+      "y": 568,
+      "label": "compare-and-put",
+      "variant": "emphasis"
+    },
+    {
+      "from": "ports",
+      "to": "orch",
+      "y": 610,
+      "label": "persisted entry",
+      "variant": "return"
+    },
+    {
+      "from": "orch",
+      "to": "app",
+      "y": 652,
+      "label": "PromoteResponse",
+      "variant": "return"
+    },
+    {
+      "from": "orch",
+      "to": "app",
+      "y": 694,
+      "label": "SpokeReject",
+      "variant": "dashed"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "orch",
+      "from": 184,
+      "to": 700,
+      "type": "backend"
+    },
+    {
+      "participant": "ports",
+      "from": 226,
+      "to": 364,
+      "type": "backend"
+    },
+    {
+      "participant": "store",
+      "from": 268,
+      "to": 322,
+      "type": "database"
+    },
+    {
+      "participant": "gate",
+      "from": 394,
+      "to": 490,
+      "type": "security"
+    },
+    {
+      "participant": "ports",
+      "from": 520,
+      "to": 616,
+      "type": "backend"
+    },
+    {
+      "participant": "store",
+      "from": 562,
+      "to": 574,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Library owns the gates",
+      "items": [
+        "Terminal-status and revision checks run before any write",
+        "Promote acceptance rejects a candidate that cannot be confirmed"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Adapter owns the store",
+      "items": [
+        "expectedBaseRevision null means create; a number must match the stored revision",
+        "The adapter returns the assigned revision on the persisted entry"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "One result shape",
+      "items": [
+        "Every rejection is a SpokeReject with a stable SpokeRejectCode",
+        "Callers branch on ok, never on exception type"
+      ]
+    }
+  ]
+}

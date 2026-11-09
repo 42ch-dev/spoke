@@ -6,6 +6,9 @@ title: Orchestrate operations
 
 The operations library exposes one **orchestrator per op family**. The persistence-bearing baseline orchestrators take your adapter (the port implementation from [Implement an adapter](/how-to/implement-adapter)) plus the wire request, run the protocol gates, load and persist data through your ports, and return a `SpokeResult` — never a throw for expected rejects. Every orchestrator is an async entrypoint: call it with `await` (TypeScript) or `.await` inside an `async fn` (Rust). The baseline calls run unchanged against a [RemoteAdapter over a consumer Transport](/how-to/connect-remote-adapter) or a [multi-peer router](/how-to/multi-peer-routing) — either drops in as the `BaselinePorts` implementation. The optional extraction path takes its own standalone `ExtractionPort` plus the async extractor callback, loads the referenced input through that port, runs the extractor once, and returns provisional candidates for later admission through `promote`; extraction over connect is [delegated as a whole-operation remote op](/reference/connect#remote-extraction-ke-extraction).
 
+<img class="diagram-light" alt="Source material to KnowledgeEntry, check output and assembled context" src="/diagrams/protocol-pipeline.light.svg">
+<img class="diagram-dark" alt="Source material to KnowledgeEntry, check output and assembled context" src="/diagrams/protocol-pipeline.dark.svg">
+
 ## The orchestrators
 
 | Orchestrator | Request | Response | What it runs |

@@ -6,6 +6,9 @@ title: 核心概念
 
 SPOKE 以**线上术语**定义词汇 —— 下面的每个概念都是协议面上的具体 JSON 形状或开放字符串词汇。本页是关键陈述导览：九层模型是什么、能力标志声明什么、协议刻意分开哪些概念对。字段级细节见[参考](/zh/reference/protocol)页面。
 
+<img class="diagram-light" alt="SPOKE 的九个协议层及其主要线上工件" src="/diagrams/protocol-layers.light.svg">
+<img class="diagram-dark" alt="SPOKE 的九个协议层及其主要线上工件" src="/diagrams/protocol-layers.dark.svg">
+
 ## 九层模型（L0–L8）
 
 | 层 | 承载内容 |

@@ -113,7 +113,7 @@ let adapter = connect_remote_adapter(RemoteAdapterOptions {
     allowlist: vec![peer_id_host.into()],
     invoke_timeout_ms: None,  // None uses the default (5000 ms)
     capability_token: None,   // optional capability-token proof attached as `auth`
-})?;
+}).await?;
 ```
 
 Session info comes back as `Option`s (populated once the session establishes); `close()` is synchronous:

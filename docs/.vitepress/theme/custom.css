@@ -1,0 +1,7 @@
+/* Diagram SVGs are pre-rendered per color mode. VitePress toggles the
+   `dark` class on <html>, so swap the two images instead of relying on
+   `prefers-color-scheme` (which follows the OS, not the site). */
+html:not(.dark) img.diagram-dark,
+html.dark img.diagram-light {
+  display: none;
+}

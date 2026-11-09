@@ -6,6 +6,9 @@ title: Connect architecture
 
 **Connect** is the opt-in interaction envelope family for cross-process SPOKE hosts — one integrator journey: install → a language-native client session → a RemoteAdapter over a consumer `Transport` → multi-peer routing → native bindings → a loopback smoke. This page explains the concepts behind that journey; the [tutorial](/tutorials/first-connect-session) walks it, the [how-to guides](/how-to/connect-remote-adapter) are the recipes, and the [wire reference](/reference/connect) is the dictionary.
 
+<img class="diagram-light" alt="A connect session: signed hello, negotiated session, ordered invoke" src="/diagrams/connect-session.light.svg">
+<img class="diagram-dark" alt="A connect session: signed hello, negotiated session, ordered invoke" src="/diagrams/connect-session.dark.svg">
+
 ## The three embedding surfaces
 
 | Surface | What ships | When to choose it |
@@ -26,7 +29,7 @@ Once both hellos are accepted, the session snapshot (`ConnectSession`) records t
 
 ## Envelope authentication
 
-Envelope authenticity is a **protocol-level property above the transport**: every post-hello trust-affecting envelope — the session snapshot, invoke requests, and invoke responses — carries an Ed25519 signature over the RFC 8785 JCS-canonicalized signed object, verified inside the session core. The construction is the same as the hello, extended to three algorithm ids (`spoke-connect-session-jcs-v1`, `spoke-connect-invoke-request-jcs-v1`, `spoke-connect-invoke-response-jcs-v1`). Protocol version **2** makes these signatures required on the post-hello wire; the hello exchange itself stays at version 1.
+Envelope authenticity is a **protocol-level property above the transport**: every post-hello trust-affecting envelope — the session snapshot, invoke requests, and invoke responses — carries an Ed25519 signature over the RFC 8785 JCS-canonicalized signed object, verified inside the session core. The construction is the same as the hello, extended to three algorithm ids (`spoke-connect-session-jcs-v1`, `spoke-connect-invoke-request-jcs-v1`, `spoke-connect-invoke-response-jcs-v1`). Protocol version **2** makes these signatures required on the post-hello wire; the hello envelope and its `spoke-connect-hello-jcs-v1` construction are unchanged, and only the advertised `protocol_version` moves to 2.
 
 This is why the adapter works over any ordered, reliable carrier — TCP, WebSocket, yamux, or Noise — without trusting the transport for authenticity: the envelope itself is authenticated, and a transport that supplies an authenticated peer identity does not relax the rules. The signed object covers the trust-affecting fields; `extensions` stays outside the signature, so it never influences authorization. Mixed-version peers fail closed: a v2 peer refuses to establish with a v1 peer rather than accept unauthenticated envelopes, and there is no compatibility shim.
 

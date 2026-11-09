@@ -6,164 +6,68 @@
 [![Last commit](https://img.shields.io/github/last-commit/42ch-dev/spoke)](https://github.com/42ch-dev/spoke/commits/main)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
-[English](README.md) · [Concepts](CONCEPTS.md) · [Strategy](STRATEGY.md) · [Contributing](CONTRIBUTING.md)
+[English](README.md) · [核心概念](CONCEPTS.md) · [贡献指南](CONTRIBUTING.md) · [文档站点](https://spoke.42ch.dev/zh/)
 
-**Standardized Programmable Ontology Knowledge Engine** — 叙事 **KnowledgeEntry** 数据层与 **ops** 操作层的 JSON Schema 线上契约。各独立产品通过这些形状交换一致性检查与上下文组装的 I/O。
+**SPOKE** 是一套面向叙事知识的协议。两个都存储角色、场景、时间线或世界事实的产品，可以通过同一组 JSON 契约交换数据，不必每次另造私有格式。
 
-**包含：**
+本仓库是唯一事实来源：手写的 JSON Schema、由其生成的 TypeScript 与 Rust 类型，以及一份执行协议规则的纯函数操作库。存储、排序、检索与传输仍由你的产品负责。
 
-- 数据层 schema：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、**HostCapabilityManifest**、Rule、TimelineEvent、MindState、CognitionRecord
-- Ops 层 schema：`upsert`、extract→promote、`relate`、`check`、`assemble`；可选 **`project` / `compute`**（`l2-computable` 能力下）
-- 生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`、`spoke-operations`）
-- 纯函数生命周期辅助，以及 **adapter ports** 与 **injection orchestration**（`@42ch/spoke-operations` / `spoke-operations`）
-- 可选 **Connect**，用于签名的跨进程交互（`@42ch/spoke-connect` / `spoke-connect`，以及包括 C 与 C++ 在内的原生绑定）
-- 协议一致性样例与参考 **`ToyWorldAdapter`**（[`fixtures/toy-world/`](fixtures/toy-world/)）
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/public/diagrams/spoke-overview.dark.svg">
+  <img alt="两个独立产品通过各自的 adapter 交换 SPOKE 线上形状" src="docs/public/diagrams/spoke-overview.light.svg">
+</picture>
 
-## 软件包
+## 你能得到什么
 
-已发布的消费方软件包共用**锁步 SemVer**。
-
-| 软件包 | 注册表 | 职责 |
-|--------|--------|------|
-| [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-schemas) | npm | 生成的 TypeScript 线上类型 — 描述**线上传输什么** |
-| [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) | npm | 基于上述类型的纯函数辅助、adapter ports 与编排 |
-| [`@42ch/spoke-connect`](https://www.npmjs.com/package/@42ch/spoke-connect) | npm | 可选连接客户端 — 身份派生、hello 认证、会话核心、WebSocket 传输 |
-| [`spoke-schemas`](https://crates.io/crates/spoke-schemas) | crates.io | 生成的 Rust 线上类型 |
-| [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | 纯函数辅助、adapter ports 与编排 — 与 `@42ch/spoke-operations` 行为对齐 |
-| [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | 可选连接参考 — libp2p 传输、会话核心、uniffi 绑定接口 |
-
-产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。多个叙事主机共享的跨产品功能方言（lore 激活、知识包、assemble 摆放）放在 `modules.*` 下 —— 这是 KnowledgeEntry、AssemblePacket 与 TimelineEvent 上一个可选、按能力启用的字段袋。见 [数据模型](https://spoke.42ch.dev/zh/reference/data-model)。
-
-安装固定与软件包职责：[软件包快速开始](https://spoke.42ch.dev/zh/packages/quick-start)。
+- **一套线上方言** —— 11 个数据对象与 5 个基线 op 族，以 114 个已提交的 JSON Schema 为唯一事实来源。
+- **两侧的类型化客户端** —— npm 上的 `@42ch/spoke-schemas` 与 crates.io 上的 `spoke-schemas`，由同一份 schema 生成。
+- **作为库的协议行为** —— `@42ch/spoke-operations` / `spoke-operations` 提供纯校验器、按能力切片的 adapter port，以及 `orchestrate*` 入口。
+- **可选能力族** —— 可计算 body 状态、分支、认知、跨产品模块、抽取、归属、记忆，以及签名的跨进程 connect。
+- **可运行参考实现** —— [`fixtures/toy-world/`](fixtures/toy-world/) 中的 `ToyWorldAdapter` 通过 TypeScript 与 Rust 一致性测试。
 
 ## 安装
 
-### TypeScript（npm）
+### TypeScript
 
 ```bash
 pnpm add @42ch/spoke-schemas @42ch/spoke-operations
-# 将两者固定到同一锁步 SemVer，例如 @X.Y.Z
 ```
-
-**`@42ch/spoke-schemas`** — 导入生成的线上类型：
 
 ```ts
-import type {
-  KnowledgeEntry,
-  TimelineEvent,
-  PromoteRequest,
-  AssemblePacket,
-  HostCapabilityManifest,
-} from "@42ch/spoke-schemas";
+import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
+import { orchestratePromote, type BaselineAdapter } from "@42ch/spoke-operations";
 ```
 
-**`@42ch/spoke-operations`** — 在同一 adapter 上实现按能力切片的 ports，再调用 `orchestrate*`：
-
-```ts
-import type { PromoteRequest, UpsertRequest } from "@42ch/spoke-schemas";
-import {
-  orchestrateUpsert,
-  orchestratePromote,
-  orchestrateCheck,
-  orchestrateAssemble,
-  type BaselineAdapter,
-} from "@42ch/spoke-operations";
-
-declare const adapter: BaselineAdapter; // 产品实现 BaselineAdapter / FullAdapter
-declare const upsertRequest: UpsertRequest;
-declare const promoteRequest: PromoteRequest;
-
-async function runBaseline() {
-  const upserted = await orchestrateUpsert(adapter, upsertRequest);
-  const promoted = await orchestratePromote(adapter, promoteRequest);
-}
-```
-
-可选能力使用 `ComputableAdapter` / `ForkAdapter`（或 `FullAdapter`），配合 `orchestrateProject`、`orchestrateCompute`、`orchestrateForkCheck`、`orchestrateForkAssemble`。纯函数辅助（`validatePromoteRequest`、`mergeExtensionMaps`、`buildAssemblePacket` 等）仍可用于聚焦门控。
-
-### Rust（crates.io）
+### Rust
 
 ```bash
 cargo add spoke-schemas spoke-operations
-# 将两者固定到同一锁步 SemVer，例如 X.Y.Z
 ```
-
-```toml
-# Cargo.toml
-[dependencies]
-spoke-schemas = "X.Y.Z"
-spoke-operations = "X.Y.Z"
-```
-
-**`spoke-schemas`** — 与 JSON Schema SSOT 对齐的线上类型：
 
 ```rust
-use spoke_schemas::{KnowledgeEntry, HostCapabilityManifest, PromoteRequest, TimelineEvent};
-```
-
-**`spoke-operations`** — port traits 与 `orchestrate_*`（同时 re-export `spoke_schemas`）：
-
-```rust
-use spoke_operations::{
-    orchestrate_promote, orchestrate_upsert, BaselineAdapter,
-};
+use spoke_operations::{orchestrate_promote, BaselineAdapter};
 use spoke_operations::spoke_schemas::{PromoteRequest, UpsertRequest};
-
-async fn run_baseline(adapter: &impl BaselineAdapter, upsert: UpsertRequest, promote: PromoteRequest) {
-    let _ = orchestrate_upsert(adapter, upsert).await;
-    let _ = orchestrate_promote(adapter, promote).await;
-}
 ```
 
 ### Connect（可选）
 
-主机需要签名的跨进程交互（hello、session、invoke、auth 信封）时，声明 **`spoke-connect`** 能力。
-
-**TypeScript** — 带 WebSocket 传输的 npm 客户端：
+需要签名的跨进程会话时，使用 npm 的 `@42ch/spoke-connect` 与 crates.io 的 `spoke-connect`。原生绑定覆盖 C#、Kotlin、Swift、Go、Python 与 C/C++。
 
 ```bash
 pnpm add @42ch/spoke-connect
-# 与 schemas / operations 固定到同一锁步 SemVer
-```
-
-**Rust** — crates.io 参考实现，带 libp2p 传输与面向其他宿主语言的 uniffi 绑定面：
-
-```bash
 cargo add spoke-connect
 ```
 
-**C 与 C++** —— 基于 git、与发布标签同源：检出 `vX.Y.Z`，取用 `crates/spoke-connect/bindings/cpp/include/spoke_connect.h`（手写 C ABI 头文件）、`crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp`（C++17 头文件式便利层），以及目标平台的已提交载体 —— macOS arm64 用 `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib`，Windows x64 用 `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll`。两个载体动态库为 Git LFS 对象，链接前请先执行一次 `git lfs install`，已有 clone 再执行 `git lfs pull`。
+所有包固定到同一 SemVer。安装细节与绑定渠道：[软件包快速开始](https://spoke.42ch.dev/zh/packages/quick-start)。
 
-```bash
-git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
-```
+## 第一次 promote
 
-Connect 支持多语言：npm 上的语言原生客户端（TypeScript）、crates.io 上的 Rust 参考实现（libp2p + uniffi 绑定面），以及原生绑定 —— C#（GitHub Packages NuGet）、Kotlin（GitHub Packages Maven）与 Python（PyPI）走注册表分发，Swift、Go 与 C/C++（已提交头文件与平台载体）走 git 分发。路线见 [TypeScript 客户端](https://spoke.42ch.dev/zh/how-to/connect-ts-client)、[原生绑定](https://spoke.42ch.dev/zh/how-to/connect-native-bindings) 与 [从 C 与 C++ 连接](https://spoke.42ch.dev/zh/how-to/connect-cpp-binding)。
+在一个 adapter 类型上实现所需的能力 port 族，然后调用对应的编排器。
 
-## 版本与固定
-
-在 npm 与 crates.io 上将各消费面固定到**同一** SemVer（`X.Y.Z`）：
-
-```bash
-pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z
-cargo add spoke-schemas@X.Y.Z spoke-operations@X.Y.Z
-```
-
-带注释的 git 标签 `vX.Y.Z` 与该锁步版本一致。发布说明见 [`CHANGELOG.md`](CHANGELOG.md) 与 [GitHub Releases](https://github.com/42ch-dev/spoke/releases)。固定指南：[版本与发布](https://spoke.42ch.dev/zh/release/versioning)。
-
-## 快速开始
-
-在同一 adapter 类型上实现你声明的能力所对应的 port 族，再调用 `@42ch/spoke-operations` 的 `orchestrate*`（Rust 侧为 `orchestrate_*`）。
-
-```typescript
+```ts
 import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
-import {
-  orchestratePromote,
-  type BaselineAdapter,
-} from "@42ch/spoke-operations";
+import { orchestratePromote, type BaselineAdapter } from "@42ch/spoke-operations";
 
-// 产品 adapter 实现 BaselineAdapter。
-// 参考 FullAdapter：fixtures/toy-world 的 ToyWorldAdapter
 declare const adapter: BaselineAdapter;
 
 const candidate: KnowledgeEntry = {
@@ -177,93 +81,77 @@ const candidate: KnowledgeEntry = {
 };
 
 const request: PromoteRequest = { candidate };
+const result = await orchestratePromote(adapter, request);
 
-async function promote() {
-  const result = await orchestratePromote(adapter, request);
-
-  if (result.ok) {
-    // 已通过 adapter OCC ports 持久化 confirmed 条目
-  } else {
-    console.error(result.code, result.message);
-  }
+if (result.ok) {
+  // 已确认条目通过 adapter 的 OCC port 持久化。
+} else {
+  console.error(result.code, result.message);
 }
 ```
 
-参考 **FullAdapter** 与已提交的「Mira at Harbor」样例图：[`fixtures/toy-world/`](fixtures/toy-world/)。分步软件包路径：[软件包快速开始](https://spoke.42ch.dev/zh/packages/quick-start)。
+库会加载已存条目、运行终态与 revision 门控、执行 promote 准入，并通过 `KnowledgeEntryPort` 携带 `expectedBaseRevision` 写入。原子 compare-and-put 由 adapter 负责。
 
-## 核心概念
+分步说明：[实现 Adapter](https://spoke.42ch.dev/zh/how-to/implement-adapter) 与 [编排操作](https://spoke.42ch.dev/zh/how-to/orchestrate-ops)。
 
-| 术语 | 在 SPOKE 中的含义 |
-|------|-------------------|
-| **KnowledgeEntry** | 线上的原子叙事知识单元（`entry_id`、`entry_type`、`status`、`body`、`extensions`） |
-| **Relation** | KnowledgeEntry 之间（或 KnowledgeEntry ↔ 来源）的有向边 |
-| **SourceAnchor** | 指向手稿片段或外部定位器的溯源指针 |
-| **Finding** | 一致性、风格或分析类检查器输出 |
-| **Rule** | `check` 的声明式约束输入（L6） |
-| **TimelineEvent** | when 轴上的第一类时间对象（L5） |
-| **MindState** | when 轴上的第一类时间心智状态记录（L5，可选 `spoke-cognition` 能力） |
-| **CognitionRecord** | 持有者 KnowledgeEntry 的 `modules.cognition` 下的标准 Belief / epistemic / Perception 记录（`spoke-cognition`） |
-| **AssemblePacket** | 线上上下文组装载荷（供下游 LLM 提示的精简条目） |
-| **HostCapabilityManifest** | 主机角色、能力与所拥有的 `namespaces[]`，用于进程内协作 |
-| **Extensions** | 数据对象上的产品专属字段袋（`extensions.<namespace>`） |
-| **Modules** | KnowledgeEntry、AssemblePacket 与 TimelineEvent 上的可选跨产品功能方言字段袋（按能力启用 `narrative-modules`） |
-| **Adapter ports** | 注入式读写面（`KnowledgeEntryPort`、`HostManifestPort` 等），由产品负责持久化 |
-| **Orchestration** | `orchestrate*` / `orchestrate_*` 序列：加载 scope、执行门控、经 ports 持久化 |
+## 软件包
 
-词汇与定位：[`CONCEPTS.md`](CONCEPTS.md)、[`STRATEGY.md`](STRATEGY.md)，以及 [核心概念](https://spoke.42ch.dev/zh/explanation/concepts)。
+所有已发布包共享同一个锁步 SemVer。
 
-## 可选能力
+| 包 | 注册表 | 角色 |
+|----|--------|------|
+| [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-schemas) | npm | 生成的 TypeScript 线上类型 |
+| [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) | npm | 纯辅助函数、adapter port、编排 |
+| [`@42ch/spoke-connect`](https://www.npmjs.com/package/@42ch/spoke-connect) | npm | 基于 WebSocket 的语言原生 connect 客户端 |
+| [`spoke-schemas`](https://crates.io/crates/spoke-schemas) | crates.io | 生成的 Rust 线上类型 |
+| [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | 纯辅助函数、adapter port、编排 |
+| [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | Rust connect 参考实现，含 libp2p 与 uniffi 绑定面 |
 
-需要可编程 KnowledgeEntry 体状态的产品可声明 **`l2-computable`**：
+## 能力标志
 
-- **`body.state`** — 静态持久可计算值
-- **`body.computable`** — 动态 Session 作用域投影
-- **`TimelineEvent.computable_logs`** — Moment 层级字段变更展示
-- **`project` / `compute` ops** — 初始化/投影与应用/结算 I/O 信封
+`spoke-baseline` 覆盖共享的数据与 ops 形状。其余能力按需启用。
 
-需要 fork 作用域时间线查询的产品可声明 **`l5-fork`**。需要交换跨产品功能方言（lore 激活、知识包、assemble 摆放 / 激活轨迹）的产品可声明 **`narrative-modules`**：KnowledgeEntry、AssemblePacket 与 TimelineEvent 上的可选 `modules`（`ModuleMap`）字段袋承载这些方言，适配器对未知 module namespace 原样往返保留。内部形状由 Domain Profile 手册定义。
+| 标志 | 增加的内容 |
+|------|-----------|
+| `l2-computable` | `body.state` / `body.computable`、`project` 与 `compute` ops |
+| `l5-fork` | `TimelineEvent` 上的分支元数据与 `Scope.fork_id` |
+| `spoke-cognition` | 可归因的信念、认知与感知记录、选择、派生的 `MindState` |
+| `narrative-modules` | 承载跨产品方言的能力标志 `modules` 字段袋 |
+| `ke-extraction` | 从引用源材料抽取 `extract` 候选 |
+| `ke-ownership` | owner 与 disclosure 字段，以及 `Scope.viewpoint` |
+| `spoke-connect` | 签名 hello、会话、invoke 与认证信封 |
+| `spoke-memory` | 13 个记忆模型与 33 个 `memory.*` ops，含 reflection 与 transfer 子标志 |
 
-可互换「谁在时刻 t 知道、相信、感知、想要或感受什么」的产品可声明 **`spoke-cognition`**：单一能力标志（无子标志）下的标准、可归因认知记录族。主机通过持有者 KnowledgeEntry 的 `modules.cognition` 提供它 —— `records[]` 承载 Belief、epistemic（knowledge、ignorance、undetermined）与 Perception 记录，`world_facts[]` 承载叙事世界事实 —— 每条完整的信念、认知评估与感知记录都为其所标识的认知断言携带必填的基础 `q`，并可携带相互独立的可选 `metrics`（`b`、`p`、`f`、`k`、`r`）。认知选择经 `Scope.cognition` 承载：封闭过滤语法（`holder`、目标身份、评估上下文 / fork、`category`、`state`、`q` 区间，以及存在/缺失的分类谓词），外加保留分歧、并记录所选当前视图策略的归因保真投影。`MindState` 把同一批持有者侧记录投影为派生的时间视图。记忆主机的 `Content.cognition` 承载记录时点的认知，并以 `cognition_filter` 过滤。只有在实际提供的表面上实现全部强制规则后，才在 `HostCapabilityManifest.capabilities` 中声明该标志；不受支持的请求要求会被显式拒绝。心智引擎留在产品侧。按需启用，非 `spoke-baseline`。细节：[数据模型 —— 认知](/zh/reference/data-model#cognition-spoke-cognition)。
+能力参考：[协议](https://spoke.42ch.dev/zh/reference/protocol)、[核心概念](https://spoke.42ch.dev/zh/explanation/concepts)。
 
-需要签名的跨进程交互的产品可声明 **`spoke-connect`**。组合后的 adapter 别名：`BaselineAdapter`、`ComputableAdapter`、`ForkAdapter`、`FullAdapter`。
+## 文档
 
-基线集成方使用核心 schema；可选能力按需启用。细节：[核心概念](https://spoke.42ch.dev/zh/explanation/concepts)。
+站点按任务组织：
 
-## 操作层
+| 你想 | 读 |
+|------|----|
+| 安装并持久化第一条条目 | [安装与第一条 KnowledgeEntry](https://spoke.42ch.dev/zh/tutorials/install-and-first-entry) |
+| 实现 adapter | [实现 Adapter](https://spoke.42ch.dev/zh/how-to/implement-adapter) |
+| 核对字段名与必填集合 | [数据模型](https://spoke.42ch.dev/zh/reference/data-model) |
+| 编写或读取 op 信封 | [Ops 线上](https://spoke.42ch.dev/zh/reference/ops) |
+| 提供按主体的记忆服务 | [记忆（Memory）](https://spoke.42ch.dev/zh/reference/memory) |
+| 建立跨进程会话 | [Connect](https://spoke.42ch.dev/zh/reference/connect) |
+| 理解分层模型 | [核心概念](https://spoke.42ch.dev/zh/explanation/concepts) |
+| 发布本体词汇 | [领域画像](https://spoke.42ch.dev/zh/explanation/domain-profiles) |
 
-`@42ch/spoke-operations` / `spoke-operations` 提供纯函数辅助与经 ports 注入的编排：
+面向 Agent 与代码助手：[docs/agents.md](docs/agents.md) 是阅读契约，[llms.txt](https://spoke.42ch.dev/llms.txt) / [llms-full.txt](https://spoke.42ch.dev/llms-full.txt) 是机器可读索引。
 
-- **基线编排：** `orchestrateUpsert`、`orchestratePromote`、`orchestrateRelate`、`orchestrateCheck`、`orchestrateAssemble`
-- **可选编排：** `orchestrateProject`、`orchestrateCompute`、`orchestrateForkCheck`、`orchestrateForkAssemble`
-- 按能力切片的 ports 与组合别名（`BaselineAdapter` … `FullAdapter`）
-- 扩展与模块映射合并及往返保留（`mergeExtensionMaps` / `mergeModuleMaps`、`preserveExtensionMaps` / `preserveModuleMaps`）
-- Finding / KnowledgeEntry `status` 迁移辅助
-- 晋升接受、upsert/relate 与 MindState 线上形状校验（`validateMindState` / `validate_mind_state`）
-- 认知线上形状门禁与选择/投影辅助（`validateCognitionRecord` / `validate_cognition_record`、`validateCognitionModule`、`validateObservationModule`、`validateCognitionFilter`、`validateCognitionSelection`、`validateCognitionProjection`、`selectCognitionRecords`、`projectCognitionRecords`）
-- 由 KnowledgeEntry 构建 AssemblePacket
-- 拒绝路径上统一的 `SpokeResult` / `SpokeRejectCode`
+## 版本
 
-参考 **FullAdapter**（baseline + `l2-computable` + `l5-fork`，含 `HostCapabilityManifest` 对等主机）：[`fixtures/toy-world/`](fixtures/toy-world/) — TypeScript `ToyWorldAdapter`，Rust crate `spoke-fixture-toy-world`。
+npm 与 crates.io 共享同一版本号，注释标签 `vX.Y.Z` 与之对应。
 
-细节：[编排操作](https://spoke.42ch.dev/zh/how-to/orchestrate-ops)。
+```bash
+pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z
+cargo add spoke-schemas@X.Y.Z spoke-operations@X.Y.Z
+```
 
-## 延伸阅读
-
-| 主题 | 指南 |
-|-------|------|
-| 协议总览 | [协议](https://spoke.42ch.dev/zh/reference/protocol) |
-| 九层模型与能力等级 | [核心概念](https://spoke.42ch.dev/zh/explanation/concepts) |
-| 数据对象与开放词汇 | [数据模型](https://spoke.42ch.dev/zh/reference/data-model) |
-| MindState | [MindState 参考](https://spoke.42ch.dev/zh/reference/mind-state) |
-| 认知记录、过滤与投影 | [数据模型 —— 认知](https://spoke.42ch.dev/zh/reference/data-model#cognition-spoke-cognition) |
-| Ops 请求/响应信封 | [操作线上信封](https://spoke.42ch.dev/zh/reference/ops) |
-| 操作库行为 | [编排操作](https://spoke.42ch.dev/zh/how-to/orchestrate-ops) |
-| Core / modules / extensions | [数据模型](https://spoke.42ch.dev/zh/reference/data-model) |
-| Connect 信封与绑定 | [连接](https://spoke.42ch.dev/zh/reference/connect) |
-| Domain Profiles | [领域画像](https://spoke.42ch.dev/zh/explanation/domain-profiles) |
-| JSON Schema SSOT | [`schemas/`](schemas/) |
-| 参考 adapters 与样例图 | [`fixtures/toy-world/`](fixtures/toy-world/) |
+发布说明：[CHANGELOG.md](CHANGELOG.md) 与 [GitHub Releases](https://github.com/42ch-dev/spoke/releases)。固定版本指南：[版本与发布](https://spoke.42ch.dev/zh/release/versioning)。
 
 ## 贡献
 
-本地开发、CI 门禁与发布流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+本地开发、CI 门禁与发布流程：[CONTRIBUTING.md](CONTRIBUTING.md)。面向 Agent 的仓库约定：[AGENTS.md](AGENTS.md)。

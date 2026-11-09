@@ -425,10 +425,10 @@ except spoke_connect.FfiError.Rejected as passed:
 
 | 面 | C# | Go | Kotlin | Python | Swift |
 |---------|----|----|--------|--------|-------|
-| 拨号并构造 | `ConnectRemoteAdapterFfi(...)` | `ConnectRemoteAdapterFfi(...)` | `connectRemoteAdapterFfi(...)` | `connect_remote_adapter_ffi(...)` | `connectRemoteAdapterFfi(...)` |
+| 拨号并构造 | `SpokeConnectMethods.ConnectRemoteAdapterFfi(...)` | `ConnectRemoteAdapterFfi(...)` | `connectRemoteAdapterFfi(...)` | `connect_remote_adapter_ffi(...)` | `connectRemoteAdapterFfi(...)` |
 | Adapter 对象 | `RemoteAdapterFfi` | `RemoteAdapterFfi` | `RemoteAdapterFfi` | `RemoteAdapterFfi` | `RemoteAdapterFfi` |
-| 路由器构造 | `NewMultiPeerRouterFfi()` | `NewMultiPeerRouterFfi()` | `newMultiPeerRouterFfi()` | `new_multi_peer_router_ffi()` | `newMultiPeerRouterFfi()` |
-| 路由器对象 | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` |
+| 路由器构造 | `SpokeConnectMethods.NewMultiPeerRouterFfi()` | `spoke_connect.NewMultiPeerRouterFfi()` | `newMultiPeerRouterFfi()` | `new_multi_peer_router_ffi()` | `newMultiPeerRouterFfi()` |
+| 路由器对象 | `MultiPeerRouterFfi` | `spoke_connect.MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` |
 | port 方法 | PascalCase（`GetKnowledgeEntry`） | PascalCase（`GetKnowledgeEntry`） | camelCase（`getKnowledgeEntry`） | snake_case（`get_knowledge_entry`） | camelCase（`getKnowledgeEntry`） |
 | 可选 port 方法 | `Project` / `Compute` / `ListForkTimelineEvents` | `Project` / `Compute` / `ListForkTimelineEvents` | `project` / `compute` / `listForkTimelineEvents` | `project` / `compute` / `list_fork_timeline_events` | `project` / `compute` / `listForkTimelineEvents` |
 | 远程抽取（`ke-extraction`） | `Extract(extractRequestJson)` | `Extract(extractRequestJson)` | `extract(extractRequestJson)` | `extract(extract_request_json)` | `extract(extractRequestJson:)` |
@@ -437,8 +437,10 @@ except spoke_connect.FfiError.Rejected as passed:
 | 工具服务注册 | `RegisterToolHandler(...)` | `RegisterToolHandler(...)` | `registerToolHandler(...)` | `register_tool_handler(...)` | `registerToolHandler(capabilityId:handler:)` |
 | 工具处理器回调 | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` |
 | ports 回调 | `PortsHandler` | `PortsHandler` | `PortsHandler` | `PortsHandler` | `PortsHandler` |
-| 响应方构造 | `SpokeConnectMethods.ConnectResponderFfi(...)` | `NewConnectResponderFfi(...)` | `connectResponderFfi(...)` | `connect_responder_ffi(...)` | `connectResponderFfi(...)` |
-| 响应方对象 | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` |
+| 响应方构造 | `SpokeConnectMethods.ConnectResponderFfi(...)` | `spoke_connect.NewConnectResponderFfi(...)` | `connectResponderFfi(...)` | `connect_responder_ffi(...)` | `connectResponderFfi(...)` |
+| 响应方对象 | `ConnectResponderFfi` | `spoke_connect.ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` |
+
+Go 集成方从 `spokeconnect` 导入重新导出的传输与 adapter 类型；router、responder、ports 与工具符号位于 `generated/spoke_connect` 子包，并用 `spoke_connect.` 前缀引用。C# 的 adapter 与 router 构造函数是 `SpokeConnectMethods` 的静态成员。
 
 每个绑定都携带相同的面：golden-parity smoke 断言字节级一致的会话核心行为，回环 smoke 从各宿主侧驱动回调 `Transport` + `RemoteAdapterFFI` 流程。
 

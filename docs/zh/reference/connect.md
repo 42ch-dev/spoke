@@ -24,7 +24,7 @@ connect 是面向跨进程 SPOKE 主机的可选**交互信封族**（`spoke-con
 
 ### ConnectSession —— 已建立的会话上下文
 
-必填：`session_id`、`initiator_peer_id`、`responder_peer_id`、`opened_at`、`negotiated_capabilities`、`initial_sequence`、`extensions`（protocol_version 2 下另有 `signature`）。
+必填：`session_id`、`initiator_peer_id`、`responder_peer_id`、`opened_at`、`negotiated_capabilities`、`initial_sequence`、`extensions`。已提交的 schema 同样把 `signature` 列为必填，因为它描述 protocol_version 2 的线形状；protocol_version 1 的对端早于该字段。
 
 | 字段 | 说明 |
 |------|------|
@@ -38,7 +38,7 @@ connect 是面向跨进程 SPOKE 主机的可选**交互信封族**（`spoke-con
 
 ### ConnectInvokeRequest / ConnectInvokeResponse —— 远程 op 调用
 
-`ConnectInvokeRequest` 必填：`session_id`、`sequence`、`request_id`、`op`、`payload`、`extensions`（protocol_version 2 下另有 `signature`）。
+`ConnectInvokeRequest` 必填：`session_id`、`sequence`、`request_id`、`op`、`payload`、`extensions`。已提交的 schema 同样把 `signature` 列为必填，因为它描述 protocol_version 2 的线形状。
 
 | 字段 | 说明 |
 |------|------|

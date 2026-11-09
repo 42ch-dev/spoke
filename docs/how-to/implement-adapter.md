@@ -6,6 +6,9 @@ title: Implement an adapter
 
 Your product speaks SPOKE by implementing the **port families your claimed capabilities require** on one adapter type, then calling the matching `orchestrate*` entrypoints from the operations library. The adapter is the only place your product's storage and I/O touch the protocol — every read and write flows through it, and every protocol rule runs in the library before persistence.
 
+<img class="diagram-light" alt="orchestratePromote loads state, runs gates, and persists through adapter ports" src="/diagrams/adapter-promote.light.svg">
+<img class="diagram-dark" alt="orchestratePromote loads state, runs gates, and persists through adapter ports" src="/diagrams/adapter-promote.dark.svg">
+
 ## 1. Choose your capability level
 
 The adapter port types are sliced by capability. Pick the alias that matches the capabilities your host claims:
@@ -140,7 +143,7 @@ capture(principal: Principal, request: MemoryCaptureRequest): Promise<SpokeResul
 
 `MemoryPort` is the standalone optional boundary for per-subject memory: 33 typed methods (25 core, 3 reflection, 5 transfer), each carrying the authenticated `Principal` your admission context established. It stands alongside the baseline port families the way `ExtractionPort` does — an optional interface beside the adapter aliases. When you serve memory, implement `MemoryPort` and expose the `MemoryPorts` probe (`asMemory()` / `MemoryPorts::as_memory()`); otherwise leave the probe unimplemented and dynamic boundaries read its absence directly.
 
-Provider duties stay in your adapter's transaction layer: grant coverage and non-amplification, `revision` compare-and-set, durable idempotency keyed on `(space_id, principal, op, idempotency_key)`, receipts and dedup tombstones, space freeze and subject/context fencing, and atomic candidate review. The library supplies the deterministic helpers — request validators (`validateMemory*`), grant coverage (`grantCovers`), the freeze allowlist (`isFreezeAllowlisted`), and JCS/SHA-256 digests (`jcsSha256Hex`). Serving the family over connect means exposing the connect-owned `RemoteMemoryService`; `MemoryPortService` adapts your `MemoryPort` to it with the same admission context.
+Provider duties stay in your adapter's transaction layer: grant coverage and non-amplification, `revision` compare-and-set, durable idempotency keyed on `(space_id, principal, op, idempotency_key)`, receipts and dedup tombstones, space freeze and subject/context fencing, and atomic candidate review. The library supplies the deterministic helpers — request validators (`validateMemory*`), grant coverage (`grantCovers`), the freeze allowlist (`isFreezeAllowlisted`), and JCS/SHA-256 digests (`jcsSha256Hex`). Serving the family over connect means exposing the connect-owned `RemoteMemoryService`. RemoteAdapter consumers proxy memory ops through that service; the Rust `spoke-connect` crate also ships `MemoryPortService`, which adapts a `MemoryPort` to it with the same admission context.
 
 Declaring `spoke-memory-reflection` or `spoke-memory-transfer` requires `spoke-memory`; a host that declares only `spoke-memory` answers the reflection and transfer ops with `capability_missing` before any handler runs. See the [Memory reference](/reference/memory) for the op table and the [family spec](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md) for per-op grants, fields, and errors.
 

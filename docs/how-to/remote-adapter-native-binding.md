@@ -425,10 +425,10 @@ Every FFI call settles through the `FfiError` surface — dial failures before a
 
 | Surface | C# | Go | Kotlin | Python | Swift |
 |---------|----|----|--------|--------|-------|
-| Dial + construct | `ConnectRemoteAdapterFfi(...)` | `ConnectRemoteAdapterFfi(...)` | `connectRemoteAdapterFfi(...)` | `connect_remote_adapter_ffi(...)` | `connectRemoteAdapterFfi(...)` |
+| Dial + construct | `SpokeConnectMethods.ConnectRemoteAdapterFfi(...)` | `ConnectRemoteAdapterFfi(...)` | `connectRemoteAdapterFfi(...)` | `connect_remote_adapter_ffi(...)` | `connectRemoteAdapterFfi(...)` |
 | Adapter object | `RemoteAdapterFfi` | `RemoteAdapterFfi` | `RemoteAdapterFfi` | `RemoteAdapterFfi` | `RemoteAdapterFfi` |
-| Router constructor | `NewMultiPeerRouterFfi()` | `NewMultiPeerRouterFfi()` | `newMultiPeerRouterFfi()` | `new_multi_peer_router_ffi()` | `newMultiPeerRouterFfi()` |
-| Router object | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` |
+| Router constructor | `SpokeConnectMethods.NewMultiPeerRouterFfi()` | `spoke_connect.NewMultiPeerRouterFfi()` | `newMultiPeerRouterFfi()` | `new_multi_peer_router_ffi()` | `newMultiPeerRouterFfi()` |
+| Router object | `MultiPeerRouterFfi` | `spoke_connect.MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` |
 | Port methods | PascalCase (`GetKnowledgeEntry`) | PascalCase (`GetKnowledgeEntry`) | camelCase (`getKnowledgeEntry`) | snake_case (`get_knowledge_entry`) | camelCase (`getKnowledgeEntry`) |
 | Optional port methods | `Project` / `Compute` / `ListForkTimelineEvents` | `Project` / `Compute` / `ListForkTimelineEvents` | `project` / `compute` / `listForkTimelineEvents` | `project` / `compute` / `list_fork_timeline_events` | `project` / `compute` / `listForkTimelineEvents` |
 | Remote extract (`ke-extraction`) | `Extract(extractRequestJson)` | `Extract(extractRequestJson)` | `extract(extractRequestJson)` | `extract(extract_request_json)` | `extract(extractRequestJson:)` |
@@ -437,8 +437,10 @@ Every FFI call settles through the `FfiError` surface — dial failures before a
 | Tool serving registration | `RegisterToolHandler(...)` | `RegisterToolHandler(...)` | `registerToolHandler(...)` | `register_tool_handler(...)` | `registerToolHandler(capabilityId:handler:)` |
 | Tool handler callback | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` |
 | Ports callback | `PortsHandler` | `PortsHandler` | `PortsHandler` | `PortsHandler` | `PortsHandler` |
-| Responder constructor | `SpokeConnectMethods.ConnectResponderFfi(...)` | `NewConnectResponderFfi(...)` | `connectResponderFfi(...)` | `connect_responder_ffi(...)` | `connectResponderFfi(...)` |
-| Responder object | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` |
+| Responder constructor | `SpokeConnectMethods.ConnectResponderFfi(...)` | `spoke_connect.NewConnectResponderFfi(...)` | `connectResponderFfi(...)` | `connect_responder_ffi(...)` | `connectResponderFfi(...)` |
+| Responder object | `ConnectResponderFfi` | `spoke_connect.ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` |
+
+Go integrators import `spokeconnect` for the re-exported transport and adapter types; router, responder, ports and tool symbols live in the `generated/spoke_connect` subpackage and are referenced with the `spoke_connect.` prefix. C# adapter and router constructors are static members of `SpokeConnectMethods`.
 
 Every binding ships the same surface: golden-parity smokes assert byte-identical session-core behavior, and loopback smokes drive the callback `Transport` + `RemoteAdapterFFI` flow from each host side.
 

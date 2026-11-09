@@ -35,8 +35,8 @@ let router = connect_multi_peer_router(MultiPeerRouterOptions {
     host_id: Some("storefront-router".into()),
 });
 
-let north = connect_remote_adapter(/* 拨号选项 */)?;
-let south = connect_remote_adapter(/* 拨号选项 */)?;
+let north = connect_remote_adapter(/* 拨号选项 */).await?;
+let south = connect_remote_adapter(/* 拨号选项 */).await?;
 
 let north_id = router.register_peer(north)?; // Ok(peer_id)
 router.register_peer(south)?;                // 对 peer_id 幂等
@@ -47,7 +47,7 @@ router.unregister_peer(&north_id); // 移出选择；adapter 保持开启
 
 | 操作 | 行为 |
 |------|------|
-| `registerPeer(adapter)` / `register_peer(&adapter)` | 接受已建立的 adapter，返回其 `peer_id`，缓存其 manifest。对同一 `peer_id` 重复注册会替换已存储的 adapter（幂等）。adapter 必须拥有已建立的会话 —— 先拨号。 |
+| `registerPeer(adapter)` / `register_peer(adapter)` | 接受已建立的 adapter，返回其 `peer_id`，缓存其 manifest。对同一 `peer_id` 重复注册会替换已存储的 adapter（幂等）。adapter 必须拥有已建立的会话 —— 先拨号。 |
 | `unregisterPeer(peerId)` / `unregister_peer(&peer_id)` | 将该对等节点移出选择。对未注册过的 `peer_id`，注册表保持不变。adapter 的生命周期由消费方持有 —— 路由器保持 adapter 开启。 |
 | `listPeers()` / `list_peers()` | 已注册的 `peer_id`，按注册顺序。 |
 

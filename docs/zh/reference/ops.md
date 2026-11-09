@@ -6,6 +6,9 @@ title: 操作线上参考（Ops wire）
 
 操作层为核心 KnowledgeEntry 操作定义传输无关的请求/响应信封。产品可经任意传输承载这些 JSON 载荷 —— 进程内调用、消息队列或 adapter 内的 HTTP 映射 —— 线上保持传输无关。以下字段表溯源到 [`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops) 中的已提交 schema。
 
+<img class="diagram-light" alt="KnowledgeEntry 状态迁移与终态" src="/diagrams/knowledge-entry-status.light.svg">
+<img class="diagram-dark" alt="KnowledgeEntry 状态迁移与终态" src="/diagrams/knowledge-entry-status.dark.svg">
+
 ## 基线操作
 
 | Op | 请求 | 响应 | 语义 |
@@ -76,7 +79,7 @@ title: 操作线上参考（Ops wire）
 
 ### UpsertRequest / UpsertResponse
 
-`UpsertRequest` 必填：`knowledge_entries`。响应：`{ knowledge_entries: [...] }` **或** `{ error }`。
+`UpsertRequest` 必填：`knowledge_entries`。响应：`{ knowledge_entries: [...], rejected? }` **或** `{ error }`。`rejected[]` 在成功分支携带逐条 `{ entry_id, code, message }`。
 
 | 字段 | 说明 |
 |------|------|

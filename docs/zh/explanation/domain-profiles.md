@@ -4,7 +4,7 @@ title: 领域画像（Domain Profiles）
 
 # 领域画像（Domain Profiles）
 
-**Domain Profile（领域画像）**在核心线上形状之上发布本体词汇：画像专属的 `entry_type` 标签、`relation_type` 值、body 特征（trait）与 `modules.*` 方言。核心 schema 保持不变 —— 词汇经由开放字符串与可选 `modules` 字段袋承载。本页记录四个画像；每节列出集成方可以发出与消费的已发布开放字符串词汇。
+**Domain Profile（领域画像）**在核心线上形状之上发布本体词汇：画像专属的 `entry_type` 标签、`relation_type` 值、body 特征（trait）与 `modules.*` 方言。核心 schema 保持不变 —— 词汇经由开放字符串与可选 `modules` 字段袋承载。本页记录四个画像与一组 assemble 配方；每节列出集成方可以发出与消费的已发布开放字符串词汇。
 
 ## 叙事结构（Narrative structure）
 

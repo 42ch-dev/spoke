@@ -4,7 +4,7 @@ title: Domain profiles
 
 # Domain profiles
 
-A **Domain Profile** publishes ontology vocabulary over the core wire shapes: profile-specific `entry_type` labels, `relation_type` values, body-attribute traits, and `modules.*` dialects. The core schemas stay unchanged — the vocabulary rides open strings and the optional `modules` bag. Four profiles are documented on this page; each section lists the published open-string vocabulary integrators can emit and consume.
+A **Domain Profile** publishes ontology vocabulary over the core wire shapes: profile-specific `entry_type` labels, `relation_type` values, body-attribute traits, and `modules.*` dialects. The core schemas stay unchanged — the vocabulary rides open strings and the optional `modules` bag. Four profiles and one assemble recipe set are documented on this page; each section lists the published open-string vocabulary integrators can emit and consume.
 
 ## Narrative structure
 

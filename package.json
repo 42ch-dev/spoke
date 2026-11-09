@@ -2,7 +2,7 @@
   "name": "spoke",
   "version": "0.16.0",
   "private": true,
-  "description": "SPOKE protocol monorepo — JSON Schema SSOT with generated TypeScript and Rust types",
+  "description": "SPOKE protocol monorepo \u2014 JSON Schema SSOT with generated TypeScript and Rust types",
   "license": "Apache-2.0",
   "engines": {
     "node": "^22.18.0 || ^24.11.0 || >=26.0.0",
@@ -23,12 +23,14 @@
     "test:demo": "pnpm -F @42ch/spoke-demo-server test && pnpm -F @42ch/spoke-demo-client test",
     "test:release": "node --test tooling/release/assert-lockstep-version.test.mjs tooling/release/bump-version.test.mjs tooling/release/check-pypi-published.test.mjs tooling/release/check-maven-published.test.mjs",
     "ci:typescript": "pnpm -F @42ch/spoke-schemas typecheck && pnpm run build:schema && pnpm -F @42ch/spoke-operations typecheck && pnpm run test && pnpm run build:operations && pnpm run test:release && pnpm run test:fixtures && pnpm -F @42ch/spoke-connect typecheck && pnpm run test:connect-ts && pnpm -F @42ch/spoke-connect build && pnpm -F @42ch/spoke-connect test:dist && pnpm -F @42ch/spoke-demo-server typecheck && pnpm -F @42ch/spoke-demo-client typecheck && pnpm run test:demo",
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
+    "docs:dev": "pnpm run docs:diagrams && pnpm run docs:llms && vitepress dev docs",
+    "docs:build": "pnpm run docs:diagrams && pnpm run docs:llms && vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "verify:version": "node tooling/release/assert-lockstep-version.mjs",
     "release:bump": "node tooling/release/bump-version.mjs",
-    "release:changelog": "node tooling/release/run-git-cliff.mjs"
+    "release:changelog": "node tooling/release/run-git-cliff.mjs",
+    "docs:llms": "node tooling/docs/build-llms.mjs",
+    "docs:diagrams": "node tooling/diagrams/verify-svg.mjs"
   },
   "devDependencies": {
     "git-cliff": "2.14.2",

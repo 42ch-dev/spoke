@@ -113,7 +113,7 @@ let adapter = connect_remote_adapter(RemoteAdapterOptions {
     allowlist: vec![peer_id_host.into()],
     invoke_timeout_ms: None,  // None uses the default (5000 ms)
     capability_token: None,   // optional capability-token proof attached as `auth`
-})?;
+}).await?;
 ```
 
 会话信息以 `Option` 形式返回（会话建立后填充）；`close()` 是同步的：

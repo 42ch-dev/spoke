@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Connect session: signed hello, ordered invoke",
+    "quality_profile": "showcase",
+    "viewBox": [
+      900,
+      820
+    ]
+  },
+  "participants": [
+    {
+      "id": "initiator",
+      "type": "backend",
+      "label": "Initiator",
+      "sublabel": "peer_id + keys"
+    },
+    {
+      "id": "responder",
+      "type": "backend",
+      "label": "Responder",
+      "sublabel": "peer_id + keys"
+    },
+    {
+      "id": "core",
+      "type": "security",
+      "label": "Session core",
+      "sublabel": "nonce · order"
+    }
+  ],
+  "segments": [
+    {
+      "from": 166,
+      "to": 420,
+      "label": "Signed hello and session"
+    },
+    {
+      "from": 430,
+      "to": 584,
+      "label": "Authorized invoke"
+    },
+    {
+      "from": 594,
+      "to": 700,
+      "label": "Either peer may invoke"
+    }
+  ],
+  "messages": [
+    {
+      "from": "initiator",
+      "to": "responder",
+      "y": 190,
+      "label": "ConnectHello + signed manifest + nonce",
+      "variant": "emphasis"
+    },
+    {
+      "from": "responder",
+      "to": "core",
+      "y": 232,
+      "label": "verify signature, nonce, allowlist",
+      "variant": "security"
+    },
+    {
+      "from": "core",
+      "to": "responder",
+      "y": 274,
+      "label": "accept | reject",
+      "variant": "return"
+    },
+    {
+      "from": "responder",
+      "to": "initiator",
+      "y": 316,
+      "label": "ConnectHello + peer_nonce",
+      "variant": "return"
+    },
+    {
+      "from": "responder",
+      "to": "initiator",
+      "y": 400,
+      "label": "ConnectSession + negotiated_capabilities",
+      "variant": "return"
+    },
+    {
+      "from": "initiator",
+      "to": "responder",
+      "y": 442,
+      "label": "ConnectInvokeRequest (sequence 0)",
+      "variant": "emphasis"
+    },
+    {
+      "from": "responder",
+      "to": "core",
+      "y": 484,
+      "label": "dispatch gate: op capability",
+      "variant": "security"
+    },
+    {
+      "from": "core",
+      "to": "responder",
+      "y": 526,
+      "label": "authorized | capability_missing",
+      "variant": "return"
+    },
+    {
+      "from": "responder",
+      "to": "initiator",
+      "y": 568,
+      "label": "ConnectInvokeResponse",
+      "variant": "return"
+    },
+    {
+      "from": "responder",
+      "to": "initiator",
+      "y": 630,
+      "label": "ConnectInvokeRequest (reverse)",
+      "variant": "dashed"
+    },
+    {
+      "from": "initiator",
+      "to": "responder",
+      "y": 672,
+      "label": "ConnectInvokeResponse",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "initiator",
+      "from": 184,
+      "to": 406,
+      "type": "backend"
+    },
+    {
+      "participant": "responder",
+      "from": 184,
+      "to": 706,
+      "type": "backend"
+    },
+    {
+      "participant": "core",
+      "from": 226,
+      "to": 280,
+      "type": "security"
+    },
+    {
+      "participant": "core",
+      "from": 478,
+      "to": 532,
+      "type": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Hello is the trust root",
+      "items": [
+        "Each side signs its manifest and a fresh nonce",
+        "The receiver authorizes on peer_id and signature, then reads host roles"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Per-direction ordering",
+      "items": [
+        "Each peer owns its outbound counter, starting at sequence 0",
+        "Responses echo session_id, sequence and request_id"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Capability gate",
+      "items": [
+        "An op runs only when its capability is in negotiated_capabilities",
+        "Auth uses noise-peerid allowlist or a capability token"
+      ]
+    }
+  ]
+}

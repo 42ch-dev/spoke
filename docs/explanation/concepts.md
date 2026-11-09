@@ -6,6 +6,9 @@ title: Concepts
 
 SPOKE defines its vocabulary in **wire terms** — every concept below is a concrete JSON shape or open-string vocabulary on the protocol surface. This page is the key-statement tour: what the nine layers are, what capability flags claim, and which pairs the protocol keeps deliberately separate. Field-level detail lives on the [Reference](/reference/protocol) pages.
 
+<img class="diagram-light" alt="The nine SPOKE protocol layers with their primary wire artifacts" src="/diagrams/protocol-layers.light.svg">
+<img class="diagram-dark" alt="The nine SPOKE protocol layers with their primary wire artifacts" src="/diagrams/protocol-layers.dark.svg">
+
 ## The nine layers (L0–L8)
 
 | Layer | What it carries |

@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "The nine SPOKE protocol layers",
+    "quality_profile": "showcase",
+    "viewBox": [
+      760,
+      840
+    ]
+  },
+  "components": [
+    {
+      "id": "l0",
+      "type": "backend",
+      "label": "L0 · Envelope",
+      "sublabel": "schema_version + stable ids on every durable object",
+      "pos": [
+        120,
+        50
+      ],
+      "size": [
+        520,
+        50
+      ]
+    },
+    {
+      "id": "l1",
+      "type": "backend",
+      "label": "L1 · Ontology",
+      "sublabel": "open entry_type + published Domain Profile vocabulary",
+      "pos": [
+        120,
+        126
+      ],
+      "size": [
+        520,
+        50
+      ]
+    },
+    {
+      "id": "l2",
+      "type": "backend",
+      "label": "L2 · Body",
+      "sublabel": "summary / tags / attributes; optional state + computable",
+      "pos": [
+        120,
+        202
+      ],
+      "size": [
+        520,
+        50
+      ],
+      "tag": "l2-computable"
+    },
+    {
+      "id": "l3",
+      "type": "backend",
+      "label": "L3 · Provenance",
+      "sublabel": "SourceAnchor over manuscript spans",
+      "pos": [
+        120,
+        278
+      ],
+      "size": [
+        520,
+        50
+      ],
+      "tag": "ke-extraction"
+    },
+    {
+      "id": "l4",
+      "type": "database",
+      "label": "L4 · Graph",
+      "sublabel": "typed directed Relation edges with revision OCC",
+      "pos": [
+        120,
+        354
+      ],
+      "size": [
+        520,
+        50
+      ]
+    },
+    {
+      "id": "l5",
+      "type": "database",
+      "label": "L5 · Temporal",
+      "sublabel": "TimelineEvent + brief / narrative / moment tiers",
+      "pos": [
+        120,
+        430
+      ],
+      "size": [
+        520,
+        50
+      ],
+      "tag": "l5-fork · spoke-cognition"
+    },
+    {
+      "id": "l6",
+      "type": "backend",
+      "label": "L6 · Constraint",
+      "sublabel": "Rule wire object as declarative checker input",
+      "pos": [
+        120,
+        506
+      ],
+      "size": [
+        520,
+        50
+      ]
+    },
+    {
+      "id": "l7",
+      "type": "backend",
+      "label": "L7 · Finding",
+      "sublabel": "checker output and status transition helpers",
+      "pos": [
+        120,
+        582
+      ],
+      "size": [
+        520,
+        50
+      ]
+    },
+    {
+      "id": "l8",
+      "type": "backend",
+      "label": "L8 · Context",
+      "sublabel": "AssemblePacket shared context shape",
+      "pos": [
+        120,
+        658
+      ],
+      "size": [
+        520,
+        50
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "l0-to-l1",
+      "from": "l0",
+      "to": "l1"
+    },
+    {
+      "id": "l1-to-l2",
+      "from": "l1",
+      "to": "l2"
+    },
+    {
+      "id": "l2-to-l3",
+      "from": "l2",
+      "to": "l3"
+    },
+    {
+      "id": "l3-to-l4",
+      "from": "l3",
+      "to": "l4"
+    },
+    {
+      "id": "l4-to-l5",
+      "from": "l4",
+      "to": "l5"
+    },
+    {
+      "id": "l5-to-l6",
+      "from": "l5",
+      "to": "l6"
+    },
+    {
+      "id": "l6-to-l7",
+      "from": "l6",
+      "to": "l7"
+    },
+    {
+      "id": "l7-to-l8",
+      "from": "l7",
+      "to": "l8"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Baseline",
+      "items": [
+        "spoke-baseline covers L0-L8 data and ops shapes",
+        "HostCapabilityManifest and HostManifestPort ship with baseline"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Optional flags",
+      "items": [
+        "l2-computable adds body.state, body.computable, project and compute",
+        "l5-fork, spoke-cognition, narrative-modules, ke-extraction and ke-ownership layer separately"
+      ]
+    }
+  ]
+}

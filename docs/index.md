@@ -14,6 +14,9 @@ features:
   - { title: Explanation, details: "The concepts behind the wire: nine layers, capability flags, dual-concern pairs, and the four Domain Profiles.", link: /explanation/concepts }
 ---
 
+<img class="diagram-light" alt="Two products exchange SPOKE wire shapes through their adapters" src="/diagrams/spoke-overview.light.svg">
+<img class="diagram-dark" alt="Two products exchange SPOKE wire shapes through their adapters" src="/diagrams/spoke-overview.dark.svg">
+
 ## Start here
 
 If you run a product that stores narrative knowledge, [implement an adapter](/how-to/implement-adapter) — pick the port families for the capabilities you claim, and call the matching orchestrators. If you run a separate SPOKE host and want to talk to another host, [open a connect session](/tutorials/first-connect-session) or jump straight to the [TypeScript client](/how-to/connect-ts-client) / [native bindings](/how-to/connect-native-bindings) / [Connect from C and C++](/how-to/connect-cpp-binding). Integrating your own message-oriented `Transport`? Dial remote hosts through a [RemoteAdapter over a Transport](/how-to/connect-remote-adapter), [route across multiple peers](/how-to/multi-peer-routing), or drive the same adapter surface through a [native binding](/how-to/remote-adapter-native-binding). Expose tools the host can discover and reverse-invoke mid-orchestration with [remote tools](/how-to/connect-remote-tools). Complete beginners follow the two tutorials in order: [Install and create your first KnowledgeEntry](/tutorials/install-and-first-entry), then [Open your first connect session](/tutorials/first-connect-session).

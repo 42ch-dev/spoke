@@ -6,164 +6,68 @@
 [![Last commit](https://img.shields.io/github/last-commit/42ch-dev/spoke)](https://github.com/42ch-dev/spoke/commits/main)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
-[中文](README_CN.md) · [Concepts](CONCEPTS.md) · [Strategy](STRATEGY.md) · [Contributing](CONTRIBUTING.md)
+[中文](README_CN.md) · [Concepts](CONCEPTS.md) · [Contributing](CONTRIBUTING.md) · [Documentation](https://spoke.42ch.dev/)
 
-**Standardized Programmable Ontology Knowledge Engine** — a protocol of JSON Schema wire contracts for narrative **KnowledgeEntry** data and **ops**. Independent products exchange consistency-check and context-assembly I/O through these shapes.
+**SPOKE** is a protocol for narrative knowledge. Two products that both store characters, scenes, timelines or world facts can exchange them through one shared set of JSON contracts instead of inventing a private format each time.
 
-**Includes:**
+The repository is the single source of truth: hand-written JSON Schemas, generated TypeScript and Rust types, and a pure operations library that applies the protocol rules. Your product keeps its own storage, ranking, retrieval and transport.
 
-- Data-layer schemas: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, Rule, TimelineEvent, MindState, CognitionRecord
-- Ops-layer schemas: `upsert`, extract→promote, `relate`, `check`, `assemble`; optional **`project` / `compute`** under `l2-computable`
-- Generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`, `spoke-operations`)
-- Pure lifecycle helpers plus **adapter ports** and **injection orchestration** (`@42ch/spoke-operations` / `spoke-operations`)
-- Opt-in **Connect** for signed cross-process interaction (`@42ch/spoke-connect` / `spoke-connect`, plus native bindings, including C and C++)
-- Protocol conformance fixtures and reference **`ToyWorldAdapter`** ([`fixtures/toy-world/`](fixtures/toy-world/))
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/public/diagrams/spoke-overview.dark.svg">
+  <img alt="Two products exchange SPOKE wire shapes through their adapters" src="docs/public/diagrams/spoke-overview.light.svg">
+</picture>
 
-## Packages
+## What you get
 
-Published consumer packages share one **lockstep SemVer**.
-
-| Package | Registry | Role |
-|---------|----------|------|
-| [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-schemas) | npm | Generated TypeScript wire types — **what** crosses the wire |
-| [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) | npm | Pure helpers, adapter ports, and orchestration over those types |
-| [`@42ch/spoke-connect`](https://www.npmjs.com/package/@42ch/spoke-connect) | npm | Opt-in connect client — identity, hello auth, session core, WebSocket transport |
-| [`spoke-schemas`](https://crates.io/crates/spoke-schemas) | crates.io | Generated Rust wire types |
-| [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | Pure helpers, adapter ports, and orchestration — parity with `@42ch/spoke-operations` |
-| [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | Opt-in connect reference — libp2p transport, session core, uniffi binding surface |
-
-Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids). Cross-product functional dialects shared by narrative hosts (lore activation, knowledge packs, assemble placement) live under `modules.*` — an optional, capability-flagged bag on KnowledgeEntry, AssemblePacket, and TimelineEvent. See [Data model](https://spoke.42ch.dev/reference/data-model).
-
-Install pins and package roles: [Package quick-start](https://spoke.42ch.dev/packages/quick-start).
+- **One wire dialect** — 11 data objects and 5 baseline op families, with 114 committed JSON Schemas as the source of truth.
+- **Typed clients on both sides** — `@42ch/spoke-schemas` on npm and `spoke-schemas` on crates.io, generated from the same schemas.
+- **Protocol behavior as a library** — `@42ch/spoke-operations` / `spoke-operations` ship pure validators, capability-sliced adapter ports, and `orchestrate*` entrypoints.
+- **Optional capability families** — computable body state, forks, cognition, cross-product modules, extraction, ownership, memory, and signed cross-process connect.
+- **A working reference** — `ToyWorldAdapter` in [`fixtures/toy-world/`](fixtures/toy-world/) passes the conformance harness in TypeScript and Rust.
 
 ## Install
 
-### TypeScript (npm)
+### TypeScript
 
 ```bash
 pnpm add @42ch/spoke-schemas @42ch/spoke-operations
-# Pin both to the same lockstep SemVer, e.g. @X.Y.Z
 ```
-
-**`@42ch/spoke-schemas`** — import generated wire types:
 
 ```ts
-import type {
-  KnowledgeEntry,
-  TimelineEvent,
-  PromoteRequest,
-  AssemblePacket,
-  HostCapabilityManifest,
-} from "@42ch/spoke-schemas";
+import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
+import { orchestratePromote, type BaselineAdapter } from "@42ch/spoke-operations";
 ```
 
-**`@42ch/spoke-operations`** — implement capability-sliced ports on one adapter, then call `orchestrate*`:
-
-```ts
-import type { PromoteRequest, UpsertRequest } from "@42ch/spoke-schemas";
-import {
-  orchestrateUpsert,
-  orchestratePromote,
-  orchestrateCheck,
-  orchestrateAssemble,
-  type BaselineAdapter,
-} from "@42ch/spoke-operations";
-
-declare const adapter: BaselineAdapter; // product implements BaselineAdapter / FullAdapter
-declare const upsertRequest: UpsertRequest;
-declare const promoteRequest: PromoteRequest;
-
-async function runBaseline() {
-  const upserted = await orchestrateUpsert(adapter, upsertRequest);
-  const promoted = await orchestratePromote(adapter, promoteRequest);
-}
-```
-
-Optional capabilities use `ComputableAdapter` / `ForkAdapter` (or `FullAdapter`) with `orchestrateProject`, `orchestrateCompute`, `orchestrateForkCheck`, and `orchestrateForkAssemble`. Pure helpers (`validatePromoteRequest`, `mergeExtensionMaps`, `buildAssemblePacket`, …) remain available for focused gates.
-
-### Rust (crates.io)
+### Rust
 
 ```bash
 cargo add spoke-schemas spoke-operations
-# Pin both to the same lockstep SemVer, e.g. X.Y.Z
 ```
-
-```toml
-# Cargo.toml
-[dependencies]
-spoke-schemas = "X.Y.Z"
-spoke-operations = "X.Y.Z"
-```
-
-**`spoke-schemas`** — wire types from the same JSON Schema SSOT:
 
 ```rust
-use spoke_schemas::{KnowledgeEntry, HostCapabilityManifest, PromoteRequest, TimelineEvent};
-```
-
-**`spoke-operations`** — port traits plus `orchestrate_*` (also re-exports `spoke_schemas`):
-
-```rust
-use spoke_operations::{
-    orchestrate_promote, orchestrate_upsert, BaselineAdapter,
-};
+use spoke_operations::{orchestrate_promote, BaselineAdapter};
 use spoke_operations::spoke_schemas::{PromoteRequest, UpsertRequest};
-
-async fn run_baseline(adapter: &impl BaselineAdapter, upsert: UpsertRequest, promote: PromoteRequest) {
-    let _ = orchestrate_upsert(adapter, upsert).await;
-    let _ = orchestrate_promote(adapter, promote).await;
-}
 ```
 
 ### Connect (optional)
 
-Declare the **`spoke-connect`** capability when hosts need signed cross-process interaction (hello, session, invoke, auth envelopes).
-
-**TypeScript** — npm client with WebSocket transport:
+For signed cross-process sessions there is `@42ch/spoke-connect` on npm and `spoke-connect` on crates.io. Native bindings ship for C#, Kotlin, Swift, Go, Python, and C/C++.
 
 ```bash
 pnpm add @42ch/spoke-connect
-# Pin to the same lockstep SemVer as schemas / operations
-```
-
-**Rust** — crates.io reference with libp2p transport and a uniffi binding surface for other host languages:
-
-```bash
 cargo add spoke-connect
 ```
 
-**C and C++** — git-based from the release tag: check out `vX.Y.Z` and take `crates/spoke-connect/bindings/cpp/include/spoke_connect.h` (hand-written C ABI header), `crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp` (C++17 header-only convenience layer), and the committed carrier for your target — `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib` for macOS arm64 or `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll` for Windows x64. Both carrier libraries are Git LFS objects, so run `git lfs install` once and `git lfs pull` in an existing clone before linking.
+Pin every package to the same SemVer. Install details and binding channels: [Package quick-start](https://spoke.42ch.dev/packages/quick-start).
 
-```bash
-git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
-```
+## A first promote
 
-Connect is multi-language: a language-native TypeScript client on npm, a Rust reference on crates.io (libp2p + uniffi binding surface), and native bindings — registry-backed for C# (GitHub Packages NuGet), Kotlin (GitHub Packages Maven), and Python (PyPI), git-based for Swift, Go, and C/C++ (committed headers and platform carriers). Guides: [TypeScript client](https://spoke.42ch.dev/how-to/connect-ts-client), [native bindings](https://spoke.42ch.dev/how-to/connect-native-bindings), and [Connect from C and C++](https://spoke.42ch.dev/how-to/connect-cpp-binding).
+Implement the port families your capabilities require on one adapter type, then call the matching orchestrator.
 
-## Version and pinning
-
-Pin every consumer surface to the **same** SemVer (`X.Y.Z`) on npm and crates.io:
-
-```bash
-pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z
-cargo add spoke-schemas@X.Y.Z spoke-operations@X.Y.Z
-```
-
-Annotated git tags `vX.Y.Z` match that lockstep version. Release notes: [`CHANGELOG.md`](CHANGELOG.md) and [GitHub Releases](https://github.com/42ch-dev/spoke/releases). Pinning guide: [Version & release](https://spoke.42ch.dev/release/versioning).
-
-## Quick start
-
-Implement the port families for the capabilities you claim on one adapter type, then call `orchestrate*` from `@42ch/spoke-operations` (Rust: `orchestrate_*`).
-
-```typescript
+```ts
 import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
-import {
-  orchestratePromote,
-  type BaselineAdapter,
-} from "@42ch/spoke-operations";
+import { orchestratePromote, type BaselineAdapter } from "@42ch/spoke-operations";
 
-// Product adapter implements BaselineAdapter.
-// Reference FullAdapter: fixtures/toy-world ToyWorldAdapter
 declare const adapter: BaselineAdapter;
 
 const candidate: KnowledgeEntry = {
@@ -177,93 +81,77 @@ const candidate: KnowledgeEntry = {
 };
 
 const request: PromoteRequest = { candidate };
+const result = await orchestratePromote(adapter, request);
 
-async function promote() {
-  const result = await orchestratePromote(adapter, request);
-
-  if (result.ok) {
-    // Confirmed entry persisted through adapter OCC ports
-  } else {
-    console.error(result.code, result.message);
-  }
+if (result.ok) {
+  // Confirmed entry persisted through the adapter's OCC ports.
+} else {
+  console.error(result.code, result.message);
 }
 ```
 
-Reference **FullAdapter** and the committed “Mira at Harbor” graph: [`fixtures/toy-world/`](fixtures/toy-world/). Step-by-step package path: [Package quick-start](https://spoke.42ch.dev/packages/quick-start).
+The library loads the stored entry, runs the terminal-status and revision gates, applies promote acceptance, and writes through `KnowledgeEntryPort` with `expectedBaseRevision`. The adapter owns the atomic compare-and-put.
 
-## Core concepts
+Step by step: [Implement an adapter](https://spoke.42ch.dev/how-to/implement-adapter) and [Orchestrate operations](https://spoke.42ch.dev/how-to/orchestrate-ops).
 
-| Term | In SPOKE |
-|------|----------|
-| **KnowledgeEntry** | Atomic narrative knowledge unit on the wire (`entry_id`, `entry_type`, `status`, `body`, `extensions`) |
-| **Relation** | Directed edge between KnowledgeEntries (or KnowledgeEntry ↔ source) |
-| **SourceAnchor** | Provenance pointer to a manuscript span or external locator |
-| **Finding** | Checker output for consistency, style, or analysis |
-| **Rule** | Declarative constraint input to `check` (L6) |
-| **TimelineEvent** | First-class temporal object on the when-axis (L5) |
-| **MindState** | First-class temporal mental-state record on the when-axis (L5, optional `spoke-cognition` capability) |
-| **CognitionRecord** | Standard Belief / epistemic / Perception records carried on the holder KnowledgeEntry under `modules.cognition` (`spoke-cognition`) |
-| **AssemblePacket** | Wire context-assembly payload (slim entries for downstream LLM prompts) |
-| **HostCapabilityManifest** | Host roles, capabilities, and owned `namespaces[]` for in-process collaboration |
-| **Extensions** | Product-specific bag on every data object (`extensions.<namespace>`) |
-| **Modules** | Optional cross-product functional-dialect bag on KnowledgeEntry, AssemblePacket, and TimelineEvent (capability-flagged `narrative-modules`) |
-| **Adapter ports** | Injected read/write surfaces (`KnowledgeEntryPort`, `HostManifestPort`, …) that own persistence |
-| **Orchestration** | `orchestrate*` / `orchestrate_*` sequences that load scope, apply gates, and persist via ports |
+## Packages
 
-Vocabulary and positioning: [`CONCEPTS.md`](CONCEPTS.md), [`STRATEGY.md`](STRATEGY.md), and [Concepts](https://spoke.42ch.dev/explanation/concepts).
+All published packages share one lockstep SemVer.
 
-## Optional capabilities
+| Package | Registry | Role |
+|---------|----------|------|
+| [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-schemas) | npm | Generated TypeScript wire types |
+| [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) | npm | Pure helpers, adapter ports, orchestration |
+| [`@42ch/spoke-connect`](https://www.npmjs.com/package/@42ch/spoke-connect) | npm | Language-native connect client over WebSocket |
+| [`spoke-schemas`](https://crates.io/crates/spoke-schemas) | crates.io | Generated Rust wire types |
+| [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | Pure helpers, adapter ports, orchestration |
+| [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | Rust connect reference with libp2p and the uniffi binding surface |
 
-Products that need programmable KnowledgeEntry body state may declare **`l2-computable`**:
+## Capabilities
 
-- **`body.state`** — static durable computable values
-- **`body.computable`** — dynamic Session-scoped projection
-- **`TimelineEvent.computable_logs`** — Moment-scale field-change presentation
-- **`project` / `compute` ops** — init/projection and apply/settle I/O envelopes
+`spoke-baseline` covers the shared data and ops shapes. Everything else is opted in.
 
-Products that need fork-scoped timeline queries may declare **`l5-fork`**. Products that exchange cross-product functional dialects (lore activation, knowledge packs, assemble placement / activation trace) may declare **`narrative-modules`**: an optional `modules` (`ModuleMap`) bag on KnowledgeEntry, AssemblePacket, and TimelineEvent carries these dialects, and adapters round-trip unknown module namespaces verbatim. Domain Profile handbooks define the inner shapes.
+| Flag | What it adds |
+|------|--------------|
+| `l2-computable` | `body.state` / `body.computable`, `project` and `compute` ops |
+| `l5-fork` | branch metadata on `TimelineEvent` and `Scope.fork_id` |
+| `spoke-cognition` | attributable belief, epistemic and perception records, selection, derivative `MindState` |
+| `narrative-modules` | a capability-flagged `modules` bag for cross-product dialects |
+| `ke-extraction` | `extract` candidates from referenced source material |
+| `ke-ownership` | owner and disclosure fields plus `Scope.viewpoint` |
+| `spoke-connect` | signed hello, session, invoke and auth envelopes |
+| `spoke-memory` | 13 memory models and 33 `memory.*` ops, with reflection and transfer sub-flags |
 
-Products that interchange "who knows, believes, perceives, wants, or feels what at time t" may declare **`spoke-cognition`**: one family (a single flag, no subflags) for standard, attributable cognition records. A host serves it through `modules.cognition` on the holder KnowledgeEntry — `records[]` of Belief, epistemic (knowledge, ignorance, undetermined) and Perception records plus narrated `world_facts[]` — and every completed Belief, epistemic and Perception record carries a declared foundational `q` for its identified cognitive assertion, with optional distinct `metrics` (`b`, `p`, `f`, `k`, `r`). Cognitive selection rides `Scope.cognition`: a closed filter grammar (`holder`, target identity, assessment context/fork, category, state, `q` range, and present/absent categorical predicates), plus an attribution-preserving projection that retains disagreements and traces the identified current-view selection. `MindState` projects the same holder-side records as a derivative temporal view. Memory hosts carry recorded-at-time cognition in `Content.cognition` and filter it with `cognition_filter`. Declare the flag in `HostCapabilityManifest.capabilities` only when every mandatory rule for the surfaces you actually serve is implemented; unsupported requirements are rejected explicitly. Mental-state engines stay product-owned. Opt-in, not `spoke-baseline`. Detail: [Data model — Cognition](https://spoke.42ch.dev/reference/data-model#cognition-spoke-cognition).
+Capability reference: [Protocol](https://spoke.42ch.dev/reference/protocol), [Concepts](https://spoke.42ch.dev/explanation/concepts).
 
-Products that need signed cross-process interaction may declare **`spoke-connect`**. Composed adapter aliases: `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`.
+## Documentation
 
-Baseline integrators use core schemas; optional capabilities are opt-in. Detail: [Concepts](https://spoke.42ch.dev/explanation/concepts).
+The site is organised by job:
 
-## Operations
+| You want to | Read |
+|-------------|------|
+| Install and persist a first entry | [Install and first entry](https://spoke.42ch.dev/tutorials/install-and-first-entry) |
+| Build an adapter | [Implement an adapter](https://spoke.42ch.dev/how-to/implement-adapter) |
+| Check field names and required sets | [Data model](https://spoke.42ch.dev/reference/data-model) |
+| Write or read an op envelope | [Ops wire](https://spoke.42ch.dev/reference/ops) |
+| Serve per-subject memory | [Memory](https://spoke.42ch.dev/reference/memory) |
+| Open a cross-process session | [Connect](https://spoke.42ch.dev/reference/connect) |
+| Understand the layer model | [Concepts](https://spoke.42ch.dev/explanation/concepts) |
+| Publish ontology vocabulary | [Domain profiles](https://spoke.42ch.dev/explanation/domain-profiles) |
 
-`@42ch/spoke-operations` / `spoke-operations` provide pure helpers and port-injected orchestration:
+Agents and code assistants: [docs/agents.md](docs/agents.md) is the reading contract, and [llms.txt](https://spoke.42ch.dev/llms.txt) / [llms-full.txt](https://spoke.42ch.dev/llms-full.txt) are the machine-readable indexes.
 
-- **Baseline orchestrators:** `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble`
-- **Optional orchestrators:** `orchestrateProject`, `orchestrateCompute`, `orchestrateForkCheck`, `orchestrateForkAssemble`
-- Capability-sliced ports and composed aliases (`BaselineAdapter` … `FullAdapter`)
-- Extension and module map merge and round-trip preservation (`mergeExtensionMaps` / `mergeModuleMaps`, `preserveExtensionMaps` / `preserveModuleMaps`)
-- Finding / KnowledgeEntry `status` transition helpers
-- Promote acceptance, upsert/relate, and MindState wire-shape validators (`validateMindState` / `validate_mind_state`)
-- Cognition wire-shape gates and selection/projection helpers (`validateCognitionRecord` / `validate_cognition_record`, `validateCognitionModule`, `validateObservationModule`, `validateCognitionFilter`, `validateCognitionSelection`, `validateCognitionProjection`, `selectCognitionRecords`, `projectCognitionRecords`)
-- AssemblePacket builders from KnowledgeEntries
-- Unified `SpokeResult` / `SpokeRejectCode` on reject paths
+## Versioning
 
-Reference **FullAdapter** (baseline + `l2-computable` + `l5-fork`, including `HostCapabilityManifest` peers): [`fixtures/toy-world/`](fixtures/toy-world/) — TypeScript `ToyWorldAdapter`, Rust crate `spoke-fixture-toy-world`.
+npm and crates.io share the same version. An annotated git tag `vX.Y.Z` matches it.
 
-Detail: [Orchestrate operations](https://spoke.42ch.dev/how-to/orchestrate-ops).
+```bash
+pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z
+cargo add spoke-schemas@X.Y.Z spoke-operations@X.Y.Z
+```
 
-## Further reading
-
-| Topic | Guide |
-|-------|-------|
-| Protocol umbrella | [Protocol](https://spoke.42ch.dev/reference/protocol) |
-| Nine layers and capability levels | [Concepts](https://spoke.42ch.dev/explanation/concepts) |
-| Data objects and open vocabulary | [Data model](https://spoke.42ch.dev/reference/data-model) |
-| MindState | [MindState reference](https://spoke.42ch.dev/reference/mind-state) |
-| Cognition records, filters, projections | [Data model — Cognition](https://spoke.42ch.dev/reference/data-model#cognition-spoke-cognition) |
-| Ops request/response envelopes | [Ops wire](https://spoke.42ch.dev/reference/ops) |
-| Operations library behavior | [Orchestrate operations](https://spoke.42ch.dev/how-to/orchestrate-ops) |
-| Core / modules / extensions | [Data model](https://spoke.42ch.dev/reference/data-model) |
-| Connect envelopes and bindings | [Connect](https://spoke.42ch.dev/reference/connect) |
-| Domain Profiles | [Domain profiles](https://spoke.42ch.dev/explanation/domain-profiles) |
-| JSON Schema SSOT | [`schemas/`](schemas/) |
-| Reference adapters and sample graph | [`fixtures/toy-world/`](fixtures/toy-world/) |
+Release notes: [CHANGELOG.md](CHANGELOG.md) and [GitHub Releases](https://github.com/42ch-dev/spoke/releases). Pinning guide: [Version and release](https://spoke.42ch.dev/release/versioning).
 
 ## Contributing
 
-Local development, CI gates, and release procedure: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Local development, CI gates and the release procedure: [CONTRIBUTING.md](CONTRIBUTING.md). Repository conventions for agents: [AGENTS.md](AGENTS.md).

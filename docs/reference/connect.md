@@ -24,7 +24,7 @@ Required: `protocol_version`, `peer_id`, `nonce`, `host`, `signature`, `extensio
 
 ### ConnectSession — established session context
 
-Required: `session_id`, `initiator_peer_id`, `responder_peer_id`, `opened_at`, `negotiated_capabilities`, `initial_sequence`, `extensions` (+ `signature` in protocol_version 2).
+Required: `session_id`, `initiator_peer_id`, `responder_peer_id`, `opened_at`, `negotiated_capabilities`, `initial_sequence`, `extensions`. The committed schema also lists `signature` as required because it encodes the protocol_version 2 wire shape; protocol_version 1 peers predate that field.
 
 | Field | Notes |
 |-------|-------|
@@ -38,7 +38,7 @@ Required: `session_id`, `initiator_peer_id`, `responder_peer_id`, `opened_at`, `
 
 ### ConnectInvokeRequest / ConnectInvokeResponse — remote op calls
 
-`ConnectInvokeRequest` required: `session_id`, `sequence`, `request_id`, `op`, `payload`, `extensions` (+ `signature` in protocol_version 2).
+`ConnectInvokeRequest` required: `session_id`, `sequence`, `request_id`, `op`, `payload`, `extensions`. The committed schema also lists `signature` as required because it encodes the protocol_version 2 wire shape.
 
 | Field | Notes |
 |-------|-------|

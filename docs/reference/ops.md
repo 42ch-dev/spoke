@@ -6,6 +6,9 @@ title: Ops wire reference
 
 The ops layer defines transport-agnostic request/response envelopes for core KnowledgeEntry operations. Products carry these JSON payloads over any transport — in-process calls, message queues, or HTTP mappings inside adapters — and the wire stays transport-agnostic. Field tables below trace to the committed schemas in [`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops).
 
+<img class="diagram-light" alt="KnowledgeEntry status transitions and terminal states" src="/diagrams/knowledge-entry-status.light.svg">
+<img class="diagram-dark" alt="KnowledgeEntry status transitions and terminal states" src="/diagrams/knowledge-entry-status.dark.svg">
+
 ## Baseline operations
 
 | Op | Request | Response | Semantics |
@@ -76,7 +79,7 @@ Requests carrying `Scope.cognition` require the negotiated `spoke-cognition` fla
 
 ### UpsertRequest / UpsertResponse
 
-`UpsertRequest` required: `knowledge_entries`. Response: `{ knowledge_entries: [...] }` **or** `{ error }`.
+`UpsertRequest` required: `knowledge_entries`. Response: `{ knowledge_entries: [...], rejected? }` **or** `{ error }`. `rejected[]` carries per-entry `{ entry_id, code, message }` on the success branch.
 
 | Field | Notes |
 |-------|-------|

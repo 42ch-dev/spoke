@@ -106,10 +106,25 @@ title: 数据模型参考
 |------|------|------|
 | `host_id` | 字符串 ≥ 1 字符 | 稳定主机标识，对协议不透明 |
 | `roles` | 字符串数组，≥1，去重 | 开放词汇。核心列表（记录在案，不强制）：`data-store`、`input-source`、`checker`、`assembler`、`computable-engine` |
-| `capabilities` | 字符串数组，≥1，去重 | 开放字符串能力标志。核心列表（记录在案，不强制）：`spoke-baseline`、`l2-computable`、`l5-fork`、`spoke-cognition`、`narrative-modules`、`ke-extraction`、`ke-ownership`、`spoke-connect` |
+| `capabilities` | 字符串数组，≥1，去重 | 开放字符串能力标志。核心列表（记录在案，不强制）：`spoke-baseline`、`l2-computable`、`l5-fork`、`spoke-cognition`、`narrative-modules`、`ke-extraction`、`ke-ownership`、`spoke-connect`、`spoke-memory`、`spoke-memory-reflection`、`spoke-memory-transfer`。暴露工具的 manifest 还会列出每个 `tools.<ns>.<tool_id>` 能力 id |
 | `namespaces` | 字符串数组，≥1，去重；键 `^[a-z][a-z0-9_-]*$` | 该主机在协作上下文中拥有的扩展 namespace 键 |
 | `authority` | `{ scope_key }`，可选 | 显式单写者权限作用域；缺省且 `roles` 含 `data-store` 时，隐式权限为该 manifest 的 `host_id` |
 | `extensions` | ExtensionMap，必填 | 部署元数据 —— 与 KnowledgeEntry `extensions` 是不同表面 |
+
+## ToolDescriptor
+
+单个可远程调用工具的封闭描述符，声明在 `HostCapabilityManifest.tools[]`。必填：`schema_version`、`capability_id`、`op`、`description`、`input`、`output`。该描述符没有 `extensions` 字段袋。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `capability_id` | 字符串 | 工具能力字符串 `tools.<ns>.<tool_id>`，匹配 `^tools\.[a-z][a-z0-9_-]*\.[a-z0-9][a-z0-9_-]*$`；namespace 由声明该 manifest 的 `namespaces[]` 拥有 |
+| `op` | 字符串 | 工具的线上 op；必须等于 `capability_id` |
+| `description` | 字符串 ≥ 1 字符 | 人类可读的工具描述 |
+| `input` | 对象 | 描述工具参数的 JSON Schema draft-07 不透明子模式；`{}` 表示不受约束的 ABI |
+| `output` | 对象 | 描述成功结果的 JSON Schema draft-07 不透明子模式；`{}` 表示不受约束的 ABI |
+| `idempotent` | 布尔，可选 | 提示性元数据（默认 `false`） |
+
+调用与分发规则：[Connect 参考 —— 工具](/zh/reference/connect#工具-反向调用)。
 
 ## Rule
 

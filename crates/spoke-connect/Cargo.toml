@@ -13,7 +13,7 @@ description = "SPOKE Connect reference spike — libp2p transport, noise-peerid 
 exclude = ["bindings/**", "examples/**"]
 
 [dependencies]
-spoke-schemas = { version = "0.15.2", path = "../spoke-schemas" }
+spoke-schemas = { version = "0.16.0", path = "../spoke-schemas" }
 # The C5 closed cognition grammar + `SpokeReject`/`SpokeResult` vocabulary.
 # Required (not feature-gated): the generic node dispatch rejects an
 # unsupported cognition requirement before running its handler, so the raw
@@ -21,7 +21,7 @@ spoke-schemas = { version = "0.15.2", path = "../spoke-schemas" }
 # the same crate is what keeps that diagnosis from re-implementing the
 # grammar. The `remote-adapter` feature still gates the remote module
 # (BaselinePorts proxy; TS equivalent: the `./remote` subpath export).
-spoke-operations = { version = "0.15.2", path = "../spoke-operations" }
+spoke-operations = { version = "0.16.0", path = "../spoke-operations" }
 # Loopback smoke host (RemoteAdapter FFI binding smokes; `ffi-smoke-host` only).
 libp2p.workspace = true
 serde.workspace = true

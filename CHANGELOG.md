@@ -6,6 +6,229 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.16.0] - 2026-11-09
+
+
+### Added
+
+- **cognition:** Add structured cognition protocol and consumers
+
+- **cognition:** Add structured cognition protocol and consumers (#154)
+
+
+### Changed
+
+- **cognition:** Isolate projection identity mismatch vectors
+
+- **toy-world:** Pass explicit assemble policy to adapter fixture
+
+- **connect:** Drop the memory table size pin in the dispatch suite
+
+- **release:** Drop the optional-dependency shape pin from the bump suite
+
+- **memory:** Isolate conformance admission principals
+
+- **cognition:** Extend timestamp parity fixture boundaries
+
+- **cognition:** Pin shared timestamp parity boundaries
+
+- **spoke-connect:** Isolate the cognition fail-closed pin arm
+
+- **spoke-connect:** Drop incidental error wording pin
+
+- **connect:** Compile C++ inclusion probe in both exception modes
+
+- **connect:** Drop incidental diagnostic wording pins
+
+- **connect:** Drop pre-existing dirty-source wording pin
+
+
+### Documentation
+
+- **cognition:** Fix Chinese data-model cognition anchor link
+
+- **cognition:** State the frozen capability-denial split and current symbols
+
+- **spoke-connect,memory-engine:** Align remote gating and measure test wording
+
+- **spoke-operations:** Document distinct cognition reject helpers
+
+- **spoke-operations:** Condense cognition reject helper rationale
+
+- **spoke-operations:** Note shared cognition reject reason in helper comments
+
+- **cognition:** Integrate intentional reject-shape rationale
+
+- **cpp:** Clarify paired header LF pins
+
+- Align release and native artifact contracts
+
+- **knowledge:** Attribute the canonicalize pin to the library, not the demo
+
+- Align Node runtime facts and toolchain prerequisites
+
+- Describe Ed25519 backend selection as a runtime capability
+
+- **release:** Integrate current runtime and prerequisite facts
+
+- **knowledge:** Normalize connect metadata and responder scope
+
+- **knowledge:** Attribute responder demo to the public factory
+
+- **connect-ts:** State the probe contract instead of version-cutoff claims
+
+- **connect:** Scope D10 enforcement wording and state exact probe and sidecar facts
+
+- **connect:** Align enforcement and provenance descriptions
+
+
+### Fixed
+
+- **cognition:** Reject repeated carrier ids and inconsistent projections
+
+- **cognition:** Enforce carrier and projection integrity
+
+- **connect:** Route the host peer-manifest op and share the port capability map
+
+- **connect:** Align remote capability routing and parity
+
+- **cognition:** Scope projection record-id identity to carriers
+
+- **cognition:** Preserve carrier-local identities in projections
+
+- **tests:** Isolate conformance case principals
+
+- **scope:** Keep explicit empty refinements through typed serving
+
+- **scope:** Preserve optional-array presence through served requests
+
+- **cognition:** Treat undefined content cognition as absence
+
+- **cognition:** Accept omitted TypeScript Content members
+
+- **cognition:** Reject grammar-invalid typed Scope cognition filters
+
+- **cognition:** Validate typed Scope requirements at the shared boundary
+
+- **release:** Refuse non-increasing version bumps
+
+- **connect:** Verify C++ header provenance
+
+- **cpp:** Preserve header provenance checkout bytes
+
+- **cpp:** Include dependency crates in source identity
+
+- **connect:** Integrate dependency-aware native source identity
+
+- **schemas:** Pin mental MindDelta roots to the nine-field vocabulary
+
+- **spoke-connect:** Fail closed on unreadable reflection pins
+
+- **cognition:** Integrate fail-closed fixture pin coverage
+
+- **cognition:** Integrate validation and fixture pin hardening
+
+- **connect:** Compare non-callback C ABI record field types
+
+- **connect:** Infer carrier field types without coercion
+
+- **go:** Refresh Darwin native carriers
+
+- **connect:** Refresh Swift carriers from verified CI artifact
+
+- **connect:** Integrate guarded Swift carrier refresh
+
+- Harden release readiness and refresh native carriers
+
+- **kotlin:** Extend Gradle wrapper network timeout
+
+- Stabilize Kotlin wrapper downloads
+
+- **connect-capi:** Restore single-writer ABI report test invariant
+
+- Preserve a single ABI report writer
+
+- **connect:** Bind Swift artifacts to producer checkout
+
+- **connect:** Verify delivered xcframework bytes before staging
+
+- Verify Swift artifact producer and delivered bytes
+
+- **release:** Align git-cliff fallback with root pin
+
+- **packages:** **BREAKING:** Require Node >= 22 for published runtime packages
+
+- Preflight shasum and parse gh download --dir in apply fixture
+
+- **release:** Integrate runtime and tooling corrections
+
+- **connect:** Refuse missing git-lfs in fail-fast preflight before any network or tree mutation
+
+- **connect:** Integrate early prerequisites and knowledge corrections
+
+- **release:** Complete maintenance and release readiness
+
+
+### Internal
+
+- Enforce Swift xcframework freshness
+
+- **connect:** Integrate Swift freshness comparison
+
+- **connect:** Integrate reviewed header provenance prerequisites
+
+- **cpp:** Verify committed carrier provenance
+
+- **connect:** Integrate per-carrier provenance verification
+
+- **connect:** Integrate reviewed header-pair provenance
+
+- **native:** Integrate ABI gates and header provenance
+
+- **native:** Combine accepted source for carrier refresh
+
+- Align maintenance with current dependencies
+
+- **connect:** Refresh Go Darwin native libraries
+
+
+### build
+
+- **deps:** Bump glob from 13.0.6 to 14.0.3
+
+- **connect:** Refresh C carriers from CI
+
+- **connect:** Integrate refreshed C carriers
+
+- **connect:** Integrate refreshed Go Darwin carriers
+
+- **deps:** Bump @noble/ciphers from 2.2.0 to 2.4.0
+
+- **deps:** Bump libp2p-identity from 0.3.0 to 0.3.1 (#155)
+
+- **deps:** Bump futures from 0.3.33 to 0.3.34 (#160)
+
+- **deps:** Bump sha2 from 0.10.9 to 0.11.0 (#158)
+
+- **connect:** Refresh C carriers from CI
+
+- **connect:** Integrate aligned C carriers
+
+- **connect:** Refresh xcframework from CI artifact 42479247964
+
+- **connect:** Integrate aligned Swift carrier
+
+- **connect:** Integrate aligned Go carriers
+
+
+### merge
+
+- **release:** Integrate consumer node requirements
+
+- **release:** Integrate artifact helper checks
+
+- **docs:** Clarify demo ownership
+
 ## [0.15.2] - 2026-11-06
 
 

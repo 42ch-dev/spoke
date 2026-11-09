@@ -68,7 +68,7 @@ title: 面向 Agent
 - 序列按方向独立，从 0 开始。响应回显 `session_id`、`sequence` 与 `request_id`。
 - ops 结果是 `SpokeResult`。按 `ok` 与 `SpokeRejectCode` 分支，不要按抛出的异常类型分支。
 - adapter 写入受乐观并发控制：`expectedBaseRevision: null` 表示创建；数字必须等于已存 revision。
-- op 分发会在任何处理器运行前拒绝。未知或未协商的工具、`port.*`、`extract` 与归属门控的 op 应答 `op_unsupported`；已登记但能力族未协商的 `memory.*` op 应答 `capability_missing`。不要模拟未声明的能力族。
+- op 分发会在任何处理器运行前拒绝。未知或未协商的工具、静态 `port.*` 能力族、`extract`，以及携带 viewpoint 但未协商 `ke-ownership` 的 Scope 应答 `op_unsupported`。`capability_missing` 应答已登记但能力族未协商的 `memory.*` op，以及未协商 `spoke-cognition` 却携带认知负载的请求（`Scope.cognition` 或 `cognition_filter`）。不要模拟未声明的能力族。
 
 ## 机器可读包
 

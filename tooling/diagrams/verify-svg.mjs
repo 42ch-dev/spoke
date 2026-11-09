@@ -21,6 +21,12 @@ if (specs.length === 0) {
   process.exit(1);
 }
 
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// An id attribute begins after whitespace or "<", never inside `data-node-id`.
+const hasId = (document, id) =>
+  new RegExp(`(?:^|[\\s<])id="${escapeRegExp(id)}"(?=[\\s/>])`).test(document);
+
 const failures = [];
 for (const name of specs) {
   for (const theme of ["light", "dark"]) {
@@ -37,6 +43,7 @@ for (const name of specs) {
     if (!/viewBox="/.test(svg)) failures.push(`${file}: no viewBox`);
     if (/<script\b/i.test(svg)) failures.push(`${file}: contains <script>`);
     if (svg.length < 1000) failures.push(`${file}: suspiciously small`);
+    if (!/<title\b/.test(svg)) failures.push(`${file}: no <title>`);
 
     const rootTag = svg.match(/<svg\b[^>]*>/)?.[0] ?? "";
     const labelledBy = rootTag.match(/aria-labelledby="([^"]+)"/)?.[1]?.trim().split(/\s+/).filter(Boolean) ?? [];
@@ -44,7 +51,7 @@ for (const name of specs) {
       failures.push(`${file}: root <svg> has no aria-labelledby`);
     } else {
       for (const id of labelledBy) {
-        if (!new RegExp(`\\bid="${id}"`).test(svg)) {
+        if (!hasId(svg, id)) {
           failures.push(`${file}: aria-labelledby references missing id "${id}"`);
         }
       }

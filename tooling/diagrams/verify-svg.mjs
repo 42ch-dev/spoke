@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Committed-diagram gate: every spec must have a light and a dark SVG, and each
-// SVG must be a self-contained, script-free document with an accessible title.
-// Runs before `vitepress build` so a broken or missing diagram fails CI.
+// SVG must be a self-contained, script-free document whose accessible name
+// resolves. Runs before `vitepress build` so a broken or missing diagram fails CI.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -28,15 +28,27 @@ for (const name of specs) {
     let svg;
     try {
       svg = readFileSync(file, "utf8");
-    } catch {
-      failures.push(`${file}: missing`);
+    } catch (error) {
+      const reason = error?.code === "ENOENT" ? "missing" : `unreadable (${error?.code || error?.message})`;
+      failures.push(`${file}: ${reason}`);
       continue;
     }
     if (!/<svg\b/.test(svg)) failures.push(`${file}: no <svg> root`);
     if (!/viewBox="/.test(svg)) failures.push(`${file}: no viewBox`);
-    if (!/<title\b/.test(svg)) failures.push(`${file}: no <title> (accessible name)`);
     if (/<script\b/i.test(svg)) failures.push(`${file}: contains <script>`);
     if (svg.length < 1000) failures.push(`${file}: suspiciously small`);
+
+    const rootTag = svg.match(/<svg\b[^>]*>/)?.[0] ?? "";
+    const labelledBy = rootTag.match(/aria-labelledby="([^"]+)"/)?.[1]?.trim().split(/\s+/).filter(Boolean) ?? [];
+    if (labelledBy.length === 0) {
+      failures.push(`${file}: root <svg> has no aria-labelledby`);
+    } else {
+      for (const id of labelledBy) {
+        if (!new RegExp(`\\bid="${id}"`).test(svg)) {
+          failures.push(`${file}: aria-labelledby references missing id "${id}"`);
+        }
+      }
+    }
   }
 }
 

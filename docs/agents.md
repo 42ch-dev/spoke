@@ -68,7 +68,7 @@ A docs page that contradicts `schemas/` is a docs bug. Do not generate code from
 - Sequences are per direction and start at 0. A response echoes `session_id`, `sequence` and `request_id`.
 - Ops results are `SpokeResult`. Branch on `ok` and `SpokeRejectCode`, never on thrown exception types.
 - Adapter writes are optimistic-concurrency controlled: `expectedBaseRevision: null` means create; a number must equal the stored revision.
-- Op dispatch rejects before any handler runs: a known requirement that is not negotiated answers `capability_missing`; an op with no dispatch row or no registered handler answers `op_unsupported`. Do not emulate a family you did not declare.
+- Op dispatch rejects before any handler runs. Unknown or unnegotiated tools, `port.*`, `extract` and ownership-gated ops answer `op_unsupported`; a known `memory.*` op whose family is not negotiated answers `capability_missing`. Do not emulate a family you did not declare.
 
 ## Machine-readable bundle
 

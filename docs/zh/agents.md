@@ -50,7 +50,7 @@ title: 面向 Agent
 
 | 标志 | 增加的内容 |
 |------|-----------|
-| `l2-computable` | `body.state` / `body.computable`、`project` 与 `compute` |
+| `l2-computable` | `body.state` / `body.computable`、`TimelineEvent.computable_logs`、`project` 与 `compute` |
 | `l5-fork` | TimelineEvent 上的 `fork_id` / `parent_fork_id`、`Scope.fork_id` |
 | `spoke-cognition` | `modules.cognition`、`Scope.cognition`、`modules.observation`、派生的 `MindState` |
 | `narrative-modules` | KnowledgeEntry、AssemblePacket 与 TimelineEvent 上的 `modules` 字段袋 |
@@ -68,7 +68,7 @@ title: 面向 Agent
 - 序列按方向独立，从 0 开始。响应回显 `session_id`、`sequence` 与 `request_id`。
 - ops 结果是 `SpokeResult`。按 `ok` 与 `SpokeRejectCode` 分支，不要按抛出的异常类型分支。
 - adapter 写入受乐观并发控制：`expectedBaseRevision: null` 表示创建；数字必须等于已存 revision。
-- 能力门控的 op 会在任何处理器运行前以 `capability_missing` 拒绝。不要模拟未声明的能力族。
+- op 分发会在任何处理器运行前拒绝：已登记但未协商的需求应答 `capability_missing`；没有分发行或没有注册处理器的 op 应答 `op_unsupported`。不要模拟未声明的能力族。
 
 ## 机器可读包
 

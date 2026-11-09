@@ -46,10 +46,15 @@ const ORDER = [
 
 const stripFrontMatter = (text) => text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "");
 
-const absolutize = (text) =>
-  text
+const pagePath = (rel) => (rel === "index.md" ? "/" : `/${rel.replace(/\.md$/, "")}`);
+
+const absolutize = (text, rel) => {
+  const base = `${SITE}${pagePath(rel)}`;
+  return text
+    .replace(/\]\(#/g, `](${base}#`)
     .replace(/\]\(\//g, `](${SITE}/`)
     .replace(/src="\//g, `src="${SITE}/`);
+};
 
 const parts = [
   `# SPOKE full documentation
@@ -63,7 +68,7 @@ const parts = [
 
 for (const rel of ORDER) {
   const body = stripFrontMatter(readFileSync(join(DOCS, rel), "utf8")).trim();
-  parts.push(`\n<!-- page: ${rel} -->\n\n${absolutize(body)}\n`);
+  parts.push(`\n<!-- page: ${rel} -->\n\n${absolutize(body, rel)}\n`);
 }
 
 const out = parts.join("");

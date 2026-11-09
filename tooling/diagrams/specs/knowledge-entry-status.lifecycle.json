@@ -3,7 +3,6 @@
   "diagram_type": "lifecycle",
   "meta": {
     "title": "KnowledgeEntry status transitions",
-    "output": "docs/public/diagrams/knowledge-entry-status.html",
     "quality_profile": "showcase",
     "viewBox": [
       1000,

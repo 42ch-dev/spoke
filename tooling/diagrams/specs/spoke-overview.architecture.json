@@ -3,7 +3,6 @@
   "diagram_type": "architecture",
   "meta": {
     "title": "How independent products interoperate through SPOKE",
-    "output": "docs/public/diagrams/spoke-overview.html",
     "quality_profile": "showcase",
     "viewBox": [
       1200,

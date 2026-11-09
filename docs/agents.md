@@ -50,7 +50,7 @@ A docs page that contradicts `schemas/` is a docs bug. Do not generate code from
 
 | Flag | Adds |
 |------|------|
-| `l2-computable` | `body.state` / `body.computable`, `project` and `compute` |
+| `l2-computable` | `body.state` / `body.computable`, `TimelineEvent.computable_logs`, `project` and `compute` |
 | `l5-fork` | `fork_id` / `parent_fork_id` on TimelineEvent, `Scope.fork_id` |
 | `spoke-cognition` | `modules.cognition`, `Scope.cognition`, `modules.observation`, derivative `MindState` |
 | `narrative-modules` | the `modules` bag on KnowledgeEntry, AssemblePacket and TimelineEvent |
@@ -68,7 +68,7 @@ A docs page that contradicts `schemas/` is a docs bug. Do not generate code from
 - Sequences are per direction and start at 0. A response echoes `session_id`, `sequence` and `request_id`.
 - Ops results are `SpokeResult`. Branch on `ok` and `SpokeRejectCode`, never on thrown exception types.
 - Adapter writes are optimistic-concurrency controlled: `expectedBaseRevision: null` means create; a number must equal the stored revision.
-- Capability-gated ops reject with `capability_missing` before any handler runs. Do not emulate a family you did not declare.
+- Op dispatch rejects before any handler runs: a known requirement that is not negotiated answers `capability_missing`; an op with no dispatch row or no registered handler answers `op_unsupported`. Do not emulate a family you did not declare.
 
 ## Machine-readable bundle
 

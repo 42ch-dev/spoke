@@ -3,7 +3,6 @@
   "diagram_type": "sequence",
   "meta": {
     "title": "Connect session: signed hello, ordered invoke",
-    "output": "docs/public/diagrams/connect-session.html",
     "quality_profile": "showcase",
     "viewBox": [
       900,
@@ -77,17 +76,10 @@
       "variant": "return"
     },
     {
-      "from": "initiator",
-      "to": "responder",
-      "y": 358,
-      "label": "ConnectSession + negotiated_capabilities",
-      "variant": "emphasis"
-    },
-    {
       "from": "responder",
       "to": "initiator",
       "y": 400,
-      "label": "ConnectSession",
+      "label": "ConnectSession + negotiated_capabilities",
       "variant": "return"
     },
     {

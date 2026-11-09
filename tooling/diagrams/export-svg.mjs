@@ -6,10 +6,9 @@
 // inlines the computed presentation properties so the result renders the same
 // on GitHub and in VitePress without the viewer runtime.
 //
-// Usage (from the repo root, with ARCHIFY_SKILL pointing at the skill):
-//   ARCHIFY_SKILL=~/.agents/skills/archify \
-//   ARCHIFY_CHROME=~/.cache/ms-playwright/chromium_headless_shell-*/chrome-mac/headless_shell \
-//   node tooling/diagrams/export-svg.mjs docs/public/diagrams/spoke-overview.html
+// Usage (from the repo root):
+//   ARCHIFY_SKILL=/path/to/archify ARCHIFY_CHROME=/path/to/chrome \
+//     node tooling/diagrams/export-svg.mjs /tmp/spoke-overview.html docs/public/diagrams
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -89,8 +88,6 @@ const SNAPSHOT = `(function () {
   Array.from(clone.querySelectorAll('[class]')).forEach(function (el) { el.removeAttribute('class'); });
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
-  clone.removeAttribute('lang');
-  clone.removeAttribute('aria-labelledby');
   var box = source.viewBox.baseVal;
   clone.setAttribute('width', String(box.width));
   clone.setAttribute('height', String(box.height));

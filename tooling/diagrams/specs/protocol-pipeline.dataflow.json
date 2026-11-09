@@ -3,7 +3,6 @@
   "diagram_type": "dataflow",
   "meta": {
     "title": "Source material to assembled context",
-    "output": "docs/public/diagrams/protocol-pipeline.html",
     "quality_profile": "showcase",
     "viewBox": [
       1080,

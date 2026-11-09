@@ -29,9 +29,9 @@ connect 会话经过四个状态：`Disconnected` → `Handshaking` → `Establi
 
 ## 信封认证
 
-信封真实性是**传输层之上的协议级属性**：每条影响信任的 post-hello 信封 —— 会话快照、invoke 请求与 invoke 响应 —— 都携带对 RFC 8785 JCS 规范化签名对象的 Ed25519 签名，在会话核心内部校验。其构造与 hello 相同，扩展为三个算法 id（`spoke-connect-session-jcs-v1`、`spoke-connect-invoke-request-jcs-v1`、`spoke-connect-invoke-response-jcs-v1`）。协议版本 **2** 使这些签名在 post-hello 线上成为必填；hello 信封与其 `spoke-connect-hello-jcs-v1` 构造保持不变，只有声明的 `protocol_version` 升到 2。
+信封真实性是**传输层之上的协议级属性**：每条影响信任的 post-hello 信封 —— 会话快照、invoke 请求与 invoke 响应 —— 都携带对 RFC 8785 JCS 规范化签名对象的 Ed25519 签名，在会话核心内部校验。其构造与 hello 相同，扩展为三个算法 id（`spoke-connect-session-jcs-v1`、`spoke-connect-invoke-request-jcs-v1`、`spoke-connect-invoke-response-jcs-v1`）。post-hello 信封携带 protocol_version 2 的签名字段。已发布的会话核心在 hello 中声明 `protocol_version: 1`，其 `spoke-connect-hello-jcs-v1` 构造保持不变。
 
-这就是 adapter 能在任何有序、可靠的载体上工作（TCP、WebSocket、yamux 或 Noise）而不必信任传输层真实性的原因：信封本身已认证，且提供已认证对等节点身份的传输不会放宽规则。签名对象覆盖影响信任的字段；`extensions` 留在签名之外，因此永远不会影响授权。混合版本对等节点 fail-closed：v2 对等节点拒绝与 v1 对等节点建立会话，而不是接受未认证信封，且不存在兼容垫片（compatibility shim）。
+这就是 adapter 能在任何有序、可靠的载体上工作（TCP、WebSocket、yamux 或 Noise）而不必信任传输层真实性的原因：信封本身已认证，且提供已认证对等节点身份的传输不会放宽规则。签名对象覆盖影响信任的字段；`extensions` 留在签名之外，因此永远不会影响授权。混合版本对等节点 fail-closed：携带非 1 `protocol_version` 的 hello 会在签名校验之前被拒绝，且不存在兼容垫片（compatibility shim）。
 
 ## 能力路由
 

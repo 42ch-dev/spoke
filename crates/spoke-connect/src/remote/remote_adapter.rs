@@ -1,5 +1,5 @@
 //! `RemoteAdapter` — drop-in async `BaselinePorts` over a connect session
-//! (frozen contract: `.mstar/specs/spoke-remote-adapter.md`).
+//! (frozen contract: `.agents/specs/adapters/spoke-remote-adapter.md`).
 //!
 //! PUBLIC surface: the async `BaselinePorts` (six families) + the optional
 //! `l2-computable` / `l5-fork` port faces (`project` / `compute` /

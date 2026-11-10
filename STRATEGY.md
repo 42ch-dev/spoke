@@ -10,8 +10,8 @@ It defines JSON Schema wire contracts for KnowledgeEntry data and operations, at
 
 | Deliverable | Role |
 |-------------|------|
-| **Normative specs** | `.mstar/specs/` — protocol umbrella, L0–L8 layers, data model, ops wire, operations library |
-| **`schemas/`** | Draft-07 SSOT (**114** files — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
+| **Normative specs** | `.agents/specs/` — protocol umbrella, L0–L8 layers, data model, ops wire, operations library |
+| **`schemas/`** | Draft-07 SSOT (**114** files — see [`spoke-protocol.md`](.agents/specs/protocol/spoke-protocol.md)) |
 | **`@42ch/spoke-schemas`** | Generated TypeScript types (published to npm) |
 | **`@42ch/spoke-operations`** | Hand-written lifecycle helpers, capability-sliced adapter port contracts, and injection orchestration over wire types (published to npm) |
 | **`spoke-schemas`** (Rust crate) | Generated Rust types (published to crates.io) |
@@ -56,7 +56,7 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | Doc | Topic |
 |-----|-------|
 | [`CONCEPTS.md`](CONCEPTS.md) | Domain vocabulary and boundaries |
-| [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella spec and acceptance criteria |
-| [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | L0–L8, capability levels, TimelineScale vocabulary |
-| [`.mstar/specs/spoke-cognition-family-adr.md`](.mstar/specs/spoke-cognition-family-adr.md) | Cognition concepts, authority, conformance and module boundaries |
-| [`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md) | Lockstep SemVer, annotated tags, CI-gated GitHub Release, registry publish |
+| [`.agents/specs/protocol/spoke-protocol.md`](.agents/specs/protocol/spoke-protocol.md) | Umbrella spec and acceptance criteria |
+| [`.agents/specs/protocol/spoke-protocol-layers.md`](.agents/specs/protocol/spoke-protocol-layers.md) | L0–L8, capability levels, TimelineScale vocabulary |
+| [`.agents/adr/implemented/architecture/2026-11-07-spoke-cognition-family.md`](.agents/adr/implemented/architecture/2026-11-07-spoke-cognition-family.md) | Cognition concepts, authority, conformance and module boundaries |
+| [`.agents/specs/protocol/spoke-version-release.md`](.agents/specs/protocol/spoke-version-release.md) | Lockstep SemVer, annotated tags, CI-gated GitHub Release, registry publish |

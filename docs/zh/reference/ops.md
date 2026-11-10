@@ -174,7 +174,7 @@ title: 操作线上参考（Ops wire）
 | `spoke-memory-reflection` | `memory.reflections.state`、`.list`、`.generate` |
 | `spoke-memory-transfer` | `memory.exports.create`、`.get`，`memory.imports.stage`、`.activate`、`.discard` |
 
-**族规则。** 读操作返回其载荷；每个变更操作返回 `MemoryReceipt`（`committed` / `pending` / `failed`），其 `result` 只携带 ID、revision、计数、结果枚举、摘要与成本事实。失败分支为 `{ error }` —— 共享信封形状，且 `details.retry_class` 必填（`retryable` / `terminal` / `uncertain`）。除 `memory.subjects.ensure` 外，每个变更操作都要求 `idempotency_key`，条件写入要求 `expected_revision`。逐操作的授权能力、请求字段与错误码见 [记忆参考](/zh/reference/memory) 与[族规格](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md)。
+**族规则。** 读操作返回其载荷；每个变更操作返回 `MemoryReceipt`（`committed` / `pending` / `failed`），其 `result` 只携带 ID、revision、计数、结果枚举、摘要与成本事实。失败分支为 `{ error }` —— 共享信封形状，且 `details.retry_class` 必填（`retryable` / `terminal` / `uncertain`）。除 `memory.subjects.ensure` 外，每个变更操作都要求 `idempotency_key`，条件写入要求 `expected_revision`。逐操作的授权能力、请求字段与错误码见 [记忆参考](/zh/reference/memory) 与[族规格](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/memory/spoke-memory.md)。
 
 ## 共享规则
 

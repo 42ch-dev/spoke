@@ -3,7 +3,7 @@
  * binding).
  *
  * Ported from tooling/connect-identity-proof/proof.mjs; normative formula
- * `.mstar/specs/spoke-connect.md` §Identity binding (mirrors
+ * `.agents/specs/connect/spoke-connect.md` §Identity binding (mirrors
  * `crates/spoke-connect/src/core/peer_id.rs`). Do not invent a second
  * derivation — byte parity with the Rust/libp2p path is locked by the golden
  * vector tests.

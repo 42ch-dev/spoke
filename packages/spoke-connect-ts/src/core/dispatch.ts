@@ -2,7 +2,7 @@
  * Op dispatch gate: required capability ⊆ negotiated capabilities.
  *
  * Ported from `crates/spoke-connect/src/core/dispatch.rs`; normative rule
- * `.mstar/specs/spoke-connect.md` §Op dispatch gate (MUST): before executing
+ * `.agents/specs/connect/spoke-connect.md` §Op dispatch gate (MUST): before executing
  * or forwarding a `ConnectInvokeRequest`, a host that performs op dispatch
  * MUST ensure the capability required by `op` is present in the session's
  * `negotiated_capabilities`. If absent, the host MUST NOT run the op handler

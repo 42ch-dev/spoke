@@ -61,7 +61,7 @@ impl PeerSession {
 
     /// The capabilities negotiated for this session: the intersection of the
     /// local and remote `capabilities[]` at session establishment (normative
-    /// rule, `.mstar/specs/spoke-connect.md` §Negotiation). The op dispatch
+    /// rule, `.agents/specs/connect/spoke-connect.md` §Negotiation). The op dispatch
     /// gate is evaluated against this set — never against the remote
     /// manifest alone.
     #[must_use]

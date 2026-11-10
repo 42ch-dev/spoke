@@ -29,7 +29,33 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Detect code changes
+        id: detect
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD || true)
+          if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   xcframework:
+    needs: changes
     name: xcframework
     runs-on: macos-15
     steps:
@@ -47,6 +73,7 @@ jobs:
           targets: aarch64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
 
       - name: Run committed Swift consumer smoke
+        if: needs.changes.outputs.code == 'true'
         id: committed_smoke
         continue-on-error: true
         run: |
@@ -63,6 +90,7 @@ jobs:
           "${RUNNER_TEMP}/swift-smoke"
 
       - name: Build Swift xcframework (staged, locked)
+        if: needs.changes.outputs.code == 'true'
         # Preserve the committed consumer package; --locked pins Cargo.lock.
         env:
           XCFRAMEWORK_LOCKED: "1"
@@ -70,6 +98,7 @@ jobs:
         run: ./tooling/connect/build-swift-xcframework.sh
 
       - name: Write xcframework hash manifest
+        if: needs.changes.outputs.code == 'true'
         # The apply script verifies the transferred artifact against this manifest.
         run: |
           ./tooling/connect/verify-xcframework-drift.sh --manifest \
@@ -77,6 +106,7 @@ jobs:
             > "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework.sha256"
 
       - name: Record xcframework build provenance
+        if: needs.changes.outputs.code == 'true'
         env:
           SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
@@ -93,7 +123,7 @@ jobs:
 
       - name: Upload xcframework artifact
         # actions/upload-artifact@v4.6.2
-        if: always()
+        if: always() && needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spoke-connect-xcframework
@@ -102,6 +132,7 @@ jobs:
           retention-days: 5
 
       - name: Verify committed xcframework freshness
+        if: needs.changes.outputs.code == 'true'
         run: |
           ./tooling/connect/verify-xcframework-drift.sh \
             crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework \

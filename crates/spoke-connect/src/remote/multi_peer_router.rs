@@ -1,6 +1,6 @@
 //! `MultiPeerRouter` — capability-selected multi-peer async `BaselinePorts`
 //! over N registered per-peer `RemoteAdapter` instances (frozen multi-peer
-//! routing contract: `.mstar/specs/spoke-remote-adapter.md (Multi-peer section)`;
+//! routing contract: `.agents/specs/adapters/spoke-remote-adapter.md (Multi-peer section)`;
 //! normative design intent in the RemoteAdapter spec "Multi-peer
 //! registry/composer" staged follow-on). Behavioral twin of
 //! `packages/spoke-connect-ts/src/remote/multi-peer-router.ts`.

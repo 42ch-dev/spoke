@@ -2,7 +2,7 @@
 
 JVM library for SPOKE Connect session-core bindings (committed uniffi Kotlin + JNA native load).
 
-Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.5.
+Packaging contract: [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/connect/connect-publish-strategy.md) §13 (Kotlin — GitHub Packages Maven); decision record: [2026-08-03-connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md).
 
 ## Install (Maven)
 

@@ -13,7 +13,7 @@ Stock `uniffi-bindgen-cs` 0.31 cannot read the uniffi 0.32 cdylib metadata
 (`--library` mode fails with `Invalid string data: invalid utf-8 sequence of
 1 bytes from index 1009`), and the UDL-mode fallback passes generation but
 fails the runtime checksum gate on all 14 symbols. See
-`.mstar/specs/connect-csharp-binding.md` for the full decision record.
+`.agents/adr/implemented/process/2026-08-02-connect-csharp-uniffi-bindgen-fork.md` for the full decision record; `.agents/specs/connect/connect-csharp-binding.md` states the current binding surface.
 
 The fork restores the locked `--library` CLI form against the 0.32 cdylib;
 the generated bindings load and pass the checksum gate at runtime (golden

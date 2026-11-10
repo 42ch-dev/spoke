@@ -1,7 +1,7 @@
 /**
  * SPOKE connect WebSocket framing — one JSON envelope per WebSocket message.
  *
- * Normative: `.mstar/specs/spoke-connect.md` §Transport framing (AD-P0-1 /
+ * Normative: `.agents/specs/connect/spoke-connect.md` §Transport framing (AD-P0-1 /
  * AD-P0-3): text frames, one JSON document per message, ordered reliable
  * stream, no batching.
  *

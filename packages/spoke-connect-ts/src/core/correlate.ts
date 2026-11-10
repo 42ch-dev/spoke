@@ -3,7 +3,7 @@
  * `request_id`.
  *
  * Ported from `crates/spoke-connect/src/core/correlate.rs`; normative rule
- * `.mstar/specs/spoke-connect.md` §Ordering semantics: a response MUST echo
+ * `.agents/specs/connect/spoke-connect.md` §Ordering semantics: a response MUST echo
  * `session_id`, `sequence`, and `request_id` from the request; any mismatch
  * is a correlation failure (local error).
  */

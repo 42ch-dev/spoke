@@ -92,7 +92,7 @@ pub(crate) struct SessionHandle {
     pub(crate) local_secret: [u8; 32],
     /// Capabilities negotiated at session establishment: the intersection of
     /// the local and remote `HostCapabilityManifest.capabilities` (normative
-    /// rule, `.mstar/specs/spoke-connect.md` §Negotiation). The inbound op
+    /// rule, `.agents/specs/connect/spoke-connect.md` §Negotiation). The inbound op
     /// dispatch gate is evaluated against this set, never against the remote
     /// manifest alone.
     pub(crate) negotiated_capabilities: Vec<String>,

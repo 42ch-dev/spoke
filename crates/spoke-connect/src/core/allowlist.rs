@@ -1,6 +1,6 @@
 //! `noise-peerid` allowlist check (fail-closed).
 //!
-//! Normative rules (`.mstar/specs/spoke-connect.md` §Auth model): the trust
+//! Normative rules (`.agents/specs/connect/spoke-connect.md` §Auth model): the trust
 //! root is a deployment-configured peer id allowlist. An empty allowlist
 //! rejects every remote peer.
 

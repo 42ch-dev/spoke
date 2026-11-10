@@ -3,7 +3,7 @@
  * (`spoke-connect-hello-jcs-v1`).
  *
  * Ported from `crates/spoke-connect/src/core/hello_crypto.rs`; normative
- * rules `.mstar/specs/spoke-connect.md` §Signature canonicalization /
+ * rules `.agents/specs/connect/spoke-connect.md` §Signature canonicalization /
  * §Identity binding:
  * - Signed object = exactly `{protocol_version, peer_id, nonce, host}` for
  *   the **initiator** hello (4 fields), and exactly

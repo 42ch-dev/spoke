@@ -4,7 +4,7 @@
  *
  * CLI: node tooling/release/bump-version.mjs <X.Y.Z>
  *
- * Normative: `.mstar/specs/spoke-version-release.md`
+ * Normative: `.agents/specs/protocol/spoke-version-release.md`
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";

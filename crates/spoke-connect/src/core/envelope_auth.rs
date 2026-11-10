@@ -4,7 +4,7 @@
 //!
 //! Same construction as hello (`spoke-connect-hello-jcs-v1`, see
 //! [`super::hello_crypto`]): the signed object — exactly the keys of the
-//! locked field tables (`.mstar/specs/spoke-connect.md` §Authenticated field
+//! locked field tables (`.agents/specs/connect/spoke-connect.md` §Authenticated field
 //! sets, frozen by the iteration contract §3) — is canonicalized with
 //! RFC 8785 JCS (`serde_jcs`) → UTF-8 bytes, signed with the sender's
 //! peer-identity Ed25519 private key (the same key used for hello), and the

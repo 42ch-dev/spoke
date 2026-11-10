@@ -1,7 +1,7 @@
 //! Response correlation: echo checks for `session_id`, `sequence`, and
 //! `request_id`.
 //!
-//! Normative rule (`.mstar/specs/spoke-connect.md` §Ordering semantics): a
+//! Normative rule (`.agents/specs/connect/spoke-connect.md` §Ordering semantics): a
 //! response MUST echo `session_id`, `sequence`, and `request_id` from the
 //! request; any mismatch is a correlation failure (local error).
 

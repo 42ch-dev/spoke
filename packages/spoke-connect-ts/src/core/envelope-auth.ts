@@ -6,7 +6,7 @@
  * Same construction as hello (`spoke-connect-hello-jcs-v1`, see
  * `src/core/hello.ts` / `crates/spoke-connect/src/core/hello_crypto.rs`):
  * the signed object — exactly the keys of the locked field tables
- * (`.mstar/specs/spoke-connect.md` §Authenticated field sets) — is
+ * (`.agents/specs/connect/spoke-connect.md` §Authenticated field sets) — is
  * canonicalized with RFC 8785 JCS → UTF-8 bytes, signed with the
  * sender's peer-identity Ed25519 private key (the same key used for hello),
  * and the raw 64-byte signature is encoded base64url without padding

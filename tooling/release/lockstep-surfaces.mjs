@@ -1,7 +1,7 @@
 /**
  * Lockstep version surfaces — SSOT manifest for assert and bump scripts.
  *
- * Normative source: `.mstar/specs/spoke-version-release.md` lockstep table (rows 1–16).
+ * Normative source: `.agents/specs/protocol/spoke-version-release.md` lockstep table (rows 1–16).
  *
  * Cargo dependency pins use inline tables with bare, basic-quoted, or
  * literal-quoted keys and basic or literal string values. Basic-string escapes

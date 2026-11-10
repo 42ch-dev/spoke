@@ -13,7 +13,7 @@ title: 面向 Agent
 | 优先级 | 来源 | 理由 |
 |--------|------|------|
 | 1 | `schemas/` | 手工编写的 JSON Schema。字段名、必填集合、模式与封闭对象在此定义 |
-| 2 | `.mstar/specs/` | 规范性协议散文：分层、数据模型、ops、memory、connect、绑定 |
+| 2 | `.agents/specs/` | 规范性协议散文：分层、数据模型、ops、memory、connect、绑定 |
 | 3 | `/zh/reference/*` | 由 schema 派生的字段表与信封 |
 | 4 | `/zh/how-to/*`、`/zh/tutorials/*` | 操作步骤与代码样例；它们以 reference 事实为前提 |
 | 5 | `/zh/explanation/*` | 概念与边界 |

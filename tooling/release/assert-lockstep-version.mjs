@@ -15,7 +15,7 @@
  *   SPOKE_RELEASE_TAG=0.1.0 node tooling/release/assert-lockstep-version.mjs  # fail (missing v)
  *   SPOKE_RELEASE_TAG=v9.9.9 node tooling/release/assert-lockstep-version.mjs  # fail (mismatch)
  *
- * Normative: `.mstar/specs/spoke-version-release.md`
+ * Normative: `.agents/specs/protocol/spoke-version-release.md`
  */
 
 import { readFileSync } from "node:fs";

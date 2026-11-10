@@ -1,0 +1,819 @@
+# SPOKE Connect
+
+> **Status:** Normative — opt-in capability (`spoke-connect`)
+> **Document class:** Detail — interaction **wire** family (opt-in)
+> **Parent:** [`spoke-protocol.md`](../protocol/spoke-protocol.md)
+> **Schema home:** `schemas/connect/`, `schemas/common/`
+> **Capability flag:** [`spoke-protocol-layers.md`](../protocol/spoke-protocol-layers.md) §Optional flags
+
+## Scope
+
+Defines the `spoke-connect` interaction wire family for cross-process SPOKE hosts: the six connect envelopes, identity derivation and signature canonicalization, nonce and dial binding, per-direction ordering, the session-core state machine, the capability dispatch gate, the two normative auth methods, protocol_version 2 envelope authentication, and the transport framing unit. Connect is an opt-in capability beside the data wire, ops wire and ops library — baseline compliance and those schemas are unchanged. This page does not define op field semantics, transport implementations, discovery beyond explicit peering, or publish and packaging decisions.
+
+## Current state
+
+### Purpose
+
+Define the **interaction envelopes** for cross-process SPOKE hosts: signed manifest exchange (hello), session context, remote op invocation, and extensible authentication. Connect is an **opt-in capability family** beside the three pillars (data wire, ops wire, ops library) — baseline compliance does not include it, and no baseline schema changes. Envelopes are transport-agnostic JSON payloads; transport binding is a stack concern (see §[Embedding model](#embedding-model), §[Transport framing](#transport-framing), §[Reference stack](#reference-stack)).
+
+**Integrator framing:**
+
+| Principle | Meaning |
+|-----------|---------|
+| **Reuse, don't redefine** | hello embeds `HostCapabilityManifest` by `$ref`; invoke failure reuses `error-envelope`; payload uses `OpaqueJson`; no new identity system beyond opaque `peer_id` |
+| **Opaque payload wrapping** | invoke envelopes wrap existing ops envelopes as opaque JSON; connect does not re-specify upsert/check/assemble fields |
+| **Closed envelopes, open vocabulary** | `additionalProperties: false`; `op`, `method`, and capability names stay open strings with documented core lists |
+| **`extensions` required** | every connect envelope carries `ExtensionMap`; hello-level `extensions` are unsigned |
+| **No engine fields** | no ranking, retrieval, routing scores, token budgets, multiaddrs, or DHT keys on connect wire |
+
+### Embedding model
+
+Connect is an **embeddable library contract**: wire shapes plus pure session rules that any language stack can implement. Product runtimes own transport and process lifecycle.
+
+**Three layers:**
+
+| Layer | What it is | Ownership |
+|-------|------------|-----------|
+| **Wire contract** | `schemas/connect/` envelopes + this specification (field tables, JCS, identity binding, framing unit, vocabularies) | Protocol SSOT — language-independent |
+| **Session core** | Pure logic: hello accept/reject gates, nonce single-use, session state, per-direction sequence allocation and check, `request_id` correlation, allowlist evaluation, op dispatch gate | Language-portable rules; implementable without a shared native library |
+| **Transport adapter** | Byte-stream or RPC channel, authenticated transport identity when present, stream lifecycle, dialing, peer metadata (e.g. identify), delimiter choice | Per language and per product |
+
+**Two embedding paths** (internal labels **Path A** / **Path B**). Consumer-facing docs (`docs/`, root READMEs) use the aliases in the table — not the Path letters.
+
+| Path (internal) | Consumer docs alias | Description | Current shipped surfaces |
+|-----------------|---------------------|-------------|--------------------------|
+| **Path A — language-direct** | **Language-native client** | Implement the wire contract and session-core rules in the host language; pair with that language’s network stack (js-libp2p, native sockets, WebSocket, etc.). No Rust runtime required. | TypeScript `@42ch/spoke-connect` (WebSocket) |
+| **Path B — shared core bindings** | **Native bindings** | Export the shared session core into the host language — generated bindings (Rust via uniffi) or the hand-written C ABI carrier; the transport adapter may stay in the host language or in the shared core. | C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `dev.42ch:spoke-connect`, Swift SPM `SpokeConnect`, Go modules under `crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect`, C/C++ committed headers under `crates/spoke-connect/bindings/cpp/include` plus platform carriers, resolved from the `vX.Y.Z` tag |
+
+**Rust reference (`spoke-connect` on crates.io):** the published crate is the **session-core reference** and the **Path B binding source** (uniffi facade + `bindings/**`). It also ships a rust-libp2p transport stack. It is **not** Path A — Path A means a host-language port with no Rust runtime. Consumer docs call this the **Rust reference**, not Path A or Path B.
+
+Both paths MUST produce the same signed hello bytes, the same `peer_id` derivation, and the same session-core accept/reject outcomes for a given input. The rust-libp2p stack under `crates/spoke-connect` is one transport demonstration; it is evidence, not the definition of the rules.
+
+#### RemoteAdapter layer (above session-core)
+
+A **RemoteAdapter** implements the async `BaselinePorts` adapter contract by proxying each port call as a reserved `port.*` op invoke over an established connect session, and exposes the `extract` core op as a whole-operation delegation on the same session ([`spoke-remote-adapter.md`](../adapters/spoke-remote-adapter.md) D4). It is an opt-in surface in both connect packages — the `./remote` subpath in `@42ch/spoke-connect`, the `remote-adapter` cargo feature in `spoke-connect` — and reuses session-core (hello, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token) without widening the TS↔Rust session-core parity table. The RemoteAdapter runs at `protocol_version: 2` and enforces envelope authentication on every post-hello envelope: signed `ConnectInvokeRequest` emission, and `ConnectSession` / `ConnectInvokeResponse` verification on receipt (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2); enforcement details: [spoke-remote-adapter.md](../adapters/spoke-remote-adapter.md) D10). All connect verification is encapsulated; consumers pass the adapter straight to the baseline orchestrators. Message-oriented `Transport` seam, port-method catalogue, error mapping, and concurrency rules: [spoke-remote-adapter.md](../adapters/spoke-remote-adapter.md).
+
+### User value
+
+| Without this spec | With this spec |
+|-------------------|----------------|
+| Multi-adapter client interaction has no standard wire | Integrators build connect adapters against a dual-language contract (`schemas/connect/` + generated types) |
+| Ordering, auth, and discovery are invented per product | Per-session ordering, `noise-peerid` + `capability-token` auth, and explicit peering are normative |
+| Non-Rust clients reverse-engineer a single stack | Identity, framing, and session-core rules are stack-agnostic and implementable from this spec alone |
+| Baseline-only hosts are forced to change | `spoke-connect` is an optional flag; baseline compliance is unchanged |
+
+### Relationship to the existing three pillars
+
+| Pillar | Path | Connect relationship |
+|--------|------|----------------------|
+| Data wire | `schemas/data/` | Unchanged. Hello **embeds** `HostCapabilityManifest` by `$ref` — does not fork or extend the data schema. |
+| Ops wire | `schemas/ops/` | Unchanged. Invoke **wraps** ops request/response envelopes as `payload: OpaqueJson` — connect does not re-specify op fields. |
+| Ops library | `@42ch/spoke-operations` / `spoke-operations` | Unchanged. Connect does not add pure helpers; remote dispatch stays adapter-owned. |
+| **Connect family (opt-in)** | `schemas/connect/` + `spoke-connect` flag | Cross-process interaction envelopes + session ordering + auth model. Fourth concern beside the three pillars; baseline hosts ignore it. |
+
+### Dual identity: `peer_id` vs `host_id`
+
+| Identity | Wire location | Meaning | Trust role |
+|----------|---------------|---------|------------|
+| **`peer_id`** | connect envelopes | Network peer identity string derived per §[Identity binding](#identity-binding) (protocol_version 1: Ed25519 libp2p identity PeerId) | **Trust root** for `noise-peerid` — allowlist matches `peer_id` |
+| **`host_id`** | inside embedded `HostCapabilityManifest` | Opaque application host identity (existing data-model field) | **Advisory label** for orchestration / logging; NOT the allowlist key |
+
+The protocol does **not** require `peer_id == host_id`. Deployments SHOULD document their mapping; receivers MUST authorize on `peer_id` (and signature), then consume the `host` manifest for roles/capabilities.
+
+### Identity binding
+
+Normative mapping for protocol_version **1**. Implementers in any language derive and verify identity from this section alone.
+
+#### Key type
+
+| Item | Value |
+|------|-------|
+| Public-key algorithm | **Ed25519** |
+| Raw public key | 32 bytes |
+| Raw signature | 64 bytes |
+| Private key | Ed25519 keypair used to sign hello (see §[Signature canonicalization](#signature-canonicalization-hello)) |
+
+#### Signature algorithm
+
+**Name:** `spoke-connect-hello-jcs-v1` (unchanged).
+
+Role-aware signed-field set (the role is carried by the hello itself — `peer_nonce` present ⇒ responder):
+
+| Role | Signed object (exact keys) |
+|------|----------------------------|
+| **Initiator** hello | `{protocol_version, peer_id, nonce, host}` (4 fields — `peer_nonce` absent; the initiator sends first and has no peer nonce) |
+| **Responder** hello | `{protocol_version, peer_id, nonce, host, peer_nonce}` (5 fields — `peer_nonce` = the initiator's nonce, **dial binding**) |
+
+1. Build the signed object per the table above (see §[Signature canonicalization](#signature-canonicalization-hello)).
+2. Canonicalize with **RFC 8785 JCS** → UTF-8 bytes.
+3. `Ed25519.sign(private_key, jcs_bytes)` → 64 raw bytes.
+4. Encode as **base64url without padding** → wire `signature`.
+
+Verify recomputes JCS over the same role-aware field set from the received hello and verifies with the public key that derives `peer_id`. An initiator that verifies a **responder** hello MUST additionally assert `peer_nonce == <its own nonce>` — a responder hello signed over a different or absent initiator nonce is rejected (**dial binding**; defeats replay of a captured responder hello across a client restart, see [§Nonce / replay](#nonce--replay-protection)).
+
+#### `peer_id` derivation (libp2p identity / peer-ids)
+
+Wire `peer_id` is the **libp2p PeerId string** for the Ed25519 public key, per the published libp2p identity / peer-ids specification. Steps:
+
+1. Encode the public key as the libp2p protobuf **`PublicKey`** message:
+   - field 1 (`Type`) = `1` (**Ed25519**);
+   - field 2 (`Data`) = the **32-byte** raw Ed25519 public key.
+2. Let `pk_bytes` = the protobuf serialization of that message. For Ed25519, `pk_bytes` length is **≤ 42 bytes**.
+3. Build the **multihash wire byte sequence** over `pk_bytes` using the **identity** multihash code **`0x00`**:
+
+   ```text
+   multihash_bytes = code-varint (0x00 identity) || length-varint || digest
+   ```
+
+   where `digest` is `pk_bytes` itself (the protobuf-encoded `PublicKey` bytes — **not** a cryptographic hash of them, and **not** the raw 32-byte public key alone).  
+   **Do not** hash the raw 32-byte public key with sha2-256 for this step.  
+   *(General libp2p rule: identity multihash when the protobuf public key is ≤ 42 bytes; sha2-256 multihash only when longer — e.g. RSA. Protocol_version 1 connect cores that support only Ed25519 always take the identity branch.)*
+4. Encode `multihash_bytes` with **base58btc** (Bitcoin alphabet). That string is wire `peer_id`.
+
+**Encoding constraints:**
+
+- **No** multibase prefix character (no leading `z`).
+- **No** CIDv1 wrapping.
+- The result matches rust-libp2p `PeerId::to_string()` / `to_base58()` for the same key.
+
+#### Binding rules
+
+| Rule | Requirement |
+|------|-------------|
+| Authorization | Receivers authorize on `peer_id` + verified signature; `host_id` remains advisory |
+| Authenticated transport | When the transport supplies an authenticated peer identity (reference: Noise remote peer id), the claimed hello `peer_id` MUST equal that transport-authenticated id, and the verify public key MUST derive that same `peer_id` |
+| Path A without Noise | Stacks still MUST derive `peer_id` per steps 1–4 and MUST verify the hello signature against the key that derives that `peer_id`. How the public key is obtained (hello-adjacent identify, preconfiguration, etc.) is transport-adapter-owned |
+| Signed-field set | Role-aware — initiator hello: `protocol_version`, `peer_id`, `nonce`, `host` (4 fields); responder hello: the same plus `peer_nonce` = the initiator's nonce (5 fields, dial binding) |
+
+This section does not define JWT/DID key ids and does not require `peer_id == host_id`.
+
+### Envelope family (`schemas/connect/`)
+
+Six envelopes — all `type: object`, `additionalProperties: false`, required `extensions` → `$ref` `ExtensionMap`. `$id` base: `https://spoke42.invalid/schemas/` (same as the other families). Connect schemas evolve in place: breaking shape changes bump `protocol_version`, which peers negotiate via hello.
+
+| File | `title` | `$id` suffix |
+|------|---------|--------------|
+| `connect-hello.schema.json` | `ConnectHello` | `connect/connect-hello.schema.json` |
+| `connect-session.schema.json` | `ConnectSession` | `connect/connect-session.schema.json` |
+| `connect-invoke-request.schema.json` | `ConnectInvokeRequest` | `connect/connect-invoke-request.schema.json` |
+| `connect-invoke-response.schema.json` | `ConnectInvokeResponse` | `connect/connect-invoke-response.schema.json` |
+| `connect-auth-challenge.schema.json` | `ConnectAuthChallenge` | `connect/connect-auth-challenge.schema.json` |
+| `connect-auth-response.schema.json` | `ConnectAuthResponse` | `connect/connect-auth-response.schema.json` |
+
+### Field tables
+
+#### ConnectHello — handshake / signed manifest exchange
+
+| Field | Req | Type | Notes |
+|-------|-----|------|-------|
+| `protocol_version` | yes | integer ≥ 1 | Connect protocol version (not data `schema_version`). **Protocol version 2 is current** (normative lock — see [§Envelope authentication](#envelope-authentication-protocol_version-2)); the post-hello field tables below document the version-1 base wire — v2 adds the required `signature` field per that section. Hello `signature` is unchanged. |
+| `peer_id` | yes | string, minLength 1 | Sender network identity (see §[Identity binding](#identity-binding)). |
+| `nonce` | yes | string, minLength 16 | Single-use replay nonce (see [§Nonce / replay](#nonce--replay-protection)). |
+| `peer_nonce` | no | string, minLength 16 | Responder-only dial binding: the initiator's nonce, echoed by the responder and bound into its signed object. Absent in initiator hellos; initiators MUST reject a responder hello whose `peer_nonce` does not equal their own nonce (see [§Nonce / replay](#nonce--replay-protection)). |
+| `host` | yes | `$ref` HostCapabilityManifest | Full embedded manifest (includes `host.extensions`). |
+| `signature` | yes | string, minLength 1 | base64url (no padding) of raw signature bytes (see [§Signature canonicalization](#signature-canonicalization-hello)). |
+| `extensions` | yes | ExtensionMap | Product bag; **not** covered by signature. |
+
+#### ConnectSession — established session context (wire snapshot)
+
+| Field | Req | Type | Notes |
+|-------|-----|------|-------|
+| `session_id` | yes | string, minLength 1 | Opaque session id (UUID recommended; not schema-enforced). |
+| `initiator_peer_id` | yes | string, minLength 1 | Peer that dialed / sent first hello. |
+| `responder_peer_id` | yes | string, minLength 1 | Peer that accepted. |
+| `opened_at` | yes | Timestamp (RFC 3339) | Session open time (UTC). |
+| `negotiated_capabilities` | yes | string[], minItems 1, uniqueItems | Intersection (or agreed subset) of both hosts' `capabilities[]`; MUST include `spoke-connect` when both declare it. |
+| `initial_sequence` | yes | integer, minimum 0, **const 0** for protocol versions 1 and 2 | First invoke request uses `sequence = initial_sequence` (i.e. **0**). Runtime validators MUST enforce the `const 0` rule at the wire boundary; generated Rust types do not encode it. |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-session-jcs-v1`). |
+| `extensions` | yes | ExtensionMap | |
+
+Session is a **wire-visible snapshot** (fixtures + optional session-announce messages). A runtime may keep richer local state; the public wire shape stays this table.
+
+`initiator_peer_id` and `responder_peer_id` MUST equal the authenticated hello `peer_id` values of the two session peers; receivers MUST reject session snapshots whose peer ids do not match the authenticated hellos.
+
+#### ConnectInvokeRequest — remote op call
+
+| Field | Req | Type | Notes |
+|-------|-----|------|-------|
+| `session_id` | yes | string, minLength 1 | |
+| `sequence` | yes | integer, minimum 0, maximum 2⁵³−1 (JSON-safe); logical u64 | Monotonic per session **outbound** from this sender (see [§Ordering semantics](#ordering-semantics)). |
+| `request_id` | yes | string, minLength 1 | Caller-generated correlation id (UUID recommended). |
+| `op` | yes | string, minLength 1 | Open vocabulary — see [§`op` core vocabulary](#op-core-vocabulary). |
+| `payload` | yes | `$ref` OpaqueJson | Opaque JSON — MUST be a full existing ops **request** envelope for the named `op` when targeting SPOKE ops. Dispatchers MUST validate the payload against the named `op`'s ops request schema. |
+| `auth` | no | `$ref` OpaqueJson | Optional mid-session proof blob; primary session identity is hello (`noise-peerid`). For `capability-token`, same proof object as auth response (see [§Method — capability-token](#method--capability-token)). When present on protocol_version 2 wire, `auth` is included in the JCS signed object for `spoke-connect-invoke-request-jcs-v1` (see [§Envelope authentication](#envelope-authentication-protocol_version-2)). |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-request-jcs-v1`). |
+| `extensions` | yes | ExtensionMap | |
+
+#### ConnectInvokeResponse — remote op reply
+
+Mirrors ops response style: **oneOf** success | error (no parallel `status` enum — discriminator is `payload` vs `error`).
+
+**Success branch** — required: `session_id`, `sequence`, `request_id`, `payload`, `extensions` (+ `signature` in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2))
+
+| Field | Req | Type | Notes |
+|-------|-----|------|-------|
+| `session_id` | yes | string | Echo. |
+| `sequence` | yes | integer ≥ 0 | Echo of request `sequence`. |
+| `request_id` | yes | string | Echo of request `request_id`. |
+| `payload` | yes | OpaqueJson | Ops **response** success envelope (or product-defined success body for non-core `op`). |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-response-jcs-v1`). |
+| `extensions` | yes | ExtensionMap | |
+
+**Error branch** — required: `session_id`, `sequence`, `request_id`, `error`, `extensions` (+ `signature` in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2))
+
+| Field | Req | Type | Notes |
+|-------|-----|------|-------|
+| `session_id` / `sequence` / `request_id` | yes | (echo) | Same as success. |
+| `error` | yes | `$ref` ErrorEnvelope | Shared failure shape — **no** parallel connect error object. |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-response-jcs-v1`). |
+| `extensions` | yes | ExtensionMap | |
+
+Branches MUST NOT include both `payload` and `error`.
+
+#### ConnectAuthChallenge
+
+| Field | Req | Type | Notes |
+|-------|-----|------|-------|
+| `challenge_id` | yes | string, minLength 1 | Correlation id for the response. |
+| `method` | yes | string, minLength 1 | Open vocabulary — core: `noise-peerid`, `capability-token` (see [§`method` core vocabulary](#method-core-vocabulary)). |
+| `challenge` | yes | string, minLength 1 | Opaque challenge material (nonce / method-specific). |
+| `extensions` | yes | ExtensionMap | |
+
+#### ConnectAuthResponse
+
+| Field | Req | Type | Notes |
+|-------|-----|------|-------|
+| `challenge_id` | yes | string | Echo. |
+| `method` | yes | string | MUST match challenge `method`. |
+| `proof` | yes | OpaqueJson | Method-specific proof. Unused for `noise-peerid` (hello is the proof). For `capability-token`: `{ v, claims, sig }` object (see [§Method — capability-token](#method--capability-token)). |
+| `extensions` | yes | ExtensionMap | |
+
+### Signature canonicalization (hello)
+
+**Algorithm name:** `spoke-connect-hello-jcs-v1`
+
+**Key type (protocol_version 1):** Ed25519 — see §[Identity binding](#identity-binding).
+
+1. Build the **signed object** (JSON object, exactly these keys — no others). The field set is **role-aware**: the initiator signs 4 fields, the responder signs 5 fields (dial binding):
+
+**Initiator hello** (signed object):
+
+```json
+{
+  "protocol_version": <integer>,
+  "peer_id": <string>,
+  "nonce": <string>,
+  "host": <HostCapabilityManifest object including host.extensions>
+}
+```
+
+**Responder hello** (signed object — `peer_nonce` = the initiator's nonce):
+
+```json
+{
+  "protocol_version": <integer>,
+  "peer_id": <string>,
+  "nonce": <string>,
+  "host": <HostCapabilityManifest object including host.extensions>,
+  "peer_nonce": <string>
+}
+```
+
+2. Canonicalize with **RFC 8785 JSON Canonicalization Scheme (JCS)** → UTF-8 bytes.
+3. Sign those bytes with the **Ed25519 peer identity private key** whose public key derives `peer_id` per §[Identity binding](#identity-binding).
+4. Encode the raw 64-byte signature as **base64url without padding** → `signature` field.
+
+**Included in signature:** `protocol_version`, `peer_id`, `nonce`, entire `host` (including `host.extensions`); for the responder role additionally `peer_nonce`.
+
+**Excluded from signature:** top-level hello `extensions`, and the `signature` field itself.
+
+Receivers MUST NOT use top-level hello `extensions` for authorization or trust decisions; only the signed fields and the embedded `host` manifest participate in `noise-peerid` accept/reject.
+
+**Verify (role-aware):** recompute JCS over the signed-field set indicated by the received hello — 4 fields when `peer_nonce` is absent (initiator hello), 5 fields when it is present (responder hello); verify the signature with the public key that derives `peer_id` (identity multihash of protobuf `PublicKey`, base58btc); reject on mismatch. An initiator verifying a responder hello MUST additionally assert `peer_nonce` equals its own nonce (dial binding). Fail-closed: an initiator dial that expects a responder MUST reject a hello WITHOUT `peer_nonce` — a mixed-version old responder omits the field, and accepting it would skip the dial-binding assert.
+
+**Why JCS:** multi-language SDKs need one deterministic byte sequence; JCS is standardized (RFC 8785) and library-backed. Implementations MUST NOT invent field-order rules.
+
+### Nonce / replay protection
+
+| Rule | Value |
+|------|-------|
+| `nonce` entropy | minLength 16 is a wire floor; generators SHOULD use ≥128 bits CSPRNG (encoded output typically exceeds 16 chars) |
+| Scope | Per `peer_id` of the **sender** |
+| Uniqueness | Receiver MUST reject a hello whose `(peer_id, nonce)` pair was already accepted |
+| Replay window | In-memory set for the life of the process is sufficient for the reference stack; products MAY persist nonces with TTL — not specified in this protocol version |
+| Bound into signature | Yes — nonce is inside the signed object |
+| Rejected hello | Nonce of a **rejected** hello MUST NOT be recorded (retry-safe) |
+| **Dial binding** | A responder hello MUST carry `peer_nonce` = the initiator's nonce (5-field signed object). The initiator MUST reject a responder hello whose signed `peer_nonce` differs from its own nonce, and MUST reject a responder hello WITHOUT `peer_nonce` (fail-closed — an old/mixed-version responder that omits the field must not bypass the binding). This defeats replay of a captured responder hello **across a client restart** — the scenario the in-memory `(peer_id, nonce)` store alone cannot cover, because the store resets with the process |
+
+### Ordering semantics
+
+#### Message layer
+
+| Rule | Value |
+|------|-------|
+| Sequence domain | Non-negative integer; protocol_version 1 starts at **`initial_sequence = 0`** |
+| First invoke | `sequence = 0` |
+| Increment | Each new **outbound** `ConnectInvokeRequest` from a peer in a session uses `last_sequence + 1` |
+| Direction | Each peer maintains its **own** outbound counter; sequences are not a single shared total-order across both directions |
+| Invoke direction | Either **Established** peer MAY issue `ConnectInvokeRequest`s — the responder invokes under the same per-direction outbound counter rules as the initiator; there is no forward-only restriction and no separate reverse counter |
+| Correlation | Response MUST echo `session_id`, `sequence`, and `request_id` from the request |
+| Timeout / retry | Timeout, retry, and duplicate detection are adapter-owned; `request_id` is the correlation handle for retries — protocol v1 defines no retry semantics |
+| Concurrent invokes | Allowed. Assign sequence atomically at send time. Completions MAY arrive out of order; apps that need FIFO processing sort/buffer by `sequence` |
+| Overflow | When next sequence would exceed **2⁵³−1** (the JSON-safe wire maximum in the [§ConnectInvokeRequest](#connectinvokerequest--remote-op-call) field table) or the implementation counter limit, peer MUST close the session and open a new one — **no wrap-around** |
+| Guarantee scope | Per-session message-layer only — **not** global consensus, not cross-session ordering |
+
+#### Orchestration layer
+
+Hosts select peers using remote `HostCapabilityManifest.roles` / `capabilities` / `namespaces` (e.g. prefer `roles` containing `checker` for `op: "check"`). That peer-selection policy is **guidance** for product orchestration.
+
+Typical order: connect → exchange hello → establish session → invoke.
+
+**Op dispatch** is **MUST**-level and is defined in §[Op dispatch gate](#op-dispatch-gate): before running a handler, the required capability for `op` MUST be present in the session’s `negotiated_capabilities`.
+
+Orchestration over connect is **not** distributed transaction and **not** total-order broadcast across sessions.
+
+### Session-core state machine
+
+Logical states and transitions for the **session core** (pure rules). Dialing, Noise, identify buffering, and stream lifecycle are **transport-adapter-owned**.
+
+#### States (per local node, per session)
+
+| State | Meaning |
+|-------|---------|
+| `Disconnected` | No transport session; no outbound sequence for this session; nonce store may still be process-global |
+| `Handshaking` | Transport up; hellos in flight; invokes are not yet authorized |
+| `Established` | Both hellos accepted (or local policy equivalent); `session_id` assigned locally; outbound counter = 0; inbound expected = 0 |
+| `Closed` | Session unusable (sequence exhaustion, transport loss, auth failure, local shutdown); open a new session — no sequence wrap |
+
+#### Transitions (MUST)
+
+| From → To | Trigger | Guards / effects |
+|-----------|---------|------------------|
+| `Disconnected` → `Handshaking` | Transport connect/accept | — |
+| `Handshaking` → `Established` | Local accept of remote hello **and** remote accept of local hello (both directions confirmed) | Allowlist + signature + nonce single-use; dial binding — the responder's signed `peer_nonce` equals the initiator's own nonce; record `(peer_id, nonce)` only on accept; bind session peer ids to authenticated hello `peer_id`s; `negotiated_capabilities` = agreed subset including `spoke-connect` when both declare it; set outbound counter = 0 and inbound expected = 0 |
+| `Handshaking` → `Closed` (or disconnect) | Any hello gate failure | Nonce of **rejected** hello MUST NOT be recorded; no trust from unsigned hello `extensions` |
+| `Established` → `Established` | Outbound invoke | Atomically allocate `sequence = last + 1` starting at 0; attach a new `request_id`; send |
+| `Established` → `Established` | Inbound invoke | Accept iff `sequence == next_expected_inbound` (start 0); then `next_expected_inbound += 1`; else reject with wire error and **no** handler side effect |
+| `Established` → `Established` | Inbound response | Accept iff it echoes `session_id`, `sequence`, and `request_id` of a pending request; else correlation failure (local error) |
+| `Established` → `Closed` | Next outbound sequence would exceed 2⁵³−1, or transport loss, or local shutdown | No wrap-around |
+
+> **Advance timing (implementers):** for protocol_version 2 sessions the inbound counter advances per the canonical invoke serving order — peek, then envelope-auth verify, then advance — in §[Op dispatch gate](#op-dispatch-gate); this table row states the sequence rule, not the v2 auth ordering.
+
+These labels and guards are the portable session-core contract so Path A ports match reference behavior without depending on reference-crate internals.
+
+The inbound-invoke guard is **direction-generic**: a reverse invoke — a `ConnectInvokeRequest` issued by the responder toward the initiator — is accepted under the identical `sequence == next_expected_inbound` rule and produces the identical wire-error / no-side-effect behavior as a forward invoke. The session core does not distinguish which peer dialed first; only the direction of travel of the envelope is relevant to the counters.
+
+### `op` core vocabulary
+
+Open string (documented, not JSON Schema enum). Schema `description` on `ConnectInvokeRequest.op`: core values `upsert`, `promote`, `relate`, `check`, `assemble`, `project`, `compute`, `extract`.
+
+| Core `op` | Maps to ops family | Notes |
+|-----------|-------------------|-------|
+| `upsert` | upsert-request / upsert-response | Baseline |
+| `promote` | promote-* | Baseline |
+| `relate` | relate-* | Baseline |
+| `check` | check-* | Baseline |
+| `assemble` | assemble-* | Baseline |
+| `project` | project-* | Optional; meaningful when remote declares `l2-computable` |
+| `compute` | compute-* | Optional; same |
+| `extract` | extract-request / extract-response | Optional; meaningful when remote declares `ke-extraction` |
+
+`extract` is a **whole-operation** core op: `payload` carries the existing extraction request envelope itself and the success `payload` carries the existing extraction response envelope (`{ candidates, run, extensions? }`) — no `{ request }` / `{ result }` wrapper. The serving host performs the extraction orchestration, including source loading through its own in-process loader port, so the loaded input value is host-local and is never a request or response field. Its requester-side surface is the `extract` method on the remote adapter ([`spoke-remote-adapter.md`](../adapters/spoke-remote-adapter.md) D4).
+
+Reserved product prefixes are open strings documented in specs only — the connect schema `description` on `ConnectInvokeRequest.op` lists the eight core values and stays closed to product prefixes. `port.*` is the reserved product prefix for proxied `BaselinePorts` method calls — the baseline six families plus the optional `project` / `compute` / `listForkTimelineEvents` methods ([`spoke-remote-adapter.md`](../adapters/spoke-remote-adapter.md)); `tools.<ns>.<tool_id>` is the reserved product prefix for self-describing tool invokes declared in `HostCapabilityManifest.tools[]` (see [`spoke-data-model.md`](../protocol/spoke-data-model.md) §HostCapabilityManifest and §[Op dispatch gate](#op-dispatch-gate)). `memory.*` is the reserved product prefix for the optional `spoke-memory` family — one op per typed `MemoryPort` method, 33 ops across three capability flags ([`spoke-memory.md`](../memory/spoke-memory.md) §7).
+
+Unknown `op` values are valid on the wire; receivers return `ErrorEnvelope` with an appropriate `code` (e.g. `op_unsupported`) when they cannot handle them. Connect does not close the vocabulary. The core vocabulary above MUST stay in sync with the schema `description` fields under `schemas/connect/` and the corresponding ops schema text under `schemas/ops/`.
+
+### Op dispatch gate
+
+Before executing or forwarding a `ConnectInvokeRequest`, a host that performs op dispatch MUST ensure the capability required by `op` is present in the session’s `negotiated_capabilities`. If the required capability is absent, the host MUST NOT run the op handler and MUST answer with a `ConnectInvokeResponse` error branch (`ErrorEnvelope`, e.g. code `op_unsupported` or `capability_missing`) — no side effects.
+
+Required capabilities (core table):
+
+| `op` | Required capability |
+|------|---------------------|
+| `upsert`, `promote`, `relate`, `check`, `assemble` | `spoke-baseline` (or a deployment-documented synonym that both peers list and intersect into `negotiated_capabilities`) |
+| `project`, `compute` | `l2-computable` |
+| `extract` | `ke-extraction` |
+| `memory.*` (reserved product prefix; 33 ops) | `spoke-memory` for the 25 core ops; `spoke-memory-reflection` for `memory.reflections.state` / `.list` / `.generate`; `spoke-memory-transfer` for `memory.exports.*` / `memory.imports.*` |
+| `tools.<ns>.<tool_id>` (reserved product prefix) | the op string itself |
+
+`tools.*` is a **core gate rule**: `tools.<ns>.<tool_id>` ops are self-describing, so the required capability is the op string itself — no registry, no umbrella flag. This is the core-table counterpart of `port.*` being product-map territory: a `tools.*` op never consults a product capability map. A tool id enters `negotiated_capabilities` only when both hellos list that exact string (the agreed-subset rule of §[Session-core state machine](#session-core-state-machine)); the gate then evaluates that exact string as for every op.
+
+**`memory.*` family rule (`MEM-R019`, `MEM-R020`).** The 33 memory ops carry core-table rows, split by the family's three flags (§4.1 and §7 of [`spoke-memory.md`](../memory/spoke-memory.md)): 25 core ops require `spoke-memory`, the 3 `memory.reflections.*` ops require `spoke-memory-reflection`, and the 5 `memory.exports.*` / `memory.imports.*` ops require `spoke-memory-transfer`. A host declaring a sub-flag MUST also declare `spoke-memory`; a host declaring only `spoke-memory` denies the sub-flag ops with `capability_missing` before any handler runs, with zero side effects. **No fallback exists:** when `spoke-memory` is not negotiated, memory semantics have no substitute on the wire — a peer MUST NOT emulate them through `KnowledgeEntry`, `modules.*`, `Scope.viewpoint`, or `port.*` ops (`MEM-R019`), and the memory grant model never consults `ke-ownership` / `Scope.viewpoint` semantics (`MEM-R020`): memory ops carry no `Scope` and the `ke-ownership` conjunct below never applies to them.
+
+**Conditional capability requirement — declared Scope viewpoint (`ke-ownership`).** The Scope-bearing remote ops — `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, `port.fork.list_timeline_events` — carry one payload-dependent conjunct on top of their row capability: when the request payload declares `scope.viewpoint` as a non-empty string, `negotiated_capabilities` MUST also contain `ke-ownership`. The predicate reads that declared location only — no trimming, normalization, holder lookup, owner comparison, or recursive scan of arbitrary JSON — so `owner` / `disclosure` in a knowledge entry, a top-level `viewpoint`, `extensions.*`, tool `arguments.scope`, source anchors, and opaque metadata never trigger it. Identifiers are opaque: a whitespace-only viewpoint is non-empty and triggers the conjunct. `extract` and the `tools.*` family carry no Scope and never require `ke-ownership`.
+
+The conjunct is **additional, never a replacement**: a viewpoint-bearing Scope op still requires its own row capability (`spoke-baseline`, or `l5-fork` for the fork timeline op) plus `ke-ownership`. Because the requirement is payload-dependent it is evaluated at the remote/product dispatch boundary rather than in the core table: `required_capability(op)` keeps its op-only signature and no `ke-ownership` op exists. A host that cannot satisfy the conjunct answers the existing dispatch-deny branch (`op_unsupported`) before any host side effect — the same wire code as a missing row capability, with no new wire code introduced. A peer-selection layer that filters on cached advertised manifests applies the same predicate as a **hard capability filter**, never a soft preference; advertisement is not authorization, so the selected peer's responder still evaluates the conjunct against its negotiated set.
+
+A payload that declares the Scope location with a `viewpoint` of any other value type (JSON `null`, number, array, object, or `""`), or that omits / misdeclares the Scope for a Scope-bearing op, is malformed: the receiving host answers `INVALID_INPUT` before any host call — validation, not a capability verdict, and never a baseline success.
+
+**Conditional capability requirement — cognition selection/filter/projection (`spoke-cognition`).** A request whose payload carries a `Scope.cognition` selection, a Memory `cognition_filter`, or a cognition projection requirement adds one payload-dependent conjunct: `negotiated_capabilities` MUST also contain `spoke-cognition`. The conjunct is additional to the operation's row capability (`spoke-baseline`, or the applicable `spoke-memory` flag), never a replacement, and it is evaluated at the same remote dispatch boundary as the viewpoint conjunct. An unnegotiated cognition requirement answers the existing dispatch-deny branch (`op_unsupported` / `capability_missing`) with no handler side effect. Ordinary KnowledgeEntry, AssemblePacket or Memory payloads without the optional cognition members remain ordinary data and never trigger this requirement.
+
+Product-defined `op` values MUST document their required capability name(s). The gate is evaluated against **`negotiated_capabilities`**, not against the remote manifest alone and not against unsigned hello `extensions`.
+
+Sequence and correlation checks (§[Session-core state machine](#session-core-state-machine)) apply before or with this gate; a failed sequence check also produces no handler side effect.
+
+The gate applies **identically in both directions**: a reverse `ConnectInvokeRequest` — issued by the responder toward the initiator — is dispatched against the same `negotiated_capabilities` as a forward invoke. There is no separate reverse gate and no looser or stricter treatment of the responder's invokes.
+
+**Invoke serving order (canonical, both directions).** Serving an inbound `ConnectInvokeRequest` follows the same canonical order whether the invoke is forward or reverse:
+
+1. **Classify request-first**: an inbound envelope carrying `op` is a `ConnectInvokeRequest`; response-shape and correlation checks apply only after request classification (see [§Tools over connect](#tools-over-connect)).
+2. **Stray check (multiplexed transports)**: an envelope whose `session_id` is bound to a **different live session** is ignored — no response. An envelope whose `session_id` is not bound to any established session stays on this path and is rejected `auth_failed` at the envelope-auth verify step (step 4; §[Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2) — Session binding).
+3. **Sequence peek** (non-mutating): a `sequence` not equal to `next_expected_inbound` answers the error branch with `invalid_sequence`; the inbound counter is NOT advanced.
+4. **Envelope-auth verify**: verify per [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2); failure answers `auth_failed` and does NOT advance session state (auth-before-advance — that section's Verify rules).
+5. **Advance** the inbound counter.
+6. **Dispatch gate**: the required capability for `op` MUST be present in `negotiated_capabilities` (this table), together with the conditional `ke-ownership` conjunct when the declared Scope carries a viewpoint. The optional capability-token gate, when policy requires one, runs within this step (per [§Method — capability-token](#method--capability-token)).
+7. **Handler or deny**, then a signed `ConnectInvokeResponse` echoing `session_id` / `sequence` / `request_id`.
+
+Steps 3–5 MUST be serialized per session — they read and mutate the same inbound counter, so a concurrent request must not observe a pre-advance counter; dispatch (steps 6–7) may interleave.
+
+**Invoke deny-code matrix (frozen — existing shipped wire codes; no new wire codes are introduced):**
+
+| Condition | Wire error code | Notes |
+|-----------|-----------------|-------|
+| Gate fail: `tools.*` op ∉ `negotiated_capabilities` | `op_unsupported` | No handler side effect |
+| Gate fail: `ke-ownership` required by a declared Scope viewpoint ∉ `negotiated_capabilities` | `op_unsupported` | No host side effect; a malformed Scope answers `INVALID_INPUT` instead |
+| Gate pass but no registered handler for that `capability_id` | `op_unsupported` | Fail-closed — a peer that serves no handlers still answers `op_unsupported` |
+| Unknown non-`tools` op (no core-table row, no product-defined mapping) | `op_unsupported` | Existing behavior |
+| Signature missing / invalid / session-unbound | `auth_failed` | Existing envelope-auth branch |
+| Sequence gap or duplicate | `invalid_sequence` | Shipped Rust node wire code; the TS demo responder uses `inbound_sequence_mismatch` as a product-side variant (not normative); no counter advance |
+
+All deny paths produce no handler side effect; the sequence and envelope-auth denies additionally leave session state unadvanced.
+
+### Ops-family registration
+
+A new or modified ops family that is intended to be remotely invokable over connect MUST:
+
+1. Define stable `op` string(s) and keep them listed in this spec’s §[`op` core vocabulary](#op-core-vocabulary) **or** in product documentation if outside core;
+2. Keep those strings in sync with the corresponding JSON Schema `description` fields under `schemas/ops/` (and connect schema text that cites them);
+3. Declare the capability name(s) hosts must advertise in `HostCapabilityManifest.capabilities` for the family to be negotiable;
+4. Rely on opaque `payload` wrapping of existing ops request/response envelopes — **MUST NOT** require connect envelope shape changes for new ops fields.
+
+**Tools family:** `tools.<ns>.<tool_id>` invokes are self-describing — each tool's ABI is declared by a `ToolDescriptor` in `HostCapabilityManifest.tools[]` rather than ops schema files under `schemas/ops/`, and request/response payloads stay opaque JSON on the wire (no connect envelope change, item 4). The required capability is the op string itself (§[Op dispatch gate](#op-dispatch-gate)); each tool's `capability_id` MUST appear in the declaring manifest's `capabilities[]`. Field-level rules: [`spoke-data-model.md`](../protocol/spoke-data-model.md) §HostCapabilityManifest.
+
+**`extract` (core op):** the remote extraction op registers through items 1–4 — a core vocabulary row (§[`op` core vocabulary](#op-core-vocabulary)), the `ke-extraction` capability hosts advertise in `HostCapabilityManifest.capabilities` (both peers list the exact string for it to enter `negotiated_capabilities`), and an opaque `payload` carrying the existing extraction request envelope with the existing extraction response envelope as the success `payload`. No connect envelope field changes, and the loaded input value stays host-local.
+
+**`ke-ownership` (conditional conjunct, not an op):** the ownership capability is advertised in `HostCapabilityManifest.capabilities` like any other capability, but it maps to **no** `op` row. It is the payload-dependent conjunct of §[Op dispatch gate](#op-dispatch-gate) over the Scope-bearing ops: a request that declares a non-empty `scope.viewpoint` requires it **in addition to** the row capability. Registration therefore declares the capability name only — the predicate over the declared Scope stays at the dispatch boundary, not in the core table.
+
+**`spoke-memory` family (reserved product prefix):** registers through items 1–4 — 33 stable `memory.*` strings (§7 of [`spoke-memory.md`](../memory/spoke-memory.md)) kept in sync with this spec and the `description` fields under `schemas/ops/`; the three capability names `spoke-memory`, `spoke-memory-reflection`, `spoke-memory-transfer` advertised in `HostCapabilityManifest.capabilities` (both peers list the exact string for it to enter `negotiated_capabilities`); and opaque `payload` wrapping of the existing `memory-*` request/response envelopes. No connect envelope field changes. The serving host exposes the connect-owned `RemoteMemoryService` seam, which `MemoryPortService` implements over a provider `MemoryPort` (typed per-op delegation plus a peer→`Principal` admission context) — see [`spoke-remote-adapter.md`](../adapters/spoke-remote-adapter.md) D4/D14.
+
+Connect schemas and the six envelope shapes stay closed; extensibility is vocabulary + capabilities + opaque payload, not new connect fields.
+
+### Tools over connect
+
+Tools ride the existing connect machinery: closed envelopes, the open `op` vocabulary, opaque `payload`, and the same session-core ordering / envelope-auth / dispatch-gate rules as every other op — no connect envelope change and no ops schema files.
+
+**Discovery.** A host that exposes tools declares them in its `HostCapabilityManifest.tools[]` (descriptor contract: [`spoke-data-model.md`](../protocol/spoke-data-model.md) §HostCapabilityManifest). The manifest is carried inside the signed hello, so a peer observes the declaring host's tool descriptors only after hello verification (§[Signature canonicalization (hello)](#signature-canonicalization-hello)); unsigned hello `extensions` never carry trust (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2)). A tool id enters `negotiated_capabilities` only when both hellos list that exact string (§[Op dispatch gate](#op-dispatch-gate)).
+
+**Invocation.** A tool invoke is a `ConnectInvokeRequest` with `op = tools.<ns>.<tool_id>` and an opaque `payload` of shape `{ "arguments": <opaque JSON> }`. Either **Established** peer MAY issue it (§[Ordering semantics](#ordering-semantics)); the responder→initiator direction is a reverse invoke under the same session-core rules. The serving host runs the same dispatch gate (§[Op dispatch gate](#op-dispatch-gate)) and answers with the success branch carrying `payload = { "result": <opaque JSON> }`, or with the existing error branch per the deny-code matrix in §[Op dispatch gate](#op-dispatch-gate) — no new wire codes. The `{ arguments }` request body and the `{ result }` response body are typed in client/server libraries, not in ops schema files: the wire carries them as opaque JSON and the six connect envelope shapes stay closed.
+
+**Request / response classification.** An inbound envelope carrying `op` is a `ConnectInvokeRequest`; receivers MUST classify request shape before response shape. A reverse request carries the same correlation echo fields (`session_id`, `sequence`, `request_id`) as a response, so a receiver MUST NOT treat an `op`-bearing envelope as a response to a pending request — response correlation applies only after the request classification rejects it.
+
+### `method` core vocabulary
+
+Open string (documented, not enum). Schema `description` on `ConnectAuthChallenge.method`: core `noise-peerid`, `capability-token`; reserved name `did`.
+
+| `method` | Status |
+|----------|--------|
+| `noise-peerid` | **Normative** — PeerId allowlist + signed hello |
+| `capability-token` | **Normative** — signed capability token proof + validation rules (see [§Method — capability-token](#method--capability-token)) |
+| `did` | Reserved name only — not implemented |
+
+This vocabulary MUST stay in sync with the schema `description` fields.
+
+### Auth model
+
+Connect authentication is **method-extensible**: `ConnectAuthChallenge` / `ConnectAuthResponse` share one envelope shape (`method` open string, `proof` opaque). Protocol_version 1 defines two normative methods — `noise-peerid` (session identity at hello) and `capability-token` (step-up / delegated capability grant). Reserved name `did` stays unimplemented. Accept/reject for hello uses only the signed fields and the embedded `host` manifest; top-level hello `extensions` MUST NOT influence authorization.
+
+#### Method — noise-peerid
+
+The trust root is a deployment-configured `PeerId` allowlist. Authentication happens at hello: the sender signs the canonicalized signed object with the Ed25519 key bound to `peer_id` (see §[Identity binding](#identity-binding)); the receiver accepts only when (a) `peer_id` is on the allowlist and (b) the signature verifies against the public key that derives that `peer_id`.
+
+A handshake MAY complete with hello alone — no extra auth round-trip — when allowlist + signature verification succeed. The challenge/response pair is not required for `noise-peerid` sessions. In protocol v1, handshake rejection closes the connection or stream; there is no hello error envelope. `capability-token` is **step-up / mid-session** authorization on top of an established `noise-peerid` session; it does not replace the hello identity gate.
+
+#### Method — capability-token
+
+`capability-token` authenticates a **short-lived, capability-scoped grant** issued by a trusted issuer. The wire carries the token as the opaque `proof` on `ConnectAuthResponse` and optionally on `ConnectInvokeRequest.auth`. Token validation is **offline**: signature + trusted-issuer list + subject/audience/expiry + capability membership. There is no revocation list, no refresh token, and no `/token` issuance endpoint in this protocol version.
+
+##### Token claim set
+
+The **signed claims object** is canonicalized with **RFC 8785 JCS** → UTF-8 bytes, then signed with the **issuer** Ed25519 private key (same key class as hello: raw 64-byte Ed25519 signature → base64url without padding). Signature covers **only** JCS(`claims`) — not the wire wrapper.
+
+| Field | Req | Type | Semantics |
+|-------|-----|------|-----------|
+| `iss` | yes | string | Issuer `peer_id` (same string form as hello `peer_id`) |
+| `sub` | yes | string | Subject `peer_id` — who may present the token |
+| `aud` | yes | string | Audience — receiver `peer_id` (reference implementation); products MAY document a `host_id` synonym later |
+| `capabilities` | yes | string[] | Capability names granted to `sub` (e.g. `spoke-baseline`, `l2-computable`) |
+| `exp` | yes | number (JSON integer) | Expiry as **Unix time seconds** (UTC); reject if `now >= exp` |
+| `iat` | no | number | Issued-at Unix seconds; if present, reject if `now < iat` (reference implementations SHOULD allow ±60s clock skew on both sides) |
+| `jti` | no | string | Unique id; if present, MUST be non-empty. Not consulted by protocol_version 1 validation — reserved for a future revocation design |
+
+**No other claim keys** in protocol_version 1. Unknown claim keys in the signed object: **reject** (fail closed) so JCS bytes stay intentional.
+
+##### Wire `proof` wrapper
+
+`proof` is an **OpaqueJson object** (not a bare string):
+
+```json
+{
+  "v": 1,
+  "claims": {
+    "iss": "…",
+    "sub": "…",
+    "aud": "…",
+    "capabilities": ["…"],
+    "exp": 1790000000
+  },
+  "sig": "<base64url-no-pad Ed25519 over JCS(claims)>"
+}
+```
+
+| Field | Req | Semantics |
+|-------|-----|-----------|
+| `v` | yes | Token format version; protocol_version 1 uses **`1`** |
+| `claims` | yes | Signed claims object (table above) |
+| `sig` | yes | base64url (no padding) of the 64 raw Ed25519 signature bytes over JCS(`claims`) only |
+
+**Canonical encoding (normative):** the `sig` field MUST be the unique RFC 4648 canonical base64url (no padding) encoding of the 64 raw signature bytes. Receivers MUST reject any `sig` that does not round-trip through `decode → encode` equality (non-canonical encodings of the final character's slack bits are rejected). Both language implementations enforce this at verify time.
+
+Issuance MUST bind the issuer key to `claims.iss`: the Ed25519 public key used to sign MUST derive `claims.iss` per §[Identity binding](#identity-binding).
+
+##### Trust root and validation rules
+
+| Check | Requirement |
+|-------|-------------|
+| Trust root | Deployment-configured **`trusted_issuers`** list of issuer `peer_id` strings (parallel to the `noise-peerid` allowlist). **Empty list ⇒ method disabled**: challenges for `capability-token` MUST NOT be offered; proofs MUST be rejected. |
+| Signature | Recompute JCS over `claims`; verify `sig` with the public key that derives `claims.iss`. |
+| Issuer | After sig verify: `claims.iss` MUST be an exact-string member of `trusted_issuers`. |
+| Subject | `claims.sub` MUST equal the authenticated session peer’s `peer_id` (the peer that passed `noise-peerid` hello). Tokens are not transferable across peers. |
+| Audience | `claims.aud` MUST equal **this node’s** `peer_id` string. |
+| Expiry / iat | `exp` required; reject expired. Apply `iat` and clock-skew rules when `iat` is present. |
+| Malformed proof | Missing required wrapper/claim fields, wrong `v`, non-object `proof`, or unknown claim keys → reject. |
+
+##### Capability matching
+
+For an invoke, let `required = required_capability(op)` from the core table in §[Op dispatch gate](#op-dispatch-gate) (or product-documented `op` → capability mapping).
+
+The token authorizes the op iff **`required` ∈ `claims.capabilities`** (membership / subset-of-grant). Extra capabilities on the token are ignored when unused. Matching is **not** exact-list equality between `claims.capabilities` and `negotiated_capabilities`.
+
+The membership check covers the op's required capability (the host supplies either the core-table row or its product-configured mapping). The payload-dependent `ke-ownership` conjunct of §[Op dispatch gate](#op-dispatch-gate) is evaluated separately against `negotiated_capabilities` at the remote dispatch boundary — it is not part of `required_capability(op)`.
+
+The token does **not** replace `negotiated_capabilities`. Dispatch order when the method is in use:
+
+1. Sequence / correlation checks (§[Session-core state machine](#session-core-state-machine))
+2. **Optional capability-token gate** when policy requires a valid token (config or present `auth`)
+3. `dispatch_allowed(op, negotiated_capabilities)` (§[Op dispatch gate](#op-dispatch-gate))
+4. Handler
+
+Both the token grant and the negotiated set MUST allow the op when the token gate is active.
+
+##### Challenge / response and invoke `auth`
+
+| Item | Rule |
+|------|------|
+| Hello | Unchanged `noise-peerid`. capability-token is step-up, not a hello replacement. |
+| Config | Reference deployments expose `require_capability_token` (bool, default **`false`**) beside `trusted_issuers`. |
+| When server challenges | If `trusted_issuers` is non-empty **and** `require_capability_token == true`: after both hellos are accepted (session would become Established), the server sends `ConnectAuthChallenge` before treating the session as fully authorized for invokes. If `require_capability_token == false`: no automatic challenge; token is validated when the client attaches invoke `auth` (and when a product defines additional per-op policy). |
+| Challenge envelope | `method: "capability-token"`; `challenge_id` fresh unique string; `challenge` = opaque random nonce string (minLength ≥ 16). The server binds the nonce to `challenge_id` in a pending map (anti-replay for the challenge slot). Protocol_version 1 does **not** require the client to embed challenge bytes inside token claims. |
+| Response | `ConnectAuthResponse { challenge_id, method: "capability-token", proof: <wrapper above>, extensions }`. Server validates `proof` per the rules above; on success the session records capability-token authorization (`capability_token_ok`); on failure the session remains unauthorized for invokes when the require flag is set. |
+| Session grant | The challenge-validated grant is held for the **session lifetime**: invokes authorized by it are not expiry-re-checked per invoke. Products needing mid-session expiry enforcement implement their own re-challenge flow or attach a per-invoke `auth` proof (which is re-validated on every invoke). |
+| Invoke `auth` | Optional `ConnectInvokeRequest.auth` carries the **same** proof object. When present, the receiver validates it on **every** invoke (expiry still valid; same subject/audience/issuer rules). When `require_capability_token` is true, the session is not token-ok, and `auth` is absent → reject the invoke. |
+| Require flag false | When `require_capability_token` is false and no `auth` is attached, behavior matches `noise-peerid` alone (hello allowlist + signature). |
+
+##### Error mapping
+
+`ErrorEnvelope.code` remains an open string. No new error-envelope schema properties. Documented connect auth vocabulary:
+
+| Condition | `code` |
+|-----------|--------|
+| Missing or invalid token when required; signature / issuer / audience / subject / expiry / malformed proof failure; unknown `method` on an auth response | `auth_failed` |
+| Token valid but capability not granted for the requested `op` | `op_unsupported` (same path as dispatch-deny when the required capability is absent from the effective grant) |
+
+Implementations MAY distinguish failure reasons in `message` and optional `details`; the machine code stays as above.
+
+##### Non-goals (capability-token)
+
+- Revocation lists / CRL / online status checks
+- Refresh tokens or sliding expiry protocols
+- A protocol-level token issuance HTTP (or RPC) endpoint
+- Using `jti` for uniqueness enforcement in protocol_version 1 (field reserved only)
+- Replacing `noise-peerid` hello identity with a token-only handshake
+
+### Envelope authentication (protocol_version 2)
+
+> **Status:** Normative — protocol_version 2 authenticates post-hello trust-affecting envelopes. Schemas for protocol_version 2 carry the authenticator fields; enforcement lives in the connect session-core and the RemoteAdapter / connect-client layers.
+
+Protocol_version **2** authenticates every post-hello trust-affecting envelope (`ConnectSession`, `ConnectInvokeRequest`, `ConnectInvokeResponse`) at the protocol layer using per-envelope JCS + Ed25519 signed-field sets — the same construction as `spoke-connect-hello-jcs-v1`, extended to three new algorithm ids. Receivers verify envelope authenticity at the protocol layer, independent of transport-level TLS or Noise.
+
+#### Auth model — A locked (per-envelope JCS + Ed25519)
+
+The auth model is **A — per-envelope JCS + Ed25519 signed-field sets** (locked; B — session-derived MAC via handshake KEX — rejected). Rationale and the full field sets follow in this section.
+
+#### Algorithm ids
+
+| Algorithm id | Envelope |
+|--------------|----------|
+| `spoke-connect-hello-jcs-v1` | `ConnectHello` (unchanged) |
+| `spoke-connect-session-jcs-v1` | `ConnectSession` |
+| `spoke-connect-invoke-request-jcs-v1` | `ConnectInvokeRequest` |
+| `spoke-connect-invoke-response-jcs-v1` | `ConnectInvokeResponse` |
+
+All four share the construction: RFC 8785 JCS → UTF-8 bytes → Ed25519 sign/verify → base64url (no padding). The signing key is the sender's peer-identity Ed25519 private key (same key as hello). Verification uses the public key that derives the authenticated hello `peer_id`.
+
+#### Authenticated field sets
+
+Each signed object is a strict subset of the wire envelope (exact keys, no others). `extensions` and `signature` are excluded. Receivers MUST NOT use envelope `extensions` for authorization or trust decisions — `extensions` are not covered by the signature and are forgeable at the wire level under the transport-independent v2 threat model (same rule as hello `extensions`, see [§Signature canonicalization (hello)](#signature-canonicalization-hello)).
+
+- **`ConnectSession`**: `{session_id, initiator_peer_id, responder_peer_id, opened_at, negotiated_capabilities, initial_sequence}`
+- **`ConnectInvokeRequest`**: `{session_id, sequence, request_id, op, payload}` and additionally `auth` **when present** on the wire (trust-affecting; MUST be bound).
+- **`ConnectInvokeResponse`** success branch: `{session_id, sequence, request_id, payload}`
+- **`ConnectInvokeResponse`** error branch: `{session_id, sequence, request_id, error}`
+
+The two response branches are signed over their respective field sets (oneOf); they MUST NOT be merged into one signed object with optional `payload`/`error`.
+
+#### Canonicalization (normative)
+
+1. Build the signed object per the field sets above — exact keys, no others (`extensions` and `signature` excluded).
+2. Canonicalize with **RFC 8785 JCS** → UTF-8 bytes. Implementations MUST NOT invent field-order rules; JCS is the sole canonicalizer.
+3. `Ed25519.sign(peer_identity_private_key, jcs_bytes)` → 64 raw bytes.
+4. Encode as **base64url without padding** → wire `signature`, **required** on every v2 post-hello envelope.
+
+**Canonical encoding (parity-binding):** the `signature` field MUST be the unique RFC 4648 canonical base64url (no padding) encoding of the 64 raw signature bytes. Receivers MUST reject any `signature` that does not round-trip through `decode → encode` equality (non-canonical encodings of the final character's slack bits are rejected) — the same rule as the `capability-token` `sig` field ([§Method — capability-token](#method--capability-token)) and the hello `signature`. TS and Rust enforce this identically at verify time.
+
+#### Session binding
+
+Signatures bind to the session via the signed `session_id` and the session-core binding rules (already required: `initiator_peer_id` / `responder_peer_id` MUST equal the authenticated hello `peer_id`s). The verify public key is the peer's hello Ed25519 public key. No new key exchange, no new MAC, no new KDF. A `session_id` not bound to an established session ⇒ reject `auth_failed`. Cross-session replay fails closed: an envelope captured from session S1 and replayed into session S2 is rejected because the S2 receiver verifies against the S2 peer's hello public key (which signed S2, not S1) and the `session_id` does not match the bound session.
+
+Signing and verification are **direction-symmetric**: each side signs its outbound envelopes with its own hello identity key and verifies inbound envelopes with the authenticated hello public key of the peer that sent them. A reverse invoke (responder → initiator) therefore uses the same request/response signature construction as a forward invoke — there are no direction-specific signing or verification rules.
+
+#### Version strategy — `protocol_version` 1 → 2 (fail-closed, no compat shim)
+
+`protocol_version` is bumped from 1 to 2. The `signature` field is **required** on v2 `ConnectSession`, `ConnectInvokeRequest`, and `ConnectInvokeResponse` (both oneOf branches). A capability flag is not sufficient: mixed-version peers MUST fail closed. This is a pre-1.0 breaking wire change — a SemVer bump on the protocol, with no compat shim, no silent downgrade path, and no dual-write period.
+
+| Direction | Behavior |
+|-----------|----------|
+| v2 → v1 | The v2 peer observes `protocol_version: 1` in the verified responder/initiator hello and MUST refuse to establish — cannot trust unauthenticated session/invoke envelopes. Dial fails closed. |
+| v1 → v2 | Symmetric — the v2 responder refuses the v1 initiator. Dial fails closed. |
+| Both v2 | Both peers advertise `protocol_version: 2`; session establishes under v2 rules; all post-hello envelopes carry required `signature`. |
+| Both v1 | Legacy v1 interop only — v1-only peers are not modified. |
+
+The dial-binding `peer_nonce` rule (already fail-closed for mixed-version responder hellos per [§Nonce / replay](#nonce--replay-protection)) is preserved unchanged. An unknown `protocol_version` (> 2) MUST fail closed at the version gate — treated like mixed-version: refuse to establish. Version policy is the hello verification **step-1 gate**: both `verify_hello_ed25519` (Rust) and `verifyHelloEd25519` (TS) compare `protocol_version` to the core `PROTOCOL_VERSION` **before** signature verification, so a mixed- or unknown-version hello is rejected with the dedicated `protocol_version_mismatch` kind regardless of signature validity — you do not spend crypto on a wrong-version peer. Although `protocol_version` is inside the signed object, the version gate runs first; signature validity is never consulted for a version mismatch. The hello signed-field set (4-field initiator / 5-field responder) is unchanged — hello golden vectors and binding golden smokes stay byte-identical. `connect-hello`, `connect-auth-challenge`, and `connect-auth-response` schemas are unchanged; all connect schemas retain `additionalProperties: false`.
+
+#### Verify rules (fail-closed, no transport-trust fallback)
+
+For every v2 post-hello envelope, the receiver MUST: (1) presence-check `signature`; (2) canonical-encoding round-trip check; (3) build the signed object per the locked field set; (4) RFC 8785 JCS canonicalize; (5) `Ed25519.verify` with the peer's hello public key; (6) session-binding assert; (7) reject `auth_failed` on any failure. A transport that supplies an authenticated peer identity (Noise) does not relax any of these — protocol auth stands alone.
+
+Order relative to existing session-core checks: sequence/correlation checks run first **but MUST NOT mutate session state** (inbound sequence-counter advance, correlation bookkeeping) until envelope-auth verify passes — the sequence check validates wire position without consuming it; the inbound counter advances only after envelope-auth verification succeeds. Envelope-auth verify runs as part of inbound envelope acceptance, before the dispatch gate and handler. A failed envelope-auth verify produces no handler side effect and **no session-state mutation** — the peer's sequence position is unchanged, so a bogus-signature envelope cannot desync the session: under the transport-independent v2 threat model, a wire-level injector must not be able to advance the inbound counter.
+
+#### Error mapping
+
+`ErrorEnvelope.code` remains an open string. `auth_failed` is added to the documented connect auth vocabulary for all envelope-auth failures (missing signature, invalid signature, field-set drift, session-binding mismatch, mixed-version unauthenticated envelope). `SpokeResult` reject `INTERNAL_ERROR` with `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`}. Mixed-version at hello is a constructor error (`details.kind = protocol_version_mismatch`).
+
+#### FFI / binding exposure
+
+No new FFI APIs. Envelope-auth `authenticate*` / `verify*` helpers are module-internal (TS) / crate-private (Rust). Bindings continue to call the encapsulated RemoteAdapter / connect-client surfaces, which attach and verify authenticators internally. TS↔Rust core parity (canonical bytes + algorithm ids + verify outcomes) is the gate; binding golden-parity smokes that cover hello stay green.
+
+#### Enforcement
+
+The TS RemoteAdapter (`./remote` subpath) and connect-client, and the Rust RemoteAdapter (`remote-adapter` cargo feature), enforce envelope-authentication (protocol_version 2 post-hello rules) on every post-hello envelope they emit or accept, while the hello exchange remains at the core `PROTOCOL_VERSION` until a dedicated hello bump:
+
+- **Emission:** every outbound `ConnectInvokeRequest` (RemoteAdapter, connect-client, node session path) and every inbound-answer `ConnectInvokeResponse` (node event loop) attaches the required `signature` via the core `authenticate_invoke_request` / `authenticate_invoke_response` helpers; host-side test doubles (`loopback-host.ts`, Rust loopback host) sign their `ConnectSession` snapshots and responses with the same helpers.
+- **Receipt:** the RemoteAdapter (TS + Rust) and the TS connect-client verify the `ConnectSession` snapshot at establish (`verify_session_auth`, peer-id binding) and every correlated `ConnectInvokeResponse` (`verify_invoke_response_auth`, after the correlation echo check); hosts (node event loop, loopback doubles) verify every inbound `ConnectInvokeRequest` before dispatch (`verify_invoke_request_auth`, auth-before-advance). Rejections carry the locked `details.kind` and leave session state untouched.
+
+Enforcement placement and error mapping: [spoke-remote-adapter.md](../adapters/spoke-remote-adapter.md) D10 + D7.
+
+#### Out of scope (envelope auth, protocol_version 2)
+
+- Authenticating `ConnectAuthChallenge` / `ConnectAuthResponse` (deferred — method-specific proofs are already signature-bound).
+- Session-derived MAC / KEX (Option B — rejected).
+- Compat shim or dual-write period for v1 → v2 (rejected — fail-closed mixed-version).
+- Per-op idempotency keys (relevant to multi-peer failover).
+
+### Discovery boundary
+
+- Connect **wire** has no mDNS/DHT/multiaddr fields.
+- Normative discovery path: **explicit peering** (configured addresses / out-of-band dial).
+
+### Transport framing
+
+Minimal framing contract for any transport that carries connect envelopes. Delimiter choice, retry, timeout, payload size limits, and flow control remain transport-adapter-owned (see §[Hard boundaries](#hard-boundaries)).
+
+| Rule | Normative requirement |
+|------|------------------------|
+| Unit of message | **One JSON document** = one connect envelope (`ConnectHello`, invoke request/response, auth challenge/response, or optional `ConnectSession` snapshot). Protocol_version 1 does not batch multiple envelopes in one framing unit. |
+| Stream assumption | Transport MUST present an **ordered, reliable, bidirectional byte stream**, or an equivalent request-response channel that preserves per-direction order for that session’s invokes. TCP, Yamux streams, WebSocket (one message frame per envelope), and libp2p request-response (one payload per RPC) are conforming when they meet this. |
+| Delimiting | How JSON documents are delimited on the byte stream (length-prefix, newline, WebSocket one-message-per-envelope, one-payload-per-RPC) is **transport-adapter-owned**. The wire contract is the JSON document shape, not the delimiter. |
+| Correlation | Application correlation uses existing fields only: response MUST echo `request_id` and `sequence` (and `session_id` per invoke tables). Framing adds no parallel correlation header. |
+| Channel layout | The reference stack uses distinct protocol names for hello vs invoke; other stacks MAY multiplex on one stream when envelope types remain distinguishable by JSON shape. |
+
+### Reference stack
+
+The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenticated transport, **yamux** for stream multiplexing, **request-response** for invoke, **identify** for peer metadata. Identity, session rules, and framing follow §[Identity binding](#identity-binding), §[Session-core state machine](#session-core-state-machine), and §[Transport framing](#transport-framing) — the same rules Path A (language-native) stacks implement in other languages. The crate `crates/spoke-connect` also exports the Path B uniffi binding surface; the libp2p stack is a transport demonstration, not a protocol surface. Kademlia / DHT discovery is not part of this protocol version.
+
+### Hard boundaries
+
+| Excluded concern | Where it lives |
+|------------------|----------------|
+| Daemon / shared runtime | Protocol repo is wire + spec only; runtimes are product-owned (the published reference crate `crates/spoke-connect` demonstrates transports and the binding surface, not a product runtime) |
+| Ranking / retrieval / routing scores | Product-local |
+| DHT / NAT traversal (Kademlia, Gossipsub, circuit relay) | Not in this protocol version; wire carries no multiaddr/DHT fields |
+| Op semantics (upsert/check/assemble fields) | Ops wire (`schemas/ops/`) — invoke `payload` is opaque |
+| Session / nonce / dispatch persistence | Adapter-owned — wire defines envelope shapes and ordering rules, not storage |
+| Invoke timeout / retry / duplicate detection | Adapter-owned; `request_id` is the correlation handle for retries; protocol v1 defines no retry semantics |
+| Payload size / flow control | Wire imposes no payload size limit; size bounding and flow control are transport-adapter-owned |
+| Framing delimiter / multiaddr / HTTP status codes | Transport-adapter-owned (see §[Transport framing](#transport-framing)) |
+
+**Design rules (hard):**
+
+1. **Reuse, don't redefine** — hello embeds `HostCapabilityManifest` by `$ref`; invoke failure reuses `error-envelope`; payload uses `OpaqueJson`; identity binding is the libp2p Ed25519 PeerId formula in §[Identity binding](#identity-binding).
+2. **Opaque payload wrapping** — invoke envelopes wrap existing ops envelopes as opaque JSON; connect does NOT re-specify upsert/check/assemble fields.
+3. **Closed envelopes, open vocabulary** — `additionalProperties: false`; `op`, `method`, capability names stay open strings with documented core lists.
+4. **`extensions` (ExtensionMap) required** on every connect envelope; hello-level `extensions` are unsigned.
+5. **No engine fields** — no ranking, retrieval, routing scores, token budgets, multiaddrs, or DHT keys on connect wire.
+6. **Dispatch gate** — op handlers run only when the required capability is in `negotiated_capabilities` (see §[Op dispatch gate](#op-dispatch-gate)).
+
+### Conformance (connect spec)
+
+- [ ] Six connect envelopes committed under `schemas/connect/` — closed, required `extensions`
+- [ ] Hello embeds `HostCapabilityManifest` via `$ref`; invoke-response error path reuses `error-envelope`
+- [ ] Field tables in this spec match the schema files
+- [ ] Signature algorithm named (`spoke-connect-hello-jcs-v1`, RFC 8785 JCS) with the exact signed field set
+- [ ] Identity binding: protocol_version 1 Ed25519; `peer_id` = base58btc(identity multihash `0x00` of protobuf `PublicKey{Type=Ed25519, Data=32-byte pubkey}`)
+- [ ] Ordering rules complete: start at 0, per-direction counters, echo correlation, no wrap-around
+- [ ] Session-core state machine: Disconnected / Handshaking / Established / Closed with transition table
+- [ ] Transport framing: one JSON document per message; ordered reliable stream; correlation via existing fields only
+- [ ] Op dispatch gate MUST + core-op → capability mapping table
+- [ ] Ops-family registration contract (capability + `op` vocabulary + opaque payload)
+- [ ] Embedding model: three layers + Path A / Path B
+- [ ] `spoke-connect` optional flag registered in `spoke-protocol-layers.md`; baseline unchanged
+- [ ] Discovery boundary: explicit peering is the normative discovery path
+- [ ] No transport-specific fields (multiaddr, DHT keys, HTTP/gRPC mapping) in connect schemas
+- [ ] Envelope authentication (protocol_version 2): `signature` required on `ConnectSession`, `ConnectInvokeRequest`, `ConnectInvokeResponse` (both oneOf branches); `connect-hello` / `connect-auth-*` unchanged (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2))
+- [ ] Envelope-auth verify is fail-closed: missing / invalid / non-canonical `signature`, field-set drift, and session-binding mismatch reject `auth_failed`; no transport-trust fallback on protocol_version 2
+- [ ] Version strategy: `protocol_version` 1 → 2 with fail-closed mixed-version policy — no compat shim, no silent downgrade, no dual-write period
+
+### Non-goals (connect)
+
+- Runtime / networking code (the published reference crate `crates/spoke-connect` ships its libp2p transport and uniffi binding surface alongside the session core; runtime placement stays product-owned)
+- `did` auth method (reserved `method` name only)
+- Capability-token revocation lists, refresh tokens, and protocol-level token issuance endpoints (offline validation only — see [§Method — capability-token](#method--capability-token))
+- Kademlia / DHT discovery, Gossipsub, circuit relay / NAT traversal on the wire
+- mDNS as a wire concept or default discovery mechanism
+- TypeScript connectivity SDK or binding decisions
+- Registry publish outside the `release.yml` stable-tag gate (all connect surfaces ship lockstep via the top-level release workflow — see [`connect-publish-strategy.md`](./connect-publish-strategy.md))
+- Changing baseline capability requirements or existing ops schemas
+- Re-defining `HostCapabilityManifest` fields (embed by `$ref` only)
+- Connect envelope shape changes for new ops families (registration uses vocabulary + capabilities + opaque payload)
+
+### See also
+
+| Doc | Topic |
+|-----|-------|
+| [`spoke-protocol.md`](../protocol/spoke-protocol.md) | Umbrella framing and schema inventory |
+| [`spoke-protocol-layers.md`](../protocol/spoke-protocol-layers.md) | L0–L8, capability levels, Optional flags (`spoke-connect`) |
+| [`spoke-data-model.md`](../protocol/spoke-data-model.md) | `HostCapabilityManifest` field tables (embedded by hello) |
+| [`spoke-ops.md`](../protocol/spoke-ops.md) | Ops wire + error envelope (wrapped as opaque invoke payloads) |
+| [`spoke-operations.md`](../protocol/spoke-operations.md) | Lifecycle helpers; adapter ports; `HostManifestPort` |
+| [`spoke-memory.md`](../memory/spoke-memory.md) | `spoke-memory` family — 33 `memory.*` ops riding these envelopes, capability split, `MEM-R019`/`MEM-R020` fallback prohibition |
+| [`spoke-cognition-consumer-contract.md`](../cognition/spoke-cognition-consumer-contract.md) | `spoke-cognition` negotiation/rejection and public connect exports |
+| [`.agents/specs/connect/connect-publish-strategy.md`](./connect-publish-strategy.md) | Publish channels, staging, registry auth, binding disposition |
+| [`.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md`](../../adr/implemented/architecture/2026-08-03-connect-binding-channels.md) | Binding packaging contract per language (Path B) |
+| [`schemas/README.md`](../../../schemas/README.md) | Connect schema files under `schemas/connect/` |
+| [`crates/spoke-connect/README.md`](../../../crates/spoke-connect/README.md) | Rust reference (libp2p transport + Path B uniffi binding surface) |
+| [`CONCEPTS.md`](../../../CONCEPTS.md) | Connect envelope family / Session (connect) / peer_id vocabulary |
+| [`STRATEGY.md`](../../../STRATEGY.md) | Protocol-not-runtime positioning |
+
+
+## Invariants
+
+- Six envelopes only, all `type: object` with `additionalProperties: false` and required `extensions`; hello embeds `HostCapabilityManifest` by `$ref` and failure reuses `ErrorEnvelope` — connect never forks or extends the data or ops schemas.
+- Receivers authorize on `peer_id` plus a verified signature. `host_id` stays an advisory label, and top-level hello `extensions` are unsigned and MUST NOT influence authorization or trust.
+- Wire `peer_id` is base58btc of the identity multihash (`0x00`) over the protobuf `PublicKey` bytes — no multibase prefix, no CIDv1, never sha2-256 over the raw 32-byte key.
+- The hello signature is RFC 8785 JCS + Ed25519 over a role-aware field set: 4 fields for the initiator, 5 for the responder. A responder hello MUST carry `peer_nonce` equal to the initiator's nonce; an initiator rejects a responder hello without it (fail-closed dial binding).
+- A `(peer_id, nonce)` pair is accepted at most once per process, and the nonce of a rejected hello MUST NOT be recorded (retry-safe).
+- Outbound sequence counters are per session and per direction, start at `initial_sequence = 0`, and MUST NOT wrap — the session closes at 2⁵³−1.
+- No op handler runs unless the op's required capability is in `negotiated_capabilities`; every deny path answers the existing wire code and leaves no handler side effect. Sequence and envelope-auth denies leave session state unadvanced; capability denials occur after the inbound counter advances.
+- protocol_version 2 requires `signature` on `ConnectSession`, `ConnectInvokeRequest` and both `ConnectInvokeResponse` branches; mixed-version or unknown `protocol_version` fails closed with no compat shim and no silent downgrade.
+
+## Where it lives
+
+- `schemas/connect/` — `connect-hello.schema.json`, `connect-session.schema.json`, `connect-invoke-request.schema.json`, `connect-invoke-response.schema.json`, `connect-auth-challenge.schema.json`, `connect-auth-response.schema.json` (wire authority).
+- `schemas/common/` — `common.schema.json` (`ExtensionMap`, `OpaqueJson`, `Timestamp`, `Scope`) and `error-envelope.schema.json` (`ErrorEnvelope`, wrapped by the invoke failure branch).
+- `schemas/data/host-capability-manifest.schema.json` — `HostCapabilityManifest`, embedded by hello by `$ref` (field tables in `.agents/specs/protocol/spoke-data-model.md`).
+- `crates/spoke-connect/` — Rust session-core reference and Path B binding source (`uniffi` 0.32 cdylib, `ffi` and `remote-adapter` features, `src/node.rs` libp2p stack).
+- `packages/spoke-connect-ts/` — `@42ch/spoke-connect` language-native client: `src/identity.ts`, `src/core/`, `src/noise/`, `./remote` and `./noise` subpaths.
+- `crates/spoke-connect/bindings/` — Path B binding packages (`csharp`, `kotlin`, `swift`, `go`, `python`, `cpp`).
+- `crates/spoke-connect/tests/fixtures/golden-hello.json` and `packages/spoke-connect-ts` fixtures — golden `peer_id`, hello signature and protocol-version vectors.
+- `schemas/README.md` — schema inventory; `docs/` — integrator-facing connect pages.
+
+## Change obligations
+
+- Envelope field added, renamed, retyped or made required → update the matching field table in §Current state and the schema under `schemas/connect/` in the same PR.
+- New or renamed core `op` or `method` value → update §`op` core vocabulary / §`method` core vocabulary and the schema `description` fields in `schemas/connect/` together; unknown values stay accepted on the wire.
+- Capability name used by the dispatch gate changes → update the required-capability table and the deny-code matrix in §Op dispatch gate in the same PR.
+- A new ops family becomes remotely invokable → register through §Ops-family registration (stable op strings, advertised capability names, opaque payload) and keep the strings in sync with the `schemas/ops/` descriptions; never add connect envelope fields.
+- Any `protocol_version` bump, envelope-auth algorithm id or signed-field-set change → update §Envelope authentication, §Signature canonicalization, §Nonce / replay protection and the version-strategy table together, and keep mixed-version behavior fail-closed.
+- A session-core rule changes (ordering, nonce store, state machine, dispatch gate ordering) → update §Ordering semantics / §Session-core state machine / §Op dispatch gate and land the matching Rust plus TypeScript parity tests against the shared golden vectors.
+- A transport framing or identity-binding rule changes → update §Transport framing / §Identity binding and the corresponding `crates/spoke-connect` and `packages/spoke-connect-ts` code paths together.

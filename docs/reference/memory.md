@@ -128,8 +128,8 @@ const port: MemoryPort = {
 
 Wire-level detail lives in the spec corpus (SSOT); this page links to it rather than re-stating it:
 
-- [Memory family spec](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md) — capability flags, invariants `MEM-R001`–`MEM-R027`, data-model field tables, per-op contracts, errors and retry classes, wire mapping, ProfileDocument substance.
-- [Memory capability ADR](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory-capability-adr.md) — optional-family decision, single-authority model, receipt async model, engine/provider split.
+- [Memory family spec](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/memory/spoke-memory.md) — capability flags, invariants `MEM-R001`–`MEM-R027`, data-model field tables, per-op contracts, errors and retry classes, wire mapping, ProfileDocument substance.
+- [Memory capability ADR](https://github.com/42ch-dev/spoke/blob/main/.agents/adr/implemented/feature/2026-10-29-spoke-memory-family.md) — optional-family decision, single-authority model, receipt async model, engine/provider split.
 - [Memory data schemas](https://github.com/42ch-dev/spoke/tree/main/schemas/data) and [memory op schemas](https://github.com/42ch-dev/spoke/tree/main/schemas/ops) — the committed wire truth.
 - [Connect reference](/reference/connect) — the envelopes that carry `memory.*` payloads.
 

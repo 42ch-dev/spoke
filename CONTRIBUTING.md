@@ -2,7 +2,7 @@
 
 Maintainer and local-development guide. Integrators consuming published packages should start at [`README.md`](README.md) / [`README_CN.md`](README_CN.md).
 
-Agent and harness invariants live in [`AGENTS.md`](AGENTS.md). Normative release policy: [`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md).
+Agent and harness invariants live in [`AGENTS.md`](AGENTS.md). Normative release policy: [`.agents/specs/protocol/spoke-version-release.md`](.agents/specs/protocol/spoke-version-release.md).
 
 ## Prerequisites
 
@@ -109,7 +109,7 @@ The integrator-facing VitePress site lives in `docs/` (config: `docs/.vitepress/
 | `pnpm docs:build` | Static build to `docs/.vitepress/dist` (the CI gate) |
 | `pnpm docs:preview` | Serve the built site locally |
 
-Pages summarize each topic and link the normative body in `.mstar/specs/` — the specs remain the single source of truth for normative detail. The build gate runs on PRs and the Pages deploy runs on `main` via [`.github/workflows/docs.yml`](.github/workflows/docs.yml); the Pages source must be **GitHub Actions** (repo Settings → Pages → Source).
+Pages summarize each topic and link the normative body in `.agents/specs/` — the specs remain the single source of truth for normative detail. The build gate runs on PRs and the Pages deploy runs on `main` via [`.github/workflows/docs.yml`](.github/workflows/docs.yml); the Pages source must be **GitHub Actions** (repo Settings → Pages → Source).
 
 ## Refreshing the Swift xcframework
 
@@ -165,5 +165,6 @@ Re-running Release at an already-published tag is safe for **PyPI** and **Maven*
 | [`README.md`](README.md) | Package consumers |
 | [`CONCEPTS.md`](CONCEPTS.md) | Protocol vocabulary |
 | [`STRATEGY.md`](STRATEGY.md) | Product direction |
-| [`.mstar/specs/`](.mstar/specs/) | Normative protocol and release specs |
+| [`.agents/specs/`](.agents/specs) | Normative protocol and release specs |
+| [`.agents/adr/`](.agents/adr) | Architecture decision records (one decision, alternatives and cost each) |
 | [`AGENTS.md`](AGENTS.md) | Agent / harness boundaries |

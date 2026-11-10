@@ -6,7 +6,7 @@
 //! converts libp2p identity types to raw key material and maps core errors to
 //! transport errors.
 //!
-//! Normative rules (`.mstar/specs/spoke-connect.md`):
+//! Normative rules (`.agents/specs/connect/spoke-connect.md`):
 //! - Signed object = exactly `{protocol_version, peer_id, nonce, host}` for
 //!   the **initiator** hello (4 fields), and exactly
 //!   `{protocol_version, peer_id, nonce, host, peer_nonce}` for the

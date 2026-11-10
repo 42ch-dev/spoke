@@ -26,11 +26,11 @@ Checker **output** — consistency, style, structure, or other analysis results.
 
 ### Rule
 
-Declarative constraint **input** to `check` (L6). First-class wire object — `schemas/data/rule.schema.json` + field tables in [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md). Distinct from Finding (checker output) and from KnowledgeEntry `entry_type` strings used as ontology labels.
+Declarative constraint **input** to `check` (L6). First-class wire object — `schemas/data/rule.schema.json` + field tables in [`spoke-data-model.md`](.agents/specs/protocol/spoke-data-model.md). Distinct from Finding (checker output) and from KnowledgeEntry `entry_type` strings used as ontology labels.
 
 ### TimelineEvent
 
-First-class **when-axis** temporal object (L5) — `schemas/data/timeline-event.schema.json` + field tables in [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md). Optional `timeline_scale` tags the L5 projection tier (`brief`, `narrative`, `moment`). **Distinct from** KnowledgeEntry `entry_type: "event"` (ontology label on a KB entry body).
+First-class **when-axis** temporal object (L5) — `schemas/data/timeline-event.schema.json` + field tables in [`spoke-data-model.md`](.agents/specs/protocol/spoke-data-model.md). Optional `timeline_scale` tags the L5 projection tier (`brief`, `narrative`, `moment`). **Distinct from** KnowledgeEntry `entry_type: "event"` (ontology label on a KB entry body).
 
 ### TimelineScale
 
@@ -42,27 +42,27 @@ Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-ne
 
 ### Domain Profile
 
-How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md). Tracked profile handbooks: narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md); lore-activation (`modules.activation`) — [`domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md); mental-state (`modules.cognition` / `modules.mental` / `modules.observation`) — [`domain-profile-mental-state.md`](.mstar/specs/domain-profile-mental-state.md).
+How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.agents/specs/protocol/spoke-protocol-layers.md). Tracked profile handbooks: narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](.agents/specs/domain-profiles/domain-profile-narrative-structure.md); lore-activation (`modules.activation`) — [`domain-profile-lore-activation.md`](.agents/specs/domain-profiles/domain-profile-lore-activation.md); mental-state (`modules.cognition` / `modules.mental` / `modules.observation`) — [`domain-profile-mental-state.md`](.agents/specs/domain-profiles/domain-profile-mental-state.md).
 
 ### spoke-baseline
 
-Declared capability level for spoke-baseline SPOKE compliance: L0–L8 semantics per [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Baseline — excludes required Fork (`l5-fork`) and L2 computable state (`l2-computable`). Baseline adapters implement six port families including `HostManifestPort` per [`spoke-operations.md`](.mstar/specs/spoke-operations.md).
+Declared capability level for spoke-baseline SPOKE compliance: L0–L8 semantics per [`spoke-protocol-layers.md`](.agents/specs/protocol/spoke-protocol-layers.md) §Baseline — excludes required Fork (`l5-fork`) and L2 computable state (`l2-computable`). Baseline adapters implement six port families including `HostManifestPort` per [`spoke-operations.md`](.agents/specs/protocol/spoke-operations.md).
 
 ### HostCapabilityManifest
 
-Wire object (`schemas/data/host-capability-manifest.schema.json`) advertising a host's `host_id`, `roles`, `capabilities`, and owned `extensions` namespaces. Distinct from KnowledgeEntry — host metadata MUST NOT be required inside `KnowledgeEntry.extensions.<ns>`. Field tables: [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §HostCapabilityManifest.
+Wire object (`schemas/data/host-capability-manifest.schema.json`) advertising a host's `host_id`, `roles`, `capabilities`, and owned `extensions` namespaces. Distinct from KnowledgeEntry — host metadata MUST NOT be required inside `KnowledgeEntry.extensions.<ns>`. Field tables: [`spoke-data-model.md`](.agents/specs/protocol/spoke-data-model.md) §HostCapabilityManifest.
 
 ### HostManifestPort
 
-Baseline-required adapter port: `getHostCapabilityManifest` / `listPeerHostCapabilityManifests` (Rust: `get_host_capability_manifest` / `list_peer_host_capability_manifests`). Peer list excludes self, dedupes by `host_id`, sorts ascending by `host_id`. See [`spoke-operations.md`](.mstar/specs/spoke-operations.md) §Host collaboration.
+Baseline-required adapter port: `getHostCapabilityManifest` / `listPeerHostCapabilityManifests` (Rust: `get_host_capability_manifest` / `list_peer_host_capability_manifests`). Peer list excludes self, dedupes by `host_id`, sorts ascending by `host_id`. See [`spoke-operations.md`](.agents/specs/protocol/spoke-operations.md) §Host collaboration.
 
 ### ToolDescriptor
 
-A wire descriptor (`schemas/data/tool-descriptor.schema.json`) declaring the ABI of one remote-invokable tool. A manifest that exposes tools carries its descriptors in `HostCapabilityManifest.tools[]`; each descriptor's `capability_id` — the `tools.<ns>.<tool_id>` string — also appears in the same manifest's `capabilities[]`, and the namespace derived from the capability id is a member of the manifest's `namespaces[]`. The descriptor pairs `op` with the same string as `capability_id`, carries a `description`, and declares `input` / `output` as JSON Schema draft-07 subschema objects, where `{}` declares an unconstrained ABI. `idempotent` is optional metadata. Field tables: [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §HostCapabilityManifest.
+A wire descriptor (`schemas/data/tool-descriptor.schema.json`) declaring the ABI of one remote-invokable tool. A manifest that exposes tools carries its descriptors in `HostCapabilityManifest.tools[]`; each descriptor's `capability_id` — the `tools.<ns>.<tool_id>` string — also appears in the same manifest's `capabilities[]`, and the namespace derived from the capability id is a member of the manifest's `namespaces[]`. The descriptor pairs `op` with the same string as `capability_id`, carries a `description`, and declares `input` / `output` as JSON Schema draft-07 subschema objects, where `{}` declares an unconstrained ABI. `idempotent` is optional metadata. Field tables: [`spoke-data-model.md`](.agents/specs/protocol/spoke-data-model.md) §HostCapabilityManifest.
 
 ### Tool capability id
 
-The `tools.<ns>.<tool_id>` string that names one tool and gates its dispatch. `ns` matches the manifest namespace pattern and is a member of the declaring manifest's `namespaces[]`; `tool_id` is an open-ended lowercase token (`^[a-z0-9][a-z0-9_-]*$`). The capability id is the `op` string for the tool and the required capability for dispatching the invoke; it enters `negotiated_capabilities` when both session hellos list that exact string. Grammar and gate: [`spoke-connect.md`](.mstar/specs/spoke-connect.md) §Op dispatch gate.
+The `tools.<ns>.<tool_id>` string that names one tool and gates its dispatch. `ns` matches the manifest namespace pattern and is a member of the declaring manifest's `namespaces[]`; `tool_id` is an open-ended lowercase token (`^[a-z0-9][a-z0-9_-]*$`). The capability id is the `op` string for the tool and the required capability for dispatching the invoke; it enters `negotiated_capabilities` when both session hellos list that exact string. Grammar and gate: [`spoke-connect.md`](.agents/specs/connect/spoke-connect.md) §Op dispatch gate.
 
 ### Host role
 
@@ -98,7 +98,7 @@ Optional capability flag for **world-history branch metadata** on `TimelineEvent
 
 ### Fork (world-history branch)
 
-Optional L5 branch identity on `TimelineEvent` under `l5-fork` via wire fields **`fork_id`** and optional **`parent_fork_id`** (`ForkId` in `common.schema.json`). Distinct from `timeline_scale` (projection tier), Domain Profile (ontology adapter), Session (`l2-computable`), and Finding (checker output). Product `extensions.<namespace>` fork hints are adapter folklore — not the normative Fork interchange. Field tables: [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §TimelineEvent / §Fork fields.
+Optional L5 branch identity on `TimelineEvent` under `l5-fork` via wire fields **`fork_id`** and optional **`parent_fork_id`** (`ForkId` in `common.schema.json`). Distinct from `timeline_scale` (projection tier), Domain Profile (ontology adapter), Session (`l2-computable`), and Finding (checker output). Product `extensions.<namespace>` fork hints are adapter folklore — not the normative Fork interchange. Field tables: [`spoke-data-model.md`](.agents/specs/protocol/spoke-data-model.md) §TimelineEvent / §Fork fields.
 
 ### spoke-cognition
 
@@ -106,7 +106,7 @@ Optional capability family (`spoke-cognition`, one flag, no subflags) carried by
 
 ### MindState
 
-First-class **L5 temporal record** under the optional `spoke-cognition` capability — a standalone wire object (`schemas/data/mind-state.schema.json`) on the when-axis, separate from `TimelineEvent`. Strictly **derivative**: it presents mental-state changes over time (`snapshot` via `MentalFieldMap`; `deltas` via `MindDelta[]`; optional `cognition` via a derivative `CognitionProjection`), while the holder KnowledgeEntry's `modules.cognition` / `modules.mental` remain the authority. **Distinct from** KnowledgeEntry ontology labels (`entry_type: "belief"`, profile `mind`) — the same dual-concern separation as TimelineEvent vs `entry_type: "event"` — and from `TimelineEvent` (what happened vs the state of a mind over time). Field tables: [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §MindState; dialect vocabulary: [`domain-profile-mental-state.md`](.mstar/specs/domain-profile-mental-state.md).
+First-class **L5 temporal record** under the optional `spoke-cognition` capability — a standalone wire object (`schemas/data/mind-state.schema.json`) on the when-axis, separate from `TimelineEvent`. Strictly **derivative**: it presents mental-state changes over time (`snapshot` via `MentalFieldMap`; `deltas` via `MindDelta[]`; optional `cognition` via a derivative `CognitionProjection`), while the holder KnowledgeEntry's `modules.cognition` / `modules.mental` remain the authority. **Distinct from** KnowledgeEntry ontology labels (`entry_type: "belief"`, profile `mind`) — the same dual-concern separation as TimelineEvent vs `entry_type: "event"` — and from `TimelineEvent` (what happened vs the state of a mind over time). Field tables: [`spoke-data-model.md`](.agents/specs/protocol/spoke-data-model.md) §MindState; dialect vocabulary: [`domain-profile-mental-state.md`](.agents/specs/domain-profiles/domain-profile-mental-state.md).
 
 ### MentalFieldMap / MindDelta
 
@@ -114,33 +114,33 @@ Shared definitions (`common.schema.json#/definitions/MentalFieldMap`, `#/definit
 
 ### modules.cognition / modules.mental / modules.observation
 
-Cross-product **functional** dialects of the capability-flagged `modules` bag — triad authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md). **`modules.cognition`** lives on the holder KnowledgeEntry (bag `narrative-modules`, semantics `spoke-cognition`) and carries the closed `CognitionModule`: current holder-side Belief, epistemic and Perception records — each completed record with its mandated `q` and optional distinct metrics — plus narrated `world_facts[]`, whose records carry neither `q` nor metrics. **`modules.mental`** stays an open nine-field mental vocabulary (identity, beliefs, attention, goals, intentions, emotions, dispositions, norms, constraints); its `beliefs` member carries derivative summary, count or reference data. **`modules.observation`** lives on `TimelineEvent.modules` (bag `narrative-modules`, semantics `spoke-cognition`) and records who could perceive an event plus open perceptual-access constraints; a Perception record describes actual capture. Missing observation metadata and `observers: []` stay distinct. Field tables: [`docs/reference/data-model.md`](docs/reference/data-model.md#cognition-spoke-cognition).
+Cross-product **functional** dialects of the capability-flagged `modules` bag — triad authority: [`.agents/specs/extensions/spoke-extension-modules.md`](.agents/specs/extensions/spoke-extension-modules.md). **`modules.cognition`** lives on the holder KnowledgeEntry (bag `narrative-modules`, semantics `spoke-cognition`) and carries the closed `CognitionModule`: current holder-side Belief, epistemic and Perception records — each completed record with its mandated `q` and optional distinct metrics — plus narrated `world_facts[]`, whose records carry neither `q` nor metrics. **`modules.mental`** stays an open nine-field mental vocabulary (identity, beliefs, attention, goals, intentions, emotions, dispositions, norms, constraints); its `beliefs` member carries derivative summary, count or reference data. **`modules.observation`** lives on `TimelineEvent.modules` (bag `narrative-modules`, semantics `spoke-cognition`) and records who could perceive an event plus open perceptual-access constraints; a Perception record describes actual capture. Missing observation metadata and `observers: []` stay distinct. Field tables: [`docs/reference/data-model.md`](docs/reference/data-model.md#cognition-spoke-cognition).
 
 ### AssemblePacket
 
-Wire-only context-assembly payload: a list of slim entries (`entry_id`, `entry_type`, `canonical_name`, optional `snippet`), required `extensions`, and optional capability-flagged `modules` (`ModuleMap`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.mstar/specs/spoke-ops.md#assemble-wire-only-boundary-normative).
+Wire-only context-assembly payload: a list of slim entries (`entry_id`, `entry_type`, `canonical_name`, optional `snippet`), required `extensions`, and optional capability-flagged `modules` (`ModuleMap`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.agents/specs/protocol/spoke-ops.md#assemble-wire-only-boundary-normative).
 
 ### Extensions (`extensions.<namespace>`)
 
-Product-specific bag on durable data objects and ops envelopes. On `HostCapabilityManifest`, `extensions` carries deployment metadata only — roles, capabilities, and namespace ownership are core manifest fields. Namespace keys are opaque product / integrator ids. Adapters MUST round-trip unknown namespaces and keys verbatim. Product and adapter data live here; cross-product functional dialects use `modules.*` — triad authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
+Product-specific bag on durable data objects and ops envelopes. On `HostCapabilityManifest`, `extensions` carries deployment metadata only — roles, capabilities, and namespace ownership are core manifest fields. Namespace keys are opaque product / integrator ids. Adapters MUST round-trip unknown namespaces and keys verbatim. Product and adapter data live here; cross-product functional dialects use `modules.*` — triad authority: [`.agents/specs/extensions/spoke-extension-modules.md`](.agents/specs/extensions/spoke-extension-modules.md).
 
 ### Modules (capability-flagged)
 
-Optional `ModuleMap` on KnowledgeEntry + AssemblePacket + TimelineEvent (event observation); capability-flagged (`narrative-modules`; `spoke-cognition` for cognition and event-observation semantics); inner dialect shapes stay handbook-defined. Placement authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
+Optional `ModuleMap` on KnowledgeEntry + AssemblePacket + TimelineEvent (event observation); capability-flagged (`narrative-modules`; `spoke-cognition` for cognition and event-observation semantics); inner dialect shapes stay handbook-defined. Placement authority: [`.agents/specs/extensions/spoke-extension-modules.md`](.agents/specs/extensions/spoke-extension-modules.md).
 
 `modules.*` carries **cross-product functional** dialects (for example activation, placement, and activation_trace metadata), distinct from product-owned `extensions.<namespace>`. Absent and empty `modules` are valid; baseline hosts need not emit or parse the bag unless they declare `narrative-modules`. Shared functional dialects use `modules.*`; product bags stay in `extensions.<namespace>`. Knowledge Pack **catalog** metadata (`title` / `version` / `creator`) lives on the product transport envelope — not under `modules.*`.
 
 ### spoke-connect
 
-Optional capability flag: a product declaring it implements the connect envelope family (`schemas/connect/`), per-session ordering, and the `noise-peerid` auth model documented in [`spoke-connect.md`](.mstar/specs/spoke-connect.md). Not part of `spoke-baseline`. Hosts that speak connect SHOULD list `spoke-connect` in `HostCapabilityManifest.capabilities`.
+Optional capability flag: a product declaring it implements the connect envelope family (`schemas/connect/`), per-session ordering, and the `noise-peerid` auth model documented in [`spoke-connect.md`](.agents/specs/connect/spoke-connect.md). Not part of `spoke-baseline`. Hosts that speak connect SHOULD list `spoke-connect` in `HostCapabilityManifest.capabilities`.
 
 ### Connect envelope family
 
-Six opt-in interaction envelopes in `schemas/connect/`: `ConnectHello` (signed manifest exchange), `ConnectSession` (session context snapshot), `ConnectInvokeRequest` / `ConnectInvokeResponse` (remote op call wrapping existing ops envelopes as opaque `payload`; failure reuses the shared `ErrorEnvelope`), `ConnectAuthChallenge` / `ConnectAuthResponse` (extensible `method` auth). Closed envelopes with required `extensions`; hello embeds `HostCapabilityManifest` by `$ref`. Normative semantics: [`spoke-connect.md`](.mstar/specs/spoke-connect.md).
+Six opt-in interaction envelopes in `schemas/connect/`: `ConnectHello` (signed manifest exchange), `ConnectSession` (session context snapshot), `ConnectInvokeRequest` / `ConnectInvokeResponse` (remote op call wrapping existing ops envelopes as opaque `payload`; failure reuses the shared `ErrorEnvelope`), `ConnectAuthChallenge` / `ConnectAuthResponse` (extensible `method` auth). Closed envelopes with required `extensions`; hello embeds `HostCapabilityManifest` by `$ref`. Normative semantics: [`spoke-connect.md`](.agents/specs/connect/spoke-connect.md).
 
 ### Connect embedding path
 
-How a host language embeds connect session rules. **Path A (language-direct)** = language-native client — host-language session core, no Rust runtime (exemplar TypeScript `@42ch/spoke-connect`). **Path B (shared core bindings)** = native bindings — FFI into a shared session core, exposed through generated bindings or the hand-written C ABI carrier (C# / Kotlin / Swift / Go / Python / C and C++). **Rust `spoke-connect`** = Rust reference (session-core reference + Path B uniffi source + libp2p transport), not Path A. Consumer docs use the aliases, not the Path letters. Field table: [`spoke-connect.md`](.mstar/specs/spoke-connect.md) §Embedding model.
+How a host language embeds connect session rules. **Path A (language-direct)** = language-native client — host-language session core, no Rust runtime (exemplar TypeScript `@42ch/spoke-connect`). **Path B (shared core bindings)** = native bindings — FFI into a shared session core, exposed through generated bindings or the hand-written C ABI carrier (C# / Kotlin / Swift / Go / Python / C and C++). **Rust `spoke-connect`** = Rust reference (session-core reference + Path B uniffi source + libp2p transport), not Path A. Consumer docs use the aliases, not the Path letters. Field table: [`spoke-connect.md`](.agents/specs/connect/spoke-connect.md) §Embedding model.
 
 ### Session (connect)
 
@@ -158,11 +158,11 @@ Short-lived, capability-scoped grant proof carried as the opaque `proof` on `Con
 
 ## Core `entry_type` vocabulary (documented, not enforced)
 
-Open string on `KnowledgeEntry.entry_type`. Full table with typical-use rows: [`spoke-data-model.md` §Open vocabulary](.mstar/specs/spoke-data-model.md#open-vocabulary). Schema `description` core list in `knowledge-entry.schema.json` MUST match that table.
+Open string on `KnowledgeEntry.entry_type`. Full table with typical-use rows: [`spoke-data-model.md` §Open vocabulary](.agents/specs/protocol/spoke-data-model.md#open-vocabulary). Schema `description` core list in `knowledge-entry.schema.json` MUST match that table.
 
 **In the core table:** includes `ability` (skill / power / capability) and `rule` (world-rule ontology label — see dual-concern below), among other documented values.
 
-**Profile-only (not in core table or schema description list):** e.g. `dialogue`, `beat`, `species`, `magic_system` — publish via Domain Profile / adapter specs. Beat-assisted outlining maps atomic beats to `TimelineEvent` (`timeline_scale: "moment"`), structural roles to `BodyAttribute` (e.g. `structural_role`), and beat-sheet order to open `Relation` strings such as `precedes` — see [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md).
+**Profile-only (not in core table or schema description list):** e.g. `dialogue`, `beat`, `species`, `magic_system` — publish via Domain Profile / adapter specs. Beat-assisted outlining maps atomic beats to `TimelineEvent` (`timeline_scale: "moment"`), structural roles to `BodyAttribute` (e.g. `structural_role`), and beat-sheet order to open `Relation` strings such as `precedes` — see [`domain-profile-narrative-structure.md`](.agents/specs/domain-profiles/domain-profile-narrative-structure.md).
 
 ---
 
@@ -206,12 +206,12 @@ Integrators may map one local mental fact to one or more of these surfaces. SPOK
 | Term | In SPOKE |
 |------|----------|
 | **KnowledgeEntry** | Portable wire envelope for one KB entry |
-| **World KB / Author Memory** | World KB stays a product-local store mapped via adapters. Author Memory is standardized as the optional `spoke-memory` capability family ([`spoke-memory.md`](.mstar/specs/spoke-memory.md)) — thirteen models, 33 `memory.*` ops, standalone `MemoryPort`. A product that does not implement the family keeps memory product-local and MUST NOT emulate memory semantics through baseline objects (`MEM-R019`) |
+| **World KB / Author Memory** | World KB stays a product-local store mapped via adapters. Author Memory is standardized as the optional `spoke-memory` capability family ([`spoke-memory.md`](.agents/specs/memory/spoke-memory.md)) — thirteen models, 33 `memory.*` ops, standalone `MemoryPort`. A product that does not implement the family keeps memory product-local and MUST NOT emulate memory semantics through baseline objects (`MEM-R019`) |
 | **Rule** | L6 declarative wire object + `check` input |
 | **TimelineEvent / TimelineScale** | L5 when-axis object + `brief` / `narrative` / `moment` vocabulary |
 | **CognitionRecord / Scope.cognition** | Optional `spoke-cognition` records on the holder KnowledgeEntry — Belief, epistemic (knowledge/ignorance/undetermined), Perception — with mandatory `q`; `Scope.cognition` filters/projections and Memory `Content.cognition` |
 | **Session / Computable** | Optional `l2-computable` lifecycle — `body.state`, `body.computable`, op `session_id`; not `entry_type` |
-| **BodyAttribute** | Scalar trait in `body.attributes[]` — see [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §BodyAttribute |
+| **BodyAttribute** | Scalar trait in `body.attributes[]` — see [`spoke-data-model.md`](.agents/specs/protocol/spoke-data-model.md) §BodyAttribute |
 | **Fork** | Optional `l5-fork` — `fork_id` / `parent_fork_id` on TimelineEvent; `Scope.fork_id` filter (not baseline) |
 | **HostCapabilityManifest** | Adapter self-description wire object; namespace exclusivity per collaboration context |
 | **Host role / HostManifestPort** | Roles on manifest; baseline port for self + peer manifests |
@@ -237,14 +237,14 @@ Integrators may map one local mental fact to one or more of these surfaces. SPOK
 | Doc | Topic |
 |-----|-------|
 | [`STRATEGY.md`](STRATEGY.md) | Protocol-not-runtime positioning |
-| [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella spec |
-| [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | L0–L8, capability levels, Timeline tiers |
-| [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | Data objects, Rule, TimelineEvent, TimelineScale |
-| [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md) | Core / modules / extensions triad |
-| [`.mstar/specs/domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
-| [`.mstar/specs/domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` |
-| [`.mstar/specs/domain-profile-mental-state.md`](.mstar/specs/domain-profile-mental-state.md) | Mental-state Domain Profile — `modules.cognition` / `modules.mental` / `modules.observation` dialects + MindState sketch |
+| [`.agents/specs/protocol/spoke-protocol.md`](.agents/specs/protocol/spoke-protocol.md) | Umbrella spec |
+| [`.agents/specs/protocol/spoke-protocol-layers.md`](.agents/specs/protocol/spoke-protocol-layers.md) | L0–L8, capability levels, Timeline tiers |
+| [`.agents/specs/protocol/spoke-data-model.md`](.agents/specs/protocol/spoke-data-model.md) | Data objects, Rule, TimelineEvent, TimelineScale |
+| [`.agents/specs/extensions/spoke-extension-modules.md`](.agents/specs/extensions/spoke-extension-modules.md) | Core / modules / extensions triad |
+| [`.agents/specs/domain-profiles/domain-profile-narrative-structure.md`](.agents/specs/domain-profiles/domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
+| [`.agents/specs/domain-profiles/domain-profile-lore-activation.md`](.agents/specs/domain-profiles/domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` |
+| [`.agents/specs/domain-profiles/domain-profile-mental-state.md`](.agents/specs/domain-profiles/domain-profile-mental-state.md) | Mental-state Domain Profile — `modules.cognition` / `modules.mental` / `modules.observation` dialects + MindState sketch |
 | [`docs/reference/data-model.md`](docs/reference/data-model.md#cognition-spoke-cognition) | Cognition records, `q` and metrics, `Scope.cognition` filters/projections, Memory carrier |
-| [`.mstar/specs/assemble-module-recipes.md`](.mstar/specs/assemble-module-recipes.md) | AssemblePacket placement + activation_trace recipes (`modules.placement` / `modules.activation_trace`) |
-| [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Scope, check/assemble, error envelope |
-| [`.mstar/specs/spoke-connect.md`](.mstar/specs/spoke-connect.md) | Connect envelope family, session ordering, auth model (opt-in `spoke-connect`) |
+| [`.agents/specs/domain-profiles/assemble-module-recipes.md`](.agents/specs/domain-profiles/assemble-module-recipes.md) | AssemblePacket placement + activation_trace recipes (`modules.placement` / `modules.activation_trace`) |
+| [`.agents/specs/protocol/spoke-ops.md`](.agents/specs/protocol/spoke-ops.md) | Scope, check/assemble, error envelope |
+| [`.agents/specs/connect/spoke-connect.md`](.agents/specs/connect/spoke-connect.md) | Connect envelope family, session ordering, auth model (opt-in `spoke-connect`) |

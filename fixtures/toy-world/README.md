@@ -107,7 +107,7 @@ Cargo demos live in `rust/tests/toy_world_adapter.rs` and `rust/tests/toy_world_
 | `ForkTimelineQueryPort` | Seeded timeline events filtered by `scope.fork_id` (e.g. `evt_tw_harbor_storm_delay.json` for `fork_tw_storm_branch`) |
 | Tool surface (`tools.*`) | `toolDescriptors()` / `tool_descriptors()` list the manifest `tools[]`; `registerToolHandler` / `register_tool_handler` registers a handler (grammar-asserted, last-wins); `invokeTool` / `invoke_tool` runs the grammar gate → descriptor lookup → argument gate → handler. Both frozen tools are pre-registered: `roll_dice` (seeded deterministic) and `lore_lookup` (read-only store lookup) |
 
-Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-operations.md) § Reference adapter stub policy.
+Normative detail: [`.agents/specs/protocol/spoke-operations.md`](../../.agents/specs/protocol/spoke-operations.md) § Reference adapter stub policy.
 
 ## Reference adapters
 

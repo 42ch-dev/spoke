@@ -1,6 +1,6 @@
 //! Capability-token issuance and validation over **raw** Ed25519 key bytes.
 //!
-//! Normative rules (`.mstar/specs/spoke-connect.md` §Method —
+//! Normative rules (`.agents/specs/connect/spoke-connect.md` §Method —
 //! capability-token):
 //! - Signed claims object = exactly `{iss, sub, aud, capabilities, exp}`
 //!   plus optional `iat` / `jti`. Unknown claim keys **reject** (fail

@@ -2,7 +2,7 @@
 //! for the connect wire family.
 //!
 //! `spoke-connect` demonstrates the reference stack mapping of the connect
-//! envelopes (`.mstar/specs/spoke-connect.md`) onto rust-libp2p: **noise**
+//! envelopes (`.agents/specs/connect/spoke-connect.md`) onto rust-libp2p: **noise**
 //! authenticated transport + **yamux** multiplexing + **request-response**
 //! for the signed hello exchange and op invocation + **identify** for peer
 //! metadata. Discovery is **explicit peering**: nodes are configured with
@@ -72,7 +72,7 @@
 //!
 //! # Capability-token auth
 //!
-//! The `capability-token` method (normative, `.mstar/specs/spoke-connect.md`
+//! The `capability-token` method (normative, `.agents/specs/connect/spoke-connect.md`
 //! §Method — capability-token) is a step-up / delegated capability grant on
 //! top of the `noise-peerid` hello identity: a trusted issuer signs a short
 //! claim set (`iss`/`sub`/`aud`/`capabilities`/`exp`, optional `iat`/`jti`)

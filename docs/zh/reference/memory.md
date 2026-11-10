@@ -128,8 +128,8 @@ const port: MemoryPort = {
 
 线上级细节位于 spec 语料（SSOT）；本页通过链接指向它，而不重述：
 
-- [记忆族规格](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md) —— 能力标志、不变量 `MEM-R001`–`MEM-R027`、数据模型字段表、逐操作契约、错误与重试类别、线上映射、ProfileDocument 实质内容。
-- [记忆能力 ADR](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory-capability-adr.md) —— 可选族决策、单一权威模型、回执异步模型、引擎/提供方分工。
+- [记忆族规格](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/memory/spoke-memory.md) —— 能力标志、不变量 `MEM-R001`–`MEM-R027`、数据模型字段表、逐操作契约、错误与重试类别、线上映射、ProfileDocument 实质内容。
+- [记忆能力 ADR](https://github.com/42ch-dev/spoke/blob/main/.agents/adr/implemented/feature/2026-10-29-spoke-memory-family.md) —— 可选族决策、单一权威模型、回执异步模型、引擎/提供方分工。
 - [记忆数据 schema](https://github.com/42ch-dev/spoke/tree/main/schemas/data) 与 [记忆操作 schema](https://github.com/42ch-dev/spoke/tree/main/schemas/ops) —— 已提交的线上真源。
 - [connect 参考](/zh/reference/connect) —— 承载 `memory.*` 载荷的信封。
 

@@ -1,7 +1,7 @@
 /**
  * libp2p Noise identity payload — `NoiseHandshakePayload` protobuf codec
  * and the domain-separated Ed25519 static-key signature (frozen contract
- * `.mstar/specs/noise-xx-libp2p-contract.md` §4).
+ * `.agents/specs/connect/noise-xx-libp2p-contract.md` §4).
  *
  * §4.2 — static-key ↔ long-term-identity binding:
  *

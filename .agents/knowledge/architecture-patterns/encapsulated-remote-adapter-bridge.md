@@ -17,7 +17,7 @@ Two libraries often exist side by side without a connection: a **pure orchestrat
 
 This pattern is the reusable shape of that bridge, as built in spoke-connect: a `RemoteAdapter` that implements the async `BaselinePorts` interface of spoke-operations by proxying each port call over a connect session, with **all** verification (hello sign/verify, allowlist, nonce, sequence, request correlation, dispatch gate, capability-token) encapsulated inside the adapter. The single-peer slice stays multi-peer-ready: session state is kept **per peer**, not in a process-global singleton, so a later registry can compose N adapters without changing the consumer-facing ports contract.
 
-SPOKE-specific decision record (placement, catalogue, error matrix, concurrency rules): `.agents/specs/adapters/spoke-remote-adapter.md`.
+SPOKE-specific surface rules (placement, catalogue, error matrix, concurrency): `.agents/specs/adapters/spoke-remote-adapter.md`; decision record: [`2026-08-05-remote-adapter.md`](../../adr/implemented/architecture/2026-08-05-remote-adapter.md).
 
 ## Guidance
 
@@ -145,7 +145,7 @@ const result = await orchestrateUpsert(adapter, request); // same as a local ada
 
 ## See also
 
-- `.agents/specs/adapters/spoke-remote-adapter.md` — SPOKE decision record (D1–D9): placement above session-core, Transport seam, port-method catalogue, concurrency, error matrix, TS↔Rust parity statement
+- `.agents/specs/adapters/spoke-remote-adapter.md` — SPOKE surface rules (D1–D9): placement above session-core, Transport seam, port-method catalogue, concurrency, error matrix, TS↔Rust parity statement; decision record: [`2026-08-05-remote-adapter.md`](../../adr/implemented/architecture/2026-08-05-remote-adapter.md).
 - `architecture-patterns/spoke-connect-wire-and-auth.md` — the session core and wire family the bridge reuses
 - `architecture-patterns/adapter-injection-orchestration.md` — the local port-injection model the bridge implements remotely
 - `architecture-patterns/connect-session-core-ffi-boundary.md` — the pure session-core extraction that makes session state reusable above transport

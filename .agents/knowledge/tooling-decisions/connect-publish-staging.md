@@ -48,7 +48,7 @@ The Kotlin Maven `<groupId>` (`dev.42ch:spoke-connect`) is the consumer-facing c
 
 ### When a gate blocks the pipeline: defer with a record
 
-C# bindings hit a toolchain gap (`uniffi-bindgen-cs` targets uniffi 0.31 vs the repo pin 0.32) and were recorded with a decision record + revisit trigger ([`connect-csharp-binding.md`](../../specs/connect/connect-csharp-binding.md)) instead of downgrading pins — the gap then **landed via a vendored fork** retargeted to uniffi 0.32 (fork dropped when upstream tags 0.32+). Same pattern for any other blocked surface: record the blocker, keep the target priority, define the revisit trigger, re-check via the documented regenerate → build → run sequence.
+C# bindings hit a toolchain gap (`uniffi-bindgen-cs` targets uniffi 0.31 vs the repo pin 0.32) and were recorded with a decision record + revisit trigger ([`2026-08-02-connect-csharp-uniffi-bindgen-fork.md`](../../adr/implemented/process/2026-08-02-connect-csharp-uniffi-bindgen-fork.md)) instead of downgrading pins — the gap then **landed via a vendored fork** retargeted to uniffi 0.32 (fork dropped when upstream tags 0.32+). Same pattern for any other blocked surface: record the blocker, keep the target priority, define the revisit trigger, re-check via the documented regenerate → build → run sequence.
 
 ## Why This Matters
 
@@ -62,7 +62,7 @@ Registry choice is a cost and trust decision: npm/crates.io OIDC Trusted Publish
 
 ## See also
 
-- `.agents/specs/connect/connect-publish-strategy.md` — the decision record SSOT (surface inventory, stages, triggers, non-goals)
+- `.agents/specs/connect/connect-publish-strategy.md` — the current-state SSOT (surface inventory, stages, triggers, non-goals); channel decision in `.agents/adr/implemented/process/2026-08-02-connect-publish-channels.md`
 - `.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md` — per-language packaging contract (coordinates, natives, CI jobs)
 - `.agents/specs/protocol/spoke-version-release.md` — lockstep SemVer + Trusted Publishing (normative)
 - [`lockstep-semver-release.md`](../architecture-patterns/lockstep-semver-release.md) — the release pipeline this strategy extends

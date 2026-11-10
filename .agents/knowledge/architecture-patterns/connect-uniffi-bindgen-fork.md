@@ -28,7 +28,7 @@ or hand-maintaining P/Invoke.
 
 Reference instantiation: C# under
 `crates/spoke-connect/bindings/csharp/bindgen/` against uniffi **0.32**,
-with the decision record at [`.agents/specs/connect/connect-csharp-binding.md`](../../specs/connect/connect-csharp-binding.md).
+with the decision record at [`2026-08-02-connect-csharp-uniffi-bindgen-fork.md`](../../adr/implemented/process/2026-08-02-connect-csharp-uniffi-bindgen-fork.md).
 The same technique applies to any community bindgen that trails the pin.
 
 ## Guidance
@@ -161,7 +161,7 @@ crates/spoke-connect/bindings/csharp/
   Smoke/                              # net8.0 golden parity
 ```
 
-Normative decision record: [`.agents/specs/connect/connect-csharp-binding.md`](../../specs/connect/connect-csharp-binding.md).
+Normative decision record: [`2026-08-02-connect-csharp-uniffi-bindgen-fork.md`](../../adr/implemented/process/2026-08-02-connect-csharp-uniffi-bindgen-fork.md); current binding surface: [`.agents/specs/connect/connect-csharp-binding.md`](../../specs/connect/connect-csharp-binding.md).
 FFI boundary and language matrix:
 [`connect-session-core-ffi-boundary.md`](connect-session-core-ffi-boundary.md).
 

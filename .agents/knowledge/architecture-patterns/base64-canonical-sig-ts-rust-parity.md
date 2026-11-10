@@ -17,7 +17,7 @@ The capability-token `sig` field is the base64url-no-padding encoding of the 64 
 The TS client (`packages/spoke-connect-ts`) and the Rust reference (`crates/spoke-connect`) both verify capability tokens. They use different base64 decoders:
 
 - **TS** uses an `atob`-derived decoder that is **slack-lenient** — it accepts non-zero slack bits in the final character and decodes them to the same bytes as the canonical form.
-- **Rust** uses `base64` 0.22's `URL_SAFE_NO_PAD` engine, which is **strict** (`decode_allow_trailing_bits: false`) — non-zero slack bits are rejected at decode with `InvalidLastSymbol`.
+- **Rust** uses `base64` 0.23's `URL_SAFE_NO_PAD` engine, which is **strict** (`decode_allow_trailing_bits: false`) — non-zero slack bits are rejected at decode with `InvalidLastSymbol`.
 
 This asymmetry means a parity invariant that is **load-bearing on the TS side** is **unreachable on the Rust side** under the current decoder. The invariant in question: the canonical-sig round-trip check (`encode(decode(sig)) === sig`) that rejects any non-canonical encoding of the signature bytes.
 
@@ -47,7 +47,7 @@ if URL_SAFE_NO_PAD.encode(&raw) != proof.sig {
 }
 ```
 
-With `base64` 0.22 strict decoding, the second branch is **dead code today** — any input that would trip the round-trip check is already rejected by `URL_SAFE_NO_PAD.decode`. Keep the branch anyway. Two reasons:
+With `base64` 0.23 strict decoding, the second branch is **dead code today** — any input that would trip the round-trip check is already rejected by `URL_SAFE_NO_PAD.decode`. Keep the branch anyway. Two reasons:
 
 1. **Source-level TS↔Rust parity invariant.** The round-trip check is the explicit, portable statement of "canonical encoding only." A future contributor reading either side sees the same rule, the same error variant, and the same defense intent. Removing the Rust branch because it is unreachable today would create an asymmetric surface that looks like Rust permits non-canonical encodings — misleading on a security path.
 2. **Defense in depth against decoder relaxation.** If a future base64 upgrade, feature flag, or engine swap relaxes the decoder (`decode_allow_trailing_bits: true`), the round-trip check resumes being load-bearing without any other code change. The branch is a one-line insurance premium; deleting it saves nothing meaningful.
@@ -58,7 +58,7 @@ The normative rule belongs in the protocol spec (`.agents/specs/connect/spoke-co
 
 A new language binding (Go, Python, Swift, Kotlin, C#) implementing `verify_capability_token` should determine its local base64url decoder's slack-bit behavior before deciding whether to include the round-trip check:
 
-- **Strict decoder** (rejects non-zero slack bits at decode, like Rust 0.22): include the round-trip check anyway for source-level parity with TS and Rust. Document the unreachability in a comment so the next reader understands it is defense in depth.
+- **Strict decoder** (rejects non-zero slack bits at decode, like Rust 0.23): include the round-trip check anyway for source-level parity with TS and Rust. Document the unreachability in a comment so the next reader understands it is defense in depth.
 - **Lenient decoder** (accepts non-zero slack bits, like TS `atob`): the round-trip check is **load-bearing** — omitting it admits non-canonical signatures, breaking the canonical-encoding normative rule.
 
 Do not assume a language's standard library matches either behavior; verify by writing a scratch repro that decodes a known non-canonical encoding (mutate the final character's slack bits, preserve the low data bits) and observe whether decode succeeds.
@@ -68,7 +68,7 @@ Do not assume a language's standard library matches either behavior; verify by w
 The non-canonical-sig test (`non_canonical_signature_rejected`) should assert that `verify_capability_token` rejects the mutated input with the `TokenInvalid` family — **not** that it rejects via the round-trip branch specifically. That keeps the test green across decoder-strictness changes:
 
 - On TS (lenient `atob`), decode succeeds and the round-trip branch fires → `TokenInvalid`.
-- On Rust 0.22 (strict), decode itself rejects → `TokenInvalid`.
+- On Rust 0.23 (strict), decode itself rejects → `TokenInvalid`.
 - On a hypothetical future Rust with relaxed decoder, the round-trip branch would resume firing → `TokenInvalid`.
 
 Same observable outcome (`TokenInvalid`), same input, different internal path. The test pins the contract; the implementation owns the path.
@@ -162,7 +162,7 @@ fn non_canonical_signature_rejected() {
 }
 ```
 
-The test does not assert which branch rejected — only that the `TokenInvalid` family fires. On Rust 0.22, the strict `decode` rejects before the round-trip branch; the assertion still holds.
+The test does not assert which branch rejected — only that the `TokenInvalid` family fires. On Rust 0.23, the strict `decode` rejects before the round-trip branch; the assertion still holds.
 
 ## See also
 

@@ -31,8 +31,8 @@ The Swift binding ships the `SpokeConnect` SwiftPM product from a **committed** 
 ### 1. Target matrix and the nightly-toolchain gotcha
 
 - rustup targets: `aarch64-apple-ios` (device), `aarch64-apple-ios-sim`, `x86_64-apple-ios`, plus the explicit host slice `aarch64-apple-darwin` (not implicit host-only).
-- Staticlib per triple: `cargo +nightly rustc -p spoke-connect --features ffi --release --crate-type staticlib --target <triple>` (nightly per the repo toolchain convention).
-- **Gotcha:** `rustup target add <ios-targets>` installs the targets for the default (stable) toolchain; `cargo +nightly` then fails with `error[E0463]: can't find crate for 'core'`. The fix is `rustup target add --toolchain nightly aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios`. The build script asserts targets with `rustup target list --installed --toolchain nightly` when nightly is active (plain list in CI) and prints a toolchain-accurate install hint on miss.
+- Staticlib per triple: `cargo +nightly rustc -p spoke-connect --features ffi --release --crate-type staticlib --target <triple>` on the local path (nightly per the repo toolchain convention). Locked/CI builds set `XCFRAMEWORK_LOCKED=1` and use the workflow-pinned stable `1.98.1` with `--locked`; the script never uses `+nightly` in locked mode (`build-swift-xcframework.sh:45-56`, `.github/workflows/xcframework.yml:66-76`).
+- **Gotcha:** `rustup target add <ios-targets>` installs the targets for the default (stable) toolchain; `cargo +nightly` then fails with `error[E0463]: can't find crate for 'core'`. The fix is `rustup target add --toolchain nightly aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios`. The build script asserts targets with `rustup target list --installed --toolchain nightly` when nightly is active (plain list in CI) and prints a toolchain-accurate install hint on miss. This gotcha applies to the local nightly path only; the locked CI path uses the workflow-pinned stable toolchain.
 
 ### 2. Assembler shape: one `-library` pair per platform, lipo fallback
 
@@ -41,7 +41,7 @@ The Swift binding ships the `SpokeConnect` SwiftPM product from a **committed** 
 - Delivered shape: three `LibraryIdentifier`s covering four target triples — `macos-arm64`, `ios-arm64`, `ios-arm64_x86_64-simulator` (arm64 + x86_64 fat). Coverage equals four discrete slices.
 - `xcodebuild -validate-xcframework` does not exist in Xcode 26.6 (only `-create-xcframework`). Validate with `plutil -lint` on the Info.plist, per-slice `lipo -info` arch assertions, and the consumer-path link builds below.
 
-- The committed xcframework is the consumer artifact. CI builds all slices on `macos-15` for every pull request, uploads the build and its manifest, and exercises the committed macOS slice with the Swift functional smoke.
+- The committed xcframework is the consumer artifact. The `xcframework` job runs on `macos-15` for every pull request; when the `changes` job reports a code diff it builds all slices, uploads the build and its manifest, and exercises the committed macOS slice with the Swift functional smoke.
 - Refresh with `tooling/connect/apply-xcframework-artifact.sh <run-id>`: it checks run provenance and the transferred manifest before staging the LFS pointers.
 - The build normalizes `Info.plist` ordering and temporarily normalizes Cargo lockstep versions, restoring them afterward. Rebuilt binary bytes can still vary.
 - Generated Swift sources (`generated/spoke_connect.swift`, `spoke_connectFFI.h`, modulemap) are staged alongside the xcframework in CI and refreshed when the FFI surface changes.

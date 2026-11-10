@@ -28,7 +28,7 @@ SPOKE ships optional capabilities via **capability flags** (`l2-computable`, `l5
 3. **Capability flag** in `spoke-protocol-layers.md` §Capability levels (e.g. `narrative-modules`), worded like `l2-computable`/`l5-fork`: "optional `modules` on KnowledgeEntry + AssemblePacket; not `spoke-baseline`; adapters round-trip unknown namespaces verbatim."
 4. **Pure ops helpers** `mergeModuleMaps` / `preserveModuleMaps` — generalize the namespace-merge **core** (`mergeNamespaceMaps` / `merge_json_values`): object namespaces deep-merge, array namespaces replace (last-write), unknown namespaces preserved verbatim. Extension helpers become thin wrappers over the same core (extension behavior byte-identical). **No engine/matcher/scoring.**
 5. **Demand-gate resolution**: shipping capability-flagged satisfies the gate — baseline hosts need not emit/parse; only capability-declaring hosts do. Record the resolution in the triad ADR (`spoke-extension-modules.md`).
-6. **Codegen**: a definition (not a new `.schema.json` file) → `assert-schema-count` stays unchanged (24). Regen TS + Rust; TS renders optional `?`; Rust renders `HashMap` with `#[serde(default, skip_serializing_if)]`.
+6. **Codegen**: a definition (not a new `.schema.json` file) → `assert-schema-count` stays unchanged (114; `tooling/codegen/assert-schema-count.mjs` `EXPECTED_SCHEMA_COUNT`), because `ModuleMap` is a definition, not a new `.schema.json`. Regen TS + Rust; TS renders optional `?`; Rust renders `HashMap` with `#[serde(default, skip_serializing_if)]`.
 
 ## Why This Matters
 

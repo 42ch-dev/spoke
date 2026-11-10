@@ -29,7 +29,7 @@ The `crates/spoke-connect` crate (published on crates.io) implements the `spoke-
 
 ### Transport composition (locked minimal feature set)
 
-Pin a single rust-libp2p version (e.g. `=0.57.0`); enable only `noise`, `yamux`, `request-response`, `identify`, `macros`, `tokio`, `ed25519` (+ `tcp`, `json` as required by the composition). Avoid QUIC, relay, kad, gossipsub, tls unless a real behaviour is wired — a capability-named feature flag with no runtime behaviour must not ship.
+Pin a single rust-libp2p version (e.g. `=0.57.1`); enable only `noise`, `yamux`, `request-response`, `identify`, `macros`, `tokio`, `ed25519` (+ `tcp`, `json` as required by the composition). Avoid QUIC, relay, kad, gossipsub, tls unless a real behaviour is wired — a capability-named feature flag with no runtime behaviour must not ship.
 
 ### Identify key <-> noise PeerId binding (defense in depth)
 

@@ -39,7 +39,7 @@ The TypeScript connectivity route (`.agents/adr/implemented/architecture/2026-08
 | Engine floor | `node >= 22` (see Node floor rationale below) |
 | Module style | ESM (`"type": "module"`); monorepo-internal imports resolve TypeScript sources under `NodeNext` |
 | Isomorphism | `src/` modules (`identity`, `crypto`, `jcs`, `framing`, `core/`) are browser-swappable — no `ws` import; Node-only pieces (`ws` adapter, `connectClient`) live in the `src/node/` subpath, not the root barrel |
-| Root barrel | Exports identity, crypto, framing, JCS, and the whole core barrel; `src/node/` is imported by explicit subpath |
+| Root barrel | Exports identity, crypto, framing, JCS, and the whole core barrel; `src/node/`, `./noise` and `./remote` are imported by explicit subpath |
 
 ### Identity port provenance
 
@@ -53,7 +53,7 @@ The TypeScript connectivity route (`.agents/adr/implemented/architecture/2026-08
 
 ### JCS pin + golden-byte gate
 
-`canonicalHelloBytes(peerId, nonce, host)` canonicalizes **exactly** `{protocol_version, peer_id, nonce, host}` (top-level `extensions` and `signature` excluded) with the pinned `canonicalize@5.1.0` package. Tests assert the output against `GOLDEN_JCS_HEX` (264 bytes) — the **golden-byte gate**: if a dependency update ever diverges, port the hand-rolled JCS subset from the proof script into the module instead of weakening the golden vector. Absent optional manifest members (e.g. `host.authority`) are omitted, never emitted as `null` — `canonicalize` drops `undefined` members, matching Rust `skip_serializing_if`; an explicit `null` would change the canonical bytes and break verify against Rust.
+`canonicalHelloBytes(peerId, nonce, host, peerNonce?)` canonicalizes the initiator object `{protocol_version, peer_id, nonce, host}` or, when `peerNonce` is supplied, the responder object with `peer_nonce` between `nonce` and `host` (top-level `extensions` and `signature` excluded) with the pinned `canonicalize@5.1.0` package. Tests assert the output against `GOLDEN_JCS_HEX` (264 bytes) — the **golden-byte gate**: if a dependency update ever diverges, port the hand-rolled JCS subset from the proof script into the module instead of weakening the golden vector. Absent optional manifest members (e.g. `host.authority`) are omitted, never emitted as `null` — `canonicalize` drops `undefined` members, matching Rust `skip_serializing_if`; an explicit `null` would change the canonical bytes and break verify against Rust.
 
 ### WS framing (one JSON document per message, fail-closed)
 

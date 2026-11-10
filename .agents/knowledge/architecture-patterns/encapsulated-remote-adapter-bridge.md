@@ -72,7 +72,7 @@ class RemoteAdapter implements BaselinePorts {
 The bridge **imports and reuses** the existing session core (allowlist, hello crypto, nonce, sequence, correlation, dispatch, capability-token). It must not expand the shared cross-language parity table — the parity surface stays exactly the session core, transports remain intentionally asymmetric and outside parity. Keep the bridge module **opt-in** so the default library surface and dependency graph are unchanged:
 
 - TS: a **subpath export** (`./remote`) with the root bundle excluding the bridge symbols; assert the split with a dist-shape smoke test.
-- Rust: an **optional cargo feature** (`remote-adapter = ["dep:spoke-operations"]`) with `default = []`; verify with `cargo tree -p … -e normal` (0 occurrences default, 1 with feature).
+- Rust: a **feature-gated module** (`remote-adapter = []`, `default = []`) in `crates/spoke-connect/Cargo.toml`. `spoke-operations` is a plain (non-optional) dependency, so the feature gates the module, not the dependency. Verify with `cargo test -p spoke-connect --features remote-adapter`; CI asserts `^default = \[\]$` and then runs the feature suite.
 - **CI must compile and run the feature.** A feature that is never exercised in CI silently rots (this was a real finding: the Rust remote module merged with zero CI signal until a dedicated feature-step was added).
 
 ### 5. Concurrent invokes: atomic sequence + per-request correlation, one receive loop

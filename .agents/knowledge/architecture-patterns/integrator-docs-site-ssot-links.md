@@ -45,10 +45,10 @@ The site is organized around the four Diátaxis quadrants, each with a single in
 
 | Quadrant | Purpose | Pages (EN + CN 1:1 twins) |
 |----------|---------|---------------------------|
-| **Tutorials** (learning-oriented) | First-time path — install, first KnowledgeEntry round-trip, then first connect session | `tutorials/install-and-first-entry.md`, `tutorials/first-connect-session.md` |
-| **How-to guides** (problem-oriented) | The two integrator jobs: Adapter implementation + Connect usage | `how-to/implement-adapter.md`, `how-to/orchestrate-ops.md`, `how-to/connect-ts-client.md`, `how-to/connect-native-bindings.md`, `how-to/walk-toy-world.md` |
-| **Reference** (information-oriented) | Field tables and wire shapes — the on-site replacement for spec links | `reference/protocol.md`, `reference/data-model.md`, `reference/ops.md`, `reference/connect.md` |
-| **Explanation** (understanding-oriented) | Key statements and vocabulary — no handbook sprawl | `explanation/concepts.md` (layers L0–L8 + capability flags + dual-concern pairs), `explanation/domain-profiles.md` (per-profile key statements + published open-string vocabulary tables) |
+| **Tutorials** (learning-oriented) | First-time path — install, first KnowledgeEntry round-trip, then first connect session | `tutorials/install-and-first-entry.md`, `tutorials/first-connect-session.md`, `tutorials/integrate-remote-adapter.md` |
+| **How-to guides** (problem-oriented) | Integrator jobs: adapter implementation, ops orchestration, connect usage and native bindings | `how-to/implement-adapter.md`, `how-to/orchestrate-ops.md`, `how-to/walk-toy-world.md`, `how-to/connect-ts-client.md`, `how-to/connect-native-bindings.md`, `how-to/connect-remote-adapter.md`, `how-to/connect-remote-tools.md`, `how-to/multi-peer-routing.md`, `how-to/connect-cpp-binding.md`, `how-to/remote-adapter-native-binding.md` |
+| **Reference** (information-oriented) | Field tables and wire shapes — the on-site replacement for spec links | `reference/protocol.md`, `reference/data-model.md`, `reference/ops.md`, `reference/connect.md`, `reference/memory.md`, `reference/mind-state.md` |
+| **Explanation** (understanding-oriented) | Key statements and vocabulary — no handbook sprawl | `explanation/concepts.md` (layers L0–L8 + capability flags + dual-concern pairs), `explanation/connect.md`, `explanation/domain-profiles.md` (per-profile key statements + published open-string vocabulary tables) |
 
 Plus `packages/quick-start.md` (install pins) and `release/versioning.md` (lockstep SemVer) as standalone pages referenced from the tutorials and sidebar. The home page (`docs/index.md`) carries two primary CTAs that route both jobs in one click: **"Build an Adapter"** → `how-to/implement-adapter`, **"Open a Connect session"** → `tutorials/first-connect-session`.
 
@@ -64,7 +64,7 @@ When consolidating fragmented conceptual content (e.g., merging the old 7-page `
 
 1. **Binding package coordinates** — inline on the native-bindings how-to (NuGet `42ch.Spoke.Connect`, Maven `dev.42ch:spoke-connect`, SPM `SpokeConnect`, Go module path, PyPI `spoke-connect`). Do not leave coordinates behind a spec link.
 2. **Domain Profile open-string vocabulary tables** — per-profile vocabulary (beat types, activation fields, pack dialect keys, placement hints) on the consolidated `explanation/domain-profiles.md`. Full mapping matrices remain agent SSOT in specs.
-3. **Schema inventory count + codegen verify posture** — explicit subsection on `reference/protocol.md` (e.g., 30 committed `*.schema.json` files; `verify-codegen` drift gate).
+3. **Schema inventory count + codegen verify posture** — explicit subsection on `reference/protocol.md` (114 committed `*.schema.json` files, mirrored by `tooling/codegen/assert-schema-count.mjs`; `verify-codegen` drift gate).
 4. **Discovery / peering boundary** (explicit peering as the discovery path) — affirmative paragraph on `reference/connect.md`.
 5. **Operations purity boundary** (no I/O, storage, LLM, HTTP, ranking, retrieval, silent auto-promote) — affirmative form on `reference/ops.md` and `how-to/orchestrate-ops.md`.
 

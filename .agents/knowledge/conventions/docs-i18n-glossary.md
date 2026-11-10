@@ -88,26 +88,35 @@ CN docs work.
 | EN | CN |
 |----|-----|
 | Home | 首页 |
-| Protocol | 协议 |
-| Guides | 指南 |
-| Connect | 连接 |
+| Tutorials | 教程 |
+| How-to | 操作指南 |
+| Reference | 参考 |
+| Explanation | 讲解 |
 | Packages | 软件包 |
 | Release | 发布 |
-| Domain Profiles (sidebar group) | 领域画像 |
-| Concepts | 核心概念 |
-| Protocol umbrella | 协议总览 |
-| Layers & capabilities | 分层与能力 |
-| Data model | 数据模型 |
-| Ops wire | 操作线上信封（Ops wire） |
-| Operations library | 操作库 |
-| Extensions & modules | 扩展与模块 |
-| Narrative structure | 叙事结构 |
-| Lore activation | 世界观激活（lore activation） |
-| Knowledge pack | 知识包 |
-| Assemble module recipes | assemble 模块配方 |
-| Overview | 总览 |
-| TypeScript route | TypeScript 路线 |
+| For agents | 面向 Agent |
+| Install and first KnowledgeEntry | 安装与第一条 KnowledgeEntry |
+| First connect session | 首个 connect 会话 |
+| Integrate RemoteAdapter | 集成 RemoteAdapter 连接推理主机 |
+| Implement Adapter | 实现 Adapter |
+| TypeScript client | TypeScript 客户端 |
+| RemoteAdapter over Transport | 通过 Transport 使用 RemoteAdapter |
+| Remote tools | 远程工具 |
+| Multi-peer routing | 跨多个对等节点路由 |
 | Native bindings | 原生绑定 |
+| C and C++ (C ABI) | C 与 C++（C ABI） |
+| RemoteAdapter from native bindings | 从原生绑定使用 RemoteAdapter |
+| Orchestrate ops | 编排操作 |
+| ToyWorld reference adapter | ToyWorld 参考适配器 |
+| Protocol | 协议 |
+| Data model | 数据模型 |
+| MindState | MindState |
+| Memory | 记忆（Memory） |
+| Ops wire | 操作线上（Ops wire） |
+| connect | connect |
+| Core concepts | 核心概念 |
+| Connect architecture | Connect 架构 |
+| Domain Profiles (sidebar group) | 领域画像 |
 | Package quick-start | 软件包快速开始 |
 | Version & release | 版本与发布 |
 | Page titles on CN twins | Match the EN page one-to-one; keep English wire terms with CN glosses |

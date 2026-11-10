@@ -13,7 +13,7 @@ Protocol conformance fixtures need AJV validation in CI. Colocating the harness 
 1. Keep protocol JSON at repo-root `fixtures/toy-world/` (committed graph only — no product DTO maps).
 2. Own the AJV/Vitest harness in `fixtures/toy-world/tests/` as workspace package **`@42ch/spoke-fixture-toy-world`** (`fixtures/toy-world/package.json`).
 3. **`@42ch/spoke-operations` stays pure library** — no `src/fixtures/**`, no AJV, no `node:fs` in the operations package graph.
-4. Wire root `pnpm run test:fixtures` (or `pnpm -F @42ch/spoke-fixture-toy-world test`) into CI `typescript` job **before** `@42ch/spoke-operations` build.
+4. Wire root `pnpm run test:fixtures` (or `pnpm -F @42ch/spoke-fixture-toy-world test`) into the CI `typescript` job and the root `ci:typescript` script. The harness is its own workspace package, so its position relative to the operations build does not matter.
 5. Use Ajv v8 named ESM imports (`import { Ajv } from "ajv"`) with `ajv-formats` default interop; resolve schemas from repo-root `schemas/` via shared `schema-validator.ts`.
 6. Fixtures package MAY import `@42ch/spoke-operations` for optional helper smoke tests; operations MUST NOT import fixtures or host fixture validation I/O.
 
@@ -25,10 +25,18 @@ fixtures/toy-world/
 ├── package.json           # @42ch/spoke-fixture-toy-world
 ├── vitest.config.ts
 ├── README.md
+├── src/adapter/           # ToyWorldAdapter reference (TypeScript)
+├── rust/                  # spoke-fixture-toy-world crate (publish = false)
 └── tests/                 # AJV harness (not under packages/spoke-operations/)
-    ├── schema-validator.ts           # AJV setup + schema registry
-    ├── toy-world-conformance.test.ts # JSON graph validates against schemas
-    └── toy-world-ops-exercise.test.ts # optional @42ch/spoke-operations smoke
+    ├── schema-validator.ts              # AJV setup + schema registry
+    ├── toy-world-conformance.test.ts    # JSON graph validates against schemas
+    ├── toy-world-ops-exercise.test.ts   # optional @42ch/spoke-operations smoke
+    ├── toy-world-adapter.test.ts
+    ├── toy-world-ownership.test.ts
+    ├── toy-world-memory.test.ts
+    ├── toy-world-extract.test.ts
+    ├── toy-world-tools.test.ts
+    └── tool-descriptor.test.ts
 ```
 
 **Ajv import (matches `schema-validator.ts`):**

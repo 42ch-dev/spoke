@@ -24,7 +24,7 @@ Rust integrators already pin `spoke-schemas` on crates.io but had no published p
    spoke-schemas = { version = "X.Y.Z", path = "../spoke-schemas" }
    ```
 
-   Path-only fails `cargo publish` on crates.io. Lockstep bump rewrites the `version` key via `formatOpsSpokeSchemasDependency` in `tooling/release/lockstep-surfaces.mjs`.
+   Path-only fails `cargo publish` on crates.io. Lockstep bump rewrites the `version` key via `replaceCargoPathDependencyPinVersions` in `tooling/release/lockstep-surfaces.mjs`.
 6. **Publish order** — stable tags: `cargo publish -p spoke-schemas` then `cargo publish -p spoke-operations` (after npm publish jobs). `-rc.` tags skip registry publish.
 
 ## What not to do

@@ -131,8 +131,13 @@ No new close handling is invented at the FFI layer. Close is idempotent (`close_
 The in-repo loopback smoke host (fixed test seeds, reference fixture adapter, parametric variant for multi-peer routing smokes) is gated behind `ffi-smoke-host` — a feature that is **not implied by `ffi` or `remote-adapter`**:
 
 ```toml
-remote-adapter = ["dep:spoke-operations"]
-ffi-smoke-host = ["remote-adapter", "dep:spoke-fixture-toy-world"]
+# [dependencies] — plain, non-optional
+spoke-operations = { version = "0.16.0", path = "../spoke-operations" }
+
+# [features]
+remote-adapter = []
+ffi-smoke-host = ["remote-adapter"]
+# spoke-fixture-toy-world is a [dev-dependencies] entry, not a dep: feature edge
 ```
 
 ```rust

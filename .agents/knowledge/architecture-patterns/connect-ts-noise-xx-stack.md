@@ -24,7 +24,7 @@ tags:
 
 ## Context
 
-`@42ch/spoke-connect` ships a thin default client (WebSocket ordered-stream transport, JCS + Ed25519 identity, the session-core parity rules). Integrators that need to join a libp2p-noise mesh — the transport of the Rust reference `crates/spoke-connect`, which composes `libp2p::noise::Config::new` over libp2p 0.57.0 — get a first-party pure-TypeScript `Noise_XX_25519_ChaChaPoly_SHA256` stack behind the opt-in `./noise` subpath. Two hard problems were solved: (1) proving byte-level wire interop with rust-libp2p deterministically in CI without a live Rust peer; (2) shipping the crypto stack without widening the default bundle's dependency surface. Both solutions generalize to every future language Noise port and every future opt-in crypto subpath.
+`@42ch/spoke-connect` ships a thin default client (WebSocket ordered-stream transport, JCS + Ed25519 identity, the session-core parity rules). Integrators that need to join a libp2p-noise mesh — the transport of the Rust reference `crates/spoke-connect`, which composes `libp2p::noise::Config::new` over libp2p 0.57.1 — get a first-party pure-TypeScript `Noise_XX_25519_ChaChaPoly_SHA256` stack behind the opt-in `./noise` subpath. Two hard problems were solved: (1) proving byte-level wire interop with rust-libp2p deterministically in CI without a live Rust peer; (2) shipping the crypto stack without widening the default bundle's dependency surface. Both solutions generalize to every future language Noise port and every future opt-in crypto subpath.
 
 ## Guidance
 
@@ -75,7 +75,7 @@ Three complementary verification layers defend the published artifact, not just 
 2. **Exports-map resolution smoke**: ESM + CJS `import`/`require` against the built `dist/` via Node self-reference. Root `.` exposes default symbols and no Noise symbols; `./noise` exposes the full public barrel while internal raw crypto (`encrypt`/`decrypt`/`dh`/`hkdf`) stays unexported.
 3. **Dist-shape smoke** (`test:dist`, CI after build): root `.` resolves in ESM + CJS; `./noise` resolves in ESM + CJS with the complete barrel table.
 
-The layer-3 gate caught a **real pre-existing published-shape defect**: `canonicalize@3.0.0` is ESM-only (`"type": "module"`, exports map with an `import` condition but no `require` condition), so the published CJS entry crashed any CJS consumer with `ERR_PACKAGE_PATH_NOT_EXPORTED` at module load. Fix: bundle the tiny dependency-free file into both formats (`noExternal: ["canonicalize"]` in `tsup.config.ts`). Source-level unit tests cannot see this class of defect — only a gate that resolves the built package shape can.
+The layer-3 gate caught a **real pre-existing published-shape defect**: `canonicalize@5.1.0` is ESM-only (`"type": "module"`, exports map with an `import` condition but no `require` condition), so the published CJS entry crashed any CJS consumer with `ERR_PACKAGE_PATH_NOT_EXPORTED` at module load. Fix: bundle the tiny dependency-free file into both formats (`noExternal: ["canonicalize"]` in `tsup.config.ts`). Source-level unit tests cannot see this class of defect — only a gate that resolves the built package shape can.
 
 ## Why This Matters
 

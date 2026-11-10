@@ -15,7 +15,7 @@ Baseline integrators need a protocol-typed general payload on KnowledgeEntry `bo
 3. **No nested trait values** — arrays/objects under `value` are out of core; use multiple traits or `extensions.<ns>`.
 4. **Computable semantics unchanged** — SPOKE `body.computable` remains a Session projection map, not a product boolean. Product flags (e.g. Nexus `computable: bool`) stay adapter-local (`extensions.<ns>`).
 5. **Pure read helpers** — `@42ch/spoke-operations` / `spoke-operations`: `listBodyAttributes` / `list_body_attributes`, `filterBodyAttributesByTraitType` / `filter_body_attributes_by_trait_type`, `findBodyAttribute` / `find_body_attribute`. Skip malformed array elements; never throw on missing/empty `attributes`.
-6. **Schema inventory** — `BodyAttribute` is an in-place common definition; schema file count stays **23**.
+6. **Schema inventory** — `BodyAttribute` is an in-place common definition; the committed schema count stays **114** (`tooling/codegen/assert-schema-count.mjs` `EXPECTED_SCHEMA_COUNT`), so the addition adds no file.
 
 ## Adapter mapping (informative)
 

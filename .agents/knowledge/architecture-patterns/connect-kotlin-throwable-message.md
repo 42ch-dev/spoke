@@ -24,7 +24,7 @@ In SPOKE, `CoreError` variants `InvalidNonce`, `Crypto`, `Jcs`, and `TokenInvali
 ### Prefer Kotlin-local post-generate rename
 
 1. Generate stock Kotlin with crate-local `uniffi-bindgen --language kotlin` at the repo uniffi pin.
-2. Run a documented post-generate script that renames the conflicting payload property `message` → `detail` on the four `CoreException` subclasses (and matching accessors).
+2. Run a documented post-generate script that renames the conflicting payload property `message` → `detail` on the four `CoreException` subclasses and the two `FfiException` subclasses (`Dial` / `Rejected`), and resolves the `close()` collision on `LoopbackTransport`, `LoopbackSmokeHost`, `RemoteAdapterFfi` and `ConnectResponderFfi`.
 3. Commit the patched sources under `crates/spoke-connect/bindings/kotlin/generated/`.
 4. Keep the regenerate recipe in `bindings/kotlin/README.md` / `bindgen/README.md` so maintainers never hand-edit without re-running the patch.
 

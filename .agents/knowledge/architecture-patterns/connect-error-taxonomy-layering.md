@@ -32,7 +32,7 @@ CoreError (session-core)
 | Surface | Type | Regen cost | Used by |
 |---------|------|-----------|---------|
 | `FfiError::Dial { kind: String }` | String value | **Zero** (new String, no enum variant) | `connect_remote_adapter_ffi` (primary dial path) |
-| FFI `CoreError` mirror | `uniffi::Error` enum | **Requires regen** for all 5 bindings | every `CoreError`-returning export (`derive_peer_id_from_ed25519_pubkey`, `sign_hello_ed25519`, `verify_hello_ed25519`, `check_response_correlation`, `dispatch_allowed`, `required_capability`, `protocol_version`, and the `NonceStore` / `OutboundSequence` / `InboundSequence` constructors) |
+| FFI `CoreError` mirror | `uniffi::Error` enum | **Requires regen** for all 5 bindings | every export whose signature returns `Result<_, CoreError>` (`derive_peer_id_from_ed25519_pubkey`, `sign_hello_ed25519`, `verify_hello_ed25519`, `check_response_correlation`) plus the `NonceStore` / `OutboundSequence` / `InboundSequence` constructors |
 
 When adding a new error kind: check **both** surfaces. The String-kind path is free; the uniffi mirror path requires regenerating all five native bindings.
 

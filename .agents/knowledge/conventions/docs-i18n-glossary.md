@@ -87,40 +87,41 @@ CN docs work.
 
 | EN | CN |
 |----|-----|
-| Home | 首页 |
-| Tutorials | 教程 |
-| How-to | 操作指南 |
-| Reference | 参考 |
-| Explanation | 讲解 |
-| Packages | 软件包 |
-| Release | 发布 |
-| For agents | 面向 Agent |
-| Install and first KnowledgeEntry | 安装与第一条 KnowledgeEntry |
+| Home (nav) | 首页 |
+| Tutorials (nav / sidebar group) | 教程 |
+| How-to (nav) | 操作指南 |
+| How-to guides (sidebar group) | 操作指南 |
+| Reference (nav / sidebar group) | 参考 |
+| Explanation (nav / sidebar group) | 讲解 |
+| Packages (nav / sidebar group) | 软件包 |
+| Release (nav / sidebar group) | 发布 |
+| For agents (nav / sidebar group) | 面向 Agent |
+| Install & first entry | 安装与第一条 KnowledgeEntry |
 | First connect session | 首个 connect 会话 |
-| Integrate RemoteAdapter | 集成 RemoteAdapter 连接推理主机 |
-| Implement Adapter | 实现 Adapter |
+| Integrate a RemoteAdapter | 集成 RemoteAdapter 连接推理主机 |
+| Implement an adapter | 实现 Adapter |
 | TypeScript client | TypeScript 客户端 |
 | RemoteAdapter over Transport | 通过 Transport 使用 RemoteAdapter |
 | Remote tools | 远程工具 |
-| Multi-peer routing | 跨多个对等节点路由 |
+| Route across multiple peers | 跨多个对等节点路由（与页面标题一致；2026-08 冻结） |
 | Native bindings | 原生绑定 |
 | C and C++ (C ABI) | C 与 C++（C ABI） |
 | RemoteAdapter from native bindings | 从原生绑定使用 RemoteAdapter |
-| Orchestrate ops | 编排操作 |
+| Orchestrate operations | 编排操作 |
 | ToyWorld reference adapter | ToyWorld 参考适配器 |
 | Protocol | 协议 |
 | Data model | 数据模型 |
 | MindState | MindState |
 | Memory | 记忆（Memory） |
 | Ops wire | 操作线上（Ops wire） |
-| connect | connect |
-| Core concepts | 核心概念 |
+| Connect | connect |
+| Concepts | 核心概念 |
 | Connect architecture | Connect 架构 |
-| Domain Profiles (sidebar group) | 领域画像 |
+| Domain profiles (sidebar group) | 领域画像 |
 | Package quick-start | 软件包快速开始 |
 | Version & release | 版本与发布 |
+| Agent reading contract (sidebar item) | Agent 阅读契约 |
 | Page titles on CN twins | Match the EN page one-to-one; keep English wire terms with CN glosses |
-| Route across multiple peers (zh sidebar) | 跨多个对等节点路由（与页面标题一致；2026-08 冻结） |
 
 ### SSOT and twin rules
 

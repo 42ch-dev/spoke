@@ -33,7 +33,32 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect code changes
+        id: detect
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD || true)
+          if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   windows-smoke:
+    needs: changes
     name: windows-smoke
     runs-on: windows-latest
     timeout-minutes: 30
@@ -73,6 +98,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Check Rust flag precedence
+        if: needs.changes.outputs.code == 'true'
         shell: pwsh
         run: |
           if (-not [string]::IsNullOrEmpty($env:RUSTFLAGS)) {
@@ -84,6 +110,7 @@ jobs:
           Write-Output "RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS are controlled empty; target-scoped CRT flags remain authoritative."
 
       - name: Report compiler and toolchain
+        if: needs.changes.outputs.code == 'true'
         shell: pwsh
         run: |
           rustc +1.98.1 -Vv
@@ -94,33 +121,41 @@ jobs:
           }
 
       - name: Verify committed Windows provenance
+        if: needs.changes.outputs.code == 'true'
         id: committed_provenance
         continue-on-error: true
         run: node tooling/connect/cpp-build.mjs --verify --target x86_64-pc-windows-msvc
 
       - name: Check committed C ABI symbols
+        if: needs.changes.outputs.code == 'true'
         id: committed_symbols
         continue-on-error: true
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test
 
       - name: Run committed C++ smoke
+        if: needs.changes.outputs.code == 'true'
         id: committed_smoke
         continue-on-error: true
         run: node tooling/connect/cpp-smoke.mjs --rid win-x64
 
       - name: Build Windows carrier
+        if: needs.changes.outputs.code == 'true'
         run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.98.1
 
       - name: Show native provenance
+        if: needs.changes.outputs.code == 'true'
         shell: pwsh
         run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
       - name: Check C ABI symbols
+        if: needs.changes.outputs.code == 'true'
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test
 
       - name: Run C++ smoke
+        if: needs.changes.outputs.code == 'true'
         run: node tooling/connect/cpp-smoke.mjs --rid win-x64
 
       - name: Stage Windows native refresh artifact
+        if: needs.changes.outputs.code == 'true'
         shell: pwsh
         run: |
           $stage = Join-Path $env:RUNNER_TEMP "spoke-connect-win-x64"
@@ -144,6 +179,7 @@ jobs:
 
 
   macos-smoke:
+    needs: changes
     name: macos-smoke
     runs-on: macos-15
     timeout-minutes: 30
@@ -175,6 +211,7 @@ jobs:
           targets: aarch64-apple-darwin
 
       - name: Check Rust flag precedence
+        if: needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           if [[ -n "${RUSTFLAGS}" ]]; then
@@ -188,6 +225,7 @@ jobs:
           echo "RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS are controlled empty."
 
       - name: Report compiler and toolchain
+        if: needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           node -v
@@ -197,30 +235,37 @@ jobs:
 
 
       - name: Verify committed macOS provenance
+        if: needs.changes.outputs.code == 'true'
         id: committed_provenance
         continue-on-error: true
         run: node tooling/connect/cpp-build.mjs --verify --target aarch64-apple-darwin
 
       - name: Check C ABI symbols
+        if: needs.changes.outputs.code == 'true'
         id: committed_symbols
         continue-on-error: true
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test
 
       - name: Run C++ smoke
+        if: needs.changes.outputs.code == 'true'
         id: committed_smoke
         continue-on-error: true
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
       - name: Build macOS carrier
+        if: needs.changes.outputs.code == 'true'
         run: node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.98.1
 
       - name: Check rebuilt C ABI symbols
+        if: needs.changes.outputs.code == 'true'
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test
 
       - name: Run rebuilt C++ smoke
+        if: needs.changes.outputs.code == 'true'
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
       - name: Stage macOS native refresh artifact
+        if: needs.changes.outputs.code == 'true'
         run: |
           mkdir -p "${RUNNER_TEMP}/spoke-connect-osx-arm64"
           cp crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib "${RUNNER_TEMP}/spoke-connect-osx-arm64/"

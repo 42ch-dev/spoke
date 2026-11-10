@@ -23,7 +23,32 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect code changes
+        id: detect
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD || true)
+          if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   verify-codegen:
+    needs: changes
     name: verify-codegen
     runs-on: ubuntu-latest
     steps:
@@ -55,12 +80,15 @@ jobs:
           workspaces: .
 
       - name: Install dependencies
+        if: needs.changes.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Verify codegen output
+        if: needs.changes.outputs.code == 'true'
         run: pnpm run verify-codegen
 
   typescript:
+    needs: changes
     name: typescript
     runs-on: ubuntu-latest
     steps:
@@ -78,49 +106,62 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
+        if: needs.changes.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
       # Mirrored by the root `ci:typescript` script (package.json) — update in lockstep.
       - name: Typecheck @42ch/spoke-schemas
+        if: needs.changes.outputs.code == 'true'
         run: pnpm -F @42ch/spoke-schemas typecheck
 
       - name: Build @42ch/spoke-schemas
+        if: needs.changes.outputs.code == 'true'
         run: pnpm -F @42ch/spoke-schemas build
 
       - name: Typecheck @42ch/spoke-operations
+        if: needs.changes.outputs.code == 'true'
         run: pnpm -F @42ch/spoke-operations typecheck
 
       - name: Test @42ch/spoke-operations
+        if: needs.changes.outputs.code == 'true'
         run: pnpm -F @42ch/spoke-operations test
 
       - name: Build @42ch/spoke-operations
+        if: needs.changes.outputs.code == 'true'
         # Must precede the spoke-connect build + dist smoke: the ./remote
         # subpath (RemoteAdapter) imports @42ch/spoke-operations, so its
         # dist/ must exist before test:dist resolves the exports map.
         run: pnpm -F @42ch/spoke-operations build
 
       - name: Test release scripts
+        if: needs.changes.outputs.code == 'true'
         run: pnpm run test:release
 
       - name: Test toy-world fixtures
+        if: needs.changes.outputs.code == 'true'
         run: pnpm run test:fixtures
 
       - name: Typecheck @42ch/spoke-connect
+        if: needs.changes.outputs.code == 'true'
         run: pnpm -F @42ch/spoke-connect typecheck
 
       - name: Test @42ch/spoke-connect
+        if: needs.changes.outputs.code == 'true'
         run: pnpm run test:connect-ts
 
       - name: Build @42ch/spoke-connect
+        if: needs.changes.outputs.code == 'true'
         run: pnpm -F @42ch/spoke-connect build
 
       - name: Smoke @42ch/spoke-connect published shape (dist)
+        if: needs.changes.outputs.code == 'true'
         # Published-shape gate: resolves the package exports map against the
         # built dist/ (ESM + CJS) — not the vitest source aliases. Fails if a
         # require/import condition or a dist file is dropped.
         run: pnpm -F @42ch/spoke-connect test:dist
 
   connect-identity:
+    needs: changes
     name: connect-identity
     runs-on: ubuntu-latest
     steps:
@@ -135,6 +176,7 @@ jobs:
           node-version: 24
 
       - name: Run connect identity proof
+        if: needs.changes.outputs.code == 'true'
         # A required PR check runs on every pull request: a changed-path gate
         # would report this context green without proving anything, and an
         # unscheduled-proof pass is indistinguishable from a real one. The
@@ -142,6 +184,7 @@ jobs:
         run: node tooling/connect-identity-proof/proof.mjs
 
   rust:
+    needs: changes
     name: rust
     runs-on: ubuntu-latest
     steps:
@@ -160,21 +203,27 @@ jobs:
           workspaces: .
 
       - name: Check spoke-schemas crate
+        if: needs.changes.outputs.code == 'true'
         run: cargo check -p spoke-schemas
 
       - name: Test spoke-operations crate
+        if: needs.changes.outputs.code == 'true'
         run: cargo test -p spoke-operations
 
       - name: Test spoke-fixture-memory-engine crate
+        if: needs.changes.outputs.code == 'true'
         run: cargo test -p spoke-fixture-memory-engine
 
       - name: Test spoke-fixture-toy-world crate
+        if: needs.changes.outputs.code == 'true'
         run: cargo test -p spoke-fixture-toy-world
 
       - name: Test spoke-connect crate
+        if: needs.changes.outputs.code == 'true'
         run: cargo test -p spoke-connect
 
       - name: Test spoke-connect crate (remote-adapter feature)
+        if: needs.changes.outputs.code == 'true'
         run: |
           # remote-adapter must stay non-default (it pulls in spoke-operations
           # for the BaselinePorts surface); assert the Cargo.toml default here
@@ -184,12 +233,15 @@ jobs:
           cargo test -p spoke-connect --features remote-adapter
 
       - name: Build spoke-connect FFI facade (ffi feature)
+        if: needs.changes.outputs.code == 'true'
         run: cargo build -p spoke-connect --features ffi
 
       - name: Test spoke-connect FFI facade (ffi feature)
+        if: needs.changes.outputs.code == 'true'
         run: cargo test -p spoke-connect --features ffi
 
       - name: Build and test spoke-connect (ffi + remote-adapter production surface)
+        if: needs.changes.outputs.code == 'true'
         run: |
           # Release build-connect-ffi and build-swift-xcframework.sh ship
           # ffi,remote-adapter together; assert the combined feature set on PRs.
@@ -199,9 +251,11 @@ jobs:
       # First-party uniffi languages only (Swift, Python). C# and Go use vendored
       # uniffi-bindgen forks under bindings/{csharp,go}/bindgen/ and are excluded.
       - name: Verify binding regeneration (no drift)
+        if: needs.changes.outputs.code == 'true'
         run: ./tooling/connect/verify-binding-regen.sh
 
   csharp-connect:
+    needs: changes
     name: csharp-connect
     runs-on: ubuntu-latest
     steps:
@@ -227,6 +281,7 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Build FFI, assemble RID, pack + PackageReference smoke
+        if: needs.changes.outputs.code == 'true'
         run: |
           set -euo pipefail
           STAGING="$(mktemp -d)"
@@ -239,6 +294,7 @@ jobs:
           ./tooling/connect/smoke-nupkg-packageref.sh /tmp/spoke-nuget-out
 
   kotlin-connect-smoke:
+    needs: changes
     name: kotlin-connect-smoke
     runs-on: ubuntu-22.04
     env:
@@ -268,12 +324,14 @@ jobs:
           java-version: "17"
 
       - name: Build production spoke-connect cdylib
+        if: needs.changes.outputs.code == 'true'
         # The committed production Kotlin bindings are executed against a fresh
         # Linux cdylib (ffi,remote-adapter): no committed native and no binding
         # regeneration are part of this lane.
         run: cargo build --locked -p spoke-connect --features ffi,remote-adapter --release
 
       - name: Run Kotlin smoke (default Smoke source set)
+        if: needs.changes.outputs.code == 'true'
         # Committed Gradle 8.10.2 wrapper (distribution pinned by SHA-256 in
         # gradle/wrapper/gradle-wrapper.properties); no smokeHost property, so
         # the default Smoke set runs against the built cdylib.
@@ -283,6 +341,7 @@ jobs:
             -PnativeLib="${{ github.workspace }}/target/release/libspoke_connect.so"
 
       - name: Verify KE smoke counts
+        if: needs.changes.outputs.code == 'true'
         working-directory: crates/spoke-connect/bindings/kotlin
         run: python3 verify-ke-smoke-results.py build/test-results/test
 
@@ -299,6 +358,7 @@ jobs:
           retention-days: 5
 
   verify-version:
+    needs: changes
     name: verify-version
     runs-on: ubuntu-latest
     steps:
@@ -311,9 +371,11 @@ jobs:
           node-version: 24
 
       - name: Assert lockstep package versions
+        if: needs.changes.outputs.code == 'true'
         run: node tooling/release/assert-lockstep-version.mjs
 
   golden-vector-sync:
+    needs: changes
     name: golden-vector-sync
     runs-on: ubuntu-latest
     steps:
@@ -326,4 +388,5 @@ jobs:
           node-version: 24
 
       - name: Verify golden vector SSOTs and registered copies match
+        if: needs.changes.outputs.code == 'true'
         run: node tooling/connect/golden-vector-sync.mjs

@@ -44,9 +44,11 @@ regenerate → build → run sequence in the Smoke README is the re-check gate.
 
 ### Status of the binding matrix
 
-- Swift: landed skeleton (uniffi 0.32, macOS smoke, golden parity).
+- Swift: **landed** — uniffi 0.32, committed xcframework, macOS and iOS smoke, golden parity.
 - C#: **landed** — generated binding + net8.0 golden-parity smoke + **`42ch.Spoke.Connect`** NuGet (GitHub Packages) via the vendored fork; fork dropped when upstream targets uniffi 0.32+.
-- Go / Python / Kotlin: not started; community bindgen tools must be verified against uniffi 0.32 with the same feasibility gate before binding work starts (the C# outcome is the template for that check).
+- Kotlin: **landed** — GitHub Packages Maven (`dev.42ch:spoke-connect`), JNA natives, Linux smoke.
+- Go: **landed** — Go modules under `crates/spoke-connect/bindings/go`, golden-parity smoke.
+- Python: **landed** — PyPI `spoke-connect` platform wheels via Trusted Publishing, golden-parity smoke.
 
 
 ## Invariants
@@ -54,7 +56,7 @@ regenerate → build → run sequence in the Smoke README is the re-check gate.
 - The `spoke-connect` cdylib pin is uniffi **0.32.0**, locked and never downgraded; the single cdylib serves both C# and Swift.
 - Generated C# is committed (`generated/spoke_connect.cs` is the reference) and regenerated only when the FFI surface changes; consumers never run bindgen.
 - The vendored `uniffi-bindgen-cs` fork is generation-only tooling that restores the `--library` CLI form against the 0.32 cdylib; it never changes the product cdylib's uniffi pin.
-- The generated surface must match the FFI inventory exactly: 8 functions, 3 objects, 2 error enums (rendering as 7 + 3 exception classes).
+- The generated surface must match the complete FFI inventory in [`connect-publish-strategy.md`](./connect-publish-strategy.md). The core subset has 8 functions, 3 objects and 2 error enums; the full binding also includes the remote-adapter FFI, loopback helpers, callback interfaces and their errors.
 - Golden parity asserts the Rust fixtures: golden `peer_id` `12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf`, the golden hello signature, verify, and protocol version `1`.
 - The fork is dropped when an upstream `uniffi-bindgen-cs` tag or main commit targets uniffi-rs 0.32+; until then the regenerate → build → run sequence in the Smoke README is the re-check gate.
 

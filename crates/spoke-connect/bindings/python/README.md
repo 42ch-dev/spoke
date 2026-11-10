@@ -2,7 +2,7 @@
 
 PyPI package **`spoke-connect`**: SPOKE Connect session-core bindings (generated uniffi Python + native `spoke_connect` / `libspoke_connect`).
 
-Packaging contract: [2026-08-03-connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md) §3.3.
+Packaging contract: [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/connect/connect-publish-strategy.md) §13 (Python — PyPI Trusted Publishing); decision record: [2026-08-03-connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md).
 
 ## Install
 

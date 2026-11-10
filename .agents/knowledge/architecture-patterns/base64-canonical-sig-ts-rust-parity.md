@@ -81,7 +81,7 @@ A robust formula over the base64 alphabet: take the final character's index, ext
 
 ## Why this matters
 
-The TS↔Rust session-core parity contract (root `AGENTS.md`, `.agents/adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md` §Session-core parity) scopes to **rules**, not implementations. "Canonical base64url signatures only" is a rule; both sides must enforce it. The implementation path each side takes (load-bearing round-trip on TS, defense-in-depth round-trip + strict-decode on Rust) is a local concern — invisible to integrators, who only see that a non-canonical sig is rejected identically on both sides.
+The TS↔Rust session-core parity contract (root `AGENTS.md`, `.agents/adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md` §Decision — parity covers shared rules only) scopes to **rules**, not implementations. "Canonical base64url signatures only" is a rule; both sides must enforce it. The implementation path each side takes (load-bearing round-trip on TS, defense-in-depth round-trip + strict-decode on Rust) is a local concern — invisible to integrators, who only see that a non-canonical sig is rejected identically on both sides.
 
 Treating the unreachability as a reason to delete the Rust branch would silently narrow the parity surface from "rule" to "happens to reject because of decoder version," coupling the contract to a transitive dependency. Future decoder upgrades would then need a parity audit; with the round-trip check kept, they need only a test-suite run.
 
@@ -170,4 +170,4 @@ The test does not assert which branch rejected — only that the `TokenInvalid` 
 - [`connect-session-core-ffi-boundary.md`](connect-session-core-ffi-boundary.md) — the session-core extraction and TS↔Rust parity surface (4 shared rules + helper boundary).
 - [`connect-identity-parity-proof.md`](../testing-patterns/connect-identity-parity-proof.md) — cross-language byte-parity methodology for identity / signature reproducibility.
 - `.agents/specs/connect/spoke-connect.md` §Method — capability-token — "Canonical encoding (normative)" rule.
-- `.agents/adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md` §Session-core parity — the parity contract this check belongs to.
+- `.agents/adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md` §Decision — parity covers shared rules only.

@@ -188,7 +188,7 @@ Bindings under `crates/spoke-connect/bindings/*` are packaged per language: unif
 | [`.agents/specs/connect/spoke-connect.md`](./spoke-connect.md) | Normative connect wire + embedding |
 | [`.agents/adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md`](../../adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md) | TS client route (pure-TS-minimal) |
 | [`.agents/specs/protocol/spoke-version-release.md`](../protocol/spoke-version-release.md) | Lockstep SemVer + Trusted Publishing |
-| [`.agents/specs/connect/connect-csharp-binding.md`](./connect-csharp-binding.md) | C# uniffi binding decision record |
+| [`.agents/specs/connect/connect-csharp-binding.md`](./connect-csharp-binding.md) | C# uniffi binding current state |
 | [`.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md`](../../adr/implemented/architecture/2026-08-03-connect-binding-channels.md) | Binding channel packaging contract (ADR) |
 | [`packages/spoke-connect-ts/`](../../../packages/spoke-connect-ts) | TS connect client package |
 | [`crates/spoke-connect/`](../../../crates/spoke-connect) | Rust connect crate |

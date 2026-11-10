@@ -12,7 +12,7 @@ Integrators pin at spoke lockstep tag `vX.Y.Z`:
 go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
-Packaging contract: [2026-08-03-connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md) §3.2.
+Packaging contract: [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/connect/connect-publish-strategy.md) §13 (Go — Go modules over git); decision record: [2026-08-03-connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md).
 
 ## Build features
 

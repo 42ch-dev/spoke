@@ -794,7 +794,7 @@ The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenti
 - The hello signature is RFC 8785 JCS + Ed25519 over a role-aware field set: 4 fields for the initiator, 5 for the responder. A responder hello MUST carry `peer_nonce` equal to the initiator's nonce; an initiator rejects a responder hello without it (fail-closed dial binding).
 - A `(peer_id, nonce)` pair is accepted at most once per process, and the nonce of a rejected hello MUST NOT be recorded (retry-safe).
 - Outbound sequence counters are per session and per direction, start at `initial_sequence = 0`, and MUST NOT wrap — the session closes at 2⁵³−1.
-- No op handler runs unless the op's required capability is in `negotiated_capabilities`; every deny path answers the existing wire code and leaves no handler side effect and no session-state advance.
+- No op handler runs unless the op's required capability is in `negotiated_capabilities`; every deny path answers the existing wire code and leaves no handler side effect. Sequence and envelope-auth denies leave session state unadvanced; capability denials occur after the inbound counter advances.
 - protocol_version 2 requires `signature` on `ConnectSession`, `ConnectInvokeRequest` and both `ConnectInvokeResponse` branches; mixed-version or unknown `protocol_version` fails closed with no compat shim and no silent downgrade.
 
 ## Where it lives

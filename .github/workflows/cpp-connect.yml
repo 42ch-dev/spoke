@@ -40,7 +40,8 @@ jobs:
       code: ${{ steps.detect.outputs.code }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
       - name: Detect code changes
@@ -166,6 +167,7 @@ jobs:
 
       - name: Upload Windows native refresh artifact
         # actions/upload-artifact@v4.6.2
+        if: needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spoke-connect-win-x64
@@ -273,6 +275,7 @@ jobs:
 
       - name: Upload macOS native refresh artifact
         # actions/upload-artifact@v4.6.2
+        if: needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spoke-connect-osx-arm64

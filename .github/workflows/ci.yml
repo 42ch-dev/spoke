@@ -1,10 +1,11 @@
 name: CI
 
 on:
-  # Unfiltered on pull requests: verify-codegen / typescript / rust /
-  # verify-version / connect-identity / golden-vector-sync are required checks,
-  # and a required context a path filter skips can never be satisfied. The
-  # docs-only optimization survives on the push side below.
+  # Unfiltered on pull requests: every required context must always be reported.
+  # A docs-only diff short-circuits each heavy job's run steps through the
+  # `changes` job instead of skipping the check; `connect-identity` stays
+  # ungated by design (a green no-op would prove nothing). The push side keeps
+  # the paths-ignore filter below.
   pull_request:
   push:
     branches:
@@ -176,7 +177,6 @@ jobs:
           node-version: 24
 
       - name: Run connect identity proof
-        if: needs.changes.outputs.code == 'true'
         # A required PR check runs on every pull request: a changed-path gate
         # would report this context green without proving anything, and an
         # unscheduled-proof pass is indistinguishable from a real one. The
@@ -346,10 +346,10 @@ jobs:
         run: python3 verify-ke-smoke-results.py build/test-results/test
 
       - name: Upload JUnit XML
-        # Unconditional: a failing smoke must still hand over the XML the count
-        # gate reads.
+        # Unconditional within the code lane: a failing smoke must still hand
+        # over the XML the count gate reads.
         # actions/upload-artifact@v4.6.2
-        if: always()
+        if: always() && needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: kotlin-connect-smoke-junit

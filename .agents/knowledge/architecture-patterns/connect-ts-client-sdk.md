@@ -83,7 +83,7 @@ The `src/core/` barrel mirrors the Rust core's `pub use` block function-for-func
 Normative sources (do not duplicate wire contracts here): root `AGENTS.md`
 (connect boundary bullet) and
 [`.agents/adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md`](../../adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md)
-§Session-core parity. The discipline is how Path A keeps **capability parity**
+§Decision — parity covers shared rules only. The discipline is how Path A keeps **capability parity**
 with the Rust reference without sharing code.
 
 **1. Enumerate the parity surface (in vs out)**

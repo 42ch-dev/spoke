@@ -2,7 +2,7 @@
  * Capability-token issuance and validation over **raw** Ed25519 key bytes.
  *
  * Ported from `crates/spoke-connect/src/core/capability_token.rs`; normative
- * rules `.mstar/specs/spoke-connect.md` §Method — capability-token:
+ * rules `.agents/specs/connect/spoke-connect.md` §Method — capability-token:
  * - Signed claims object = exactly `{iss, sub, aud, capabilities, exp}`
  *   plus optional `iat` / `jti`. Unknown claim keys reject (fail closed) so
  *   the JCS bytes stay intentional.

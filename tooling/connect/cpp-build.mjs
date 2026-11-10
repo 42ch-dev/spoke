@@ -37,7 +37,7 @@
  *
  * `--toolchain <name>` is passed to cargo as `+<name>`; when omitted, the
  * caller's default toolchain is used. Both carrier lanes pin stable `1.98.1`
- * (`.github/workflows/cpp-connect.yml`, `.mstar/specs/connect-binding-channels.md`),
+ * (`.github/workflows/cpp-connect.yml`, `.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md`),
  * and the recorded `rustcVersion` is how a reader tells a lane build from a
  * maintainer-local one — so build with that exact toolchain, not whichever
  * default happens to be installed.

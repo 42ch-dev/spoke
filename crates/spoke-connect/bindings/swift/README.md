@@ -2,7 +2,7 @@
 
 Swift Package Manager library **`SpokeConnect`**: SPOKE Connect session-core bindings (committed uniffi Swift + `spoke_connectFFI` xcframework).
 
-Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.4.
+Packaging contract: [2026-08-03-connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md) §3.4.
 
 ## SPM consume
 

@@ -71,4 +71,4 @@ Optional capabilities use `ComputablePorts` / `ForkPorts` with `orchestrate_proj
 
 Reference **FullAdapter** implementation: [`fixtures/toy-world/`](https://github.com/42ch-dev/spoke/tree/main/fixtures/toy-world) (`ToyWorldAdapter` in crate `spoke-fixture-toy-world` under `rust/`).
 
-Pure functions and port-injected orchestrators over wire types. Normative behavior: [spoke-operations.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-operations.md).
+Pure functions and port-injected orchestrators over wire types. Normative behavior: [spoke-operations.md](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/protocol/spoke-operations.md).

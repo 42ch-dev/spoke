@@ -3,7 +3,7 @@
  * bytes, no libp2p Keypair).
  *
  * Ported from tooling/connect-identity-proof/proof.mjs; normative rules
- * `.mstar/specs/spoke-connect.md` §Signature canonicalization / §Identity
+ * `.agents/specs/connect/spoke-connect.md` §Signature canonicalization / §Identity
  * binding (mirrors `crates/spoke-connect/src/core/hello_crypto.rs`).
  *
  * - Raw 32-byte seed / public key at the boundary.

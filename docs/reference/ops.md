@@ -174,7 +174,7 @@ Thirty-three ops across three capability flags for per-subject memory. Every op 
 | `spoke-memory-reflection` | `memory.reflections.state`, `.list`, `.generate` |
 | `spoke-memory-transfer` | `memory.exports.create`, `.get`, `memory.imports.stage`, `.activate`, `.discard` |
 
-**Family rules.** Read ops return their payload; every mutating op returns a `MemoryReceipt` (`committed` / `pending` / `failed`) whose `result` carries IDs, revisions, counts, outcome enums, digests, and cost facts only. The failure branch is `{ error }` — the shared envelope shape with `details.retry_class` required (`retryable` / `terminal` / `uncertain`). Every mutating op except `memory.subjects.ensure` requires `idempotency_key`, and conditional writes require `expected_revision`. Per-op grant capability, request fields, and error codes are tabulated in the [Memory reference](/reference/memory) and the [family spec](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md).
+**Family rules.** Read ops return their payload; every mutating op returns a `MemoryReceipt` (`committed` / `pending` / `failed`) whose `result` carries IDs, revisions, counts, outcome enums, digests, and cost facts only. The failure branch is `{ error }` — the shared envelope shape with `details.retry_class` required (`retryable` / `terminal` / `uncertain`). Every mutating op except `memory.subjects.ensure` requires `idempotency_key`, and conditional writes require `expected_revision`. Per-op grant capability, request fields, and error codes are tabulated in the [Memory reference](/reference/memory) and the [family spec](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/memory/spoke-memory.md).
 
 ## Shared rules
 

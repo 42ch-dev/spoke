@@ -145,7 +145,7 @@ capture(principal: Principal, request: MemoryCaptureRequest): Promise<SpokeResul
 
 提供方职责留在 adapter 的事务层：授权覆盖与非放大校验、`revision` 比较并设置（CAS）、以 `(space_id, principal, op, idempotency_key)` 为键的持久幂等、回执与去重墓碑、空间冻结与主体/上下文围栏，以及候选审核的原子性。库提供确定性辅助：请求校验器（`validateMemory*`）、授权覆盖（`grantCovers`）、冻结白名单（`isFreezeAllowlisted`）与 JCS/SHA-256 摘要（`jcsSha256Hex`）。通过 connect 提供该族，意味着暴露 connect 自有的 `RemoteMemoryService`。RemoteAdapter 消费方通过该服务代理 memory ops；Rust `spoke-connect` crate 另提供 `MemoryPortService`，用同一准入口径把 `MemoryPort` 适配到它之上。
 
-声明 `spoke-memory-reflection` 或 `spoke-memory-transfer` 需要同时声明 `spoke-memory`；仅声明 `spoke-memory` 的主机在任何处理器运行之前以 `capability_missing` 拒绝反思与传输操作。操作表见 [记忆参考](/zh/reference/memory)，逐操作授权、字段与错误见[族规格](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md)。
+声明 `spoke-memory-reflection` 或 `spoke-memory-transfer` 需要同时声明 `spoke-memory`；仅声明 `spoke-memory` 的主机在任何处理器运行之前以 `capability_missing` 拒绝反思与传输操作。操作表见 [记忆参考](/zh/reference/memory)，逐操作授权、字段与错误见[族规格](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/memory/spoke-memory.md)。
 
 ## 3. 让 adapter 保持 I/O 边界
 

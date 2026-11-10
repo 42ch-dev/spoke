@@ -2,7 +2,7 @@
  * Single-use `(peer_id, nonce)` replay store + hello nonce generator.
  *
  * Ported from `crates/spoke-connect/src/core/nonce.rs`; normative rules
- * `.mstar/specs/spoke-connect.md` §Nonce / replay protection: nonce
+ * `.agents/specs/connect/spoke-connect.md` §Nonce / replay protection: nonce
  * uniqueness is scoped per **sender** `peer_id`; a receiver MUST reject a
  * hello whose `(peer_id, nonce)` pair was already accepted. An in-memory set
  * for the life of the process is sufficient for protocol v1.

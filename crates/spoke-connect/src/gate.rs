@@ -1,6 +1,6 @@
 //! `noise-peerid` accept gate: transport adapter over the pure core rules.
 //!
-//! Normative rules (`.mstar/specs/spoke-connect.md` §Auth model, §Nonce):
+//! Normative rules (`.agents/specs/connect/spoke-connect.md` §Auth model, §Nonce):
 //! - Trust root is the deployment-configured `PeerId` allowlist; the peer is
 //!   the **noise-authenticated** remote id, never the hello's claimed string.
 //! - Empty allowlist rejects all remote peers (fail-closed).

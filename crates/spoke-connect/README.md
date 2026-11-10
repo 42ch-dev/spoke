@@ -525,7 +525,7 @@ module reference: [`bindings/cpp/ue/README.md`](bindings/cpp/ue/README.md).
      (pubkey, peer id, JCS hex, signature). The Rust golden tests, the
      TypeScript client, and every binding smoke load from the SSOT or a
      registered byte-identical copy; the sync gate
-     [`tooling/connect/golden-vector-sync.mjs`](../../../tooling/connect/golden-vector-sync.mjs)
+     [`tooling/connect/golden-vector-sync.mjs`](../../tooling/connect/golden-vector-sync.mjs)
      exits non-zero on any drift.
 - [x] 5. `Multiaddr` / swarm types stay Rust-side at the FFI boundary —
      satisfied by the landed surface.

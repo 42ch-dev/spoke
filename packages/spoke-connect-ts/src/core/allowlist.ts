@@ -2,7 +2,7 @@
  * `noise-peerid` allowlist check (fail-closed).
  *
  * Ported from `crates/spoke-connect/src/core/allowlist.rs`; normative rules
- * `.mstar/specs/spoke-connect.md` §Auth model: the trust root is a
+ * `.agents/specs/connect/spoke-connect.md` §Auth model: the trust root is a
  * deployment-configured peer id allowlist. An empty allowlist rejects every
  * remote peer.
  */

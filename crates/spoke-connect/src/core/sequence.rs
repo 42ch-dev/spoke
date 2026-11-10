@@ -1,6 +1,6 @@
 //! Per-direction session sequence counters (pure; no atomics).
 //!
-//! Normative rules (`.mstar/specs/spoke-connect.md` §Ordering semantics,
+//! Normative rules (`.agents/specs/connect/spoke-connect.md` §Ordering semantics,
 //! §Session-core state machine): each peer maintains its **own** outbound
 //! counter per session starting at 0; inbound invokes are accepted iff
 //! `sequence == next_expected_inbound` (start 0) and then advance by 1.

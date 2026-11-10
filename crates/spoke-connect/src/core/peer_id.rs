@@ -1,7 +1,7 @@
 //! Pure Ed25519 → `peer_id` string derivation (identity binding, protocol
 //! version 1).
 //!
-//! Normative mapping (`.mstar/specs/spoke-connect.md` §Identity binding):
+//! Normative mapping (`.agents/specs/connect/spoke-connect.md` §Identity binding):
 //!
 //! 1. Encode the public key as the libp2p protobuf **`PublicKey`** message:
 //!    field 1 (`Type`) = 1 (**Ed25519**); field 2 (`Data`) = the 32-byte raw

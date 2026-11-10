@@ -1,5 +1,5 @@
 //! Pure session core — the language-portable session rules of the connect
-//! wire family (`.mstar/specs/spoke-connect.md` §Session-core state machine).
+//! wire family (`.agents/specs/connect/spoke-connect.md` §Session-core state machine).
 //!
 //! This module has **no** transport or runtime dependencies: no `libp2p`,
 //! `tokio`, `Multiaddr`, swarm, `request-response` protocol types, or any

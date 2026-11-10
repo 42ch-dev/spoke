@@ -1,0 +1,5 @@
+[config]
+harness_dir=.mstar
+knowledge_dir=.agents/knowledge
+specs_dir=.agents/specs
+adr_dir=.agents/adr

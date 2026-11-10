@@ -1,7 +1,7 @@
 //! Hello signing and verification over **raw** Ed25519 key bytes
 //! (`spoke-connect-hello-jcs-v1`).
 //!
-//! Normative rules (`.mstar/specs/spoke-connect.md` §Signature
+//! Normative rules (`.agents/specs/connect/spoke-connect.md` §Signature
 //! canonicalization, §Identity binding):
 //! - Signed object = exactly `{protocol_version, peer_id, nonce, host}` for
 //!   the **initiator** hello (4 fields), and exactly

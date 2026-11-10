@@ -66,8 +66,8 @@ Every `MindDelta.path` is an RFC 6901 JSON Pointer rooted at `/modules/mental/<f
 Field-level detail lives on the reference and spec surfaces:
 
 - [Data model reference — Cognition](/reference/data-model#cognition-spoke-cognition) — record shapes, `q` and optional metrics, filter grammar and projection rules.
-- [Data-model field tables — §MindState](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-data-model.md) — required / optional fields and shared `MentalFieldMap` / `MindDelta` definitions.
-- [Mental-state Domain Profile](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/domain-profile-mental-state.md) — `modules.mental` nine-field vocabulary, `modules.observation`, MindState record sketch.
+- [Data-model field tables — §MindState](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/protocol/spoke-data-model.md) — required / optional fields and shared `MentalFieldMap` / `MindDelta` definitions.
+- [Mental-state Domain Profile](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/domain-profiles/domain-profile-mental-state.md) — `modules.mental` nine-field vocabulary, `modules.observation`, MindState record sketch.
 - [MindState schema](https://github.com/42ch-dev/spoke/blob/main/schemas/data/mind-state.schema.json) — the committed wire schema.
 
 ## Related

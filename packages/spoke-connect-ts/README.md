@@ -6,7 +6,7 @@ Published on npm as `@42ch/spoke-connect`; the version tracks the monorepo locks
 
 ## What it provides
 
-- **Identity** — `derivePeerIdFromEd25519Pubkey`: protobuf PublicKey → identity multihash `0x00` → base58btc. Ported from `tooling/connect-identity-proof/proof.mjs`; the normative formula lives in `.mstar/specs/spoke-connect.md` § Identity binding.
+- **Identity** — `derivePeerIdFromEd25519Pubkey`: protobuf PublicKey → identity multihash `0x00` → base58btc. Ported from `tooling/connect-identity-proof/proof.mjs`; the normative formula lives in `.agents/specs/connect/spoke-connect.md` § Identity binding.
 - **Crypto** — Ed25519 sign/verify over raw 32-byte keys, WebCrypto primary with an `@noble/ed25519` fallback on the same code path; base64url without padding.
 - **JCS** — `canonicalHelloBytes(peerId, nonce, host, peerNonce?)`: RFC 8785 canonicalization of the signed hello object via the pinned `canonicalize` package — `{protocol_version, peer_id, nonce, host}` for the initiator hello (4 fields), plus `peer_nonce` for the responder hello (5 fields, dial binding). Absent optional members are omitted; only present members appear in the canonical object.
 - **Session core** (`src/core/`) — behavior port of `crates/spoke-connect/src/core/`: `OutboundSequence` / `InboundSequence` (start 0, exhaustion instead of wrap past `2^53−1`), response correlation (session_id / sequence / request_id echo), op dispatch gate (capability ⊆ negotiated, unknown op fails closed), per-sender `NonceStore`, fail-closed allowlist, thin `Session` helper, `PROTOCOL_VERSION`.
@@ -71,7 +71,7 @@ The two-node interop test (`tests/two-node.test.ts`) runs an in-process `ws` ser
 
 - Published on npm (`@42ch/spoke-connect`); ships a built `dist/` via tsup (dual CJS/ESM, two isolated entries — browser-safe `.` and Node `./node`).
 - The package consumes the existing connect schemas as-is (`@42ch/spoke-schemas` runtime dependency; types only from the consumer's perspective); the schema inventory is unchanged.
-- Envelope-level interop over any ordered reliable stream; framing is direct WebSocket per `.mstar/specs/spoke-connect.md` § Transport framing.
+- Envelope-level interop over any ordered reliable stream; framing is direct WebSocket per `.agents/specs/connect/spoke-connect.md` § Transport framing.
 - The client targets the direct ordered-stream transport.
 - `connectClient` lives in the Node `src/node/` subpath (uses `ws`); the isomorphic `src/` modules are browser-swappable with the native WebSocket.
 

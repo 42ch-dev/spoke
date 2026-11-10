@@ -1,6 +1,6 @@
 //! Connect protocol constants (protocol v1).
 //!
-//! Normative semantics: `.mstar/specs/spoke-connect.md` in the SPOKE repo.
+//! Normative semantics: `.agents/specs/connect/spoke-connect.md` in the SPOKE repo.
 //!
 //! Crate-private: protocol names, version, and transport acknowledgement
 //! shapes are internal composition facts (documented in the crate README),
@@ -25,7 +25,7 @@ pub(crate) const INVOKE_PROTOCOL: &str = "/spoke/connect/invoke/1.0.0";
 pub(crate) const AUTH_PROTOCOL: &str = "/spoke/connect/auth/1.0.0";
 
 /// The normative `capability-token` method name (open vocabulary, see
-/// `.mstar/specs/spoke-connect.md` §`method` core vocabulary).
+/// `.agents/specs/connect/spoke-connect.md` §`method` core vocabulary).
 pub(crate) const METHOD_CAPABILITY_TOKEN: &str = "capability-token";
 
 /// Minimum length of the challenge nonce (`challenge`), per the

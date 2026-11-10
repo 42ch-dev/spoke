@@ -136,5 +136,5 @@ Consumers of the NuGet package never run bindgen.
 - Package readme: [`../PACKAGE.md`](../PACKAGE.md)
 - Fork recipe: [`../bindgen/README.md`](../bindgen/README.md)
 - FFI surface: [`../../../src/ffi.rs`](../../../src/ffi.rs)
-- Publish strategy: [`.mstar/specs/connect-publish-strategy.md`](../../../../../.mstar/specs/connect-publish-strategy.md)
-- Decision record: [`.mstar/specs/connect-csharp-binding.md`](../../../../../.mstar/specs/connect-csharp-binding.md)
+- Publish strategy: [`.agents/specs/connect/connect-publish-strategy.md`](../../../../../.agents/specs/connect/connect-publish-strategy.md)
+- Decision record: [`.agents/specs/connect/connect-csharp-binding.md`](../../../../../.agents/specs/connect/connect-csharp-binding.md)

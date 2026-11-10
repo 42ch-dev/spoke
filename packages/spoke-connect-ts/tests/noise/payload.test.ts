@@ -1,6 +1,6 @@
 /**
  * libp2p Noise identity payload gates (Task 3, connect-ts-noise-stack) —
- * frozen contract `.mstar/specs/noise-xx-libp2p-contract.md` §4:
+ * frozen contract `.agents/specs/connect/noise-xx-libp2p-contract.md` §4:
  *
  *   - §4.2 domain-separated Ed25519 signature over
  *     `"noise-libp2p-static-key:" || static_public_x25519`,

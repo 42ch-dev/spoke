@@ -2,7 +2,7 @@
 
 PyPI package **`spoke-connect`**: SPOKE Connect session-core bindings (generated uniffi Python + native `spoke_connect` / `libspoke_connect`).
 
-Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3.
+Packaging contract: [2026-08-03-connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.agents/adr/implemented/architecture/2026-08-03-connect-binding-channels.md) §3.3.
 
 ## Install
 
@@ -131,4 +131,4 @@ v1 publishes **platform wheels only** (no sdist): a source install cannot produc
 - Release wheels (all RIDs): [`tooling/connect/build-python-wheels-from-ffi.sh`](../../../../tooling/connect/build-python-wheels-from-ffi.sh)
 - Pre-publish inventory gate: [`tooling/connect/verify-python-wheels.sh`](../../../../tooling/connect/verify-python-wheels.sh)
 - FFI surface: [`../../src/ffi.rs`](../../src/ffi.rs)
-- Publish strategy: [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-publish-strategy.md)
+- Publish strategy: [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/connect/connect-publish-strategy.md)

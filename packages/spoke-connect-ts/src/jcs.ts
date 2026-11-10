@@ -1,7 +1,7 @@
 /**
  * RFC 8785 JCS canonicalization for connect hello signed objects.
  *
- * Normative: `.mstar/specs/spoke-connect.md` §Signature canonicalization;
+ * Normative: `.agents/specs/connect/spoke-connect.md` §Signature canonicalization;
  * mirrors `crates/spoke-connect/src/core/hello_crypto.rs`
  * `canonical_hello_bytes` (spoke-connect-hello-jcs-v1).
  *

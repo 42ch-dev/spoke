@@ -8,7 +8,7 @@
  * carries the inputs AND the pinned output bytes — transcribed from
  * committed libp2p-captured constants, never regenerated.
  *
- * Normative: .mstar/specs/spoke-connect.md §Identity binding / §Signature canonicalization
+ * Normative: .agents/specs/connect/spoke-connect.md §Identity binding / §Signature canonicalization
  *
  * Usage: node tooling/connect-identity-proof/proof.mjs
  */

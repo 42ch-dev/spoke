@@ -145,7 +145,7 @@ capture(principal: Principal, request: MemoryCaptureRequest): Promise<SpokeResul
 
 Provider duties stay in your adapter's transaction layer: grant coverage and non-amplification, `revision` compare-and-set, durable idempotency keyed on `(space_id, principal, op, idempotency_key)`, receipts and dedup tombstones, space freeze and subject/context fencing, and atomic candidate review. The library supplies the deterministic helpers — request validators (`validateMemory*`), grant coverage (`grantCovers`), the freeze allowlist (`isFreezeAllowlisted`), and JCS/SHA-256 digests (`jcsSha256Hex`). Serving the family over connect means exposing the connect-owned `RemoteMemoryService`. RemoteAdapter consumers proxy memory ops through that service; the Rust `spoke-connect` crate also ships `MemoryPortService`, which adapts a `MemoryPort` to it with the same admission context.
 
-Declaring `spoke-memory-reflection` or `spoke-memory-transfer` requires `spoke-memory`; a host that declares only `spoke-memory` answers the reflection and transfer ops with `capability_missing` before any handler runs. See the [Memory reference](/reference/memory) for the op table and the [family spec](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md) for per-op grants, fields, and errors.
+Declaring `spoke-memory-reflection` or `spoke-memory-transfer` requires `spoke-memory`; a host that declares only `spoke-memory` answers the reflection and transfer ops with `capability_missing` before any handler runs. See the [Memory reference](/reference/memory) for the op table and the [family spec](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/memory/spoke-memory.md) for per-op grants, fields, and errors.
 
 ## 3. Keep the adapter I/O-bound
 

@@ -87,4 +87,4 @@ Optional capabilities use the composed port types (`ComputablePorts`, `ForkPorts
 
 Reference **FullAdapter** implementation: [`fixtures/toy-world/`](https://github.com/42ch-dev/spoke/tree/main/fixtures/toy-world) (`ToyWorldAdapter` in TypeScript `src/adapter/`).
 
-Helpers and orchestrators are pure relative to host I/O — all reads and writes go through injected ports. Normative behavior: [spoke-operations.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-operations.md).
+Helpers and orchestrators are pure relative to host I/O — all reads and writes go through injected ports. Normative behavior: [spoke-operations.md](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/protocol/spoke-operations.md).

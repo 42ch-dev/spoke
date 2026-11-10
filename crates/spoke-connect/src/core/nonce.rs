@@ -1,6 +1,6 @@
 //! Single-use `(peer_id, nonce)` replay store.
 //!
-//! Normative rules (`.mstar/specs/spoke-connect.md` §Nonce / replay
+//! Normative rules (`.agents/specs/connect/spoke-connect.md` §Nonce / replay
 //! protection): nonce uniqueness is scoped per **sender** `peer_id`; a
 //! receiver MUST reject a hello whose `(peer_id, nonce)` pair was already
 //! accepted. An in-memory set for the life of the process is sufficient for

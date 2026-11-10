@@ -13,7 +13,7 @@ When sources disagree, use this order:
 | Rank | Source | Why |
 |------|--------|-----|
 | 1 | `schemas/` | Hand-authored JSON Schema. Field names, required sets, patterns and closed objects are defined here |
-| 2 | `.mstar/specs/` | Normative protocol prose: layers, data model, ops, memory, connect, bindings |
+| 2 | `.agents/specs/` | Normative protocol prose: layers, data model, ops, memory, connect, bindings |
 | 3 | `/reference/*` | Field tables and envelopes derived from the schemas |
 | 4 | `/how-to/*`, `/tutorials/*` | Procedures and code samples; they assume the reference facts |
 | 5 | `/explanation/*` | Concepts and boundaries |

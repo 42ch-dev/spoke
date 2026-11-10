@@ -29,7 +29,7 @@ import type {
 
 /**
  * Envelope-auth core tests — mirror the locked contract
- * (`.mstar/specs/spoke-connect.md` §Envelope authentication):
+ * (`.agents/specs/connect/spoke-connect.md` §Envelope authentication):
  * algorithm ids, exact signed-field sets, conditional-`auth` inclusion,
  * oneOf invoke-response branch separation, canonical base64url round-trip,
  * and the fail-closed verify order with stable `details.kind` values.

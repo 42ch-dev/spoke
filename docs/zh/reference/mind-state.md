@@ -66,8 +66,8 @@ title: MindState
 字段级细节位于参考与 spec 表面：
 
 - [数据模型参考 —— 认知](/zh/reference/data-model#cognition-spoke-cognition) —— 记录形状、`q` 与可选指标、过滤语法与投影规则。
-- [数据模型字段表 —— §MindState](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-data-model.md) —— 必填 / 可选字段与共享 `MentalFieldMap` / `MindDelta` 定义。
-- [心智状态领域画像](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/domain-profile-mental-state.md) —— `modules.mental` 九字段词汇、`modules.observation`、MindState 记录草图。
+- [数据模型字段表 —— §MindState](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/protocol/spoke-data-model.md) —— 必填 / 可选字段与共享 `MentalFieldMap` / `MindDelta` 定义。
+- [心智状态领域画像](https://github.com/42ch-dev/spoke/blob/main/.agents/specs/domain-profiles/domain-profile-mental-state.md) —— `modules.mental` 九字段词汇、`modules.observation`、MindState 记录草图。
 - [MindState schema](https://github.com/42ch-dev/spoke/blob/main/schemas/data/mind-state.schema.json) —— 已提交的线上 schema。
 
 ## 相关页面

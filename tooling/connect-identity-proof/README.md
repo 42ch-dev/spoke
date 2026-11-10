@@ -14,7 +14,7 @@ Against golden vectors from the Rust pure session core (`crates/spoke-connect` `
 4. base64url (no padding) of the 64-byte raw signature
 5. Ed25519 verify of the golden signature
 
-Normative rules: [`.mstar/specs/spoke-connect.md`](../../.mstar/specs/spoke-connect.md) §Identity binding and §Signature canonicalization.
+Normative rules: [`.agents/specs/connect/spoke-connect.md`](../../.agents/specs/connect/spoke-connect.md) §Identity binding and §Signature canonicalization.
 
 ## Run
 

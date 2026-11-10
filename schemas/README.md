@@ -2,7 +2,7 @@
 
 SPOKE wire contracts. **Hand-authored only** — TypeScript and Rust types are generated into `packages/spoke-schemas/` and `crates/spoke-schemas/`.
 
-Normative docs: [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md) (umbrella), [`spoke-protocol-layers.md`](../.mstar/specs/spoke-protocol-layers.md) (L0–L8), [`spoke-data-model.md`](../.mstar/specs/spoke-data-model.md) (data layer), [`spoke-ops.md`](../.mstar/specs/spoke-ops.md) (ops layer).
+Normative docs: [`spoke-protocol.md`](../.agents/specs/protocol/spoke-protocol.md) (umbrella), [`spoke-protocol-layers.md`](../.agents/specs/protocol/spoke-protocol-layers.md) (L0–L8), [`spoke-data-model.md`](../.agents/specs/protocol/spoke-data-model.md) (data layer), [`spoke-ops.md`](../.agents/specs/protocol/spoke-ops.md) (ops layer).
 
 ## Layout (protocol layers deepen)
 
@@ -134,7 +134,7 @@ connect/
 └── connect-auth-response.schema.json  # method-specific proof
 ```
 
-**Total:** **114** hand-authored schema files (2 common + 24 data + 82 ops + 6 connect). 79 `spoke-memory` schemas (13 data + 66 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `cognition` and `mind-state` under the opt-in `spoke-cognition` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
+**Total:** **114** hand-authored schema files (2 common + 24 data + 82 ops + 6 connect). 79 `spoke-memory` schemas (13 data + 66 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `cognition` and `mind-state` under the opt-in `spoke-cognition` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.agents/specs/protocol/spoke-protocol.md).
 
 ## Naming conventions
 

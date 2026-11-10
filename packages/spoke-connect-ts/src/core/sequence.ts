@@ -2,7 +2,7 @@
  * Per-direction session sequence counters (pure; no atomics).
  *
  * Ported from `crates/spoke-connect/src/core/sequence.rs`; normative rules
- * `.mstar/specs/spoke-connect.md` §Ordering semantics / §Session-core state
+ * `.agents/specs/connect/spoke-connect.md` §Ordering semantics / §Session-core state
  * machine: each peer maintains its **own** outbound counter per session
  * starting at 0; inbound invokes are accepted iff
  * `sequence == next_expected_inbound` (start 0) and then advance by 1. When

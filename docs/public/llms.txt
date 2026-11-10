@@ -8,7 +8,7 @@ Agent reading contract: https://spoke.42ch.dev/agents
 ## Ground truth, in order
 
 1. `schemas/` — hand-authored JSON Schema. Field names, required sets and enums are authoritative here.
-2. `.mstar/specs/` — normative prose specs (protocol, data model, ops, memory, connect, bindings).
+2. `.agents/specs/` — normative prose specs (protocol, data model, ops, memory, connect, bindings).
 3. `docs/reference/` — integrator field tables derived from the schemas.
 4. `docs/how-to/` and `docs/tutorials/` — task procedures and code samples.
 5. `docs/explanation/` — concepts and boundaries.

@@ -46,7 +46,7 @@
 //! `details.kind` and leaves the session state untouched; a replayed or
 //! out-of-order sequence is answered with an `invalid_sequence` wire
 //! envelope — no handler side effect runs for either (normative ordering
-//! rule, `.mstar/specs/spoke-connect.md` §Ordering semantics). Accepted
+//! rule, `.agents/specs/connect/spoke-connect.md` §Ordering semantics). Accepted
 //! invokes pass the op dispatch gate first: an op whose required capability
 //! is absent from the session's `negotiated_capabilities` (the intersection
 //! of both manifests, computed at session establishment) is answered with an
@@ -1014,7 +1014,7 @@ impl EventLoop {
                             );
                         };
                         // Op dispatch gate (normative MUST,
-                                // `.mstar/specs/spoke-connect.md` §Op
+                                // `.agents/specs/connect/spoke-connect.md` §Op
                                 // dispatch gate): a host that performs
                                 // op dispatch must not run an op whose
                                 // required capability is absent from the
@@ -1372,7 +1372,7 @@ impl EventLoop {
             return;
         };
         // Negotiated capabilities = intersection of both hosts' manifests
-        // (normative rule, `.mstar/specs/spoke-connect.md` §Negotiation),
+        // (normative rule, `.agents/specs/connect/spoke-connect.md` §Negotiation),
         // evaluated once at session establishment. Iterating the local
         // capabilities and keeping those the remote also declared makes the
         // result deterministic in local manifest order.

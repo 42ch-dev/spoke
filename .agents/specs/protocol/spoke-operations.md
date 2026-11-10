@@ -1,0 +1,1083 @@
+# SPOKE Operations Library
+
+> **Status:** Normative (operations library — pure helpers, capability-sliced adapter ports, and injection orchestration)  
+> **Document class:** Detail — hand-written behavior layer (column 3)  
+> **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
+> **Package (TypeScript):** `@42ch/spoke-operations` under `packages/spoke-operations/`  
+> **Crate (Rust):** `spoke-operations` under `crates/spoke-operations/` — behavioral parity with the TypeScript package at lockstep SemVer
+
+## Scope
+
+The hand-written operations behavior layer (column 3) delivered as `@42ch/spoke-operations` and
+`spoke-operations`: the three-way boundary against wire schemas and adapters, the `SpokeResult` /
+`SpokeRejectCode` reject envelope, the pure helper families, the capability-sliced adapter port contracts, the
+injection orchestration entrypoints, and the package contract.
+
+It does not define wire shapes (see `spoke-data-model.md` and `spoke-ops.md`), and it performs no I/O, storage,
+LLM, ranking or retrieval.
+
+## Current state
+
+### Problem & user value
+
+Wire schemas (`@42ch/spoke-schemas`) tell integrators **what** crosses the boundary. They do not encode cross-product **lifecycle invariants** — promote gates, Finding status rules, extension round-trip preservation, or wire-valid `AssemblePacket` construction.
+
+Without a shared operations library, every product reimplements the same pure rules and drifts. **`@42ch/spoke-operations`** (TypeScript) and **`spoke-operations`** (Rust) are the hand-written surfaces for those invariants: pure helpers plus capability-sliced adapter ports and injection orchestration. The library performs **no** I/O, storage, LLM, ranking, or retrieval; product adapters supply persistence and query through injected ports.
+
+**Integrator outcome:** import types from `@42ch/spoke-schemas` / `spoke-schemas`, implement the port families for the capability flags you claim, call orchestration entrypoints (or pure helpers directly), and bind transport locally.
+
+---
+
+### Three-way boundary (normative)
+
+| Layer | Authored how | Owns | Does not own |
+|-------|--------------|------|--------------|
+| **Wire schemas** | Hand-written JSON Schema in `schemas/` → generated `@42ch/spoke-schemas` | Object shapes, ops request/response envelopes, `extensions` bag presence | Lifecycle transitions, merge semantics, promote gates |
+| **Operations library** | Hand-written TypeScript in `packages/spoke-operations/`; hand-written Rust in `crates/spoke-operations/` | Pure helpers over generated types; capability-sliced port contracts; injection orchestration | HTTP/MCP, persistence engines, LLM, ranking, retrieval, product-specific detectors |
+| **Adapters** | Hand-written per product in consumer repositories, or as reference examples in `fixtures/toy-world/` | Product DTO ↔ SPOKE mapping; transport binding; port implementations | Reimplementing operations invariants (MUST call library instead) |
+
+#### Hard In / Out
+
+| **In (library MUST provide)** | **Out (library MUST NOT)** |
+|---------------------------------|----------------------------|
+| Extension map merge + round-trip preserve | Storage read/write; fetch stored KnowledgeEntry inside library |
+| Finding `status` transition validation + apply | HTTP routes, MCP tools, message queues, HTTP status code tables |
+| Promote acceptance checks (pure gate before persist) | LLM calls, checker engines, Guardian logic |
+| AssemblePacket builders from KnowledgeEntries (structure only) | Ranking, scoring, vector retrieval, token budgeting |
+| Unified `SpokeResult` / `SpokeRejectCode` on every reject path — **both** language packages | Silent auto-promote bypassing human review semantics |
+| Revision bump on promote apply (see §Promote acceptance) | — |
+| OCC revision compare (`assertRevisionMatch` / `assert_revision_match`) | — |
+| KnowledgeEntry status transitions + active uniqueness | Product `world_id` / `book_id` as required core fields |
+| Scope match, upsert/relate gates, error-envelope map | `scope_id` parsing; retrieval engines |
+| Body attribute list/filter/read by `trait_type` | Attribute upsert, merge, or validation that rejects unknown traits |
+| Computable shape validators (`validateComputableFieldMap`, log entry, project/compute request gates) | Compute engine execution, WASM, Session store I/O |
+| Capability-sliced adapter ports + injection orchestration entrypoints | Product DTO field maps; storage/HTTP/LLM imports inside the library |
+
+#### Per-family In / Out
+
+| Family | **In** | **Out** |
+|--------|--------|---------|
+| **Extensions** | Deep merge; overlay wins scalars; preserve unknown namespaces/keys | Dropping empty `{}` namespaces; mutating inputs |
+| **Finding** | Transition table enforcement; no-op same-status; structured reject | Product-specific workflow beyond cross-product minimum |
+| **Promote** | Provisional gate; terminal-status reject; revision bump; merge-target id guard; OCC via caller-supplied revisions | Persist; fetch stored KnowledgeEntry |
+| **Assemble** | Wire-valid `AssemblePacket`; `snippet` from `body.summary` rule; order-preserving `maxEntries` truncate | Sort, rank, dedupe, token count, embedding search |
+| **OCC** | `assertRevisionMatch` on caller-supplied integers | Storage fetch |
+| **KnowledgeEntry** | Status transition table; active uniqueness over caller set | Product `world_id` / `book_id` required fields |
+| **Scope** | KnowledgeEntry + TimelineEvent refinement filters | `scope_id` parsing; retrieval |
+| **Body attributes** | List/filter `body.attributes` by `trait_type`; skip malformed wire elements | Attribute upsert, merge, ranking, defaulting |
+| **Upsert / Relate** | Create/update revision rules; self-edge reject | Persist |
+| **Error map** | `SpokeReject` ↔ `ErrorEnvelope` code stability | HTTP/MCP status mapping |
+| **Computable** | Field-map, log-entry, project/compute request shape gates | Engine execution, WASM, Session I/O |
+
+---
+
+### Result / reject envelope (normative)
+
+All helpers that can fail MUST return the same discriminated union — no thrown errors for expected reject paths, no ad-hoc `{ error: string }` shapes.
+
+```typescript
+type SpokeOk<T = void> = [T] extends [void]
+  ? { ok: true }
+  : { ok: true; value: T };
+
+type SpokeReject = {
+  ok: false;
+  code: SpokeRejectCode;
+  message: string;
+  details?: Record<string, unknown>;
+};
+
+type SpokeResult<T = void> = SpokeOk<T> | SpokeReject;
+```
+
+| Rule | Requirement |
+|------|-------------|
+| Success | `ok: true`; payload helpers use `value`, validators may omit it |
+| Failure | `ok: false` with stable `code` + human-readable `message` |
+| `details` | Optional structured context (e.g. `{ from, to }` on transition reject) — not a second error channel |
+| Throwing | Unexpected programmer errors only; lifecycle rejects are **never** thrown |
+
+#### `SpokeRejectCode` (normative)
+
+Stable string literals exported from `@42ch/spoke-operations` and `spoke-operations` (e.g. TS `as const` object + union type; Rust `SpokeRejectCode` with `as_str()` returning the same literals). Implementers MUST NOT invent parallel code strings.
+
+| Code | Family | Emitted by baseline helpers | Emitted by deepen / orchestration | Meaning |
+|------|--------|----------------------------|-----------------------------------|---------|
+| `INVALID_INPUT` | shared | yes | yes | Argument fails shape/null checks before domain rules |
+| `INVALID_STATUS` | finding | yes | yes | `to` (or current `finding.status`) not in core vocabulary |
+| `INVALID_STATUS_TRANSITION` | finding | yes | yes | Disallowed `from` → `to` (see transition table) |
+| `CANDIDATE_NOT_PROVISIONAL` | promote | yes | yes | `candidate.status` ≠ `provisional` (default gate) |
+| `CANDIDATE_TERMINAL_STATUS` | promote | yes | yes | `candidate.status` is `merged` or `deleted` |
+| `EMPTY_CANONICAL_NAME` | promote | yes | yes | `canonical_name` missing or whitespace-only |
+| `MERGE_TARGET_SELF` | promote | yes | yes | `target_entry_id` equals `candidate.entry_id` |
+| `MISSING_REQUIRED_FIELD` | promote / upsert | yes | yes | Required KnowledgeEntry field absent (schema-aligned check) |
+| `INVALID_PACKET_INPUT` | assemble | yes | yes | e.g. empty `packetId`, negative `maxEntries` |
+| `REVISION_CONFLICT` | occ | reserved | **yes** | `actualRevision < expectedRevision` (caller ahead of store) |
+| `STORED_REVISION_STALE` | occ | reserved | **yes** | `actualRevision > expectedRevision` (caller behind store) |
+| `INVALID_KNOWLEDGE_ENTRY_STATUS` | knowledge-entry | — | **yes** | Proposed KnowledgeEntry `status` not in core vocabulary |
+| `INVALID_KNOWLEDGE_ENTRY_STATUS_TRANSITION` | knowledge-entry | — | **yes** | Disallowed KnowledgeEntry `from` → `to` |
+| `DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY` | uniqueness | — | **yes** | Second active KnowledgeEntry for same `(scope_key, entry_type, canonical_name)` |
+| `KNOWLEDGE_ENTRY_NOT_FOUND` | upsert | — | **yes** | Update path but no `stored` KnowledgeEntry supplied |
+| `KNOWLEDGE_ENTRY_ALREADY_EXISTS` | upsert | — | **yes** | Create path but `stored` KnowledgeEntry already present |
+| `KNOWLEDGE_ENTRY_TERMINAL_STATUS` | upsert | — | **yes** | Update rejected because `stored.status` is `merged` or `deleted` |
+| `RELATION_SELF_EDGE` | relate | — | **yes** | `from_id === to_id` |
+| `RELATION_MISSING_ENDPOINT` | relate | — | **yes** | `from_id` or `to_id` missing or whitespace-only |
+| `RELATION_NOT_FOUND` | relate | — | **yes** | Update path but no stored Relation |
+| `RELATION_ALREADY_EXISTS` | relate | — | **yes** | Create path but stored Relation already present |
+| `CAPABILITY_PORT_MISSING` | orchestration | — | **yes** | An optional orchestrator was called without the injected port required by its claimed capability |
+
+---
+
+### First-slice helper inventory
+
+Four families. Export names below are **normative** for the first slice; module layout under `src/` may group them, but public `src/index.ts` MUST expose these symbols.
+
+#### 1. Extensions — `extensions/*`
+
+| Export | Purpose | Purity |
+|-------------------|---------|--------|
+| `mergeExtensionMaps(base, overlay)` | Deep-merge two `ExtensionMap`s; overlay wins on scalar conflicts; all namespace keys from both inputs appear in output | Pure, non-mutating |
+| `preserveExtensionMaps(source, target)` | Produce merged map: `target` fields win for known keys; **unknown namespaces and unknown keys inside a namespace** from `source` are retained | Pure, non-mutating |
+| `mergeModuleMaps(base, overlay)` | Deep-merge two `ModuleMap`s with the same namespace-merge core; object values deep-merge; array/other values overlay-replace base | Pure, non-mutating |
+| `preserveModuleMaps(source, target)` | Produce merged map: `target` wins for known keys; **unknown module namespaces** (object or array values) from `source` are retained | Pure, non-mutating |
+
+**Product rules encoded:**
+
+- Unknown namespace keys MUST survive round-trip (aligns with [`spoke-data-model.md` §Extensions](spoke-data-model.md#extensions-normative) and §Modules).
+- Empty namespace objects `{}` are valid and MUST NOT be dropped.
+- `ModuleMap` values may be objects **or** arrays; merge deep-merges objects and replaces arrays (no element-wise merge).
+- Extension and module helpers share one internal namespace-merge core; thin wrappers preserve separate public names.
+
+**Tests must cover:** unknown keys under two distinct namespaces preserved; overlay does not delete sibling namespaces; module object-valued and array-valued namespaces round-trip; empty/absent `modules` valid.
+
+Bag placement: [`spoke-extension-modules.md`](../extensions/spoke-extension-modules.md). Capability flag: `narrative-modules` in [`spoke-protocol-layers.md`](spoke-protocol-layers.md).
+
+---
+
+#### 2. Finding lifecycle — `finding/*`
+
+| Export | Purpose | Purity |
+|-------------------|---------|--------|
+| `isValidFindingStatusTransition(from, to)` | Boolean guard for allowed transitions | Pure |
+| `transitionFindingStatus(finding, to)` | Return `SpokeResult<Finding>` — updated `status` + `updated_at` on success | Pure, non-mutating input |
+
+**Core vocabulary** (documented in schema, enforced here): `open`, `resolved`, `dismissed`.
+
+**Allowed transitions (first slice):**
+
+| From | To | Notes |
+|------|-----|-------|
+| `open` | `resolved` | User/checker resolved |
+| `open` | `dismissed` | Intentionally ignored |
+| `resolved` | `open` | Reopen |
+| `dismissed` | `open` | Undismiss / reopen |
+| same | same | No-op accept |
+
+**Rejected:** any transition not in the table (e.g. `resolved` → `dismissed` without passing through `open`). Products MAY use extension namespaces for product-specific workflow — library enforces **cross-product minimum**.
+
+**Reject codes:** `INVALID_STATUS`, `INVALID_STATUS_TRANSITION` (see §Result / reject envelope).
+
+**Tests must cover:** each allowed edge, representative rejects, no-op same-status.
+
+---
+
+#### 3. Promote acceptance — `promote/*`
+
+| Export | Purpose | Purity |
+|-------------------|---------|--------|
+| `validatePromoteRequest(request)` | Validate `PromoteRequest` shape + lifecycle rules; return `SpokeResult<void>` | Pure |
+| `applyPromoteAcceptance(request)` | On success, return `SpokeResult<KnowledgeEntry>` — promoted view (`status: confirmed`, revision bump per below); does **not** persist | Pure |
+
+**Rules encoded (minimum):**
+
+- `candidate` MUST satisfy KnowledgeEntry required fields (delegate to schema-shaped checks, not a parallel DTO).
+- `candidate.status` MUST be `provisional` unless product documents an explicit override path (default: reject non-provisional → `CANDIDATE_NOT_PROVISIONAL`).
+- `candidate.canonical_name` MUST be non-empty (`minLength` semantics → `EMPTY_CANONICAL_NAME`).
+- If `target_entry_id` present: MUST NOT equal `candidate.entry_id` → `MERGE_TARGET_SELF`; merge semantics are structural only (no storage fetch).
+- Reject `candidate` in terminal KnowledgeEntry statuses (`merged`, `deleted`) → `CANDIDATE_TERMINAL_STATUS`.
+- **Human-in-loop invariant:** library never silently upgrades provisional → confirmed without caller explicitly invoking promote acceptance (no hidden side effects).
+
+**Revision bump on apply (normative):**
+
+| `candidate.revision` before apply | `revision` on returned KnowledgeEntry |
+|-----------------------------------|---------------------------------|
+| absent / `undefined` | `1` |
+| integer ≥ 0 | `candidate.revision + 1` |
+
+Returned KnowledgeEntry also sets `status: "confirmed"`. Other fields are shallow-copied from `candidate` unless promote rules explicitly transform them. Library does **not** set `updated_at` unless a later slice adds an optional clock parameter — operations library first slice leaves timestamps to the caller/adapter.
+
+**Reject codes:** `CANDIDATE_NOT_PROVISIONAL`, `CANDIDATE_TERMINAL_STATUS`, `EMPTY_CANONICAL_NAME`, `MERGE_TARGET_SELF`, `MISSING_REQUIRED_FIELD`, `INVALID_INPUT`.
+
+**Tests must cover:** happy path provisional→confirmed, reject deleted/merged candidate, reject empty name, merge-target id collision, revision `undefined`→`1`, revision `2`→`3`.
+
+**OCC before persist (operations library deepen):** upsert update and promote paths SHOULD call `assertRevisionMatch` (§5) with caller-supplied `expectedRevision` and `actualRevision` — library never fetches storage.
+
+---
+
+#### 4. AssemblePacket builder — `assemble/*`
+
+| Export | Purpose | Purity |
+|-------------------|---------|--------|
+| `knowledgeEntryToAssembleEntry(knowledgeEntry)` | Map `KnowledgeEntry` → slim `AssembleEntry` per rules below | Pure |
+| `buildAssemblePacket({ packetId, knowledgeEntries, extensions?, maxEntries? })` | Build valid `AssemblePacket`; `maxEntries` truncates **input order** only (no sort/rank) | Pure |
+
+**`knowledgeEntryToAssembleEntry` mapping (normative):**
+
+| Output field | Source |
+|--------------|--------|
+| `entry_id` | `knowledgeEntry.entry_id` |
+| `entry_type` | `knowledgeEntry.entry_type` |
+| `canonical_name` | `knowledgeEntry.canonical_name` |
+| `snippet` | See rule below — **omit key** when rule does not apply |
+
+**`snippet` from `body.summary`:**
+
+1. Read `knowledgeEntry.body` as a record; if `body.summary` is **not** a string, omit `snippet`.
+2. If it is a string, `trim()` it; if trimmed length is `0`, omit `snippet`.
+3. Otherwise set `snippet` to the trimmed string.
+
+Do **not** coerce non-strings, fall back to other `body` keys, or emit `snippet: ""`.
+
+**`buildAssemblePacket`:** maps each input KnowledgeEntry via `knowledgeEntryToAssembleEntry`; when `maxEntries` is a positive integer, keep the first *n* entries in input order; when omitted, include all. Reject invalid args via `INVALID_PACKET_INPUT`.
+
+**Explicitly out:** scoring, embedding search, deduplication by relevance, token counting.
+
+**Tests must cover:** empty knowledge entry list, snippet present/absent/whitespace-only, non-string `body.summary`, `maxEntries` truncation preserves order, `extensions` passthrough.
+
+---
+
+### Helper families (operations deepen + computable)
+
+Deepen families (§5–§11), computable validators (§12), and body attribute read helpers (§13). Export names are **normative**; `@42ch/spoke-operations` `src/index.ts` MUST expose them alongside first-slice symbols. `spoke-operations` `src/lib.rs` MUST re-export every symbol in TS `index.ts` (snake_case) and MAY additionally export Rust-only typed/wire helpers (see §Rust).
+
+#### 5. OCC — `occ/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `assertRevisionMatch(expectedRevision, actualRevision)` | Compare caller-supplied revisions before persist | Pure |
+
+**Rules (normative):**
+
+| Input | Result |
+|-------|--------|
+| Both integers ≥ 0 and equal | `ok: true` |
+| `actualRevision > expectedRevision` | `STORED_REVISION_STALE` — caller read stale base |
+| `actualRevision < expectedRevision` | `REVISION_CONFLICT` — caller expected impossible future revision |
+| Non-integer, negative, or `NaN` | `INVALID_INPUT` |
+
+**Caller contract:** integrator fetches `actualRevision` from its store and passes `expectedRevision` from the mutation payload. Library performs **no** storage I/O.
+
+**Tests must cover:** match, stale (actual > expected), conflict (actual < expected), invalid inputs.
+
+---
+
+#### 6. KnowledgeEntry lifecycle — `knowledge-entry/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `isValidKnowledgeEntryStatusTransition(from, to)` | Boolean guard for allowed transitions | Pure |
+| `transitionKnowledgeEntryStatus(knowledgeEntry, to)` | Return `SpokeResult<KnowledgeEntry>` with updated `status` on success | Pure, non-mutating input |
+
+**Core vocabulary** (aligned with `knowledge-entry.schema.json` `description` and [`spoke-data-model.md` §Core KnowledgeEntry status](spoke-data-model.md#core-knowledgeentry-status-vocabulary-documented-not-enforced)): `provisional`, `confirmed`, `deprecated`, `merged`, `deleted`.
+
+**Terminal statuses:** `merged`, `deleted` — no outbound transitions (except same→same no-op).
+
+**Active statuses (uniqueness gate):** `provisional`, `confirmed` only.
+
+**Allowed transitions (deepen slice):**
+
+| From | To | Notes |
+|------|-----|-------|
+| `provisional` | `confirmed` | Also via promote acceptance |
+| `provisional` | `deprecated` | Discard / park candidate |
+| `provisional` | `merged` | Absorb before confirm |
+| `provisional` | `deleted` | Drop candidate |
+| `confirmed` | `deprecated` | Supersede canonical |
+| `confirmed` | `merged` | Absorb into target |
+| `confirmed` | `deleted` | Tombstone |
+| `deprecated` | `confirmed` | Restore |
+| `deprecated` | `deleted` | Tombstone |
+| same | same | No-op accept |
+
+**Rejected:** all other pairs (e.g. `merged` → `confirmed`, `deleted` → `provisional`, `deprecated` → `merged`). **`deprecated` → `merged` excluded** — merge requires an active canonical source; restore to `confirmed` first.
+
+**Reject codes:** `INVALID_KNOWLEDGE_ENTRY_STATUS`, `INVALID_KNOWLEDGE_ENTRY_STATUS_TRANSITION` with optional `details: { from, to }`.
+
+**Tests must cover:** each allowed edge, terminal outbound rejects, no-op same-status, invalid vocabulary.
+
+---
+
+#### 7. Active uniqueness — `knowledge-entry/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `assertUniqueActiveKnowledgeEntry({ scope_key, entry_type, canonical_name, candidate, existing })` | Reject duplicate active triple among caller-supplied set | Pure |
+
+**Rules:**
+
+- `scope_key` is an **opaque string** supplied by the caller (typically mapped from `Scope.scope_id` or product World/Book ids). It is **not** a KnowledgeEntry protocol field.
+- `existing` is `KnowledgeEntry[]` the caller already holds for that `scope_key`.
+- Consider only KnowledgeEntries whose `status` is **active** (`provisional` or `confirmed`).
+- Match triple `(scope_key, entry_type, canonical_name)` — `entry_type` and `canonical_name` from KnowledgeEntry wire fields.
+- `candidate` is the KnowledgeEntry about to be created or reactivated; reject if another **different** `entry_id` in `existing` already occupies the triple.
+- Same `entry_id` updating in place is allowed (no duplicate).
+
+**Reject code:** `DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY` with `details: { scope_key, entry_type, canonical_name, conflicting_entry_id }`.
+
+**Tests must cover:** unique accept, duplicate reject, inactive statuses ignored, same-id update allowed.
+
+---
+
+#### 8. Scope match — `scope/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `filterKnowledgeEntriesByScope(knowledgeEntries, scope)` | Filter list by the KnowledgeEntry scope predicate after authorization/disclosure | Pure |
+| `timelineEventMatchesScope(timelineEvent, scope)` | TimelineEvent passes optional `Scope` refinements | Pure |
+| `filterTimelineEventsByScope(timelineEvents, scope)` | Filter list by `timelineEventMatchesScope` | Pure |
+| `assertSupportedCognitionSelection(selection, fieldPath)` | Reject an unsupported/unavailable cognition selection (`unsupported_cognition_requirement` + `field`) | Pure |
+| `cognitionRecordsOfAuthorizedEntries(entries)` / Rust `cognition_records_of_authorized_entry(entry)` and `cognition_records_of_authorized_entries(entries)` | Extract only closed `modules.cognition` records; reject a malformed carrier as `invalid_cognition_record` | Pure |
+
+**`Scope` wire shape:** [`spoke-ops.md` §Scope](spoke-ops.md#scope-shared--check--assemble). `scope_id` is required on wire but **not interpreted** by these helpers — caller pre-scopes collections by product binding.
+
+**Array presence:** an omitted list is absent and matches everything; an explicitly present list — including `[]` — is a refinement, so a present-empty list matches nothing. The distinction survives JSON → typed → served processing: Rust carries these arrays as `Option<Vec<String>>` on the shared `Scope` and on the `CheckRequest`/`AssembleRequest` copies, and TypeScript keeps `undefined` versus `[]`.
+
+**KnowledgeEntry refinements (AND when present on `scope`):**
+
+| Refinement | Match rule |
+|------------|------------|
+| `entry_ids` | `knowledgeEntry.entry_id` ∈ array |
+| `entry_types` | `knowledgeEntry.entry_type` ∈ array |
+| `source_id` | `knowledgeEntry.source_anchor?.source_id === scope.source_id` |
+| `viewpoint` | `knowledgeEntryVisibleToViewpoint(knowledgeEntry, scope.viewpoint)` — `ke-ownership` disclosure predicate; an entry without `disclosure` always passes, `owner-private` requires an exact owner match and fails without a viewpoint (or a malformed private entry), and unknown disclosure values fail for every viewpoint |
+| `cognition` | Validate the closed selection, then apply it to closed holder records after authorization; entries without carried cognition do not match. Current view uses the injected product policy; exact filter/projection rules are in [`spoke-cognition-data-contract.md`](../cognition/spoke-cognition-data-contract.md) §5 |
+
+**Cognition selection rejection:** the closed selection grammar runs on the typed selection before any record matching, so a decodable but grammar-invalid filter (`{absent: false}` on a categorical or fork predicate, a `q` range with no bound) rejects the whole call as `unsupported_cognition_requirement` with `field` at the actual request path (e.g. `scope.cognition.filter.truth.absent`) — even when the authorized source is empty and no record could reveal it. An unavailable `recorded_at` view rejects at `<fieldPath>.view`.
+
+Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
+
+**TimelineEvent refinements (AND when present on `scope`):**
+
+| Refinement | Match rule |
+|------------|------------|
+| `timeline_event_ids` | `timelineEvent.timeline_event_id` ∈ array |
+| `timeline_scale` | `timelineEvent.timeline_scale === scope.timeline_scale` |
+| `fork_id` | `timelineEvent.fork_id === scope.fork_id` (events without `fork_id` do not match) |
+
+Ignored on TimelineEvent: `entry_ids`, `entry_types`, `source_id`, `parent_fork_id`, `viewpoint`.
+
+**Tests must cover:** each refinement on its carrier type (including the `ke-ownership` `viewpoint` disclosure predicate on KnowledgeEntry: shared, own private, foreign private, absent viewpoint, unknown disclosure, and AND with another refinement), the omitted wildcard versus present-empty no-match for `entry_ids` / `entry_types` / `timeline_event_ids` through the typed and served paths, and combined AND.
+
+---
+
+#### 8a. Cognition — `cognition/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `validateCognitionRecord` / `validate_cognition_record` | Closed Belief, epistemic or Perception record rules | Pure |
+| `validateCognitionContent` / `validate_cognition_content` | Recorded-at-time Memory `Content.cognition` placement | Pure |
+| `validateCognitionModule` / `validate_cognition_module` | Closed holder `modules.cognition` module | Pure |
+| `validateObservationModule` / `validate_observation_module` | Event observation and open access keys | Pure |
+| `validateCognitionFilter` / `validate_cognition_filter` | Closed filter grammar | Pure |
+| `validateCognitionSelection` / `validate_cognition_selection` | Closed view/filter/policy selection | Pure |
+| `validateCognitionProjection` / `validate_cognition_projection` | Projection shape and current-policy trace | Pure |
+| `cognitionRecordMatchesFilter` / `cognition_record_matches_filter` | One-record conjunction with complete identity | Pure |
+| `selectCognitionRecords` / `select_cognition_records` | Group and select matching authorized records | Pure |
+| `projectCognitionRecords` / `project_cognition_records` | Attribution-preserving projection with injected policy | Pure |
+
+`CurrentViewPolicy.select` returns one traced input record id. The packages export the projection helper-facing types derived from the generated MindState carrier; they do not create a parallel wire contract. Validators perform no reference resolution, evidence judgment, probability synthesis, disagreement merging, replay, ranking, retrieval or I/O. Exact semantics: [`spoke-cognition-data-contract.md`](../cognition/spoke-cognition-data-contract.md); public surface boundaries: [`spoke-cognition-consumer-contract.md`](../cognition/spoke-cognition-consumer-contract.md).
+
+#### 9. Upsert gate — `upsert/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `validateUpsertKnowledgeEntry(candidate, context)` | Create vs update rules before persist | Pure |
+
+`context: { stored?: KnowledgeEntry }` — caller supplies stored view when updating.
+
+**Create** (`stored` absent):
+
+| Rule | Reject |
+|------|--------|
+| All `knowledge-entry.schema.json` required fields present | `MISSING_REQUIRED_FIELD` |
+| `revision` absent, `undefined`, or `0` | accept |
+| `revision` ≥ 1 on create | `INVALID_INPUT` |
+| Caller passes `stored` by mistake on create path | N/A — use update path |
+
+**Update** (`stored` present):
+
+| Rule | Reject |
+|------|--------|
+| `candidate.entry_id === stored.entry_id` | `INVALID_INPUT` on mismatch |
+| `candidate.revision` present, integer ≥ 0 | `MISSING_REQUIRED_FIELD` if absent |
+| `assertRevisionMatch(candidate.revision, stored.revision ?? 0)` | OCC codes |
+| `stored.status` is `merged` or `deleted` | `KNOWLEDGE_ENTRY_TERMINAL_STATUS` |
+
+**Implicit path errors (caller wiring):**
+
+| Situation | Code |
+|-----------|------|
+| Update path with no `stored` | `KNOWLEDGE_ENTRY_NOT_FOUND` |
+| Create path when `stored` provided | `KNOWLEDGE_ENTRY_ALREADY_EXISTS` |
+
+Integrator SHOULD run KnowledgeEntry status transition validation separately when `candidate.status !== stored.status`.
+
+**Tests must cover:** valid create, valid update with OCC, create with revision ≥ 1 reject, update without revision, terminal stored reject.
+
+---
+
+#### 10. Relate gate — `relate/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `validateRelateRequest(relation, context)` | Shape + lifecycle rules before persist; context supplies `stored?: Relation` for create vs update | Pure |
+
+**Rules:**
+
+- `from_id` and `to_id` MUST be non-empty trimmed strings → else `RELATION_MISSING_ENDPOINT`.
+- `from_id === to_id` → `RELATION_SELF_EDGE`.
+- `relation_type` remains open string (no closed enum in library).
+
+**Create** (`context.stored` absent):
+
+| Rule | Reject |
+|------|--------|
+| `revision` absent, `undefined`, or `0` | accept |
+| `revision` ≥ 1 on create | `INVALID_INPUT` |
+
+**Update** (`context.stored` present):
+
+| Rule | Reject |
+|------|--------|
+| `relation.relation_id === stored.relation_id` | `INVALID_INPUT` on mismatch |
+| `relation.revision` present, integer ≥ 0 | `MISSING_REQUIRED_FIELD` if absent |
+| `assertRevisionMatch(relation.revision, stored.revision ?? 0)` | OCC codes (`STORED_REVISION_STALE`, `REVISION_CONFLICT`) |
+
+**Implicit path errors (caller wiring):**
+
+| Situation | Code |
+|-----------|------|
+| Update path with no `stored` | `RELATION_NOT_FOUND` |
+| Create path when `stored` provided | `RELATION_ALREADY_EXISTS` |
+
+Reject codes reused: `INVALID_INPUT`, `MISSING_REQUIRED_FIELD`, `STORED_REVISION_STALE`, `REVISION_CONFLICT`.
+
+**Tests must cover:** happy path create, happy path update with OCC, create with revision ≥ 1 reject, update null revision reject, self-edge, missing endpoint, stored relation_id mismatch.
+
+---
+
+#### 11. Error envelope map — `error/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `toErrorEnvelope(reject)` | Map `SpokeReject` → ops `ErrorEnvelope` | Pure |
+| `fromErrorEnvelope(error)` | Map `ErrorEnvelope` → `SpokeReject` | Pure |
+
+**Rules:**
+
+- `code` MUST round-trip unchanged (same string as `SpokeRejectCode`).
+- `message` copies verbatim.
+- `details` copies when present; omitted when absent.
+- `extensions` on `ErrorEnvelope` MUST be `{}` when converting from `SpokeReject` unless a later slice adds namespace passthrough.
+- **Out of scope:** HTTP status codes, MCP error types, gRPC codes, retry hints.
+
+Wire shape: [`spoke-ops.md` §Error envelope](spoke-ops.md#error-envelope).
+
+**Tests must cover:** round-trip for every code used in first-slice + deepen tests; `extensions: {}` on outbound map.
+
+---
+
+#### 12. Computable (`l2-computable`) — `computable/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `validateComputableFieldMap(value)` | Shape gate for `body.state` / `body.computable` and op payloads | Pure |
+| `validateComputableLogEntry(entry)` | Shape gate for `TimelineEvent.computable_logs[]` items | Pure |
+| `validateProjectRequest(request)` | Required-field gate for `project` op request | Pure |
+| `validateComputeRequest(request)` | Required-field gate; `settle` flag sanity | Pure |
+
+**Rules encoded (minimum):**
+
+- `ComputableFieldMap` MUST be a non-null plain object when present.
+- `validateProjectRequest`: requires `session_id`, `entry_id`, `state`.
+- `validateComputeRequest`: requires `session_id`, `entry_id`, `computable`; `settle` when present MUST be boolean.
+- **Out of scope:** running compute engines, WASM, merge algorithms, Session store I/O.
+
+Wire shapes: [`spoke-data-model.md` §Computable body](spoke-data-model.md#computable-body-l2-computable-optional), [`spoke-ops.md` §Optional ops](spoke-ops.md#optional-ops-l2-computable).
+
+---
+
+#### 13. Body attributes — `body/*`
+
+| Export (TypeScript) | Export (Rust) | Purpose | Purity |
+|---------------------|---------------|---------|--------|
+| `listBodyAttributes(input)` | `list_body_attributes(input)` | List valid `body.attributes` traits in array order | Pure |
+| `filterBodyAttributesByTraitType(input, traitType)` | `filter_body_attributes_by_trait_type(input, trait_type)` | Return all traits matching `trait_type` in original order | Pure |
+| `findBodyAttribute(input, traitType)` | `find_body_attribute(input, trait_type)` | Return first trait matching `trait_type`, or absent | Pure |
+
+**Input:** `KnowledgeEntry["body"]`, full `KnowledgeEntry`, or wire JSON (`null` / absent → empty). Rust: `BodyAttributesInput::Body`, `Entry`, or `Wire(Option<&Value>)`.
+
+**Rules (normative):**
+
+| Case | `list*` / `filter*` | `find*` |
+|------|---------------------|---------|
+| `body` / `attributes` absent | `[]` | absent (`undefined` / `None`) |
+| `attributes: []` | `[]` | absent |
+| Duplicate `trait_type` in array | all matches in order | first match in order |
+| Malformed array element (not plain object; empty/missing `trait_type`; `value` not `string` \| `number` \| `boolean`) | skip element; never throw | skip element |
+| `trait_type` match | exact string equality (case-sensitive) | same |
+
+**Out of scope:** attribute upsert/merge, schema validation that rejects unknown traits, ranking, persistence.
+
+Wire shape: [`spoke-data-model.md` §KnowledgeEntry body](spoke-data-model.md) — closed L2 payload with optional `attributes[]` (`BodyAttribute` items).
+
+**Tests must cover:** absent input, omitted/empty attributes, duplicate `trait_type`, malformed skip, first-match find, case-sensitive filter.
+
+---
+
+#### 14. Narrative sequence — `timeline/*`
+
+Beat-assist pure helpers over caller-supplied `TimelineEvent[]` and `Relation[]`. Align with [`domain-profile-narrative-structure.md`](../domain-profiles/domain-profile-narrative-structure.md) §Relation endpoints and §Pure ops helpers. **No I/O.**
+
+| Export (TypeScript) | Export (Rust) | Purpose | Purity |
+|---------------------|---------------|---------|--------|
+| `filterTimelineEventsByMomentScale(timelineEvents)` | `filter_timeline_events_by_moment_scale(timeline_events)` | Keep events where `timeline_scale === "moment"` | Pure |
+| `orderTimelineEventsByIds(timelineEvents, orderedIds)` | `order_timeline_events_by_ids(timeline_events, ordered_ids)` | Order by explicit `timeline_event_id` list | Pure |
+| `orderTimelineEventsByPrecedes(timelineEvents, relations, options?)` | `order_timeline_events_by_precedes(timeline_events, relations, options?)` | Topological order via `precedes` on dual KE ids | Pure |
+
+**`filterTimelineEventsByMomentScale` rules:**
+
+| Case | Result |
+|------|--------|
+| `timeline_scale === "moment"` (exact, case-sensitive) | included, **input order preserved** |
+| absent `timeline_scale` or any other value | excluded |
+| empty input | `[]` |
+
+**`orderTimelineEventsByIds` rules:**
+
+| Case | Result |
+|------|--------|
+| `orderedIds` sequence | output lists matching events in that order first |
+| id in `orderedIds` not found in `timelineEvents` | `INVALID_INPUT`; `details: { unknown_timeline_event_ids: string[] }` |
+| duplicate id in `orderedIds` | `INVALID_INPUT` |
+| duplicate `timeline_event_id` in `timelineEvents` | `INVALID_INPUT`; `details: { duplicate_timeline_event_ids: string[] }` |
+| events in input but not in `orderedIds` | append after ordered block in **input order** (stable tail) |
+
+**`orderTimelineEventsByPrecedes` rules:**
+
+| Step | Rule |
+|------|------|
+| Link map | For each input event, read `extensions.spoke.timeline_entry_id` (non-empty trimmed string) as linked KE `entry_id`; events without link are **unlinked** |
+| Relation filter | `relation_type` exact match — default `"precedes"`; overridable via `options.relationType` |
+| Endpoint filter | keep relations where both `from_id` and `to_id` resolve to linked KE ids present in the input link map |
+| Self-loop | `from_id` and `to_id` resolve to the same linked event → `INVALID_INPUT`; `details: { precedes_cycle: true, entry_ids: string[] }` |
+| Sort | Kahn topological sort on linked events; ready queue ordered by ascending `timeline_event_id` (UTF-8 lexicographic) before dequeue |
+| Unlinked tail | append unlinked input events after linked ordered block in **input order** |
+| Cycle | not all linked nodes sortable → `INVALID_INPUT`; `details: { precedes_cycle: true, entry_ids: string[] }` |
+| Duplicate input ids | duplicate `timeline_event_id` in `timelineEvents` → `INVALID_INPUT`; `details: { duplicate_timeline_event_ids: string[] }` |
+
+**Relation schema alignment:** `from_id` / `to_id` are KnowledgeEntry (or SourceAnchor) ids — helpers never accept `timeline_event_id` as Relation endpoints. Dual-concern pairing uses `extensions.spoke.timeline_entry_id` on `TimelineEvent` (toy-world convention).
+
+**Reject codes:** `INVALID_INPUT` only for order helpers (cycles, self-loops, unknown ids, duplicate ids in `orderedIds` or `timelineEvents`).
+
+**Tests must cover:** moment filter preserves order; order by ids happy path + unknown id + stable tail; precedes acyclic chain + cycle reject + unlinked tail + lexicographic tie-break; ignored relations with endpoints outside input link set.
+
+---
+
+#### 15. Tool capability helpers — `tools/*`
+
+Tool capability helpers over `ToolDescriptor` and `HostCapabilityManifest.tools[]` (wire shape: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest; capability grammar and dispatch gate: [`spoke-connect.md`](../connect/spoke-connect.md) §Op dispatch gate). **Purity unchanged (HARD):** no I/O / storage / LLM / HTTP / MCP / JSON-Schema-validator dependency; `input` / `output` are data — full JSON-Schema validation stays consumer / fixture-side (AJV in `fixtures/`). Signatures below are frozen (verbatim from the tool contracts SSOT §5).
+
+| Export (TypeScript) | Export (Rust) | Purpose | Purity |
+|---------------------|---------------|---------|--------|
+| `toolCapabilityId(namespace, toolId)` | `tool_capability_id(namespace: &str, tool_id: &str)` | Compose `tools.<ns>.<tool_id>`; pattern-asserts inputs (throw / panic on bad grammar — programmer misuse) | Pure |
+| `parseToolCapabilityId(id)` | `parse_tool_capability_id(id: &str)` | Parse into `{ namespace, toolId }` (Rust: `ToolCapabilityId { namespace, tool_id }`); `INVALID_INPUT` for non-`tools.` prefix and bad grammar | Pure |
+| `validateToolDescriptor(descriptor)` | `validate_tool_descriptor(descriptor: &ToolDescriptor)` | Pattern on `capability_id` / `op`; `op === capability_id`; `input` / `output` are objects → `INVALID_INPUT` | Pure |
+| `validateManifestTools(manifest)` | `validate_manifest_tools(manifest: &HostCapabilityManifest)` | Every descriptor valid; `capability_id ∈ capabilities[]`; derived ns ∈ `namespaces[]`; unique capability ids → `INVALID_INPUT` with structured `details` (field + index) | Pure |
+| `validateToolArguments(descriptor, arguments)` | `validate_tool_arguments(descriptor: &ToolDescriptor, arguments: &Value)` | Structural argument gate — rules below | Pure |
+| `listTools(manifest)` | `list_tools(manifest: &HostCapabilityManifest)` | `ToolDescriptor[]` in manifest order; empty when `tools` absent | Pure |
+| `findTool(manifest, capabilityId)` | `find_tool(manifest: &HostCapabilityManifest, capability_id: &str)` | Exact `capability_id` match; absent when no match | Pure |
+
+**`validateToolArguments` structural gate (frozen granularity):**
+
+1. `arguments` MUST be a JSON object → else `INVALID_INPUT` (`details.field = "arguments"`);
+2. when `descriptor.input` declares top-level `"type": "object"` with `"required": [...]`, each listed key MUST be present → else `INVALID_INPUT` listing missing keys;
+3. no deeper checking — full JSON-Schema validation stays consumer / fixture-side (AJV in `fixtures/`, hosts MAY run their own). `input: {}` → step 2 vacuous (unconstrained).
+
+Hosts call `validateToolArguments` before `orchestrateInvokeTool`; the orchestrator itself does not take a descriptor (its signature has only port + request) and validates only request grammar.
+
+**Tests must cover:** compose / parse round-trip + bad grammar rejects; descriptor `op !== capability_id` reject; manifest cross-field rejects (`capabilities[]` membership, `namespaces[]` membership, duplicate capability ids) with structured `details`; arguments non-object reject; missing required keys reject; `input: {}` passes any object.
+
+---
+
+#### 16. Ownership visibility (`ke-ownership`) — `knowledge-entry/ownership`
+
+Pure reads over caller-supplied `KnowledgeEntry` values for the optional `ke-ownership` governance fields (wire shape: [`spoke-data-model.md`](spoke-data-model.md) §Ownership governance (`ke-ownership` optional); shared reader selector: [`spoke-ops.md`](spoke-ops.md#scope-shared--check--assemble); normative decision: [`2026-09-17-ke-ownership-disclosure.md`](../../adr/implemented/feature/2026-09-17-ke-ownership-disclosure.md)). TypeScript module: `packages/spoke-operations/src/knowledge-entry/ownership.ts`; Rust: `crates/spoke-operations/src/knowledge_entry.rs`. **Purity unchanged (HARD):** no I/O, holder lookup, manifest fetch, capability boolean, audience expansion, ranking, or schema validation; both helpers are synchronous and the Rust predicate borrows the identifier (`Option<&str>`) without cloning.
+
+| Export (TypeScript) | Export (Rust) | Purpose | Purity |
+|---------------------|---------------|---------|--------|
+| `getKnowledgeEntryOwner(entry)` | `get_knowledge_entry_owner(knowledge_entry)` | Return the holder `entry_id` from `owner`, or absent | Pure (borrowed read) |
+| `knowledgeEntryVisibleToViewpoint(entry, viewpoint?)` | `knowledge_entry_visible_to_viewpoint(knowledge_entry, viewpoint)` | Core disclosure predicate for a reader viewpoint | Pure |
+
+**Visibility truth table (normative):**
+
+| Disclosure | Owner / viewpoint | Result |
+|------------|-------------------|--------|
+| Absent | Any, including unspecified | Include — shared within the caller's already selected KB context |
+| `owner-private` | Both present and exactly equal | Include |
+| `owner-private` | Missing owner, missing viewpoint, or unequal | Exclude |
+| Unknown non-empty value | Any | Exclude — a product applies its explicitly understood profile outside the core predicate |
+
+**Rules (normative):**
+
+- Absent `owner` is **unspecified ownership**: the owner read is absent and no world owner or world consensus is ever fabricated.
+- Absent `disclosure` keeps the entry shared: the predicate admits it for any viewpoint, including an absent one.
+- Comparison is exact string equality; identifiers are not normalized, and no holder lookup, type inference, belief evaluation, or audience expansion occurs.
+- The predicate **fails closed**: an `owner-private` entry with an empty or missing `owner` is excluded, and unknown non-empty disclosure values are excluded rather than reinterpreted as shared.
+- Calling this surface is the caller's opt-in; consumers holding field-absent data keep baseline behavior.
+- Composition lives in §8 Scope match: `knowledgeEntryPassesScopeAuthorization` / `knowledge_entry_passes_scope_authorization` call the predicate with `scope.viewpoint`, so check, assemble, and the fork variants observe the same result. No parallel ownership-filter family exists.
+
+**Out of scope:** identity registries, audience sets, view composition, authentication / authorization, storage lifecycle and concurrency, and product visibility policy.
+
+**Tests must cover:** owner read on a field-absent entry; absent disclosure for own, foreign, and absent viewpoint; own private included; foreign private excluded; private entry without viewpoint excluded; malformed private entry (no owner) excluded; unknown disclosure excluded for every viewpoint; and the predicate composed with another `Scope` refinement.
+
+---
+
+### Adapter Interfaces (normative)
+
+The operations packages define the **implementation protocol** for storage and query adapters. Port interfaces are capability-sliced and accept generated wire types directly. Adapter implementations own transport, persistence, transactions, and product DTO mapping; the operations package owns the port contracts and the injection orchestration below.
+
+#### Port policy
+
+Port methods are asynchronous on the normative surface. TypeScript port methods return `Promise<SpokeResult<T>>`; Rust port traits are `#[async_trait] async fn …(&self, …) -> SpokeResult<T>` with `Send` futures (normative ports use the default `#[async_trait]`, not `#[async_trait(?Send)]`). All eleven `orchestrate*` entrypoints are `async` — `export async function orchestrateX(…): Promise<SpokeResult<R>>` in TypeScript, `pub async fn orchestrate_x(…) -> SpokeResult<R>` in Rust — and await every injected port call. The library itself stays I/O-free: `await` appears only on injected port method calls, and pure helpers remain synchronous. Checker callbacks stay synchronous: `orchestrateCheck` / `orchestrateForkCheck` accept `(input: CheckRunInput) => SpokeResult<Finding[]>` (TypeScript) / `F: FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>` (Rust) — pure product logic, not ports. Rust port traits use the `async-trait` crate, which keeps the dyn availability probes (`as_computable`, `as_fork_timeline`) object-safe. The async form is the only surface: methods never return `T | Promise<T>` unions, and no sync variants or compatibility shims exist.
+
+All port methods resolve to `SpokeResult<T>` as the application outcome. Adapter-level failures map to stable `SpokeRejectCode` values; expected absence uses the relevant `*_NOT_FOUND` code. Ports do not throw for expected adapter outcomes.
+
+**Remote adapter:** spoke-connect ships a `RemoteAdapter` that implements these port traits by proxying each call as a reserved `port.*` connect invoke over a message-oriented `Transport` (TS `./remote` subpath, Rust `remote-adapter` feature). It is a drop-in for the local adapters — the same `orchestrate*` entrypoints run against it unchanged, with all connect verification encapsulated. Port-method catalogue and error mapping: [spoke-remote-adapter.md](../adapters/spoke-remote-adapter.md).
+
+#### Capability matrix
+
+| Capability | Required interface families | Orchestration enabled |
+|---|---|---|
+| `spoke-baseline` | `KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, **`HostManifestPort`** | `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble` |
+| `l2-computable` | `ComputablePort` (plus baseline) | `orchestrateProject`, `orchestrateCompute` |
+| `l5-fork` | `ForkTimelineQueryPort` (plus baseline) | `orchestrateForkCheck`, `orchestrateForkAssemble` |
+| `ke-extraction` | `ExtractionPort` (standalone — not composed into `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`; no baseline requirement) | `orchestrateExtract` |
+| `tools.<ns>.<tool_id>` (per-tool; no umbrella flag) | `ToolInvokePort` | `orchestrateInvokeTool` |
+
+Unclaimed capabilities need no ports; their orchestrators are not callable for that product. Tool capabilities are **per-tool strings**: a host claiming `tools.<ns>.<tool_id>` in `capabilities[]` implements `ToolInvokePort`, and `orchestrateInvokeTool` is callable for each declared tool capability string — the family has no umbrella capability flag.
+
+#### Baseline port families
+
+The following **six** families are required for `spoke-baseline`:
+
+| Family | TypeScript interface | Rust trait | Methods |
+|---|---|---|---|---|
+| Knowledge entry persistence | `KnowledgeEntryPort` | `KnowledgeEntryPort` | `getKnowledgeEntry(entryId: string): Promise<SpokeResult<KnowledgeEntry>>` / `async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry>`; `putKnowledgeEntry(entry: KnowledgeEntry, expectedBaseRevision: number \| null): Promise<SpokeResult<KnowledgeEntry>>` / `async fn put_knowledge_entry(&self, entry: KnowledgeEntry, expected_base_revision: Option<u64>) -> SpokeResult<KnowledgeEntry>` |
+| Relation persistence | `RelationPort` | `RelationPort` | `getRelation(relationId: string): Promise<SpokeResult<Relation>>` / `async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation>`; `putRelation(relation: Relation, expectedBaseRevision: number \| null): Promise<SpokeResult<Relation>>` / `async fn put_relation(&self, relation: Relation, expected_base_revision: Option<u64>) -> SpokeResult<Relation>` (`null`/`None` = create; non-null = conditional put — adapters MUST atomic compare-and-put, parity with `putKnowledgeEntry`) |
+| Scope query | `ScopeQueryPort` | `ScopeQueryPort` | `listKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>>` / `async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>>`; `listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>>` / `async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>>` |
+| Finding persistence | `FindingPort` | `FindingPort` | `putFindings(findings: Finding[]): Promise<SpokeResult<Finding[]>>` / `async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>>` |
+| Rule query | `RuleQueryPort` | `RuleQueryPort` | `listRules(ruleRefs: string[]): Promise<SpokeResult<Rule[]>>` / `async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>>` |
+| Host manifest | `HostManifestPort` | `HostManifestPort` | `getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>>` / `async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest>`; `listPeerHostCapabilityManifests(): Promise<SpokeResult<HostCapabilityManifest[]>>` / `async fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>>` |
+
+`ScopeQueryPort` is the query boundary for `check` and `assemble`. `RuleQueryPort` is used when a check request supplies rule references; embedded rules remain request data and do not require a port lookup.
+
+`HostManifestPort` exposes in-process collaboration metadata. Integrators call it explicitly — existing `orchestrate*` entrypoints do **not** auto-fetch manifests. `listPeerHostCapabilityManifests` returns **peers only** (excludes self), deduped by `host_id`, sorted ascending by `host_id` (UTF-8 lexicographic); empty `[]` is valid. The library does not discover peers; product/adapter memory supplies the list.
+
+**Persisted-entity OCC parity:** `putKnowledgeEntry` / `put_knowledge_entry` and `putRelation` / `put_relation` carry optimistic concurrency control structurally: adapters MUST treat `expectedBaseRevision` / `expected_base_revision` as the store's required current revision before accepting the write (`null`/`None` = absent entity for create). The orchestrated create-or-update entrypoints (upsert, promote, relate) deep-integrate load → validate → OCC → put. True concurrent safety requires atomic compare-and-put in the adapter; the library stays I/O-free. See [`spoke-data-model.md`](spoke-data-model.md) §Persisted-entity OCC parity for the structural guardrail and exemption list.
+
+#### Host collaboration (normative)
+
+Wire shape: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest.
+
+##### Roles ↔ ports map
+
+| `roles[]` value | Typical port families / orchestrators | Write authority |
+|-----------------|--------------------------------------|-----------------|
+| `data-store` | `KnowledgeEntryPort`; `orchestrateUpsert`, `orchestratePromote` | **Yes** — single OCC authority per `entry_id` in collaboration context |
+| `input-source` | Product ingest surface (no baseline port family); optional `ExtractionPort` + `orchestrateExtract` when `ke-extraction` ∈ `capabilities` | No — proposes intent |
+| `checker` | `RuleQueryPort`, `FindingPort`; `orchestrateCheck` | No — emits `Finding[]` only |
+| `assembler` | `ScopeQueryPort`; `orchestrateAssemble` | No — emits `AssemblePacket` only |
+| `computable-engine` | `ComputablePort` when `l2-computable` ∈ `capabilities` | No — Session I/O; settled state via data-store |
+
+`assembler` is closed-loop core vocabulary. `computable-engine` is optional and MUST pair with `l2-computable` in `capabilities`. An `input-source` host that offers extraction declares `ke-extraction` in `capabilities`; the role's write authority stays `No`.
+
+##### Namespace exclusivity
+
+Within one collaboration context, each namespace string in any manifest's `namespaces[]` MUST appear on **at most one** `host_id`. Integrators enforce exclusivity when building peer lists and attributing `KnowledgeEntry.extensions.<ns>` ownership product-side. Host roles and namespace ownership live on the manifest — not in KE `extensions`.
+
+##### `authority` and OCC
+
+Optional manifest `authority.scope_key` binds the data-store role to an opaque collaboration scope (aligns with `assertUniqueActiveKnowledgeEntry` `scope_key` folklore). When `authority` is absent and `data-store` ∈ `roles`, integrators treat this manifest's `host_id` as implicit write authority.
+
+##### `HostManifestPort` contract
+
+| Method (TS) | Method (Rust) | Returns | Notes |
+|-------------|---------------|---------|-------|
+| `getHostCapabilityManifest` | `get_host_capability_manifest` | `SpokeResult<HostCapabilityManifest>` | Self manifest |
+| `listPeerHostCapabilityManifests` | `list_peer_host_capability_manifests` | `SpokeResult<HostCapabilityManifest[]>` | Peers only; exclude self; dedupe by `host_id`; stable ascending `host_id` sort; `[]` OK |
+
+##### Baseline fold-in
+
+`HostManifestPort` is the **sixth** required family folded into `BaselinePorts` and `BaselineAdapter` for `spoke-baseline` claims. Baseline orchestrators (`orchestrateUpsert` through `orchestrateAssemble`) do **not** auto-fetch manifests — integrators call `getHostCapabilityManifest` / `listPeerHostCapabilityManifests` explicitly when composing peer lists or attributing namespace ownership. A baseline adapter MUST implement both methods; absence is an adapter defect, not `CAPABILITY_PORT_MISSING`.
+
+`HostManifestPort` is **baseline-required** — not gated behind `CAPABILITY_PORT_MISSING`.
+
+#### Optional port families
+
+| Capability | Family | TypeScript interface | Rust trait | Methods |
+|---|---|---|---|---|
+| `l2-computable` | Computable session | `ComputablePort` | `ComputablePort` | `project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>>` / `async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse>`; `compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>>` / `async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse>` |
+| `l5-fork` | Fork-aware timeline query | `ForkTimelineQueryPort` | `ForkTimelineQueryPort` | `listForkTimelineEvents(scope: Scope & { fork_id: ForkId }): Promise<SpokeResult<TimelineEvent[]>>` / `async fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>>` |
+| `ke-extraction` | Extraction source input | `ExtractionPort` | `ExtractionPort` | `loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>>` / `async fn load_extraction_input(&self, request: &ExtractRequest) -> SpokeResult<serde_json::Value>` |
+| per-tool (`tools.<ns>.<tool_id>`) | Tool invoke | `ToolInvokePort` | `ToolInvokePort` | `invokeTool(request: ToolInvokeRequest): Promise<SpokeResult<ToolInvokeResponse>>` / `async fn invoke_tool(&self, request: ToolInvokeRequest) -> SpokeResult<ToolInvokeResponse>` |
+
+`ForkTimelineQueryPort` is a capability-specific refinement of `ScopeQueryPort`; one object MAY satisfy both.
+
+**`ExtractionPort` (standalone optional family).** Port shape and injected callback types, verbatim from the frozen extraction contract SSOT:
+
+| Language | Port shape |
+|----------|------------|
+| TypeScript | `interface ExtractionPort { loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>> }` |
+| Rust | `#[async_trait] pub trait ExtractionPort { async fn load_extraction_input(&self, request: &ExtractRequest) -> SpokeResult<serde_json::Value> }` (Send futures; no runtime dependency) |
+
+**`ExtractRunInput` / `ExtractionResult` (hand-written types):**
+
+| Type (TS) | Type (Rust) | Fields |
+|-----------|-------------|--------|
+| `ExtractRunInput` | `ExtractRunInput` | `request: ExtractRequest`; `input: OpaqueJson` / `serde_json::Value` |
+| `ExtractionResult` | `ExtractionResult` | `candidates: KnowledgeEntry[]` / `Vec<KnowledgeEntry>`; `method?: string` / `Option<String>`; `coverage_hint?: OpaqueJson` / `Option<serde_json::Value>` |
+
+`RunExtractor` is the injected callback type: `(input: ExtractRunInput) => Promise<SpokeResult<ExtractionResult>>` in TypeScript, and a generic `F: FnOnce(ExtractRunInput) -> Fut` with `Fut: Future<Output = SpokeResult<ExtractionResult>> + Send` in Rust. It is deliberately asynchronous — see §Extraction orchestration injectee.
+
+**Standalone family:** like `ToolInvokePort`, `ExtractionPort` is **not** composed into `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`, and no adapter alias joins the alias table — capability gating is the `ke-extraction` flag, and the port is passed to `orchestrateExtract` directly.
+
+**`ToolInvokePort` (standalone optional family).** Port shape, verbatim from the frozen tool contracts SSOT:
+
+| Language | Port shape |
+|----------|------------|
+| TypeScript | `interface ToolInvokePort { invokeTool(request: ToolInvokeRequest): Promise<SpokeResult<ToolInvokeResponse>> }` |
+| Rust | `#[async_trait] pub trait ToolInvokePort { async fn invoke_tool(&self, request: ToolInvokeRequest) -> SpokeResult<ToolInvokeResponse> }` (Send futures) |
+
+**`ToolInvokeRequest` / `ToolInvokeResponse` (hand-written types — no ops schema files):**
+
+| Type (TS) | Type (Rust) | Fields |
+|-----------|-------------|--------|
+| `ToolInvokeRequest` | `ToolInvokeRequest` | `capability_id: string` / `capability_id: String`; `arguments: Record<string, unknown>` / `arguments: Value` |
+| `ToolInvokeResponse` | `ToolInvokeResponse` | `result: unknown` / `result: Value` |
+
+The `{ "arguments": <opaque JSON> }` request body and the `{ "result": <opaque JSON> }` success body are library-typed ([`spoke-connect.md`](../connect/spoke-connect.md) §Tools over connect); failure travels the existing error branch.
+
+**Standalone family:** `ToolInvokePort` is **not** composed into `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`, and no `ToolsPort` / `ToolsAdapter` alias joins the adapter-alias table — capability gating is per-tool, not per-composed-type. A host implements `ToolInvokePort` for each tool capability string it claims and calls `validateToolArguments` before `orchestrateInvokeTool` (§15).
+
+#### Capability composition and availability
+
+```typescript
+type BaselinePorts =
+  KnowledgeEntryPort &
+  RelationPort &
+  ScopeQueryPort &
+  FindingPort &
+  RuleQueryPort &
+  HostManifestPort;
+type ComputablePorts = BaselinePorts & ComputablePort;
+type ForkPorts = BaselinePorts & ForkTimelineQueryPort;
+type FullPorts = BaselinePorts & ComputablePort & ForkTimelineQueryPort;
+```
+
+#### Adapter aliases (normative)
+
+Integrators implement **one** adapter type (class/struct) that satisfies the port families for the capabilities they claim. The operations packages export **Adapter** aliases as ergonomic names for the composed port intersections below. Individual capability families remain `*Port`; the composed `*Ports` names remain exported alongside the aliases.
+
+| Adapter alias | Equivalent composed ports | Capabilities |
+|---------------|---------------------------|--------------|
+| `BaselineAdapter` | `BaselinePorts` | `spoke-baseline` |
+| `ComputableAdapter` | `ComputablePorts` | baseline + `l2-computable` |
+| `ForkAdapter` | `ForkPorts` | baseline + `l5-fork` |
+| `FullAdapter` | `FullPorts` | baseline + computable + fork |
+
+The tools family has **no adapter alias**: `ToolInvokePort` stays a standalone optional family, is not folded into `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`, and no `ToolsPort` / `ToolsAdapter` composed alias exists — capability gating is per-tool, not per-composed-type.
+
+Rust exports the same names with TS/Rust parity per the **Alias implementation** table below.
+
+**Adopter path:** implement the `*Port` families on one type, pass it to `orchestrate*` / `orchestrate_*`. Reference implementations: `fixtures/toy-world/` (TypeScript and Rust).
+
+#### Alias implementation (normative)
+
+| Language | Shape | Location |
+|----------|-------|----------|
+| TypeScript | `export type BaselineAdapter = BaselinePorts` (and same for `ComputableAdapter`, `ForkAdapter`, `FullAdapter`) | `packages/spoke-operations/src/adapter/ports.ts` → flat-re-export `src/index.ts` |
+| Rust | Marker traits `pub trait BaselineAdapter: BaselinePorts {}` with blanket `impl<T: BaselinePorts> BaselineAdapter for T {}` (same for `ComputableAdapter: ComputablePorts`, `ForkAdapter: ForkPorts`, `FullAdapter: FullPorts`) | `crates/spoke-operations/src/adapter/ports.rs` → flat-re-export `src/lib.rs` |
+
+Orchestrator signatures keep `&impl BaselinePorts` (etc.); `&impl BaselineAdapter` is equivalent via the blanket impl. The `*Ports` names remain exported.
+
+#### Reference adapter stub policy (normative)
+
+`fixtures/toy-world/` reference `ToyWorldAdapter` examples demonstrate **FullAdapter** composition:
+
+| Port family | Reference behavior |
+|-------------|-------------------|
+| Six baseline families (incl. `HostManifestPort`) | Runnable in-memory OCC store; optional seed from committed `kb_tw_*` / `rel_tw_*` / `evt_tw_*` / `rule_tw_*` / `fnd_tw_*` JSON; self manifest + product-seeded peer list |
+| `ComputablePort` | Minimal wire-valid `ProjectResponse` / `ComputeResponse` synthesized from committed `op_tw_project_response.json` / `op_tw_compute_settle_response.json` (echo `session_id`, `entry_id`, fixture-shaped `computable` / `state`) |
+| `ForkTimelineQueryPort` | Returns seeded timeline events filtered by `scope.fork_id` from committed graph (e.g. `evt_tw_harbor_dawn.json` when fork scope matches) |
+
+`CAPABILITY_PORT_MISSING` is **not** the default Full stub. Demonstrate it in **one** negative test per language using a baseline-only adapter at a dynamic optional boundary (parity with in-package `orchestrate` tests).
+
+These are conceptual public types; Rust implementers satisfy the corresponding trait bounds. Optional orchestrators require the matching composed type at compile time. At JavaScript boundaries and for dynamically assembled Rust trait objects, an absent optional method returns `SpokeReject { code: "CAPABILITY_PORT_MISSING", ... }` rather than a `TypeError` or panic.
+
+### Injection Orchestration (normative)
+
+Orchestration is additive to the pure helper families. The public surface exposes one per-operation entrypoint per language — not a stateful facade. Each entrypoint receives injected ports and a request, calls the listed pure helpers, and performs all reads and writes through those ports. Check orchestrators additionally accept a caller-supplied checker callback — the library loads scoped data via ports, invokes the callback, and persists findings; checker engines remain product-owned.
+
+#### Check orchestration injectee
+
+Check paths do not embed a checker engine. After loading scoped entries, timeline events, and rules via ports, the orchestrator invokes a caller-supplied callback and persists the returned findings.
+
+```typescript
+type CheckRunInput = {
+  request: CheckRequest;
+  entries: KnowledgeEntry[];
+  events: TimelineEvent[];
+  rules: Rule[];
+};
+```
+
+Rust exports an equivalent `CheckRunInput` struct with snake_case fields. The callback type is `(input: CheckRunInput) => SpokeResult<Finding[]>` in TypeScript and `Fn(CheckRunInput) -> SpokeResult<Vec<Finding>>` (or equivalent trait object) in Rust.
+
+#### Extraction orchestration injectee
+
+Extraction paths embed neither a source parser nor an extraction engine. The host's loader reads the referenced material through the injected port, and the caller supplies the extraction callback.
+
+```typescript
+type ExtractRunInput = { request: ExtractRequest; input: OpaqueJson };
+type ExtractionResult = {
+  candidates: KnowledgeEntry[];
+  method?: string;
+  coverage_hint?: OpaqueJson;
+};
+type RunExtractor = (input: ExtractRunInput) => Promise<SpokeResult<ExtractionResult>>;
+```
+
+Rust exports the equivalent `ExtractRunInput` / `ExtractionResult` structs (snake_case fields, `serde_json::Value` for `OpaqueJson`) and takes the callback as a generic `F: FnOnce(ExtractRunInput) -> Fut`, `Fut: Future<Output = SpokeResult<ExtractionResult>> + Send`.
+
+The extraction callback is deliberately **asynchronous** — an extraction service can perform asynchronous work — so there is no `T | Promise<T>` union, no sync shim, and no hidden blocking runtime, unlike the synchronous checker callbacks above. `orchestrateExtract` awaits injected work only and performs deterministic validation and assembly. The loaded in-process value may carry source content; it is **not** a wire object and never appears on `ExtractRequest` / `ExtractResponse`.
+
+`coverage_hint` is advisory and opaque: omission and JSON null both mean no hint, and every other JSON value is retained verbatim. TypeScript passes a null hint through as `null`; the generated Rust `Option<serde_json::Value>` renders null as an absent key. Both are the documented "no hint" reading, core performs no comparison, and neither is a byte-level contract.
+
+| Operation | TypeScript entrypoint | Rust entrypoint | Required ports | Required sequence |
+|---|---|---|---|---|
+| upsert | `export async function orchestrateUpsert(ports: BaselinePorts, request: UpsertRequest): Promise<SpokeResult<UpsertResponse>>` | `pub async fn orchestrate_upsert(ports: &impl BaselinePorts, request: UpsertRequest) -> SpokeResult<UpsertResponse>` | `KnowledgeEntryPort` | Load update context; call `validateUpsertKnowledgeEntry`; call status/uniqueness helpers when applicable; call `putKnowledgeEntry(entry, expectedBaseRevision)` where `expectedBaseRevision` is `null`/`None` on create and the stored revision on update |
+| promote | `export async function orchestratePromote(ports: BaselinePorts, request: PromoteRequest): Promise<SpokeResult<PromoteResponse>>` | `pub async fn orchestrate_promote(ports: &impl BaselinePorts, request: PromoteRequest) -> SpokeResult<PromoteResponse>` | `KnowledgeEntryPort` | Load stored entry; terminal and revision gates; call `validatePromoteRequest`; call `applyPromoteAcceptance`; call `putKnowledgeEntry(entry, expectedBaseRevision)` where `expectedBaseRevision` is `null`/`None` when absent and `stored.revision` (or `0`) when stored exists |
+| relate | `export async function orchestrateRelate(ports: BaselinePorts, request: RelateRequest): Promise<SpokeResult<RelateResponse>>` | `pub async fn orchestrate_relate(ports: &impl BaselinePorts, request: RelateRequest) -> SpokeResult<RelateResponse>` | `RelationPort` | Load stored via `getRelation` (RELATION_NOT_FOUND ⇒ create path); call `validateRelateRequest(request.relation, { stored })` (create: revision absent/0 ok; update: id match, revision present ≥ 0, `assertRevisionMatch`); call `putRelation(relation, expectedBaseRevision)` (`null`/`None` on create, stored.revision on update) |
+| check | `export async function orchestrateCheck(ports: BaselinePorts, request: CheckRequest, runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>): Promise<SpokeResult<CheckResponse>>` | `pub async fn orchestrate_check(ports: &impl BaselinePorts, request: CheckRequest, run_checker: impl FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>) -> SpokeResult<CheckResponse>` | `ScopeQueryPort`, `RuleQueryPort`, `FindingPort` | Resolve refs with `listRules`; query scoped entries/events via `ScopeQueryPort`; apply scope helpers; invoke `runChecker`; call `putFindings` |
+| assemble | `export async function orchestrateAssemble(ports: BaselinePorts, request: AssembleRequest): Promise<SpokeResult<AssembleResponse>>` | `pub async fn orchestrate_assemble(ports: &impl BaselinePorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ScopeQueryPort` | Query scoped entries/events; apply scope helpers; call `buildAssemblePacket`; return packet |
+| project | `export async function orchestrateProject(ports: ComputablePorts, request: ProjectRequest): Promise<SpokeResult<ProjectResponse>>` | `pub async fn orchestrate_project(ports: &impl ComputablePorts, request: ProjectRequest) -> SpokeResult<ProjectResponse>` | `ComputablePort` | Call `validateProjectRequest`; call `project` |
+| compute | `export async function orchestrateCompute(ports: ComputablePorts, request: ComputeRequest): Promise<SpokeResult<ComputeResponse>>` | `pub async fn orchestrate_compute(ports: &impl ComputablePorts, request: ComputeRequest) -> SpokeResult<ComputeResponse>` | `ComputablePort` | Call `validateComputeRequest`; call `compute`; any settled-state persistence is an explicit adapter step |
+| fork check | `export async function orchestrateForkCheck(ports: ForkPorts, request: CheckRequest, runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>): Promise<SpokeResult<CheckResponse>>` | `pub async fn orchestrate_fork_check(ports: &impl ForkPorts, request: CheckRequest, run_checker: impl FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>) -> SpokeResult<CheckResponse>` | `ForkTimelineQueryPort` plus baseline check ports | Validate `scope.fork_id`; load knowledge entries via `ScopeQueryPort.listKnowledgeEntries`; load timeline events via `ForkTimelineQueryPort.listForkTimelineEvents`; resolve rules; apply scope helpers; invoke `runChecker`; call `putFindings` |
+| fork assemble | `export async function orchestrateForkAssemble(ports: ForkPorts, request: AssembleRequest): Promise<SpokeResult<AssembleResponse>>` | `pub async fn orchestrate_fork_assemble(ports: &impl ForkPorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ForkTimelineQueryPort` plus baseline assemble ports | Validate `scope.fork_id`; load knowledge entries via `ScopeQueryPort.listKnowledgeEntries`; load timeline events via `ForkTimelineQueryPort.listForkTimelineEvents`; apply scope helpers; call `buildAssemblePacket` |
+| invoke tool | `export async function orchestrateInvokeTool(port: ToolInvokePort, request: ToolInvokeRequest): Promise<SpokeResult<ToolInvokeResponse>>` | `pub async fn orchestrate_invoke_tool(port: &dyn ToolInvokePort, request: ToolInvokeRequest) -> SpokeResult<ToolInvokeResponse>` | `ToolInvokePort` | Call `parseToolCapabilityId(request.capability_id)` — grammar reject `INVALID_INPUT`; TS runtime guard `typeof port.invokeTool === "function"` else `CAPABILITY_PORT_MISSING` with `details.capability = request.capability_id` (Rust: `&dyn ToolInvokePort` cannot be absent at the type level — the negative test uses a `MissingToolInvokePort` double whose `invoke_tool` returns the same reject, demonstrating code parity); call `port.invokeTool(request)` and return as-is |
+| extract | `export async function orchestrateExtract(ports: ExtractionPort, request: ExtractRequest, runExtractor: RunExtractor): Promise<SpokeResult<ExtractResponse>>` | `pub async fn orchestrate_extract<F, Fut>(ports: &dyn ExtractionPort, request: ExtractRequest, run_extractor: F) -> SpokeResult<ExtractResponse> where F: FnOnce(ExtractRunInput) -> Fut, Fut: Future<Output = SpokeResult<ExtractionResult>> + Send` | `ExtractionPort` | Reject an empty or non-string `run_id` and an empty or missing `sources` list at the library boundary (`INVALID_INPUT`) before any port call; guard the injected loading method at dynamic boundaries (`CAPABILITY_PORT_MISSING` with `details.capability = "ke-extraction"`); `loadExtractionInput(request)` rejection returned unchanged with the extractor not invoked; `runExtractor({ request, input })` awaited exactly once, rejection returned unchanged; check the candidate set before returning success — `merged` / `deleted` → `CANDIDATE_TERMINAL_STATUS`, any other non-`provisional` status → `CANDIDATE_NOT_PROVISIONAL` (whole-set rejection, no partial success, no status rewrite); return `candidates` plus `run` echoing the caller's exact `run_id` with optional `method` / `coverage_hint`. No persistence, no promote call, no revision bump, no manifest auto-fetch |
+
+Orchestrators compose pure helpers and port I/O only. Checker engines, compute engines, ranking, retrieval, transactions, and retries remain adapter- or product-owned. The adapter controls transaction boundaries.
+
+**Reject-code usage (tools):** the operations-layer `CAPABILITY_PORT_MISSING` (port-family absence) carries `details.capability = tools.<ns>.<tool_id>` — per-tool blame. This is distinct from the connect-layer mapping ([`spoke-remote-adapter.md`](../adapters/spoke-remote-adapter.md) D7), where an invoke-path dispatch deny maps to the same reject code with `details.wire_code` preserved; same reject code, different `details` key, different trigger.
+
+#### Public export and module paths
+
+TypeScript places ports in `packages/spoke-operations/src/adapter/ports.ts` and entrypoints in `packages/spoke-operations/src/adapter/orchestrate.ts`; `src/index.ts` flat-re-exports both. Rust mirrors this at `crates/spoke-operations/src/adapter.rs` with `ports` and `orchestrate` submodules; `src/lib.rs` flat-re-exports the public traits and functions. Pure helper family paths remain unchanged.
+
+#### TS/Rust parity table
+
+| TypeScript | Rust |
+|---|---|
+| `KnowledgeEntryPort` | `KnowledgeEntryPort` |
+| `RelationPort` | `RelationPort` |
+| `ScopeQueryPort` | `ScopeQueryPort` |
+| `FindingPort` | `FindingPort` |
+| `RuleQueryPort` | `RuleQueryPort` |
+| `ComputablePort` | `ComputablePort` |
+| `ForkTimelineQueryPort` | `ForkTimelineQueryPort` |
+| `HostManifestPort` | `HostManifestPort` |
+| `ExtractionPort` | `ExtractionPort` |
+| `ExtractRunInput` | `ExtractRunInput` |
+| `ExtractionResult` | `ExtractionResult` |
+| `RunExtractor` | no nominal twin — the callback is the generic `F: FnOnce(ExtractRunInput) -> Fut` |
+| `OpaqueJson` | `serde_json::Value` |
+| `BaselineAdapter` | `BaselineAdapter` (marker trait; TS: `type BaselineAdapter = BaselinePorts`) |
+| `ComputableAdapter` | `ComputableAdapter` (marker trait; TS: `type ComputableAdapter = ComputablePorts`) |
+| `ForkAdapter` | `ForkAdapter` (marker trait; TS: `type ForkAdapter = ForkPorts`) |
+| `FullAdapter` | `FullAdapter` (marker trait; TS: `type FullAdapter = FullPorts`) |
+| `CheckRunInput` | `CheckRunInput` |
+| `orchestrateUpsert` | `orchestrate_upsert` |
+| `orchestratePromote` | `orchestrate_promote` |
+| `orchestrateRelate` | `orchestrate_relate` |
+| `orchestrateCheck` | `orchestrate_check` |
+| `orchestrateAssemble` | `orchestrate_assemble` |
+| `orchestrateProject` | `orchestrate_project` |
+| `orchestrateCompute` | `orchestrate_compute` |
+| `orchestrateForkCheck` | `orchestrate_fork_check` |
+| `orchestrateForkAssemble` | `orchestrate_fork_assemble` |
+| `orchestrateExtract` | `orchestrate_extract` |
+| `ToolInvokePort` | `ToolInvokePort` |
+| `orchestrateInvokeTool` | `orchestrate_invoke_tool` |
+
+### Package contract
+
+#### TypeScript
+
+| Field | Value |
+|-------|-------|
+| Name | `@42ch/spoke-operations` |
+| Path | `packages/spoke-operations/` |
+| Dependency | `@42ch/spoke-schemas` (workspace) only |
+| Publish | npm on stable tags (`@42ch/spoke-schemas` first, then this package) |
+| Behavioral SSOT | This spec + TypeScript and Rust implementations at behavioral parity |
+
+Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`, `SpokeReject`, `SpokeRejectCode` types/constants.
+
+#### Rust
+
+| Field | Value |
+|-------|-------|
+| Name | `spoke-operations` |
+| Path | `crates/spoke-operations/` |
+| Dependency | `spoke-schemas` (workspace) only |
+| Publish | crates.io on stable tags (`spoke-schemas` first, then this crate) |
+| Parity rule | Behavioral parity with `@42ch/spoke-operations` — same normative helper families (baseline + deepen + computable + adapter orchestration), same `SpokeRejectCode` string literals, same In/Out tables |
+| `SpokeResult` | Rust `enum SpokeResult<T> { Ok(T), Reject(SpokeReject) }` with `spoke_ok` / `spoke_reject` — code strings match TS; idiomatic Rust surface, not a second vocabulary |
+
+Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering **every** symbol in TS `src/index.ts`. Rust MAY also export additional typed/wire helpers not listed in TS `index.ts` — e.g. `KnowledgeEntryForAssemble`, `validate_promote_request_wire`, `UpsertMode`, `ExtensionMap`, `spoke_ok_unit` — without breaking parity.
+
+**Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `body`, `occ`, `knowledge_entry`, `scope`, `timeline`, `upsert`, `relate`, `error`, `computable`, `mind-state`, `cognition`); adapter ports/orchestrators use `adapter/ports.ts` and `adapter/orchestrate.ts` in TypeScript and `adapter.rs` submodules in Rust; private `util` is for typify field-access helpers only — no parallel wire DTOs.
+
+**Wire types:** helpers accept `spoke_schemas` generated types directly (`KnowledgeEntry`, `Finding`, `ErrorEnvelope`, etc.).
+
+---
+
+### Conformance (operations layer)
+
+#### First slice (TypeScript)
+
+- [x] This spec + [`spoke-protocol.md`](spoke-protocol.md) cross-link (umbrella column 3)
+- [x] Package exists with four helper families and unit tests per table above
+- [x] `SpokeResult` / `SpokeRejectCode` exported and used on all reject paths
+- [x] No I/O, LLM, ranking, retrieval, or storage imports in package dependency graph
+- [x] CI typecheck + test + build includes `packages/spoke-operations/`
+
+#### Deepen + computable (TypeScript and Rust)
+
+- [x] OCC, KnowledgeEntry status, uniqueness, Scope, upsert, relate, error-map, and computable validator families implemented per §Helper families (operations deepen + computable) in `@42ch/spoke-operations` and `spoke-operations`
+- [x] `REVISION_CONFLICT` and `STORED_REVISION_STALE` emitted on documented paths in both packages
+- [x] First-slice export behavior unchanged except additive OCC emit on new call sites
+
+#### Rust crate (shippable)
+
+- [x] `spoke-operations` crate at `crates/spoke-operations/` re-exports all normative helper families and every TS `index.ts` symbol (first-slice + deepen + computable)
+- [x] All 20 `SpokeRejectCode` strings exported from `result` module, including `CAPABILITY_PORT_MISSING`
+- [x] `cargo test -p spoke-operations` in CI and release verify
+- [x] crates.io publish after `spoke-schemas` on stable tags
+
+#### Computable slice (`l2-computable`)
+
+- [x] `validateComputableFieldMap`, `validateComputableLogEntry`, `validateProjectRequest`, `validateComputeRequest` exported from `@42ch/spoke-operations` `src/index.ts` and `spoke-operations` `src/lib.rs`
+- [x] No compute execution, WASM, or I/O in `packages/spoke-operations/` or `crates/spoke-operations/`
+
+#### Body attributes (`body.attributes` read)
+
+- [x] `listBodyAttributes`, `filterBodyAttributesByTraitType`, `findBodyAttribute` exported from `@42ch/spoke-operations` `src/index.ts`
+- [x] `list_body_attributes`, `filter_body_attributes_by_trait_type`, `find_body_attribute` re-exported from `spoke-operations` `src/lib.rs`
+- [x] Read/filter semantics documented in §13 (missing → empty; duplicate `trait_type` → all matches; malformed wire skip)
+
+#### Narrative sequence (`timeline/*` beat assist)
+
+- [x] `filterTimelineEventsByMomentScale`, `orderTimelineEventsByIds`, `orderTimelineEventsByPrecedes` exported from `@42ch/spoke-operations` `src/index.ts`
+- [x] `filter_timeline_events_by_moment_scale`, `order_timeline_events_by_ids`, `order_timeline_events_by_precedes` re-exported from `spoke-operations` `src/lib.rs`
+- [x] §14 documents filter/order semantics, dual KE link rule, cycle reject, stable sort
+
+#### Ownership viewpoint (`ke-ownership`)
+
+- [x] `getKnowledgeEntryOwner` / `knowledgeEntryVisibleToViewpoint` exported from `@42ch/spoke-operations` `src/index.ts`
+- [x] `get_knowledge_entry_owner` / `knowledge_entry_visible_to_viewpoint` re-exported from `spoke-operations` `src/lib.rs`
+- [x] §16 documents the visibility truth table, fail-closed rules, and out-of-scope product policy
+- [x] §8 applies the predicate through `Scope.viewpoint` in the existing matcher and list filter (no parallel ownership-filter family)
+
+#### Cognition (`cognition/*`)
+
+- [x] Validators, predicates, selection and projection helpers in §8a are exported from both package roots; Rust additionally exports the singular per-entry authorized-record helper
+- [x] `validateMindState` / `validate_mind_state` remain the MindState validator names and cover derivative cognition and pointer roots
+- [x] Scope filtering applies cognition after authorization/disclosure; assemble carries the optional projection and injected current policy before truncation
+- [x] No reference resolution, inference, replay, ranking, retrieval, storage or network I/O enters the cognition helper family
+
+#### Adapter interfaces + injection orchestration
+
+- [x] Capability → interface family → methods matrix complete for `spoke-baseline` (six families incl. `HostManifestPort`), `l2-computable`, `l5-fork`, and `ke-extraction` (no TBD cells)
+- [x] `HostManifestPort` exported + required on `BaselinePorts` / `BaselineAdapter` (TS + Rust)
+- [x] Host collaboration section documents roles↔ports map, namespace exclusivity, peer-list semantics, and `HostManifestPort` contract
+- [x] Injection orchestration sequences documented for baseline five ops, `project`/`compute`, fork-aware paths, and the optional extraction path (no TBD cells)
+- [x] Port interfaces and orchestration entrypoints exported from TS `src/index.ts` and Rust `src/lib.rs` per the parity table
+- [x] Orchestrators call pure helpers and perform I/O only through injected ports
+- [x] Missing optional port returns `CAPABILITY_PORT_MISSING` (not TypeError / panic)
+- [x] In-package mock adapters cover baseline five ops plus at least one computable and one fork-aware path
+
+### Non-goals (operations layer)
+
+#### Pure helpers and wire gates
+
+- Product DTO conversion in consumer product repositories (outside this protocol repo)
+- Conformance fixtures / golden files (owned by `fixtures/toy-world/`)
+- `Rule` evaluation, checker engines, Guardian detectors
+- HTTP/MCP binding or daemon routes
+- Ranking / retrieval / token-budget helpers
+- Storage fetch inside the library
+- HTTP/MCP status code tables
+- Compute engine execution, WASM, Session store I/O
+- Source access and extraction production — the injected product `ExtractionPort` / `RunExtractor` boundary
+
+Product adapter implementations satisfy the ports defined here; they ship in consumer repos when scheduled. Reference `ToyWorldAdapter` examples live under `fixtures/toy-world/` (TS `src/adapter/`; Rust `spoke-fixture-toy-world` in `rust/`).
+
+### Related paths
+
+| Path | Role |
+|------|------|
+| [`spoke-ops.md`](spoke-ops.md) | Ops **wire** request/response (column 2) |
+| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map; Check≠Assemble boundary framing |
+| [`spoke-data-model.md`](spoke-data-model.md) | Data objects helpers operate on |
+| `packages/spoke-operations/` | TypeScript operations library (pure helpers + adapter ports/orchestration) |
+| `crates/spoke-operations/` | Rust operations library — behavioral parity with `@42ch/spoke-operations` at lockstep SemVer |
+| `crates/spoke-schemas/` | Generated Rust wire types |
+| `fixtures/toy-world/src/adapter/` | TypeScript reference `ToyWorldAdapter` (private workspace package) |
+| `fixtures/toy-world/rust/` | Rust `spoke-fixture-toy-world` crate (`publish = false`) |
+
+## Invariants
+
+- The library performs no I/O, storage, LLM, ranking or retrieval; adapters MUST call the library instead of reimplementing its invariants, and `await` may appear only on injected port calls.
+- All helpers that can fail MUST return the same discriminated union (`SpokeResult`); lifecycle rejects are never thrown, and no ad-hoc `{ error: string }` shapes exist.
+- Implementers MUST NOT invent parallel code strings: `SpokeRejectCode` literals are identical in TypeScript (`as const` object + union) and Rust (`as_str()`).
+- Port methods are asynchronous on the normative surface (`Promise<SpokeResult<T>>`; Rust `#[async_trait]` with `Send` futures), all `orchestrate*` entrypoints are `async` and await every injected port call, and pure helpers stay synchronous. Checker callbacks are synchronous; the extraction callback is deliberately asynchronous.
+- Rust `src/lib.rs` MUST re-export every symbol in the TypeScript `src/index.ts` in snake_case at behavioral parity, and both packages carry the same `SpokeRejectCode` literals and In/Out tables.
+- `putKnowledgeEntry` / `putRelation` adapters MUST treat `expectedBaseRevision` as the store's required current revision before accepting a write (`null`/`None` = create); true concurrency safety requires atomic compare-and-put in the adapter.
+- Within one collaboration context, each namespace string in any manifest's `namespaces[]` MUST appear on at most one `host_id`.
+- Unclaimed capabilities need no ports and their orchestrators are not callable; a provider declaring a memory sub-flag MUST also declare `spoke-memory`.
+
+## Where it lives
+
+| Path | Content |
+|------|---------|
+| `packages/spoke-operations/src/index.ts` | Flat public re-exports of every helper family |
+| `packages/spoke-operations/src/adapter/ports.ts` | Port interfaces |
+| `packages/spoke-operations/src/adapter/orchestrate.ts` | `orchestrate*` entrypoints |
+| `packages/spoke-operations/src/{result,extensions,finding,promote,assemble,body,occ,knowledge_entry,scope,timeline,upsert,relate,error,computable,mind-state,cognition}` | Helper-family modules |
+| `crates/spoke-operations/src/lib.rs`, `src/adapter.rs` | Rust parity surface (`ports` / `orchestrate` submodules) |
+| `schemas/` (via `@42ch/spoke-schemas` / `spoke-schemas`) | Generated wire types the helpers accept |
+| `fixtures/toy-world/src/adapter/`, `fixtures/toy-world/rust/` | Reference adapter implementations |
+| `packages/spoke-operations/package.json`, `crates/spoke-operations/Cargo.toml` | Package contract, lockstep SemVer |
+
+Commands: `pnpm -F @42ch/spoke-operations typecheck`, `pnpm -F @42ch/spoke-operations test`, `cargo test -p spoke-operations`.
+
+## Change obligations
+
+- New helper family or export → update §Current state helper inventory here, both package public surfaces, the TS/Rust parity table, and the reject-code table when a new code is introduced.
+- New port family or capability → update §Current state capability matrix and port-family sections here, the capability tables in `spoke-protocol-layers.md`, and the manifest capability rules in `spoke-data-model.md`.
+- New or changed `orchestrate*` entrypoint → update §Injection orchestration and the parity table in this page plus the matching ops payload in `spoke-ops.md`.
+- Reject code added or renamed → update §`SpokeRejectCode` here and both language packages in the same change; never fork a parallel string.
+- Change to async/port policy → update §Port policy here and the Rust `Output port traits` parity statement.

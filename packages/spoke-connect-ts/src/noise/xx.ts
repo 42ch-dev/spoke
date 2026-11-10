@@ -1,6 +1,6 @@
 /**
  * Noise XX handshake state machine — `Noise_XX_25519_ChaChaPoly_SHA256`
- * (frozen contract `.mstar/specs/noise-xx-libp2p-contract.md` §2; Noise
+ * (frozen contract `.agents/specs/connect/noise-xx-libp2p-contract.md` §2; Noise
  * spec §5.2–§5.3).
  *
  * Message pattern (roles: I = initiator/dialer, R = responder/listener):

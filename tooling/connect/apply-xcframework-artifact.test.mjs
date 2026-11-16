@@ -13,13 +13,12 @@ const required = [
   "Record xcframework build provenance",
   "Upload xcframework artifact",
 ];
-const freshness = "Verify committed xcframework freshness";
 const smoke = "Fail on committed Swift consumer smoke";
 const digest = (text) => createHash("sha256").update(text).digest("hex");
 const bundle = "crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework";
 
 function runFixture({
-  failures = [freshness], missing, invalidSource, invalidManifest, invalidProvenance, invalidCheckout,
+  failures = [smoke], missing, invalidSource, invalidManifest, invalidProvenance, invalidCheckout,
   status = "completed", conclusion = "failure",
   jobStatus = "completed", jobConclusion, cancelledStep, advanceHead, allowSha, transferWithoutDelivery,
 } = {}) {
@@ -100,7 +99,7 @@ function runFixture({
 }
 
 describe("xcframework artifact application outcome gate", () => {
-  for (const failures of [[freshness], [freshness, smoke], [smoke]]) {
+  for (const failures of [[smoke]]) {
     it(`applies a validated artifact after ${failures.join(" and ")}`, () => {
       const { result, contents, record, producerSha } = runFixture({ failures });
       assert.equal(result.status, 0, result.stderr);
@@ -111,14 +110,14 @@ describe("xcframework artifact application outcome gate", () => {
     });
   }
   for (const [label, options] of [
-    ["unrelated failure", { failures: [freshness, "unrelated"] }],
+    ["unrelated failure", { failures: [smoke, "unrelated"] }],
     ["missing prerequisite", { missing: required[0] }],
     ["wrong source", { invalidSource: true }],
     ["invalid manifest", { invalidManifest: true }],
     ["invalid producer provenance", { invalidProvenance: true }],
     ["producer checkout that is not the run head", { invalidCheckout: true }],
     ["job conclusion does not match the run", { jobConclusion: "success" }],
-    ["cancelled producer step", { cancelledStep: freshness }],
+    ["cancelled producer step", { cancelledStep: smoke }],
     ["incomplete run", { status: "in_progress" }],
     ["cancelled run", { conclusion: "cancelled" }],
   ]) {

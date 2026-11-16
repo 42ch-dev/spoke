@@ -11,7 +11,7 @@
  * This script fails when a field whose schema `$ref`s the canonical `OpaqueJson` definition is
  * emitted as an object map.
  *
- * Wire it from `pnpm run verify-codegen` alongside `assert-schema-count.mjs`.
+ * Wire it from `pnpm run verify-codegen`.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";

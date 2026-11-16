@@ -57,8 +57,10 @@ function buildTypeScriptBarrelExport(relSchema, baseName) {
 function localizeSchemaRefs(schemaObj, relSchemaPath) {
   const schemaDir = path.dirname(relSchemaPath);
 
+  // ref-parser 16 resolves a relative $id against the retrieval URI, which would
+  // double the schema's directory. Dropping $id keeps the file itself as the base.
   if (typeof schemaObj.$id === "string" && schemaObj.$id.startsWith(SPOKE_SCHEMA_BASE)) {
-    schemaObj.$id = relSchemaPath;
+    delete schemaObj.$id;
   }
 
   const visit = (node) => {

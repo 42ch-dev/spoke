@@ -149,7 +149,7 @@ C++20 generator integration, vcpkg/Conan, public Release archives, additional pl
 - `crates/spoke-connect/bindings/cpp/native/provenance.json` — per-RID source revision, toolchain and artifact hashes (`headerSha256`, `hppSha256`, artifact SHA-256).
 - `crates/spoke-connect/bindings/cpp/Smoke/` (`main.cpp`, `convenience.cpp`, `support.hpp`) and `crates/spoke-connect/bindings/cpp/ue/` (`SpokeConnect.Build.cs`, `README.md`).
 - `crates/spoke-connect-capi/` — the workspace-private carrier crate (`publish = false`).
-- `tooling/connect/cpp-symbol-check.mjs`, `tooling/connect/cpp-smoke.mjs`, `tooling/connect/cpp-build.mjs` — drift gate, smoke runner and native producer/verifier.
+- `tooling/connect/cpp-symbol-check.mjs`, `tooling/connect/cpp-smoke.mjs`, `tooling/connect/cpp-build.mjs` — drift gate, smoke runner and native producer.
 - `.github/workflows/cpp-connect.yml` — per-PR carrier lanes; `.gitattributes` — git-lfs rules for the carrier libraries.
 - `crates/spoke-connect/tests/fixtures/golden-hello.json` — the golden hello bytes the smokes assert.
 

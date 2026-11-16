@@ -1,7 +1,7 @@
 ---
 module: connect / native artifact provenance
 date: 2026-08-18
-last_updated: 2026-11-08
+last_updated: 2026-11-16
 problem_type: tooling_decision
 category: tooling-decisions
 severity: medium
@@ -9,12 +9,10 @@ tags:
   - native-artifacts
   - xcframework
   - provenance
-  - source-freshness
   - lfs
   - reproducibility
 applies_when:
   - Refreshing committed native carriers
-  - Verifying source-to-artifact freshness
 ---
 
 # Source-bound committed native artifacts
@@ -36,22 +34,22 @@ A simulated compiler can exercise source-identity decisions in an isolated Git r
 | Carrier | Existing producer and retained evidence |
 |---|---|
 | C/C++ | `cpp-connect.yml` produces macOS and Windows artifacts. Each RID keeps its own source revision, target, observed Rust/compiler versions, flags, artifact hashes and both `headerSha256`/`hppSha256`. Apply each RID's files and entry from its own producer artifact. |
-| Swift | `xcframework.yml` uses the pinned, locked staged build for the three-slice bundle. The uploaded manifest and producer record bind transferred files to the run's source and observed compiler. The committed-versus-built decision follows upload. |
+| Swift | `xcframework.yml` uses the pinned, locked staged build for the three-slice bundle. The uploaded manifest and producer record bind transferred files to the run's source and observed compiler. A committed consumer smoke exercises the committed macOS slice. |
 | Go Darwin | The existing maintainer recipe builds both committed Darwin targets, copies their dylibs and assigns `@rpath/libspoke_connect.dylib`. Retain the local source, toolchain, SDK, flags, full-byte comparisons and applied hashes. |
 
-Both C header hashes are required per RID; missing or mismatching values fail verification. Header byte representation follows the checkout's LF attributes. Native binaries and each RID's metadata remain one source-bound pair; a bundled sibling entry is not evidence for a different RID's build.
+Both C header hashes are recorded per RID; header byte representation follows the checkout's LF attributes. Native binaries and each RID's metadata remain one source-bound pair; a bundled sibling entry is not evidence for a different RID's build.
 
 Swift static archives and C dynamic carriers use git-lfs. Applied LFS pointer OIDs must agree with the recorded artifact hashes. Go dylibs remain ordinary Git objects for module-proxy consumption. The C import library and provenance are ordinary Git objects.
 
 ### Keep the Swift refresh path usable and fail-closed
 
-The committed Swift consumer smoke exercises the committed macOS slice. The staged producer builds and uploads the refresh bundle, then the two-tree verifier compares it with the committed tree. A stale committed carrier can therefore fail freshness while leaving a valid refresh artifact available.
+The committed Swift consumer smoke exercises the committed macOS slice. The staged producer builds and uploads the refresh bundle; the manifest and producer record travel with the artifact, so a maintainer can apply a validated refresh without comparing two build trees.
 
-`apply-xcframework-artifact.sh <run-id>` requires the expected completed workflow/job and successful build, manifest, provenance and upload steps. A failed run is usable only when its failed checks are confined to the explicitly named committed freshness and consumer-smoke checks. Other failures, incomplete/cancelled runs or inconsistent outcomes are rejected.
+`apply-xcframework-artifact.sh <run-id>` requires the expected completed workflow/job and successful build, manifest, provenance and upload steps. A failed run is usable only when its failed checks are confined to the explicitly named consumer-smoke check. Other failures, incomplete/cancelled runs or inconsistent outcomes are rejected.
 
 Normal application matches the checkout HEAD to the run's source. Before replacing the bundle, the script validates every transferred manifest entry, binds producer `sourceHead` to the run head, checks the embedded manifest against the transferred manifest and requires an observed compiler value. The sidecar records the actual run conclusion, source and application head. An intentional explicit source override is recorded separately.
 
-A second download of the same build can verify transfer and application identity. Independent reproducibility requires another real source build with equivalent inputs. The producer's failing old-tree comparison, the applied artifact's passing integrity check and later delivery CI retain their distinct results.
+A second download of the same build can verify transfer and application identity. Independent reproducibility requires another real source build with equivalent inputs. The transfer manifest proves the shipped bytes; behavior comes from the committed carrier checks.
 
 ### Compare independent builds with identical complete inputs
 
@@ -65,16 +63,16 @@ Producer-level normalization of `Info.plist` `AvailableLibraries` ordering stabi
 
 ## Why This Matters
 
-Source-bound producer records explain which implementation consumers receive. Required committed-carrier checks preserve drift detection, while upload-before-decision and the guarded application policy make a legitimate refresh possible. Independent cold builds and whole-file mismatch controls establish reproducibility within their declared input boundary.
+Source-bound producer records explain which implementation consumers receive. Committed-carrier symbol and smoke checks cover behavior, while the transfer manifest and the guarded application policy make a legitimate refresh possible. Independent cold builds and whole-file mismatch controls establish reproducibility within their declared input boundary.
 
 ## When to Apply
 
 - A compiled dependency or FFI implementation change affects committed carriers.
-- A required freshness check reports drift and a genuine refresh artifact is available.
+- A maintainer refreshes a committed carrier from a CI artifact.
 - A native comparison needs to distinguish changed inputs from same-input nondeterminism.
 
 ## References
 
 - [Native-binding channels](../../adr/implemented/architecture/2026-08-03-connect-binding-channels.md)
 - [Maintainer carrier procedures](../../../CONTRIBUTING.md)
-- Source: `.github/workflows/cpp-connect.yml`, `.github/workflows/xcframework.yml`, `tooling/connect/cpp-build.mjs`, `apply-xcframework-artifact.sh`, `verify-xcframework-drift.sh`.
+- Source: `.github/workflows/cpp-connect.yml`, `.github/workflows/xcframework.yml`, `tooling/connect/cpp-build.mjs`, `apply-xcframework-artifact.sh`, `tooling/connect/xcframework-manifest.sh`.

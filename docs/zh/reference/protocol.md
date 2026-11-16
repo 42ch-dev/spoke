@@ -20,7 +20,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 ## Schema 清单与代码生成姿态
 
-线上清单为 **114 个已提交的 `*.schema.json`**：2 common + 24 data + 82 ops + 6 connect 信封。可选 `spoke-memory` 族贡献其中 79 个（13 个数据模型 + 33 组请求/响应配对）。基线集成方使用其中的 **21** 个 schema 文件（2 common + 9 data + 10 基线 ops）：九个基线数据 schema 包含 `ToolDescriptor`，而 `CognitionRecord` 与 `MindState` 是两个可选的非记忆数据文件。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 重新生成两棵生成树，检查 opaque JSON 类型契约并编译工作区；schema 变更与重新生成输出落在同一提交。
+线上清单为 **114 个已提交的 `*.schema.json`**：2 common + 24 data + 82 ops + 6 connect 信封。可选 `spoke-memory` 族贡献其中 79 个（13 个数据模型 + 33 组请求/响应配对）。基线集成方使用其中的 **21** 个 schema 文件（2 common + 9 data + 10 基线 ops）：九个基线数据 schema 包含 `ToolDescriptor`，而 `CognitionRecord` 与 `MindState` 是两个可选的非记忆数据文件。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 校验已提交的生成树：schema 数量、opaque JSON 类型契约、TypeScript typecheck 与 `cargo check --workspace`；schema 变更与重新生成输出落在同一提交。
 
 ## 扩展契约
 

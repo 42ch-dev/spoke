@@ -20,7 +20,7 @@ Six interaction envelopes ([`schemas/connect/`](https://github.com/42ch-dev/spok
 
 ## Schema inventory and codegen posture
 
-The wire inventory is **114 committed `*.schema.json` files**: 2 common + 24 data + 82 ops + 6 connect envelopes. The optional `spoke-memory` family contributes 79 of them (13 data models + 33 request/response pairs). Baseline integrators use **21** of those files (2 common + 9 data + 10 baseline ops): the nine baseline data schemas include `ToolDescriptor`, while `CognitionRecord` and `MindState` are the two optional non-memory data files. `schemas/` is the only hand-authored wire truth; generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) output is committed and mirrors the schema tree. `pnpm run verify-codegen` regenerates both trees, checks the opaque-JSON type contract and compiles the workspace; schema changes and regenerated output land in the same commit.
+The wire inventory is **114 committed `*.schema.json` files**: 2 common + 24 data + 82 ops + 6 connect envelopes. The optional `spoke-memory` family contributes 79 of them (13 data models + 33 request/response pairs). Baseline integrators use **21** of those files (2 common + 9 data + 10 baseline ops): the nine baseline data schemas include `ToolDescriptor`, while `CognitionRecord` and `MindState` are the two optional non-memory data files. `schemas/` is the only hand-authored wire truth; generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) output is committed and mirrors the schema tree. `pnpm run verify-codegen` checks the committed trees: schema count, the opaque-JSON type contract, TypeScript typecheck and `cargo check --workspace`; schema changes and regenerated output land in the same commit.
 
 ## Extensions contract
 

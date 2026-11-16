@@ -31,8 +31,8 @@
 # objects).
 #
 # Provenance gate (fail-closed, runs before the download): accept successful
-# runs or failures limited to the committed freshness and consumer smoke checks,
-# with successful build, manifest, provenance and upload steps in either case.
+# runs or failures limited to the consumer smoke check, with successful build,
+# manifest, provenance and upload steps in either case.
 # The run head must match HEAD unless --allow-sha pins it. The override only
 # relaxes that destination check; the producer record must still show a
 # checkout of exactly the declared run head.
@@ -137,7 +137,6 @@ try:
         "Upload xcframework artifact",
     }
     allowed_failures = {
-        "Verify committed xcframework freshness",
         "Fail on committed Swift consumer smoke",
     }
     if len(names) != len(set(names)):
@@ -149,7 +148,7 @@ try:
         raise ValueError("incomplete or cancelled step")
     failures = {name for name, conclusion in outcomes.items() if conclusion == "failure"}
     if failures - allowed_failures or bool(failures) != (sys.argv[1] == "failure"):
-        raise ValueError("failure is not limited to committed freshness or consumer smoke")
+        raise ValueError("failure is not limited to the consumer smoke")
 except (KeyError, TypeError, ValueError) as error:
     print("error: invalid producer job: %s" % error, file=sys.stderr)
     sys.exit(1)

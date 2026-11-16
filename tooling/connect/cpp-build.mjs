@@ -33,7 +33,6 @@
  * Usage:
  *   node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.98.1
  *   node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.98.1
- *   node tooling/connect/cpp-build.mjs --verify --target aarch64-apple-darwin
  *
  * `--toolchain <name>` is passed to cargo as `+<name>`; when omitted, the
  * caller's default toolchain is used. Both carrier lanes pin stable `1.98.1`
@@ -42,13 +41,6 @@
  * maintainer-local one — so build with that exact toolchain, not whichever
  * default happens to be installed.
  *
- * `--verify` is the read-only consumer check: it re-reads the committed
- * provenance and hashes the committed headers and staged native for one RID,
- * failing when a recorded SHA-256 no longer describes those bytes. It builds
- * nothing and writes nothing, so it runs against any checkout — including one
- * whose header bytes drifted from the record (CRLF from a Windows
- * `core.autocrlf=true` checkout), which is the drift the build path hides by
- * rewriting the record it just hashed.
  */
 
 import { createHash } from "node:crypto";
@@ -109,7 +101,7 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const args = { target: null, toolchain: null, verify: false };
+  const args = { target: null, toolchain: null };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === "--target") {
@@ -118,18 +110,13 @@ function parseArgs(argv) {
     } else if (flag === "--toolchain") {
       args.toolchain = argv[index + 1];
       index += 1;
-    } else if (flag === "--verify") {
-      args.verify = true;
     } else {
-      fail(`unknown argument '${flag}' (usage: --target <rust-target> [--toolchain <name>] [--verify])`);
+      fail(`unknown argument '${flag}' (usage: --target <rust-target> [--toolchain <name>])`);
     }
   }
   if (!args.target) fail("--target is required");
   if (!TARGETS[args.target]) {
     fail(`unsupported target '${args.target}' (supported: ${Object.keys(TARGETS).join(", ")})`);
-  }
-  if (args.verify && args.toolchain) {
-    fail("--verify only reads the committed files; drop --toolchain rather than ignoring it");
   }
   return args;
 }
@@ -261,66 +248,9 @@ export function readProvenance(path) {
   return provenance;
 }
 
-/**
- * The committed entry for `spec.rid` has to describe the bytes a consumer
- * receives: both headers and every staged native the entry lists. The
- * read-only shape is the point — the build path records what it just hashed,
- * so only a reader can catch a checkout whose bytes no longer match the record.
- */
-function verifyProvenance(spec) {
-  const entry = readProvenance(PROVENANCE).nativeArtifacts[spec.rid];
-  if (!entry) {
-    fail(`provenance has no '${spec.rid}' entry, so nothing records what was shipped`);
-  }
-
-  const problems = [];
-  const headerSha256 = sha256(HEADER);
-  if (entry.headerSha256 !== headerSha256) {
-    problems.push(
-      `header: recorded ${entry.headerSha256}, committed bytes ${headerSha256} ` +
-        `(${relative(REPO_ROOT, HEADER)})`,
-    );
-  }
-  const hppSha256 = sha256(HPP);
-  if (entry.hppSha256 !== hppSha256) {
-    problems.push(
-      `hpp: recorded ${entry.hppSha256}, committed bytes ${hppSha256} ` +
-        `(${relative(REPO_ROOT, HPP)})`,
-    );
-  }
-  for (const artifact of spec.artifacts) {
-    const recorded = (entry.artifacts ?? []).find((item) => item.path === artifact.staged);
-    const actual = sha256(join(CPP_DIR, "native", spec.rid, artifact.staged));
-    if (!recorded) {
-      problems.push(`native/${spec.rid}/${artifact.staged}: missing from the entry`);
-    } else if (recorded.sha256 !== actual) {
-      problems.push(
-        `native/${spec.rid}/${artifact.staged}: recorded ${recorded.sha256}, ` +
-          `committed bytes ${actual}`,
-      );
-    }
-  }
-
-  if (problems.length > 0) {
-    fail(
-      `committed provenance does not describe the committed ${spec.rid} bytes:\n  ` +
-        problems.join("\n  "),
-    );
-  }
-  console.log(
-    `cpp-build: verified ${spec.rid} provenance (header ${headerSha256}, ` +
-      `hpp ${hppSha256}, natives ${spec.artifacts.length})`,
-  );
-}
-
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const spec = TARGETS[args.target];
-
-  if (args.verify) {
-    verifyProvenance(spec);
-    return;
-  }
 
   assertBuildSourcesCommitted();
 

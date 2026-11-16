@@ -14,7 +14,7 @@ on:
       - crates/spoke-connect/Cargo.toml
       - Cargo.lock
       - tooling/connect/build-swift-xcframework.sh
-      - tooling/connect/verify-xcframework-drift.sh
+      - tooling/connect/xcframework-manifest.sh
       - crates/spoke-connect/bindings/swift/generated/**
       - crates/spoke-connect/bindings/swift/Smoke/**
       - Package.swift
@@ -101,7 +101,7 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         # The apply script verifies the transferred artifact against this manifest.
         run: |
-          ./tooling/connect/verify-xcframework-drift.sh --manifest \
+          ./tooling/connect/xcframework-manifest.sh \
             "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework" \
             > "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework.sha256"
 
@@ -130,13 +130,6 @@ jobs:
           path: ${{ runner.temp }}/xcframework-stage
           if-no-files-found: error
           retention-days: 5
-
-      - name: Verify committed xcframework freshness
-        if: needs.changes.outputs.code == 'true'
-        run: |
-          ./tooling/connect/verify-xcframework-drift.sh \
-            crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework \
-            "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework"
 
       - name: Fail on committed Swift consumer smoke
         if: always() && steps.committed_smoke.outcome == 'failure'

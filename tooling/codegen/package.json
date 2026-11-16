@@ -9,7 +9,7 @@
     "codegen": "node src/run.mjs"
   },
   "dependencies": {
-    "@apidevtools/json-schema-ref-parser": "^11.9.3",
+    "@apidevtools/json-schema-ref-parser": "^16.0.8",
     "glob": "^14.0.4",
     "json-schema-to-typescript": "^16.0.0"
   }

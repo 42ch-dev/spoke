@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.16.1] - 2026-11-16
+
+
+### Documentation
+
+- Restructure for agent consumption and add protocol diagrams (#167)
+
+- **harness:** Move specs, ADRs and knowledge to the .agents layout (#168)
+
+- Align verify-codegen and carrier refresh text with current checks
+
+
+### Fixed
+
+- **ci:** Drop byte-identity gates that fail on dependency bumps
+
+- **ci:** Verify committed codegen output instead of a regenerated worktree
+
+- **codegen:** Resolve bundled refs under ref-parser 16
+
+
+### build
+
+- **deps:** Bump ws from 8.22.1 to 8.22.2 (#174)
+
+- **deps:** Bump glob from 14.0.3 to 14.0.4 (#170)
+
+- **deps:** Bump rusqlite from 0.41.1 to 0.42.0 (#169)
+
+- **deps-dev:** Bump typescript from 5.9.3 to 7.0.2
+
+- **deps:** Keep the TypeScript 6 compiler API for TypeScript 7
+
+- **deps:** Bump uuid from 1.29.0 to 1.29.2 (#171)
+
+- **deps:** Bump sha2 from 0.11.0 to 0.11.1 (#172)
+
+- **deps:** Bump @apidevtools/json-schema-ref-parser
+
 ## [0.16.0] - 2026-11-09
 
 

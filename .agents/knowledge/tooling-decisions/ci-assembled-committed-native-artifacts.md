@@ -37,13 +37,13 @@ A simulated compiler can exercise source-identity decisions in an isolated Git r
 | Swift | `xcframework.yml` uses the pinned, locked staged build for the three-slice bundle. The uploaded manifest and producer record bind transferred files to the run's source and observed compiler. A committed consumer smoke exercises the committed macOS slice. |
 | Go Darwin | The existing maintainer recipe builds both committed Darwin targets, copies their dylibs and assigns `@rpath/libspoke_connect.dylib`. Retain the local source, toolchain, SDK, flags, full-byte comparisons and applied hashes. |
 
-Both C header hashes are recorded per RID; header byte representation follows the checkout's LF attributes. Native binaries and each RID's metadata remain one source-bound pair; a bundled sibling entry is not evidence for a different RID's build.
+Recorded hashes describe the bytes a build produced; they are audit data, not a CI gate. The committed carriers are covered by the C ABI symbol check and the C++ smoke, which exercise behavior. Both C header hashes are recorded per RID; header byte representation follows the checkout's LF attributes. Native binaries and each RID's metadata remain one source-bound pair; a bundled sibling entry is not evidence for a different RID's build.
 
 Swift static archives and C dynamic carriers use git-lfs. Applied LFS pointer OIDs must agree with the recorded artifact hashes. Go dylibs remain ordinary Git objects for module-proxy consumption. The C import library and provenance are ordinary Git objects.
 
 ### Keep the Swift refresh path usable and fail-closed
 
-The committed Swift consumer smoke exercises the committed macOS slice. The staged producer builds and uploads the refresh bundle; the manifest and producer record travel with the artifact, so a maintainer can apply a validated refresh without comparing two build trees.
+The committed Swift consumer smoke exercises the committed macOS slice; no regeneration byte diff runs in CI. The staged producer builds and uploads the refresh bundle; the manifest and producer record travel with the artifact, so a maintainer can apply a validated refresh without comparing two build trees.
 
 `apply-xcframework-artifact.sh <run-id>` requires the expected completed workflow/job and successful build, manifest, provenance and upload steps. A failed run is usable only when its failed checks are confined to the explicitly named consumer-smoke check. Other failures, incomplete/cancelled runs or inconsistent outcomes are rejected.
 

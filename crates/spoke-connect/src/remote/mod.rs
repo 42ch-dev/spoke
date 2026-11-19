@@ -250,19 +250,10 @@ mod capability_matrix {
         }
     }
 
-    // Shared SSOT (Rust fixture) + the TS copy the other harness reads; the
-    // byte-equality assertion keeps the two languages on one matrix.
+    // The crate reads its own fixture; byte equality with the TS copy is
+    // enforced outside the crate by `tooling/connect/golden-vector-sync.mjs`,
+    // so a packaged crate never depends on a sibling package's path.
     const FIXTURE: &str = include_str!("../../tests/fixtures/capability-matrix.json");
-    const TS_FIXTURE: &str =
-        include_str!("../../../../packages/spoke-connect-ts/tests/fixtures/capability-matrix.json");
-
-    #[test]
-    fn the_matrix_is_shared_with_the_typescript_harness() {
-        assert_eq!(
-            FIXTURE, TS_FIXTURE,
-            "the Rust and TS harnesses must consume the same capability matrix byte-for-byte"
-        );
-    }
 
     #[test]
     fn the_op_tables_match_the_shared_capability_matrix() {

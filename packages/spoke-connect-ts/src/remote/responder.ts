@@ -2071,10 +2071,12 @@ export class ConnectResponder {
                 payload.entry_id as string,
               );
             case "port.knowledge.put":
+              // Rust decodes `Option<u64>`: a missing member is None (create),
+              // so the store must never receive `undefined` here.
               return face.store.putScopedKnowledgeEntry(
                 admitted.value,
                 payload.entry as KnowledgeEntry,
-                payload.expected_base_revision as number | null,
+                (payload.expected_base_revision ?? null) as number | null,
               );
             default:
               return face.store.listScopedKnowledgeEntries(listedScope);

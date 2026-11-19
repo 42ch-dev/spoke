@@ -30,10 +30,14 @@ import {
 } from "../../src/remote/index.js";
 import {
   connectResponder,
+  ConnectResponder,
   knowledgeOnlyServePorts,
   type RemoteAdapter,
   type RemoteKnowledgeFace,
+  type RemoteServePorts,
 } from "../../src/remote/index.js";
+import { Session } from "../../src/core/session.js";
+import type { Transport } from "../../src/remote/transport.js";
 import {
   selectPeerForOp,
   type SelectablePeer,
@@ -476,6 +480,270 @@ describe("knowledge-only responder", () => {
         2,
       );
       expect(fresh.ok).toBe(true);
+    } finally {
+      close();
+    }
+  });
+});
+
+// ── Payload pre-validation + refusal branches (QC B2/B3/B4) ───────────────
+
+describe("knowledge dispatch pre-validation and refusals", () => {
+  /** Raw-wire knowledge-only host with admission/store call counters. */
+  async function dialRawKnowledgeHost(ports: unknown): Promise<{
+    responder: ConnectResponder;
+    clientEnd: Transport;
+    sessionId: string;
+    admissionCalls: string[];
+    storeCalls: string[];
+    close: () => void;
+  }> {
+    const hostSeed = seed(0xa0);
+    const hostPubkey = getPublicKeyEd25519(hostSeed);
+    const hostPeerId = derivePeerIdFromEd25519Pubkey(hostPubkey);
+    const clientSeed = seed(0x10);
+    const clientPubkey = getPublicKeyEd25519(clientSeed);
+    const clientPeerId = derivePeerIdFromEd25519Pubkey(clientPubkey);
+    const pair = loopbackTransportPair();
+    const admissionCalls: string[] = [];
+    const storeCalls: string[] = [];
+    const responder = await connectResponder({
+      transport: pair.server,
+      identity: { seed: hostSeed },
+      manifest: manifest("knowledge-host", ["spoke-knowledge"]),
+      allowlist: [clientPeerId],
+      peerKeys: { [clientPeerId]: clientPubkey },
+      ports: ports as RemoteServePorts | undefined,
+    });
+    const clientEnd = pair.client;
+    const nonce = generateNonce();
+    await clientEnd.send(
+      textEncoder.encode(
+        encodeJsonMessage(
+          await signHelloEd25519(
+            clientSeed,
+            nonce,
+            manifest("client", ["spoke-knowledge"]),
+          ),
+        ),
+      ),
+    );
+    const responderHello = decodeJsonMessage(await clientEnd.recv()) as
+      Parameters<typeof verifyHelloEd25519>[2];
+    await verifyHelloEd25519(hostPubkey, hostPeerId, responderHello, nonce);
+    const snapshot = decodeJsonMessage(await clientEnd.recv()) as {
+      session_id: string;
+    };
+    return {
+      responder,
+      clientEnd,
+      sessionId: snapshot.session_id,
+      admissionCalls,
+      storeCalls,
+      close: (): void => {
+        clientEnd.close();
+        responder.close();
+      },
+    };
+  }
+
+  async function rawInvoke(
+    clientEnd: Transport,
+    clientSeed: Uint8Array,
+    sessionId: string,
+    sequence: number,
+    requestId: string,
+    op: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ error?: { code?: string; details?: Record<string, unknown> } }> {
+    const request = await authenticateInvokeRequest(clientSeed, {
+      session_id: sessionId,
+      sequence,
+      request_id: requestId,
+      op,
+      payload,
+    });
+    await clientEnd.send(textEncoder.encode(encodeJsonMessage(request)));
+    return decodeJsonMessage(await clientEnd.recv()) as {
+      error?: { code?: string; details?: Record<string, unknown> };
+    };
+  }
+
+  it("answers INVALID_INPUT with zero admission and store calls on malformed get payloads (B2)", async () => {
+    const admissionCalls: string[] = [];
+    const face = scopedStoreFace((peerId) => {
+      admissionCalls.push(peerId);
+      return spokeOk(SCOPE_A);
+    });
+    const { clientEnd, sessionId, close } = await dialRawKnowledgeHost(
+      knowledgeOnlyServePorts(face),
+    );
+    try {
+      const missing = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        0,
+        "get-missing",
+        "port.knowledge.get",
+        {},
+      );
+      expect(missing.error?.code).toBe("INVALID_INPUT");
+
+      const nonString = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        1,
+        "get-nonstring",
+        "port.knowledge.get",
+        { entry_id: 42 },
+      );
+      expect(nonString.error?.code).toBe("INVALID_INPUT");
+
+      const empty = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        2,
+        "get-empty",
+        "port.knowledge.get",
+        { entry_id: "" },
+      );
+      expect(empty.error?.code).toBe("INVALID_INPUT");
+
+      expect(admissionCalls).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("answers INVALID_INPUT with zero admission and store calls on malformed put payloads (B2)", async () => {
+    const admissionCalls: string[] = [];
+    const storeCalls: string[] = [];
+    const face = scopedStoreFace((peerId) => {
+      admissionCalls.push(peerId);
+      return spokeOk(SCOPE_A);
+    }, storeCalls);
+    const { clientEnd, sessionId, close } = await dialRawKnowledgeHost(
+      knowledgeOnlyServePorts(face),
+    );
+    try {
+      const badEntry = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        0,
+        "put-bad-entry",
+        "port.knowledge.put",
+        { entry: "not-an-object" },
+      );
+      expect(badEntry.error?.code).toBe("INVALID_INPUT");
+
+      const badRevision = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        1,
+        "put-bad-revision",
+        "port.knowledge.put",
+        {
+          entry: entry("kb_put"),
+          expected_base_revision: "1",
+        },
+      );
+      expect(badRevision.error?.code).toBe("INVALID_INPUT");
+
+      expect(admissionCalls).toHaveLength(0);
+      expect(storeCalls).toHaveLength(0);
+
+      // A well-formed put passes validation and reaches admission + store.
+      const valid = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        2,
+        "put-valid",
+        "port.knowledge.put",
+        { entry: entry("kb_put"), expected_base_revision: null },
+      );
+      expect(valid.error).toBeUndefined();
+      expect(admissionCalls).toHaveLength(1);
+      expect(storeCalls).toEqual(["put"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses NOT_AUTHORIZED without calling admission when the peer id is empty (B3)", async () => {
+    const admissionCalls: string[] = [];
+    const face = scopedStoreFace((peerId) => {
+      admissionCalls.push(peerId);
+      return spokeOk(SCOPE_A);
+    });
+    const { responder, clientEnd, sessionId, close } =
+      await dialRawKnowledgeHost(knowledgeOnlyServePorts(face));
+    try {
+      // Swap in a session whose dialing peer id is empty (session not
+      // established), keeping the session id so envelope auth still passes.
+      responder.setSessionForTest(
+        new Session({
+          session_id: sessionId,
+          initiator_peer_id: "",
+          responder_peer_id: "responder",
+          negotiated_capabilities: ["spoke-knowledge"],
+        }),
+      );
+      const refused = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        0,
+        "empty-peer",
+        "port.knowledge.get",
+        { entry_id: "kb_any" },
+      );
+      expect(refused.error?.code).toBe("NOT_AUTHORIZED");
+      expect(admissionCalls).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("answers the dispatch-deny wire op_unsupported for absent faces (B4)", async () => {
+    const admissionCalls: string[] = [];
+    const face = scopedStoreFace((peerId) => {
+      admissionCalls.push(peerId);
+      return spokeOk(SCOPE_A);
+    });
+    // No knowledge face (and no baseline face): the absent-face branch.
+    const { clientEnd, sessionId, close } = await dialRawKnowledgeHost({});
+    try {
+      const denied = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        0,
+        "absent-knowledge",
+        "port.knowledge.get",
+        { entry_id: "kb_any" },
+      );
+      // The dialer maps this dispatch-deny row to CAPABILITY_PORT_MISSING
+      // (details.wire_code = "op_unsupported"); the wire never carries the
+      // application-coded literal.
+      expect(denied.error?.code).toBe("op_unsupported");
+
+      const baselineDenied = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        1,
+        "absent-baseline",
+        "assemble",
+        { scope: { scope_id: "scope_a" } },
+      );
+      expect(baselineDenied.error?.code).toBe("op_unsupported");
+      expect(admissionCalls).toHaveLength(0);
     } finally {
       close();
     }

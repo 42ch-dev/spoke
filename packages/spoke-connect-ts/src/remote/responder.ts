@@ -517,6 +517,46 @@ export function validateScopeOpPayload(
   return null;
 }
 
+/**
+ * Payload pre-validation for the three knowledge ops, mirroring Rust
+ * `decode_knowledge_call`: malformed get/put payloads answer `INVALID_INPUT`
+ * before the face probe, admission, and any store call. The list op keeps
+ * the existing Scope shape check (`validateScopeOpPayload`, which runs
+ * earlier in the port dispatch).
+ */
+export function validateKnowledgeOpPayload(
+  op: string,
+  payload: Record<string, unknown>,
+): SpokeReject | null {
+  if (!isJsonObject(payload)) {
+    return scopePayloadReject(op, "payload must be an object");
+  }
+  if (op === "port.knowledge.get") {
+    const entryId = payload.entry_id;
+    if (!(typeof entryId === "string" && entryId.length > 0)) {
+      return scopePayloadReject(op, "entry_id must be a non-empty string");
+    }
+    return null;
+  }
+  if (op === "port.knowledge.put") {
+    if (!isJsonObject(payload.entry)) {
+      return scopePayloadReject(op, "entry must be an object");
+    }
+    const expected = payload.expected_base_revision;
+    if (
+      expected !== undefined &&
+      expected !== null &&
+      typeof expected !== "number"
+    ) {
+      return scopePayloadReject(
+        op,
+        "expected_base_revision must be a number or null",
+      );
+    }
+  }
+  return null;
+}
+
 function isValidSourceSpan(value: unknown): boolean {
   if (!isJsonObject(value)) {
     return false;
@@ -1033,6 +1073,15 @@ export class ConnectResponder {
    */
   activeServeBudgetWaitsForTest(): number {
     return this.#activeServeBudgetWaits;
+  }
+
+  /**
+   * @internal Responder.test.ts only — replace the established session, so
+   * tests can prove the empty-peer-id admission guard (B3) refuses before
+   * calling admission.
+   */
+  setSessionForTest(session: Session): void {
+    this.#session = session;
   }
 
   /** Release the session and transport. Idempotent. */
@@ -1796,16 +1845,40 @@ export class ConnectResponder {
     // → serve/deny); the admitted scope comes from the face's admission
     // callback keyed by the authenticated peer id, never from the wire.
     if (KNOWLEDGE_OPS[doc.op]) {
+      // B2: mirror Rust decode_knowledge_call — a malformed get/put payload
+      // answers INVALID_INPUT before the face probe, admission, and any
+      // store call. The list op's Scope shape validated earlier.
+      const payloadReject = validateKnowledgeOpPayload(doc.op, payload);
+      if (payloadReject !== null) {
+        await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(payloadReject));
+        return;
+      }
       const face = ports.knowledge;
       if (face === undefined) {
+        // B4: an absent knowledge face is the dispatch-deny branch — the
+        // same wire row as absent ports/baseline; the dialer maps it to
+        // CAPABILITY_PORT_MISSING (wire_code preserved), never an
+        // application-coded literal on the wire.
         await this.#sendReverseErrorEnvelope(doc, {
-          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          code: "op_unsupported",
           message: `no knowledge face configured for port op ${doc.op}`,
           extensions: {},
         });
         return;
       }
-      const admitted = face.admission(this.remotePeerId);
+      // B3: an empty authenticated peer id (session not established) refuses
+      // NOT_AUTHORIZED before admission, matching Rust's `remote_peer_id()`
+      // None arm. One refusal shape, no existence detail.
+      const peerId = this.remotePeerId;
+      if (peerId === "") {
+        await this.#sendReverseErrorEnvelope(doc, {
+          code: SpokeRejectCode.NOT_AUTHORIZED,
+          message: "knowledge scope not authorized",
+          extensions: {},
+        });
+        return;
+      }
+      const admitted = face.admission(peerId);
       if (!admitted.ok) {
         // No existence detail: the refusal names only the scope verdict.
         await this.#sendReverseErrorEnvelope(doc, {

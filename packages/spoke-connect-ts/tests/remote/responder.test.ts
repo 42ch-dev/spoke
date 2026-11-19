@@ -2729,16 +2729,13 @@ describe("serve timeout (local serve budget)", () => {
   );
 
   it(
-    "zero budget answers the signed serve timeout for a malformed baseline port payload",
+    "zero budget answers INVALID_INPUT for a malformed knowledge payload (Rust decode_knowledge_call parity)",
     async () => {
-      // Face split (QC W-001): the Rust face decodes the D4 payload before
-      // the serve bound, so a malformed `port.*` payload keeps its
-      // `INVALID_INPUT` reject at any budget. The TS face has no D4 payload
-      // decode at all (`dispatchPortOp` is cast-based) and the helper's
-      // zero-budget early return precedes the provider thunk, so the same
-      // malformed input is answered by the signed serve timeout with zero
-      // provider calls. This witness pins the TS projection only; it does
-      // not claim TS baseline payload validation.
+      // Face split (QC W-001) closed by B2: the TS face now mirrors the Rust
+      // `decode_knowledge_call` — a malformed `port.knowledge.get` payload is
+      // decoded before the serve bound, so it keeps its `INVALID_INPUT`
+      // reject at any budget, with zero provider calls (the provider never
+      // starts).
       const baseline = asBaselineOnly(ToyWorldAdapter.withCommittedFixtures());
       const calls: string[] = [];
       const ports: BaselinePorts = {
@@ -2774,11 +2771,7 @@ describe("serve timeout (local serve budget)", () => {
             details?: Record<string, unknown>;
           };
         };
-        expect(response.error?.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
-        expect(response.error?.details?.kind).toBe("timeout");
-        expect(response.error?.message).toContain(
-          "serve wait exceeded the local budget of 0ms",
-        );
+        expect(response.error?.code).toBe(SpokeRejectCode.INVALID_INPUT);
         expect(calls).toEqual([]);
         expect(responder.state).toBe("Established");
       } finally {

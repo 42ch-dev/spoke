@@ -26,7 +26,9 @@ use serde_json::Value;
 use spoke_operations::{SpokeReject, SpokeRejectCode};
 use spoke_schemas::Scope;
 
-use crate::core::{CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE};
+use crate::core::{
+    CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE, CAPABILITY_SPOKE_KNOWLEDGE,
+};
 
 mod multi_peer_router;
 mod remote_adapter;
@@ -68,19 +70,21 @@ const CAPABILITY_L5_FORK: &str = "l5-fork";
 
 /// Required capability for a `port.*` op of the D4 catalogue (frozen
 /// contract §5.2), or `None` for an op outside it. Every baseline row
-/// requires `spoke-baseline`; the optional families require their negotiated
-/// family capability (`l2-computable` / `l5-fork`).
+/// requires `spoke-baseline`; the three knowledge ops require
+/// `spoke-knowledge`, which `spoke-baseline` satisfies; the optional
+/// families require their negotiated family capability (`l2-computable` /
+/// `l5-fork`).
 ///
 /// This is the requirement only — each surface keeps its own evaluation and
 /// failure shape (serve-gate deny vs. selection reject), and neither surface
 /// gains an op the other does not have.
 pub(crate) fn port_op_requirement(op: &str) -> Option<&'static str> {
     match op {
-        "port.knowledge.get" => Some(CAPABILITY_SPOKE_BASELINE),
-        "port.knowledge.put" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.knowledge.get" => Some(CAPABILITY_SPOKE_KNOWLEDGE),
+        "port.knowledge.put" => Some(CAPABILITY_SPOKE_KNOWLEDGE),
         "port.relation.get" => Some(CAPABILITY_SPOKE_BASELINE),
         "port.relation.put" => Some(CAPABILITY_SPOKE_BASELINE),
-        "port.scope.list_knowledge_entries" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.scope.list_knowledge_entries" => Some(CAPABILITY_SPOKE_KNOWLEDGE),
         "port.scope.list_timeline_events" => Some(CAPABILITY_SPOKE_BASELINE),
         "port.finding.put" => Some(CAPABILITY_SPOKE_BASELINE),
         "port.rule.list" => Some(CAPABILITY_SPOKE_BASELINE),

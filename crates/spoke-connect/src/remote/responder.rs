@@ -79,7 +79,7 @@ use spoke_schemas::{
 use crate::cognition::{unsupported_cognition_requirement, WIRE_INVALID_INPUT};
 use crate::core::{
     authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
-    check_response_correlation, cognition_requirement_present,
+    capability_satisfies, check_response_correlation, cognition_requirement_present,
     derive_peer_id_from_ed25519_pubkey, dispatch_allowed, is_allowlisted, required_capability,
     sign_hello_ed25519, verify_hello_ed25519, verify_invoke_request_auth, verify_invoke_response_auth,
     Correlation, EnvelopeAuthError, InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput,
@@ -1139,8 +1139,7 @@ impl ConnectResponder {
         if dispatch_allowed(op, negotiated) {
             return true;
         }
-        port_op_requirement(op)
-            .is_some_and(|required| negotiated.iter().any(|cap| cap == required))
+        port_op_requirement(op).is_some_and(|required| capability_satisfies(negotiated, required))
     }
 
     /// Serve a `tools.*` invoke through the registered handler (or deny).

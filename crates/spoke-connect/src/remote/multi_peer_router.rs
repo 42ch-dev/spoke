@@ -52,7 +52,8 @@ use spoke_schemas::{
 use super::remote_adapter::{RemoteAdapter, RemoteAdapterState};
 use super::{port_op_requirement, requires_ownership_capability};
 use crate::core::{
-    cognition_requirement_present, CAPABILITY_KE_OWNERSHIP, CAPABILITY_SPOKE_COGNITION,
+    capability_satisfies, cognition_requirement_present, CAPABILITY_KE_OWNERSHIP,
+    CAPABILITY_SPOKE_COGNITION,
 };
 
 /// The router's own identity when the consumer configures none (contract §8).
@@ -236,11 +237,7 @@ pub fn select_peer_for_op(
     let mut survivors: Vec<&SelectablePeer> = candidates
         .iter()
         .filter(|candidate| {
-            candidate
-                .manifest
-                .capabilities
-                .iter()
-                .any(|c| c == required_capability)
+            capability_satisfies(&candidate.manifest.capabilities, required_capability)
         })
         .collect();
     if survivors.is_empty() {
@@ -1929,6 +1926,58 @@ mod tests {
             SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-a"),
             SpokeResult::Reject(reject) => panic!("must select peer-a: {reject:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn knowledge_ops_select_knowledge_or_baseline_peers_only() {
+        let knowledge_only = SelectablePeer {
+            peer_id: "peer-k".to_string(),
+            manifest: manifest("h-k", &["spoke-knowledge"]),
+        };
+        let baseline = SelectablePeer {
+            peer_id: "peer-b".to_string(),
+            manifest: manifest("h-b", &["spoke-baseline"]),
+        };
+        let unrelated = SelectablePeer {
+            peer_id: "peer-u".to_string(),
+            manifest: manifest("h-u", &["l2-computable"]),
+        };
+
+        for op in [
+            "port.knowledge.get",
+            "port.knowledge.put",
+            "port.scope.list_knowledge_entries",
+        ] {
+            // A knowledge-only peer is the target of the three knowledge ops.
+            match select_peer_for_op(
+                &[unrelated.clone(), knowledge_only.clone()],
+                op,
+                &json!({}),
+            ) {
+                SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-k"),
+                SpokeResult::Reject(reject) => panic!("must select peer-k for {op}: {reject:?}"),
+            }
+            // `spoke-baseline` satisfies `spoke-knowledge`.
+            match select_peer_for_op(&[baseline.clone(), unrelated.clone()], op, &json!({})) {
+                SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-b"),
+                SpokeResult::Reject(reject) => panic!("must select peer-b for {op}: {reject:?}"),
+            }
+            // Neither flag, no candidate.
+            assert!(
+                matches!(
+                    select_peer_for_op(&[unrelated.clone()], op, &json!({})),
+                    SpokeResult::Reject(_)
+                ),
+                "{op} must reject without spoke-knowledge or spoke-baseline"
+            );
+        }
+
+        // The reverse never holds: `spoke-knowledge` alone serves no baseline
+        // `port.*` op.
+        assert!(matches!(
+            select_peer_for_op(&[knowledge_only], "port.relation.get", &json!({})),
+            SpokeResult::Reject(_)
+        ));
     }
 
     #[tokio::test]

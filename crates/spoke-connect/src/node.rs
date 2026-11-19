@@ -1047,14 +1047,12 @@ impl EventLoop {
                                         .get(request.op.as_str())
                                         .map(String::as_str)
                                 });
-                                let negotiated_allowed = required.is_some_and(
-                                    |required| {
-                                        session
-                                            .negotiated_capabilities
-                                            .iter()
-                                            .any(|granted| granted == required)
-                                    },
-                                );
+                                let negotiated_allowed = required.is_some_and(|required| {
+                                    crate::core::capability_satisfies(
+                                        &session.negotiated_capabilities,
+                                        required,
+                                    )
+                                });
                                 let token_allowed = token_grant
                                     .as_deref()
                                     .is_none_or(|grant| {
@@ -1912,7 +1910,7 @@ pub fn parse_multiaddr(addr: &str) -> Result<Multiaddr, ConnectError> {
 mod tests {
     use super::*;
     use crate::config::ConnectConfig;
-    use crate::core::CAPABILITY_SPOKE_BASELINE;
+    use crate::core::{CAPABILITY_SPOKE_BASELINE, CAPABILITY_SPOKE_KNOWLEDGE};
     use libp2p::identity::Keypair;
 
     fn manifest(host_id: &str) -> HostCapabilityManifest {
@@ -1994,10 +1992,13 @@ mod tests {
     }
 
     /// The product-map port ops the shared vectors dispatch.
-    const PORT_OPS: &[&str] = &[
-        "port.scope.list_knowledge_entries",
-        "port.scope.list_timeline_events",
-        "port.fork.list_timeline_events",
+    const PORT_OPS: &[(&str, &str)] = &[
+        (
+            "port.scope.list_knowledge_entries",
+            CAPABILITY_SPOKE_KNOWLEDGE,
+        ),
+        ("port.scope.list_timeline_events", CAPABILITY_SPOKE_BASELINE),
+        ("port.fork.list_timeline_events", CAPABILITY_SPOKE_BASELINE),
     ];
 
     /// One signed inbound invoke through the real node dispatch path: a
@@ -2032,7 +2033,7 @@ mod tests {
         // table has no row for them), exactly as a product host configures it.
         cfg.op_capability_requirements = PORT_OPS
             .iter()
-            .map(|port_op| ((*port_op).to_owned(), CAPABILITY_SPOKE_BASELINE.to_owned()))
+            .map(|(port_op, capability)| ((*port_op).to_owned(), (*capability).to_owned()))
             .collect();
         let mut loop_ = session_event_loop(cfg, peer, peer_keypair.public(), negotiated);
         let request = signed_request(&peer_seed, 0, "req-0001", op, payload);

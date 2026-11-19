@@ -777,6 +777,68 @@ describe("scoped knowledge face", () => {
       expect(after.value.revision).toBe(1);
     }
   });
+  it("answers an absent-id OCC put with the identical not-found row as a hidden put", async () => {
+    const PROBE_ID = "demo-harbor/character/probe";
+    const forged = (entry_id: string): KnowledgeEntry => ({
+      schema_version: 1,
+      entry_id,
+      entry_type: "note",
+      canonical_name: "Probe",
+      status: "confirmed",
+      body: { summary: "Existence probe." },
+      revision: 1,
+      extensions: {},
+    });
+
+    // The same probe id, hidden in one store and absent in another, must
+    // answer the identical reject row — code, message and details — so the
+    // error channel cannot disclose which ids exist.
+    const hiddenAdapter = new MockAdapter();
+    await hiddenAdapter.putKnowledgeEntry(
+      { ...forged(PROBE_ID), disclosure: "owner-private", owner: "demo-harbor/character/rival" },
+      null,
+    );
+    const hidden = await demoKnowledgeFace(hiddenAdapter).store.putScopedKnowledgeEntry(
+      admittedScope,
+      forged(PROBE_ID),
+      1,
+    );
+
+    const absentAdapter = new MockAdapter();
+    const absent = await demoKnowledgeFace(absentAdapter).store.putScopedKnowledgeEntry(
+      admittedScope,
+      forged(PROBE_ID),
+      0,
+    );
+
+    expect(absent).toEqual(hidden);
+    expectRejected(absent, "KNOWLEDGE_ENTRY_NOT_FOUND");
+    expectRejected(
+      await absentAdapter.getKnowledgeEntry(PROBE_ID),
+      SpokeRejectCode.KNOWLEDGE_ENTRY_NOT_FOUND,
+    );
+  });
+
+  it("creates on an absent id with expectedBaseRevision null", async () => {
+    const adapter = new MockAdapter();
+    const face = demoKnowledgeFace(adapter);
+
+    const created = await face.store.putScopedKnowledgeEntry(
+      admittedScope,
+      {
+        schema_version: 1,
+        entry_id: "demo-harbor/note/fresh",
+        entry_type: "note",
+        canonical_name: "Fresh note",
+        status: "confirmed",
+        body: { summary: "Created through the scoped face." },
+        revision: 1,
+        extensions: {},
+      },
+      null,
+    );
+    expect(created.ok).toBe(true);
+  });
 });
 
 describe("ke-extraction service", () => {

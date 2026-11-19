@@ -48,8 +48,8 @@ pub use responder::{
     connect_responder, ConnectResponder, ConnectResponderOptions, ConnectResponderState,
 };
 pub use serve_ports::{
-    MemoryAdmission, MemoryPortService, RemoteExtractService, RemoteMemoryService,
-    RemoteServePorts, RemoteServePortsComposite,
+    KnowledgeAdmission, MemoryAdmission, MemoryPortService, RemoteExtractService,
+    RemoteKnowledgeFace, RemoteMemoryService, RemoteServePorts, RemoteServePortsComposite,
 };
 pub use transport::{
     loopback_transport_pair, LoopbackTransport, LoopbackTransportPair, Transport, TransportError,

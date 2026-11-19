@@ -66,7 +66,7 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
-    SpokeReject, SpokeRejectCode, SpokeResult,
+    BaselinePorts, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ConnectInvokeResponse;
@@ -179,6 +179,11 @@ fn missing_declared_scope(op: &str) -> SpokeReject {
     }
 }
 
+/// One refusal message for every knowledge-scope deny (unbound peer,
+/// rejecting admission, mismatched list scope): the caller learns only that
+/// the scope is unauthorized.
+const KNOWLEDGE_SCOPE_NOT_AUTHORIZED: &str = "knowledge scope not authorized";
+
 /// Signed serve-wait expiry (D7/D14): the existing `INTERNAL_ERROR`
 /// application-reject map with the existing `details.kind = "timeout"`
 /// vocabulary — the same projection the reverse-invoke waiter timeout uses.
@@ -240,15 +245,21 @@ fn memory_panic_uncertain_reject() -> SpokeReject {
     }
 }
 
+/// One decoded knowledge op: the catalogue arm's validated arguments,
+/// produced before the serve bound starts. The three knowledge ops are
+/// served through the knowledge face, never through the baseline provider.
+enum KnowledgeCall<'a> {
+    GetKnowledgeEntry(String),
+    PutKnowledgeEntry(KnowledgeEntry, Option<u64>),
+    ListKnowledgeEntries(&'a Scope),
+}
+
 /// One decoded `port.*` dispatch: the catalogue arm's validated arguments,
 /// produced by [`decode_port_call`] before the serve bound starts (B1 — a
 /// malformed payload keeps its `INVALID_INPUT` reject even at a zero budget).
 enum PortCall<'a> {
-    GetKnowledgeEntry(String),
-    PutKnowledgeEntry(KnowledgeEntry, Option<u64>),
     GetRelation(String),
     PutRelation(Relation, Option<u64>),
-    ListKnowledgeEntries(&'a Scope),
     ListTimelineEvents(&'a Scope),
     PutFindings(Vec<Finding>),
     ListRules(Vec<String>),
@@ -258,25 +269,26 @@ enum PortCall<'a> {
     ForkTimelineEvents(&'a Scope),
 }
 
-/// Decode and validate a `port.*` payload per the D4 catalogue — the
-/// validation the serve bound must start AFTER (B1). The dispatch gate
-/// (capability check), the optional-face probe (gate → probe → serve/deny)
-/// and the payload-dependent gates have already run when this is called;
-/// unknown ops reject `CAPABILITY_PORT_MISSING` as a safety net for host
-/// misconfiguration (the gate denies them first).
-///
-/// `declared_scope` is the declared Scope the responder gate already decoded
-/// and validated for the three Scope-bearing ops — those arms carry that
-/// value instead of decoding the same JSON again.
-fn decode_port_call<'a>(
+/// The three remote knowledge ops, served only through
+/// [`RemoteServePorts::as_knowledge`](crate::remote::RemoteServePorts::as_knowledge).
+fn is_knowledge_op(op: &str) -> bool {
+    matches!(
+        op,
+        "port.knowledge.get" | "port.knowledge.put" | "port.scope.list_knowledge_entries"
+    )
+}
+
+/// Decode and validate one knowledge op payload. The wire request carries no
+/// scope for get/put; the list op's declared scope is the one the responder
+/// gate already decoded and validated.
+fn decode_knowledge_call<'a>(
     op: &str,
     payload: &Value,
     declared_scope: Option<&'a Scope>,
-) -> SpokeResult<PortCall<'a>> {
-    let field = |name: &str| payload_field::<Value>(payload, name, op);
+) -> SpokeResult<KnowledgeCall<'a>> {
     match op {
-        "port.knowledge.get" => match field("entry_id") {
-            SpokeResult::Ok(Value::String(id)) => spoke_ok(PortCall::GetKnowledgeEntry(id)),
+        "port.knowledge.get" => match payload_field::<Value>(payload, "entry_id", op) {
+            SpokeResult::Ok(Value::String(id)) => spoke_ok(KnowledgeCall::GetKnowledgeEntry(id)),
             _ => spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 "invalid port.knowledge.get payload",
@@ -293,8 +305,83 @@ fn decode_port_call<'a>(
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
-            spoke_ok(PortCall::PutKnowledgeEntry(entry, expected))
+            spoke_ok(KnowledgeCall::PutKnowledgeEntry(entry, expected))
         }
+        "port.scope.list_knowledge_entries" => match declared_scope {
+            Some(scope) => spoke_ok(KnowledgeCall::ListKnowledgeEntries(scope)),
+            None => SpokeResult::Reject(missing_declared_scope(op)),
+        },
+        _ => SpokeResult::Reject(SpokeReject {
+            code: SpokeRejectCode::CapabilityPortMissing,
+            message: format!("unimplemented knowledge op {op}"),
+            details: None,
+        }),
+    }
+}
+
+/// Scope equality between the requested and the admitted scope: the same
+/// `scope_id` AND the same `viewpoint` (both absent or equal). A mismatch —
+/// including an admitted viewpoint the request omits — refuses.
+fn scope_matches_admission(requested: &Scope, admitted: &Scope) -> bool {
+    requested.scope_id == admitted.scope_id && requested.viewpoint == admitted.viewpoint
+}
+
+/// The scope passed to the store for a list: the admitted `scope_id` /
+/// `viewpoint` are authoritative, the request's narrowing refinements
+/// (`entry_ids`, `entry_types`, `source_id`, `timeline_scale`, `fork_id`,
+/// `extensions`) and any cognition selection only narrow.
+fn effective_scope(requested: &Scope, admitted: &Scope) -> Scope {
+    let mut scope = requested.clone();
+    scope.scope_id = admitted.scope_id.clone();
+    scope.viewpoint = admitted.viewpoint.clone();
+    scope
+}
+
+/// Serve one decoded [`KnowledgeCall`] against the admitted scope. Runs
+/// inside the serve bound; admission and the list scope equality check ran
+/// before it, so a refusal never reaches the store.
+async fn call_knowledge_op(
+    call: KnowledgeCall<'_>,
+    face: &crate::remote::RemoteKnowledgeFace,
+    admitted: &Scope,
+) -> SpokeResult<Value> {
+    match call {
+        KnowledgeCall::GetKnowledgeEntry(entry_id) => map_result(
+            face.store
+                .get_scoped_knowledge_entry(admitted, &entry_id)
+                .await,
+        ),
+        KnowledgeCall::PutKnowledgeEntry(entry, expected) => map_result(
+            face.store
+                .put_scoped_knowledge_entry(admitted, entry, expected)
+                .await,
+        ),
+        KnowledgeCall::ListKnowledgeEntries(requested) => {
+            map_result(face.store
+                .list_scoped_knowledge_entries(&effective_scope(requested, admitted))
+                .await)
+        }
+    }
+}
+
+/// Decode and validate a baseline `port.*` payload per the D4 catalogue —
+/// the validation the serve bound must start AFTER (B1). The dispatch gate
+/// (capability check), the optional-face probe (gate → probe → serve/deny)
+/// and the payload-dependent gates have already run when this is called;
+/// unknown ops reject `CAPABILITY_PORT_MISSING` as a safety net for host
+/// misconfiguration (the gate denies them first). The three knowledge ops
+/// are decoded by [`decode_knowledge_call`] instead.
+///
+/// `declared_scope` is the declared Scope the responder gate already decoded
+/// and validated for the two remaining Scope-bearing ops — those arms carry
+/// that value instead of decoding the same JSON again.
+fn decode_port_call<'a>(
+    op: &str,
+    payload: &Value,
+    declared_scope: Option<&'a Scope>,
+) -> SpokeResult<PortCall<'a>> {
+    let field = |name: &str| payload_field::<Value>(payload, name, op);
+    match op {
         "port.relation.get" => match field("relation_id") {
             SpokeResult::Ok(Value::String(id)) => spoke_ok(PortCall::GetRelation(id)),
             _ => spoke_reject(
@@ -315,10 +402,6 @@ fn decode_port_call<'a>(
             };
             spoke_ok(PortCall::PutRelation(relation, expected))
         }
-        "port.scope.list_knowledge_entries" => match declared_scope {
-            Some(scope) => spoke_ok(PortCall::ListKnowledgeEntries(scope)),
-            None => SpokeResult::Reject(missing_declared_scope(op)),
-        },
         "port.scope.list_timeline_events" => match declared_scope {
             Some(scope) => spoke_ok(PortCall::ListTimelineEvents(scope)),
             None => SpokeResult::Reject(missing_declared_scope(op)),
@@ -370,26 +453,22 @@ fn decode_port_call<'a>(
 /// unreachable safety net for a probe that did not run.
 async fn call_port_op(
     call: PortCall<'_>,
+    baseline: &(dyn BaselinePorts + Send + Sync),
     ports: &(dyn RemoteServePorts + Send + Sync),
 ) -> SpokeResult<Value> {
     match call {
-        PortCall::GetKnowledgeEntry(entry_id) => {
-            map_result(ports.get_knowledge_entry(&entry_id).await)
-        }
-        PortCall::PutKnowledgeEntry(entry, expected) => {
-            map_result(ports.put_knowledge_entry(entry, expected).await)
-        }
-        PortCall::GetRelation(relation_id) => map_result(ports.get_relation(&relation_id).await),
+        PortCall::GetRelation(relation_id) => map_result(baseline.get_relation(&relation_id).await),
         PortCall::PutRelation(relation, expected) => {
-            map_result(ports.put_relation(relation, expected).await)
+            map_result(baseline.put_relation(relation, expected).await)
         }
-        PortCall::ListKnowledgeEntries(scope) => {
-            map_result(ports.list_knowledge_entries(scope).await)
+        PortCall::ListTimelineEvents(scope) => {
+            map_result(baseline.list_timeline_events(scope).await)
         }
-        PortCall::ListTimelineEvents(scope) => map_result(ports.list_timeline_events(scope).await),
-        PortCall::PutFindings(findings) => map_result(ports.put_findings(findings).await),
-        PortCall::ListRules(rule_refs) => map_result(ports.list_rules(&rule_refs).await),
-        PortCall::ListPeerManifests => map_result(ports.list_peer_host_capability_manifests().await),
+        PortCall::PutFindings(findings) => map_result(baseline.put_findings(findings).await),
+        PortCall::ListRules(rule_refs) => map_result(baseline.list_rules(&rule_refs).await),
+        PortCall::ListPeerManifests => {
+            map_result(baseline.list_peer_host_capability_manifests().await)
+        }
         PortCall::Project(request) => match ports.as_computable() {
             Some(computable) => map_result(computable.project(request).await),
             None => SpokeResult::Reject(SpokeReject {
@@ -1572,6 +1651,107 @@ impl ConnectResponder {
         Ok(true)
     }
 
+    /// Serve one of the three knowledge ops through the knowledge face.
+    ///
+    /// Gate order: decode → face probe → admission (exactly once, keyed by
+    /// the authenticated peer) → list scope equality → store call. `Ok(None)`
+    /// means a refusal envelope was already sent and the store was never
+    /// called — a refusal discloses nothing, not even whether the entry
+    /// exists.
+    async fn serve_knowledge_op(
+        &self,
+        doc: &Value,
+        op: &str,
+        payload: &Value,
+        declared_scope: Option<&Scope>,
+        ports: &(dyn RemoteServePorts + Send + Sync),
+    ) -> Result<Option<SpokeResult<Value>>, ResponderError> {
+        let call = match decode_knowledge_call(op, payload, declared_scope) {
+            SpokeResult::Ok(call) => call,
+            SpokeResult::Reject(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+                return Ok(None);
+            }
+        };
+        // Gate → probe → serve/deny: a declared `spoke-knowledge` without the
+        // serving face is the same missing-capability branch, never a
+        // baseline fallback.
+        let Some(face) = ports.as_knowledge() else {
+            self.send_reverse_error_envelope(
+                doc,
+                SpokeRejectCode::CapabilityPortMissing.as_str(),
+                &format!("no knowledge face configured for port op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(None);
+        };
+        // The admitted scope derives from the authenticated session peer,
+        // never from the payload. One refusal shape for an unbound peer and
+        // for a rejecting admission: no existence detail.
+        let admitted = match self.remote_peer_id() {
+            Some(peer_id) => match (face.admission)(&peer_id) {
+                SpokeResult::Ok(scope) => scope,
+                SpokeResult::Reject(_) => {
+                    self.send_reverse_error_envelope(
+                        doc,
+                        SpokeRejectCode::NotAuthorized.as_str(),
+                        KNOWLEDGE_SCOPE_NOT_AUTHORIZED,
+                        None,
+                    )
+                    .await?;
+                    return Ok(None);
+                }
+            },
+            None => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    SpokeRejectCode::NotAuthorized.as_str(),
+                    KNOWLEDGE_SCOPE_NOT_AUTHORIZED,
+                    None,
+                )
+                .await?;
+                return Ok(None);
+            }
+        };
+        // A list must name exactly the admitted scope; a mismatch refuses
+        // before the store call so it cannot widen the query.
+        if let KnowledgeCall::ListKnowledgeEntries(requested) = &call {
+            if !scope_matches_admission(requested, &admitted) {
+                self.send_reverse_error_envelope(
+                    doc,
+                    SpokeRejectCode::NotAuthorized.as_str(),
+                    KNOWLEDGE_SCOPE_NOT_AUTHORIZED,
+                    None,
+                )
+                .await?;
+                return Ok(None);
+            }
+        }
+        // Same serve bound as the baseline path: only the store call is
+        // bounded; admission and the scope check already ran.
+        let result = if self.invoke_timeout.is_zero() {
+            SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout))
+        } else {
+            match tokio::time::timeout(
+                self.invoke_timeout,
+                call_knowledge_op(call, face.as_ref(), &admitted),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout)),
+            }
+        };
+        Ok(Some(result))
+    }
+
     /// Serve a `port.*` invoke through the D4 catalogue (or dispatch-deny).
     ///
     /// `negotiated` is the session's negotiated capability set (the caller
@@ -1680,50 +1860,76 @@ impl ConnectResponder {
                 return Ok(());
             }
         };
-        // Optional-family probe (gate → probe → serve/deny): the capability
-        // gate passed, so a missing optional face means the host declared a
-        // family it does not provide (misconfiguration) — answer the same
-        // dispatch-deny branch as absent ports.
-        if let Some(missing) = missing_optional_serve_face(op, ports.as_ref()) {
-            self.send_reverse_error_envelope(
-                doc,
-                "op_unsupported",
-                &format!(
-                    "port op {op} requires optional port method {missing}, which the configured ports do not implement"
-                ),
-                None,
-            )
-            .await?;
-            return Ok(());
-        }
-        // B1 serve bound: the payload decode + validation above ran BEFORE
-        // the bound, so a malformed payload keeps its existing
-        // `INVALID_INPUT` reject even at a zero budget and the bound covers
-        // provider dispatch only. A zero budget answers the signed timeout
-        // without ever constructing the provider future (zero provider
-        // calls); expiry drops the timed-out provider future — a bounded
-        // wait, never forced termination or rollback.
-        let call = match decode_port_call(op, payload, declared_scope.as_ref()) {
-            SpokeResult::Ok(call) => call,
-            SpokeResult::Reject(reject) => {
+        let result = if is_knowledge_op(op) {
+            match self
+                .serve_knowledge_op(doc, op, payload, declared_scope.as_ref(), ports.as_ref())
+                .await?
+            {
+                Some(result) => result,
+                None => return Ok(()),
+            }
+        } else {
+            // Baseline ops are served through the baseline face; a missing
+            // one is the documented dispatch-deny branch, exactly like an
+            // absent optional family below.
+            let Some(baseline) = ports.as_baseline() else {
                 self.send_reverse_error_envelope(
                     doc,
-                    reject.code.as_str(),
-                    &reject.message,
-                    reject.details.as_ref(),
+                    "op_unsupported",
+                    &format!("no baseline face configured for port op {op}"),
+                    None,
+                )
+                .await?;
+                return Ok(());
+            };
+            // Optional-family probe (gate → probe → serve/deny): the
+            // capability gate passed, so a missing optional face means the
+            // host declared a family it does not provide (misconfiguration)
+            // — answer the same dispatch-deny branch as absent ports.
+            if let Some(missing) = missing_optional_serve_face(op, ports.as_ref()) {
+                self.send_reverse_error_envelope(
+                    doc,
+                    "op_unsupported",
+                    &format!(
+                        "port op {op} requires optional port method {missing}, which the configured ports do not implement"
+                    ),
+                    None,
                 )
                 .await?;
                 return Ok(());
             }
-        };
-        let result = if self.invoke_timeout.is_zero() {
-            SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout))
-        } else {
-            match tokio::time::timeout(self.invoke_timeout, call_port_op(call, ports.as_ref()))
+            // B1 serve bound: the payload decode + validation above ran
+            // BEFORE the bound, so a malformed payload keeps its existing
+            // `INVALID_INPUT` reject even at a zero budget and the bound
+            // covers provider dispatch only. A zero budget answers the signed
+            // timeout without ever constructing the provider future (zero
+            // provider calls); expiry drops the timed-out provider future — a
+            // bounded wait, never forced termination or rollback.
+            let call = match decode_port_call(op, payload, declared_scope.as_ref()) {
+                SpokeResult::Ok(call) => call,
+                SpokeResult::Reject(reject) => {
+                    self.send_reverse_error_envelope(
+                        doc,
+                        reject.code.as_str(),
+                        &reject.message,
+                        reject.details.as_ref(),
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            };
+            if self.invoke_timeout.is_zero() {
+                SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout))
+            } else {
+                match tokio::time::timeout(
+                    self.invoke_timeout,
+                    call_port_op(call, baseline, ports.as_ref()),
+                )
                 .await
-            {
-                Ok(result) => result,
-                Err(_) => SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout)),
+                {
+                    Ok(result) => result,
+                    Err(_) => SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout)),
+                }
             }
         };
         // A close during the bounded wait released the session: this dispatch

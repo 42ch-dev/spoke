@@ -25,8 +25,8 @@ use spoke_connect::remote::{
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
     orchestrate_check, orchestrate_upsert, spoke_ok, spoke_reject, BaselinePorts, CheckRunInput,
-    FindingPort, FullPorts, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
-    ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    FindingPort, FullPorts, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort,
+    RuleQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::host_capability_manifest::ExtensionKey;

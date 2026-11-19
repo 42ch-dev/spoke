@@ -31,8 +31,8 @@ use serde::Serialize;
 use serde_json::Value;
 use spoke_operations::{
     spoke_reject, BaselinePorts, ComputablePort, FindingPort, ForkTimelineQueryPort,
-    HostManifestPort, KnowledgeEntryPort, MemoryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-    SpokeRejectCode, SpokeResult,
+    HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, MemoryPort, RelationPort,
+    RuleQueryPort, ScopeQueryPort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::{
     ExtractRequest, ExtractResponse, Finding, HostCapabilityManifest, KnowledgeEntry, Principal,
@@ -383,11 +383,14 @@ impl RelationPort for RemoteServePortsComposite {
 }
 
 #[async_trait]
-impl ScopeQueryPort for RemoteServePortsComposite {
+impl KnowledgeQueryPort for RemoteServePortsComposite {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.baseline.list_knowledge_entries(scope).await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for RemoteServePortsComposite {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         self.baseline.list_timeline_events(scope).await
     }

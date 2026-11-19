@@ -867,7 +867,7 @@ mod tests {
     use async_trait::async_trait;
     use crate::adapter::ports::{
         ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
-        RelationPort, RuleQueryPort, ScopeQueryPort,
+        KnowledgeQueryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
     };
     use crate::result::SpokeResult;
     use serde_json::json;
@@ -1072,7 +1072,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl ScopeQueryPort for MemoryBaselinePorts {
+    impl KnowledgeQueryPort for MemoryBaselinePorts {
         async fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             let mut store = self.store.lock().expect("store lock");
             store.knowledge_entry_list_calls += 1;
@@ -1082,7 +1082,10 @@ mod tests {
             entries.sort_by(|left, right| left.entry_id.cmp(&right.entry_id));
             spoke_ok(entries)
         }
+    }
 
+    #[async_trait]
+    impl ScopeQueryPort for MemoryBaselinePorts {
         async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             let mut store = self.store.lock().expect("store lock");
             store.timeline_list_calls += 1;
@@ -1193,10 +1196,13 @@ mod tests {
         }
     }
     #[async_trait]
-    impl ScopeQueryPort for MemoryComputablePorts {
+    impl KnowledgeQueryPort for MemoryComputablePorts {
         async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             self.baseline.list_knowledge_entries(scope).await
         }
+    }
+    #[async_trait]
+    impl ScopeQueryPort for MemoryComputablePorts {
         async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             self.baseline.list_timeline_events(scope).await
         }
@@ -1294,10 +1300,13 @@ mod tests {
         }
     }
     #[async_trait]
-    impl ScopeQueryPort for MemoryForkPorts {
+    impl KnowledgeQueryPort for MemoryForkPorts {
         async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             self.baseline.list_knowledge_entries(scope).await
         }
+    }
+    #[async_trait]
+    impl ScopeQueryPort for MemoryForkPorts {
         async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             self.baseline.list_timeline_events(scope).await
         }
@@ -1381,10 +1390,13 @@ mod tests {
         }
     }
     #[async_trait]
-    impl ScopeQueryPort for MissingComputablePorts {
+    impl KnowledgeQueryPort for MissingComputablePorts {
         async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             self.baseline.list_knowledge_entries(scope).await
         }
+    }
+    #[async_trait]
+    impl ScopeQueryPort for MissingComputablePorts {
         async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             self.baseline.list_timeline_events(scope).await
         }
@@ -1451,10 +1463,13 @@ mod tests {
         }
     }
     #[async_trait]
-    impl ScopeQueryPort for MissingForkPorts {
+    impl KnowledgeQueryPort for MissingForkPorts {
         async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             self.baseline.list_knowledge_entries(scope).await
         }
+    }
+    #[async_trait]
+    impl ScopeQueryPort for MissingForkPorts {
         async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             self.baseline.list_timeline_events(scope).await
         }
@@ -1780,10 +1795,13 @@ mod tests {
         }
     }
     #[async_trait]
-    impl ScopeQueryPort for OccBaselinePorts {
+    impl KnowledgeQueryPort for OccBaselinePorts {
         async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             self.baseline.list_knowledge_entries(scope).await
         }
+    }
+    #[async_trait]
+    impl ScopeQueryPort for OccBaselinePorts {
         async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             self.baseline.list_timeline_events(scope).await
         }
@@ -1974,10 +1992,13 @@ mod tests {
             }
         }
         #[async_trait]
-        impl ScopeQueryPort for UpsertOccPorts {
+        impl KnowledgeQueryPort for UpsertOccPorts {
             async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
                 self.baseline.list_knowledge_entries(scope).await
             }
+        }
+        #[async_trait]
+        impl ScopeQueryPort for UpsertOccPorts {
             async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
                 self.baseline.list_timeline_events(scope).await
             }
@@ -2226,10 +2247,13 @@ mod tests {
             }
         }
         #[async_trait]
-        impl ScopeQueryPort for RelateOccPorts {
+        impl KnowledgeQueryPort for RelateOccPorts {
             async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
                 self.baseline.list_knowledge_entries(scope).await
             }
+        }
+        #[async_trait]
+        impl ScopeQueryPort for RelateOccPorts {
             async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
                 self.baseline.list_timeline_events(scope).await
             }
@@ -2354,10 +2378,13 @@ mod tests {
             }
         }
         #[async_trait]
-        impl ScopeQueryPort for RelateCreateRacePorts {
+        impl KnowledgeQueryPort for RelateCreateRacePorts {
             async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
                 self.baseline.list_knowledge_entries(scope).await
             }
+        }
+        #[async_trait]
+        impl ScopeQueryPort for RelateCreateRacePorts {
             async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
                 self.baseline.list_timeline_events(scope).await
             }

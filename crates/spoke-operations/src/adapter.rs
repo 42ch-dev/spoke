@@ -11,8 +11,8 @@ pub use orchestrate::{
 pub use ports::{
     BaselineAdapter, BaselinePorts, ComputableAdapter, ComputablePort, ComputablePorts,
     FindingPort, ForkAdapter, ForkPorts, ForkTimelineQueryPort, FullAdapter, FullPorts,
-    HostManifestPort, KnowledgeEntryPort, MemoryPort, MemoryPorts, RelationPort, RuleQueryPort,
-    ScopeQueryPort,
+    HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, MemoryPort, MemoryPorts, RelationPort,
+    RuleQueryPort, ScopeQueryPort, ScopedKnowledgePort,
 };
 
 /// Parity export checklist — mirrors TS `adapter/ports.test.ts` "adapter port exports"
@@ -51,6 +51,8 @@ mod parity_export_checklist {
         ("orchestrateForkCheck", "orchestrate_fork_check"),
         ("orchestrateForkAssemble", "orchestrate_fork_assemble"),
         ("CAPABILITY_PORT_MISSING", "CAPABILITY_PORT_MISSING"),
+        ("KnowledgeQueryPort", "KnowledgeQueryPort"),
+        ("ScopedKnowledgePort", "ScopedKnowledgePort"),
     ];
 
     // Crate-root path resolution (parallel to TS `adapter/ports.test.ts` export smoke).
@@ -60,8 +62,8 @@ mod parity_export_checklist {
         orchestrate_fork_check, orchestrate_project, orchestrate_promote, orchestrate_relate,
         orchestrate_upsert, BaselineAdapter, BaselinePorts, CheckRunInput, ComputableAdapter,
         ComputablePort, ComputablePorts, FindingPort, ForkAdapter, ForkPorts, ForkTimelineQueryPort,
-        FullAdapter, FullPorts, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
-        ScopeQueryPort,
+        FullAdapter, FullPorts, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort,
+        RelationPort, RuleQueryPort, ScopeQueryPort, ScopedKnowledgePort,
     };
 
     /// Minimal probe type so generic orchestrator paths monomorphize in the checklist.
@@ -100,13 +102,16 @@ mod parity_export_checklist {
         }
     }
     #[async_trait]
-    impl ScopeQueryPort for ExportProbePorts {
+    impl KnowledgeQueryPort for ExportProbePorts {
         async fn list_knowledge_entries(
             &self,
             _scope: &spoke_schemas::Scope,
         ) -> crate::SpokeResult<Vec<spoke_schemas::KnowledgeEntry>> {
             crate::spoke_ok(Vec::new())
         }
+    }
+    #[async_trait]
+    impl ScopeQueryPort for ExportProbePorts {
         async fn list_timeline_events(
             &self,
             _scope: &spoke_schemas::Scope,
@@ -208,11 +213,13 @@ mod parity_export_checklist {
     fn public_exports_cover_ts_adapter_parity_table() {
         // Port family + composition traits (object-safe method surfaces).
         let _: Option<&dyn KnowledgeEntryPort> = None;
+        let _: Option<&dyn KnowledgeQueryPort> = None;
         let _: Option<&dyn RelationPort> = None;
         let _: Option<&dyn ScopeQueryPort> = None;
         let _: Option<&dyn FindingPort> = None;
         let _: Option<&dyn RuleQueryPort> = None;
         let _: Option<&dyn HostManifestPort> = None;
+        let _: Option<&dyn ScopedKnowledgePort> = None;
         let _: Option<&dyn ComputablePort> = None;
         let _: Option<&dyn ForkTimelineQueryPort> = None;
         let _: Option<&dyn BaselinePorts> = None;
@@ -317,7 +324,7 @@ mod parity_export_checklist {
             Some(SpokeRejectCode::CapabilityPortMissing)
         );
 
-        assert_eq!(TS_RUST_ADAPTER_PARITY.len(), 27);
+        assert_eq!(TS_RUST_ADAPTER_PARITY.len(), 29);
         for (ts, rust) in TS_RUST_ADAPTER_PARITY {
             assert!(!ts.is_empty(), "TS symbol must be non-empty");
             assert!(!rust.is_empty(), "Rust symbol must be non-empty");

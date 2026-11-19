@@ -60,7 +60,8 @@ use spoke_operations::{
     orchestrate_check, orchestrate_extract, orchestrate_upsert, parse_tool_capability_id, spoke_ok,
     spoke_reject, BaselinePorts, CheckRunInput, ComputablePort, ExtractRunInput, ExtractionPort,
     ExtractionResult, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
-    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    KnowledgeQueryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode,
+    SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -5002,12 +5003,15 @@ impl RelationPort for RecordingScopePorts {
 }
 
 #[async_trait]
-impl ScopeQueryPort for RecordingScopePorts {
+impl KnowledgeQueryPort for RecordingScopePorts {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.record(scope);
         self.inner.list_knowledge_entries(scope).await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for RecordingScopePorts {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         self.record(scope);
         self.inner.list_timeline_events(scope).await
@@ -6339,12 +6343,15 @@ impl RelationPort for ParkingServePorts {
 }
 
 #[async_trait]
-impl ScopeQueryPort for ParkingServePorts {
+impl KnowledgeQueryPort for ParkingServePorts {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.park("list_knowledge_entries").await;
         self.inner.list_knowledge_entries(scope).await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for ParkingServePorts {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         self.inner.list_timeline_events(scope).await
     }

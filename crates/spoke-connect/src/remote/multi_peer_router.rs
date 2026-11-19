@@ -39,7 +39,8 @@ use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     parse_tool_capability_id, spoke_ok, FindingPort, HostManifestPort, KnowledgeEntryPort,
-    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    KnowledgeQueryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode,
+    SpokeResult,
 };
 use spoke_schemas::host_capability_manifest::{
     ExtensionKey, HostCapabilityManifestHostId, ToolDescriptor,
@@ -443,7 +444,7 @@ impl RoutedRemoteAdapter for RemoteAdapter {
     }
 
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-        <Self as ScopeQueryPort>::list_knowledge_entries(self, scope).await
+        <Self as KnowledgeQueryPort>::list_knowledge_entries(self, scope).await
     }
 
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
@@ -733,7 +734,7 @@ impl RelationPort for MultiPeerRouter {
 }
 
 #[async_trait]
-impl ScopeQueryPort for MultiPeerRouter {
+impl KnowledgeQueryPort for MultiPeerRouter {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         // The selection payload carries the request Scope so the §2
         // namespace / §3 authority derivations see it (the same Scope the
@@ -747,7 +748,10 @@ impl ScopeQueryPort for MultiPeerRouter {
         };
         selected.adapter.list_knowledge_entries(scope).await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for MultiPeerRouter {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         let selected = match self.select_for_op(
             "port.scope.list_timeline_events",

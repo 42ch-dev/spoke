@@ -52,8 +52,8 @@ use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
 use spoke_operations::{
     cognition_record_matches_filter, jcs_sha256_hex, validate_cognition_record, BaselinePorts,
-    FindingPort, HostManifestPort, KnowledgeEntryPort, MemoryPort, RelationPort, RuleQueryPort,
-    ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    FindingPort, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, MemoryPort,
+    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::{ConnectHello, ConnectSession};
 use spoke_schemas::{
@@ -2212,12 +2212,15 @@ impl RelationPort for CognitionKeSource {
 }
 
 #[async_trait]
-impl ScopeQueryPort for CognitionKeSource {
+impl KnowledgeQueryPort for CognitionKeSource {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.scope_reads.fetch_add(1, Ordering::SeqCst);
         self.select(scope)
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for CognitionKeSource {
     async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         SpokeResult::Ok(Vec::new())
     }

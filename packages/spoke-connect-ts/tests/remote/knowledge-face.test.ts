@@ -1,0 +1,421 @@
+/**
+ * Knowledge capability split (design §4/§5 acceptance):
+ *
+ * 1. `capabilitySatisfies` — `spoke-baseline` satisfies `spoke-knowledge`,
+ *    never the reverse.
+ * 2. Knowledge-only serve ports (`knowledgeOnlyServePorts`) serve the three
+ *    knowledge ops without a baseline face; `assemble` stays denied.
+ * 3. Per-peer admission: two callers admitted to different scopes cannot
+ *    read/list/update each other's same-id entries; an unbound caller and a
+ *    `scope_id`/`viewpoint` mismatch refuse `NOT_AUTHORIZED` before any
+ *    store call.
+ * 4. The router's hard filter selects knowledge-only peers for the three
+ *    knowledge ops while a knowledge-only peer never qualifies for core
+ *    baseline ops.
+ */
+
+import { describe, expect, it } from "vitest";
+
+import { spokeOk, spokeReject, type Scope, type SpokeResult } from "@42ch/spoke-operations";
+
+import {
+  capabilitySatisfies,
+  CAPABILITY_SPOKE_BASELINE,
+  CAPABILITY_SPOKE_KNOWLEDGE,
+} from "../../src/core/dispatch.js";
+import {
+  connectMultiPeerRouter,
+  connectRemoteAdapter,
+  loopbackTransportPair,
+} from "../../src/remote/index.js";
+import {
+  connectResponder,
+  knowledgeOnlyServePorts,
+  type RemoteKnowledgeFace,
+} from "../../src/remote/index.js";
+import {
+  selectPeerForOp,
+  type SelectablePeer,
+} from "../../src/remote/multi-peer-router.js";
+import { getPublicKeyEd25519 } from "../../src/crypto.js";
+import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
+import { authenticateInvokeRequest } from "../../src/core/envelope-auth.js";
+import { generateNonce } from "../../src/core/nonce.js";
+import { signHelloEd25519, verifyHelloEd25519 } from "../../src/core/hello.js";
+import { decodeJsonMessage, encodeJsonMessage } from "../../src/framing.js";
+import type { HostCapabilityManifest, KnowledgeEntry } from "@42ch/spoke-schemas";
+
+const textEncoder = new TextEncoder();
+
+function seed(base: number): Uint8Array {
+  return Uint8Array.from({ length: 32 }, (_, i) => base + i);
+}
+
+function manifest(hostId: string, capabilities: string[]): HostCapabilityManifest {
+  return {
+    schema_version: 1,
+    host_id: hostId,
+    roles: ["data-store"],
+    capabilities: [capabilities[0]!, ...capabilities.slice(1)],
+    namespaces: ["world_a"],
+    extensions: {},
+  };
+}
+
+// ── capabilitySatisfies (design §1) ───────────────────────────────────────
+
+describe("capabilitySatisfies", () => {
+  it("lets spoke-baseline satisfy spoke-knowledge, never the reverse", () => {
+    const baseline = [CAPABILITY_SPOKE_BASELINE];
+    const knowledge = [CAPABILITY_SPOKE_KNOWLEDGE];
+    const both = [CAPABILITY_SPOKE_KNOWLEDGE, CAPABILITY_SPOKE_BASELINE];
+
+    expect(capabilitySatisfies(knowledge, CAPABILITY_SPOKE_KNOWLEDGE)).toBe(true);
+    expect(capabilitySatisfies(baseline, CAPABILITY_SPOKE_KNOWLEDGE)).toBe(true);
+    expect(capabilitySatisfies(both, CAPABILITY_SPOKE_BASELINE)).toBe(true);
+    // Reverse never holds.
+    expect(capabilitySatisfies(knowledge, CAPABILITY_SPOKE_BASELINE)).toBe(false);
+    expect(capabilitySatisfies([], CAPABILITY_SPOKE_KNOWLEDGE)).toBe(false);
+  });
+});
+
+// ── Router hard filter (design §5) ────────────────────────────────────────
+
+describe("selectPeerForOp knowledge rows", () => {
+  const knowledgeOnlyPeer: SelectablePeer = {
+    peerId: "peer-knowledge",
+    manifest: manifest("peer-knowledge", ["spoke-knowledge"]),
+  };
+  const baselinePeer: SelectablePeer = {
+    peerId: "peer-baseline",
+    manifest: manifest("peer-baseline", ["spoke-baseline"]),
+  };
+
+  it("selects a knowledge-only peer for the three knowledge ops", () => {
+    for (const op of [
+      "port.knowledge.get",
+      "port.knowledge.put",
+      "port.scope.list_knowledge_entries",
+    ]) {
+      const selected = selectPeerForOp([knowledgeOnlyPeer], op, {});
+      expect(selected.ok, op).toBe(true);
+    }
+  });
+
+  it("keeps a baseline-only peer eligible for the knowledge ops", () => {
+    const selected = selectPeerForOp([baselinePeer], "port.knowledge.get", {});
+    expect(selected.ok).toBe(true);
+  });
+
+  it("never selects a knowledge-only peer for a core baseline op", () => {
+    const selected = selectPeerForOp([knowledgeOnlyPeer], "assemble", {});
+    expect(selected.ok).toBe(false);
+    if (!selected.ok) {
+      expect(selected.code).toBe("CAPABILITY_PORT_MISSING");
+    }
+  });
+});
+
+// ── Knowledge-only responder serving (design §4) ──────────────────────────
+
+/** In-memory scoped store: entries partitioned by admitted scope_id. */
+function scopedStoreFace(
+  admission: (peerId: string) => SpokeResult<Scope>,
+): RemoteKnowledgeFace {
+  const entries = new Map<string, Map<string, KnowledgeEntry>>();
+  const bucket = (scopeId: string): Map<string, KnowledgeEntry> => {
+    let existing = entries.get(scopeId);
+    if (existing === undefined) {
+      existing = new Map();
+      entries.set(scopeId, existing);
+    }
+    return existing;
+  };
+  return {
+    store: {
+      async getScopedKnowledgeEntry(scope, entryId) {
+        const found = bucket(scope.scope_id).get(entryId);
+        return found === undefined
+          ? spokeReject("KNOWLEDGE_ENTRY_NOT_FOUND", "no such entry")
+          : spokeOk(found);
+      },
+      async putScopedKnowledgeEntry(scope, entry, expectedBaseRevision) {
+        const store = bucket(scope.scope_id);
+        if (expectedBaseRevision === null) {
+          if (store.has(entry.entry_id)) {
+            return spokeReject("KNOWLEDGE_ENTRY_ALREADY_EXISTS", "exists");
+          }
+        } else if (store.get(entry.entry_id) === undefined) {
+          return spokeReject("KNOWLEDGE_ENTRY_NOT_FOUND", "no such entry");
+        }
+        const stored = { ...entry };
+        store.set(entry.entry_id, stored);
+        return spokeOk(stored);
+      },
+      async listScopedKnowledgeEntries(scope) {
+        return spokeOk([...bucket(scope.scope_id).values()]);
+      },
+    },
+    admission,
+  };
+}
+
+interface DialedKnowledgeHost {
+  host: { close(): void; state: string };
+  client: { close(): void };
+  close: () => void;
+}
+
+async function dialKnowledgeOnlyHost(options: {
+  admission: (peerId: string) => SpokeResult<Scope>;
+  clientSeed: Uint8Array;
+  clientCapabilities: string[];
+}): Promise<DialedKnowledgeHost> {
+  const hostSeed = seed(0xa0);
+  const hostPubkey = getPublicKeyEd25519(hostSeed);
+  const hostPeerId = derivePeerIdFromEd25519Pubkey(hostPubkey);
+  const clientPubkey = getPublicKeyEd25519(options.clientSeed);
+  const clientPeerId = derivePeerIdFromEd25519Pubkey(clientPubkey);
+  const pair = loopbackTransportPair();
+  const host = await connectResponder({
+    transport: pair.server,
+    identity: { seed: hostSeed },
+    manifest: manifest("knowledge-host", ["spoke-knowledge"]),
+    allowlist: [clientPeerId],
+    peerKeys: { [clientPeerId]: clientPubkey },
+    ports: knowledgeOnlyServePorts(scopedStoreFace(options.admission)),
+  });
+  const client = await connectRemoteAdapter({
+    transport: pair.client,
+    localIdentity: { seed: options.clientSeed },
+    localManifest: manifest("client", options.clientCapabilities),
+    remotePubkey: hostPubkey,
+    allowlist: [hostPeerId],
+  });
+  return { host, client, close: (): void => { client.close(); host.close(); } };
+}
+
+const SCOPE_A: Scope = { scope_id: "scope_a" };
+const SCOPE_B: Scope = { scope_id: "scope_b" };
+
+function entry(id: string): KnowledgeEntry {
+  return {
+    schema_version: 1,
+    entry_id: id,
+    entry_type: "note",
+    canonical_name: id,
+    status: "confirmed",
+    revision: 1,
+    body: { summary: id },
+    extensions: {},
+  };
+}
+
+describe("knowledge-only responder", () => {
+  it("serves the three knowledge ops and denies assemble without a baseline face", async () => {
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(SCOPE_A),
+      clientSeed: seed(0x10),
+      clientCapabilities: ["spoke-knowledge"],
+    });
+    try {
+      const put = await client.putKnowledgeEntry(entry("kb_a1"), null);
+      expect(put.ok).toBe(true);
+
+      const got = await client.getKnowledgeEntry("kb_a1");
+      expect(got.ok).toBe(true);
+
+      const listed = await client.listKnowledgeEntries(SCOPE_A);
+      expect(listed.ok).toBe(true);
+      if (listed.ok) {
+        expect(listed.value.map((e) => e.entry_id)).toEqual(["kb_a1"]);
+      }
+
+      // Core op denial is covered by the raw-wire probe below.
+    } finally {
+      close();
+    }
+  });
+
+  it("denies assemble on the knowledge-only dispatch gate (raw wire)", async () => {
+    const face = scopedStoreFace(() => spokeOk(SCOPE_A));
+    const hostSeed = seed(0xa0);
+    const hostPubkey = getPublicKeyEd25519(hostSeed);
+    const hostPeerId = derivePeerIdFromEd25519Pubkey(hostPubkey);
+    const clientSeed = seed(0x10);
+    const clientPubkey = getPublicKeyEd25519(clientSeed);
+    const clientPeerId = derivePeerIdFromEd25519Pubkey(clientPubkey);
+    const pair = loopbackTransportPair();
+    const host = await connectResponder({
+      transport: pair.server,
+      identity: { seed: hostSeed },
+      manifest: manifest("knowledge-host", ["spoke-knowledge"]),
+      allowlist: [clientPeerId],
+      peerKeys: { [clientPeerId]: clientPubkey },
+      ports: knowledgeOnlyServePorts(face),
+    });
+    const clientEnd = pair.client;
+    try {
+      const nonce = generateNonce();
+      await clientEnd.send(
+        textEncoder.encode(
+          encodeJsonMessage(
+            await signHelloEd25519(clientSeed, nonce, manifest("client", ["spoke-knowledge"])),
+          ),
+        ),
+      );
+      const responderHello = decodeJsonMessage(await clientEnd.recv()) as Parameters<
+        typeof verifyHelloEd25519
+      >[2];
+      await verifyHelloEd25519(hostPubkey, hostPeerId, responderHello, nonce);
+      const snapshot = decodeJsonMessage(await clientEnd.recv()) as {
+        session_id: string;
+      };
+      const request = await authenticateInvokeRequest(clientSeed, {
+        session_id: snapshot.session_id,
+        sequence: 0,
+        request_id: "assemble-deny",
+        op: "assemble",
+        payload: { scope: { scope_id: "scope_a" } },
+      });
+      await clientEnd.send(textEncoder.encode(encodeJsonMessage(request)));
+      const response = decodeJsonMessage(await clientEnd.recv()) as {
+        error?: { code?: string };
+      };
+      expect(response.error?.code).toBe("op_unsupported");
+    } finally {
+      clientEnd.close();
+      host.close();
+    }
+  });
+
+  it("isolates same-id entries across two admitted scopes", async () => {
+    // One shared scoped store behind two host instances; each caller is
+    // admitted to its own scope by peer id.
+    const admitted = new Map<string, Scope>([
+      [derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x10))), SCOPE_A],
+      [derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x11))), SCOPE_B],
+    ]);
+    const unboundSeed = seed(0x12);
+    const unboundPeerId = derivePeerIdFromEd25519Pubkey(
+      getPublicKeyEd25519(unboundSeed),
+    );
+    const face = scopedStoreFace((peerId) => {
+      const scope = admitted.get(peerId);
+      return scope === undefined
+        ? spokeReject("NOT_AUTHORIZED", "knowledge scope not authorized")
+        : spokeOk(scope);
+    });
+
+    const dial = async (
+      clientSeed: Uint8Array,
+      capabilities: string[] = ["spoke-knowledge"],
+    ): Promise<DialedKnowledgeHost> => {
+      const hostSeed = seed(0xa0);
+      const hostPubkey = getPublicKeyEd25519(hostSeed);
+      const hostPeerId = derivePeerIdFromEd25519Pubkey(hostPubkey);
+      const clientPubkey = getPublicKeyEd25519(clientSeed);
+      const clientPeerId = derivePeerIdFromEd25519Pubkey(clientPubkey);
+      const pair = loopbackTransportPair();
+      const host = await connectResponder({
+        transport: pair.server,
+        identity: { seed: hostSeed },
+        manifest: manifest("knowledge-host", ["spoke-knowledge", "ke-ownership"]),
+        allowlist: [clientPeerId, unboundPeerId],
+        peerKeys: {
+          [clientPeerId]: clientPubkey,
+          [unboundPeerId]: getPublicKeyEd25519(unboundSeed),
+        },
+        ports: knowledgeOnlyServePorts(face),
+      });
+      const client = await connectRemoteAdapter({
+        transport: pair.client,
+        localIdentity: { seed: clientSeed },
+        localManifest: manifest("client", capabilities),
+        remotePubkey: hostPubkey,
+        allowlist: [hostPeerId],
+      });
+      return {
+        host,
+        client,
+        close: (): void => {
+          client.close();
+          host.close();
+        },
+      };
+    };
+
+    // Caller A carries ke-ownership so the viewpoint-matching probe below
+    // reaches the scope-equality gate rather than the ownership conjunct.
+    const callerA = await dial(seed(0x10), ["spoke-knowledge", "ke-ownership"]);
+    const callerB = await dial(seed(0x11));
+    try {
+      // Caller A writes entry "kb_shared" in scope A.
+      const putA = await callerA.client.putKnowledgeEntry(entry("kb_shared"), null);
+      expect(putA.ok).toBe(true);
+
+      // Caller B (scope B) sees neither the entry nor the scope A listing.
+      const gotByB = await callerB.client.getKnowledgeEntry("kb_shared");
+      expect(gotByB.ok).toBe(false);
+      const listedByB = await callerB.client.listKnowledgeEntries(SCOPE_B);
+      expect(listedByB.ok).toBe(true);
+      if (listedByB.ok) {
+        expect(listedByB.value).toEqual([]);
+      }
+
+      // Caller B's same-id write lands in scope B, never overwriting A's.
+      const putByB = await callerB.client.putKnowledgeEntry(
+        entry("kb_shared"),
+        null,
+      );
+      expect(putByB.ok).toBe(true);
+      const listedByA = await callerA.client.listKnowledgeEntries(SCOPE_A);
+      expect(listedByA.ok).toBe(true);
+      if (listedByA.ok) {
+        expect(listedByA.value).toHaveLength(1);
+        expect(listedByA.value[0]!.body).toEqual({ summary: "kb_shared" });
+      }
+
+      // An unbound caller is refused NOT_AUTHORIZED before any store call.
+      const unbound = await dial(unboundSeed);
+      try {
+        const refused = await unbound.client.listKnowledgeEntries(SCOPE_A);
+        expect(refused.ok).toBe(false);
+        if (!refused.ok) {
+          expect(refused.code).toBe("NOT_AUTHORIZED");
+        }
+      } finally {
+        unbound.close();
+      }
+
+      // A scope_id mismatch refuses NOT_AUTHORIZED: caller A admitted to
+      // scope A cannot list scope B even though the store call would have
+      // been scoped.
+      const mismatch = await callerA.client.listKnowledgeEntries(SCOPE_B);
+      expect(mismatch.ok).toBe(false);
+      if (!mismatch.ok) {
+        expect(mismatch.code).toBe("NOT_AUTHORIZED");
+      }
+
+      // A viewpoint mismatch (admitted viewpoint the request omits) refuses.
+      admitted.set(
+        derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x10))),
+        { scope_id: "scope_a", viewpoint: "holder-a" },
+      );
+      const omitted = await callerA.client.listKnowledgeEntries(SCOPE_A);
+      expect(omitted.ok).toBe(false);
+      if (!omitted.ok) {
+        expect(omitted.code).toBe("NOT_AUTHORIZED");
+      }
+      // The matching viewpoint serves.
+      const withViewpoint = await callerA.client.listKnowledgeEntries({
+        scope_id: "scope_a",
+        viewpoint: "holder-a",
+      });
+      expect(withViewpoint.ok).toBe(true);
+    } finally {
+      callerA.close();
+      callerB.close();
+    }
+  });
+});

@@ -171,13 +171,14 @@ RemoteAdapter（TypeScript `./remote` 子路径、Rust `remote-adapter` feature�
 | 操作 | 所需能力 |
 |------|----------|
 | `upsert`、`promote`、`relate`、`check`、`assemble`（以及 `port.*` 基线操作） | `spoke-baseline` |
+| `port.knowledge.get`、`port.knowledge.put`、`port.scope.list_knowledge_entries` | `spoke-knowledge`；`spoke-baseline` 同样满足该要求 |
 | `extract` | `ke-extraction` |
 | `project`、`compute`（以及 `port.computable.*`） | `l2-computable` |
 | `listForkTimelineEvents`（以及 `port.fork.*`） | `l5-fork` |
 | 携带非空 `scope.viewpoint` 的 `port.scope.list_knowledge_entries`、`port.scope.list_timeline_events`、`port.fork.list_timeline_events` | 该行能力**外加** `ke-ownership` |
 | 产品自定义操作 | 产品文档化的能力 |
 
-能力令牌授权为其 `capabilities[]` 覆盖的 ops 授权会话成员资格，但并不取代 `negotiated_capabilities` —— 令牌门禁生效时，令牌授权与协商集都必须允许该 op。
+能力令牌授权为其 `capabilities[]` 覆盖的 ops 授权会话成员资格，但并不取代 `negotiated_capabilities` —— 令牌门禁生效时，令牌授权与协商集都必须允许该 op。令牌匹配必须精确命名所需标志：覆盖三个知识操作的授权须包含 `spoke-knowledge`。会话分派与路由施加有向的 `spoke-baseline` ⇒ `spoke-knowledge` 规则；仅 `spoke-knowledge` 不授权基线操作。
 
 ## Port-method ops（RemoteAdapter）
 
@@ -220,16 +221,19 @@ Provider 面是 operations crate 的契约（`@42ch/spoke-operations`）；组�
 
 | 面 | 形状 |
 |----|------|
-| TypeScript —— `connectResponder({ ports })` | 实现 `BaselinePorts` 及可选方法（`project` / `compute` / `listForkTimelineEvents`）的 `ports` provider；组合类型 `FullPorts` 覆盖全部十二个服务方法 |
-| Rust —— `ConnectResponderOptions.ports` | `Arc<dyn RemoteServePorts>`：当 provider 实现 `BaselinePorts + ComputablePort + ForkTimelineQueryPort` 时，blanket impl 服务所有族；混合主机经 `RemoteServePortsComposite::new(baseline, computable, fork)` 组合，未提供的面传 `None` |
+| TypeScript —— `connectResponder({ ports })` | `RemoteServePorts`，含 `baseline?: BaselinePorts`、`knowledge?: RemoteKnowledgeFace` 与可选服务面；`withKnowledge(ports, face)` 组合混合主机，`knowledgeOnlyServePorts(face)` 单独服务知识 |
+| Rust —— `ConnectResponderOptions.ports` | `Arc<dyn RemoteServePorts>`，带 `as_baseline()` / `as_knowledge()` 探测；`RemoteServePortsComposite::with_knowledge` 组合混合主机，`knowledge_only` 单独服务知识 |
 | FFI —— `connect_responder_ffi` 的 `ports` 参数 | 可选的带外回调 `PortsHandler`，实现下方 port 目录外加 `extract` 服务面；见下方回调表 |
 
 | FFI `PortsHandler` 方法 | 族 | 服务的 op |
 |-------------------------|----|-----------|
-| `get_knowledge_entry(entry_id)` | 基线 | `port.knowledge.get` |
-| `put_knowledge_entry(entry_json, expected_base_revision)` | 基线 | `port.knowledge.put` |
+| `get_knowledge_entry(entry_id)` | knowledge（基线面） | 无 —— 仅本地 `BaselinePorts` 方法 |
+| `put_knowledge_entry(entry_json, expected_base_revision)` | knowledge（基线面） | 无 —— 仅本地 `BaselinePorts` 方法 |
 | `get_relation(relation_id)` / `put_relation(relation_json, expected_base_revision)` | 基线 | `port.relation.get` / `port.relation.put` |
-| `list_knowledge_entries(scope_json)` / `list_timeline_events(scope_json)` | 基线 | `port.scope.list_knowledge_entries` / `port.scope.list_timeline_events` |
+| `list_knowledge_entries(scope_json)` | knowledge（基线面） | 无 —— 仅本地 `BaselinePorts` 方法 |
+| `list_timeline_events(scope_json)` | 基线 | `port.scope.list_timeline_events` |
+| `knowledge_scope(peer_id)` | knowledge 准入 | 已认证对等节点 → 准入的 `Scope` |
+| `get_scoped_knowledge_entry(scope_json, entry_id)` / `put_scoped_knowledge_entry(scope_json, entry_json, expected_base_revision)` / `list_scoped_knowledge_entries(scope_json)` | knowledge | `port.knowledge.get` / `port.knowledge.put` / `port.scope.list_knowledge_entries` |
 | `put_findings(findings_json)` | 基线 | `port.finding.put` |
 | `list_rules(rule_refs)` | 基线 | `port.rule.list` |
 | `list_peer_host_capability_manifests()` | 基线 | `port.host.list_peer_manifests` |
@@ -238,7 +242,15 @@ Provider 面是 operations crate 的契约（`@42ch/spoke-operations`）；组�
 | `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
 | `extract(extract_request_json)` | `ke-extraction` | `extract` |
 
-每个 `PortsHandler` 方法以 JSON 字符串接收请求载荷，以 JSON 字符串返回成功载荷。`get_host_capability_manifest` 不在目录中 —— 它是会话缓存，绝不经过 ports handler 服务。不服务某 op 的方法抛出 `FfiError.Rejected`，原样穿透给调用方作为应用拒绝；缺席的 `ports` handler（构造参数 `ports = None`）对每条 `port.*` 调用保留文档化的拒绝分支。
+三个远程知识操作仅经 `knowledge_scope` 准入与作用域知识回调服务。未作用域的 `get_knowledge_entry`、`put_knowledge_entry` 与 `list_knowledge_entries` 回调保持为本地 `BaselinePorts` 方法；它们不是远程服务路径。
+
+每个 `PortsHandler` 方法以 JSON 字符串接收请求载荷，以 JSON 字符串返回成功载荷。`get_host_capability_manifest` 不在目录中 —— 它是会话缓存，绝不经过 ports handler 服务。不服务某 op 的方法抛出 `FfiError.Rejected`，原样穿透给调用方作为应用拒绝；缺席的 `ports` handler（构造参数 `ports = None`）对每条 `port.*` 调用保留文档化的拒绝分支。C ABI 为修订版 2（`SPOKE_CONNECT_ABI_VERSION = 2`），知识准入回调与作用域回调追加到 ports 表。
+
+### 作用域知识服务（Scoped knowledge serving）
+
+`RemoteKnowledgeFace` 由 `ScopedKnowledgePort` 存储与 `admission(peerId)`（Rust：`KnowledgeAdmission`）组成。响应方依次检查分派能力、Scope 归属/认知要求与声明，解码请求，探测知识面，然后准入已认证对等节点。准入拒绝与列表作用域不匹配返回 `NOT_AUTHORIZED`，且不透露条目是否存在。
+
+知识列表时，请求的 `scope_id` 与 `viewpoint` 等于准入值。存储接收这些准入值，外加请求的条目、来源、时间线、fork、扩展与认知细化条件。知识 get 与 put 直接接收准入的 Scope。基线 manifest 主机挂载知识面以服务这些操作；仅知识主机声明 `spoke-knowledge` 并只挂载该面。
 
 ### 驱动（adapter）
 

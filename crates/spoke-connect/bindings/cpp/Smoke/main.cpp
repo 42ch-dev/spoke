@@ -260,6 +260,18 @@ void write_static_error(SpokeConnectForeignError* out_error, const char* message
     *out_error = record;
 }
 
+/** Hands a static payload over with a no-op release — the shape a host uses
+ *  when the answer already lives for the process lifetime. */
+void write_foreign_static(SpokeConnectForeignBuffer* out_buffer, const char* payload) {
+    if (out_buffer == nullptr) return;
+    SpokeConnectForeignBuffer buffer{};
+    buffer.data = reinterpret_cast<const uint8_t*>(payload);
+    buffer.len = std::strlen(payload);
+    buffer.release_context = nullptr;
+    buffer.release = &release_static;
+    *out_buffer = buffer;
+}
+
 void write_foreign_owned(SpokeConnectForeignBuffer* out_buffer, const std::string& payload,
                          CallbackCounters* counters) {
     if (out_buffer == nullptr || payload.empty()) return;
@@ -356,6 +368,9 @@ const char* const kServedEntryJson =
     "\"body\":{\"summary\":\"served over the host-owned loopback\"},\"extensions\":{}}";
 const char* const kDeclineCode = "op_unsupported";
 const char* const kDeclineMessage = "the C++ smoke serves the baseline knowledge lookup";
+/** The scope the resolver admits: the knowledge ops are served inside it and
+ *  no scope ever crosses on the wire for `get` / `put`. */
+const char* const kKnowledgeScopeJson = "{\"scope_id\":\"scope_cpp_smoke\"}";
 
 const std::string kEntryId(kEntryIdText);
 
@@ -415,6 +430,41 @@ int32_t SPOKE_CONNECT_CALL ports_get_knowledge_entry(void* user_data,
     }
     write_foreign_owned(out_json, kServedEntryJson, host->counters);
     return SPOKE_CONNECT_OK;
+}
+
+/** Serves `knowledgeScope`: the resolver that attaches the scoped knowledge
+ *  face. A host without this callback serves no knowledge op at all. */
+int32_t SPOKE_CONNECT_CALL ports_knowledge_scope(void* /*user_data*/,
+                                                 SpokeConnectSlice /*input_json*/,
+                                                 SpokeConnectForeignBuffer* out_json,
+                                                 SpokeConnectForeignError* /*out_error*/) {
+    write_foreign_static(out_json, kKnowledgeScopeJson);
+    return SPOKE_CONNECT_OK;
+}
+
+/** Serves the scoped `get`: the admitted scope arrives in front of the entry
+ *  id the pre-scope callback used to carry alone. */
+int32_t SPOKE_CONNECT_CALL ports_get_scoped_knowledge_entry(
+    void* user_data, SpokeConnectSlice /*scope_json*/, SpokeConnectSlice input_json,
+    SpokeConnectForeignBuffer* out_json, SpokeConnectForeignError* /*out_error*/) {
+    HostPorts* host = static_cast<HostPorts*>(user_data);
+    const std::string entry_id = slice_text(input_json);
+    {
+        std::lock_guard<std::mutex> guard(host->state->mutex);
+        host->state->calls += 1;
+        host->state->last_entry_id = entry_id;
+    }
+    write_foreign_owned(out_json, kServedEntryJson, host->counters);
+    return SPOKE_CONNECT_OK;
+}
+
+/** SpokeConnectPortsScopedRevisionFn decline. */
+int32_t SPOKE_CONNECT_CALL ports_decline_scoped_revision(
+    void* /*user_data*/, SpokeConnectSlice /*scope_json*/, SpokeConnectSlice /*input_json*/,
+    SpokeConnectOptionalU64 /*expected_base_revision*/, SpokeConnectForeignBuffer* /*out_json*/,
+    SpokeConnectForeignError* out_error) {
+    write_decline(out_error);
+    return SPOKE_CONNECT_FFI_REJECTED;
 }
 
 /** SpokeConnectPortsTextFn decline for an op this host does not serve. */
@@ -478,6 +528,10 @@ SpokeConnectPortsHandlerTable ports_table() {
     table.list_fork_timeline_events = &ports_decline_text;
     table.extract = &ports_decline_text;
     table.destroy = &ports_destroy;
+    table.knowledge_scope = &ports_knowledge_scope;
+    table.get_scoped_knowledge_entry = &ports_get_scoped_knowledge_entry;
+    table.put_scoped_knowledge_entry = &ports_decline_scoped_revision;
+    table.list_scoped_knowledge_entries = &ports_decline_text;
     return table;
 }
 
@@ -563,7 +617,7 @@ void assert_protocol_version() {
     uint64_t abi_version = 0;
     status = spoke_connect_abi_version(&abi_version, &error);
     require_ok(status, &error, kProtocolLabel, "spoke_connect_abi_version");
-    check(abi_version == 1, kProtocolLabel,
+    check(abi_version == 2, kProtocolLabel,
           "spoke_connect_abi_version reported " + std::to_string(abi_version));
     banner(kProtocolLabel);
 }

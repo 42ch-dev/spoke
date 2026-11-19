@@ -814,6 +814,17 @@ struct PortsCallbacks {
     std::function<Result<std::string>(std::string_view compute_request_json)> compute;
     std::function<Result<std::string>(std::string_view scope_json)> list_fork_timeline_events;
     std::function<Result<std::string>(std::string_view extract_request_json)> extract;
+    /* Optional scoped knowledge face. Leaving `knowledge_scope` unset keeps the
+       face absent: the three knowledge ops answer the missing-face deny branch
+       and the three scoped slots below are never called. A set `knowledge_scope`
+       admits one peer per call by answering that peer's `Scope` JSON. */
+    std::function<Result<std::string>(std::string_view peer_id)> knowledge_scope;
+    std::function<Result<std::string>(std::string_view scope_json, std::string_view entry_id)>
+        get_scoped_knowledge_entry;
+    std::function<Result<std::string>(std::string_view scope_json, std::string_view entry_json,
+                                      std::optional<uint64_t> expected_base_revision)>
+        put_scoped_knowledge_entry;
+    std::function<Result<std::string>(std::string_view scope_json)> list_scoped_knowledge_entries;
 };
 
 /**
@@ -1326,6 +1337,66 @@ inline int32_t SPOKE_CONNECT_CALL ports_extract(void* user_data, SpokeConnectSli
     return ports_text_call(user_data, input_json, out_json, out_error, &PortsCallbacks::extract);
 }
 
+/** Runs one scoped text callback — the admitted scope JSON then the payload. */
+[[nodiscard]] inline int32_t ports_scoped_text_call(
+    void* user_data, SpokeConnectSlice scope_json, SpokeConnectSlice input_text,
+    SpokeConnectForeignBuffer* out_json, SpokeConnectForeignError* out_error,
+    const std::function<Result<std::string>(std::string_view, std::string_view)>
+        PortsCallbacks::*slot) noexcept {
+    auto* callbacks = static_cast<PortsCallbacks*>(user_data);
+    const std::string_view scope = text_view(scope_json);
+    const std::string_view input = text_view(input_text);
+    return callback_return(kCallbackContainment, out_json, out_error,
+                           [&] { return outcome_of((callbacks->*slot)(scope, input)); });
+}
+
+/** Runs the scoped revision callback (`put_scoped_knowledge_entry`). */
+[[nodiscard]] inline int32_t ports_scoped_revision_call(
+    void* user_data, SpokeConnectSlice scope_json, SpokeConnectSlice input_json,
+    SpokeConnectOptionalU64 expected_base_revision, SpokeConnectForeignBuffer* out_json,
+    SpokeConnectForeignError* out_error,
+    const std::function<Result<std::string>(std::string_view, std::string_view,
+                                           std::optional<uint64_t>)>
+        PortsCallbacks::*slot) noexcept {
+    auto* callbacks = static_cast<PortsCallbacks*>(user_data);
+    const std::string_view scope = text_view(scope_json);
+    const std::string_view input = text_view(input_json);
+    const std::optional<uint64_t> revision = optional_of(expected_base_revision);
+    return callback_return(kCallbackContainment, out_json, out_error,
+                           [&] { return outcome_of((callbacks->*slot)(scope, input, revision)); });
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_knowledge_scope(void* user_data,
+                                                        SpokeConnectSlice input_json,
+                                                        SpokeConnectForeignBuffer* out_json,
+                                                        SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error,
+                           &PortsCallbacks::knowledge_scope);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_get_scoped_knowledge_entry(
+    void* user_data, SpokeConnectSlice scope_json, SpokeConnectSlice input_json,
+    SpokeConnectForeignBuffer* out_json, SpokeConnectForeignError* out_error) noexcept {
+    return ports_scoped_text_call(user_data, scope_json, input_json, out_json, out_error,
+                                  &PortsCallbacks::get_scoped_knowledge_entry);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_put_scoped_knowledge_entry(
+    void* user_data, SpokeConnectSlice scope_json, SpokeConnectSlice input_json,
+    SpokeConnectOptionalU64 expected_base_revision, SpokeConnectForeignBuffer* out_json,
+    SpokeConnectForeignError* out_error) noexcept {
+    return ports_scoped_revision_call(user_data, scope_json, input_json, expected_base_revision,
+                                      out_json, out_error,
+                                      &PortsCallbacks::put_scoped_knowledge_entry);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_list_scoped_knowledge_entries(
+    void* user_data, SpokeConnectSlice input_json, SpokeConnectForeignBuffer* out_json,
+    SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error,
+                           &PortsCallbacks::list_scoped_knowledge_entries);
+}
+
 inline void SPOKE_CONNECT_CALL ports_destroy(void* user_data) noexcept {
     delete static_cast<PortsCallbacks*>(user_data);
 }
@@ -1353,8 +1424,11 @@ inline void SPOKE_CONNECT_CALL tool_destroy(void* user_data) noexcept {
     return table;
 }
 
-/** The complete ports table over the static thunks. */
-[[nodiscard]] inline SpokeConnectPortsHandlerTable ports_table() noexcept {
+/** The complete ports table over the static thunks. The four knowledge
+    pointers are installed only when their slot is set: an unset face stays
+    NULL, which the carrier reads as "no scoped knowledge face". */
+[[nodiscard]] inline SpokeConnectPortsHandlerTable ports_table(
+    const PortsCallbacks& callbacks) noexcept {
     SpokeConnectPortsHandlerTable table{};
     table.get_knowledge_entry = &ports_get_knowledge_entry;
     table.put_knowledge_entry = &ports_put_knowledge_entry;
@@ -1370,6 +1444,15 @@ inline void SPOKE_CONNECT_CALL tool_destroy(void* user_data) noexcept {
     table.list_fork_timeline_events = &ports_list_fork_timeline_events;
     table.extract = &ports_extract;
     table.destroy = &ports_destroy;
+    table.knowledge_scope =
+        callbacks.knowledge_scope ? &ports_knowledge_scope : nullptr;
+    table.get_scoped_knowledge_entry =
+        callbacks.get_scoped_knowledge_entry ? &ports_get_scoped_knowledge_entry : nullptr;
+    table.put_scoped_knowledge_entry =
+        callbacks.put_scoped_knowledge_entry ? &ports_put_scoped_knowledge_entry : nullptr;
+    table.list_scoped_knowledge_entries = callbacks.list_scoped_knowledge_entries
+                                              ? &ports_list_scoped_knowledge_entries
+                                              : nullptr;
     return table;
 }
 
@@ -1424,10 +1507,12 @@ class Transport : public detail::HandleBase<SpokeConnectTransport, &spoke_connec
 };
 
 /**
- * Carries one host-callback ports-handler handle. Every one of the thirteen
- * slots must be set: a provider that declines a method returns an application
+ * Carries one host-callback ports-handler handle. Every baseline and optional-op
+ * slot must be set: a provider that declines a method returns an application
  * reject from that slot, which keeps an explicitly refusing provider
- * distinguishable from an absent `ports` handler.
+ * distinguishable from an absent `ports` handler. The four scoped knowledge
+ * slots are optional — leaving `knowledge_scope` unset keeps the knowledge face
+ * absent.
  */
 class PortsHandler
     : public detail::HandleBase<SpokeConnectPortsHandler, &spoke_connect_ports_handler_free> {
@@ -1439,7 +1524,7 @@ class PortsHandler
         if (const char* slot = detail::missing_slot(*callbacks); slot != nullptr) {
             return Result<PortsHandler>::failure(detail::unset_slot("PortsCallbacks", slot));
         }
-        const SpokeConnectPortsHandlerTable table = detail::ports_table();
+        const SpokeConnectPortsHandlerTable table = detail::ports_table(*callbacks);
         SpokeConnectPortsHandler* handle = nullptr;
         detail::CErrorRecord error;
         const int32_t status =

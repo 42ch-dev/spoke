@@ -45,15 +45,16 @@ use spoke_connect::core::{derive_peer_id_from_ed25519_pubkey, sign_hello_ed25519
 use spoke_connect::remote::{
     connect_remote_adapter, connect_responder, loopback_transport_pair, ConnectResponder,
     ConnectResponderOptions, LoopbackTransport, LoopbackTransportPair, MemoryAdmission,
-    MemoryPortService, RemoteAdapter, RemoteAdapterOptions, RemoteIdentity, RemoteMemoryService,
-    RemoteServePorts, RemoteServePortsComposite, Transport,
+    MemoryPortService, RemoteAdapter, RemoteAdapterOptions, RemoteIdentity, RemoteKnowledgeFace,
+    RemoteMemoryService, RemoteServePorts, RemoteServePortsComposite, Transport,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
 use spoke_operations::{
     cognition_record_matches_filter, jcs_sha256_hex, validate_cognition_record, BaselinePorts,
     FindingPort, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, MemoryPort,
-    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    RelationPort, RuleQueryPort, ScopeQueryPort, ScopedKnowledgePort, SpokeReject,
+    SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::{ConnectHello, ConnectSession};
 use spoke_schemas::{
@@ -156,6 +157,56 @@ fn memory_manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManife
     .expect("valid manifest")
 }
 
+/// Single-scope fixture baseline adapted to the scoped knowledge face: the
+/// fixture store keeps one scope, so each scoped call delegates to the
+/// matching unscoped baseline method.
+struct ScopedBaselineStore {
+    baseline: Arc<dyn BaselinePorts + Send + Sync>,
+}
+
+#[async_trait]
+impl ScopedKnowledgePort for ScopedBaselineStore {
+    async fn get_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        entry_id: &str,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.baseline.get_knowledge_entry(entry_id).await
+    }
+
+    async fn put_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        entry: KnowledgeEntry,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.baseline
+            .put_knowledge_entry(entry, expected_base_revision)
+            .await
+    }
+
+    async fn list_scoped_knowledge_entries(
+        &self,
+        scope: &Scope,
+    ) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.baseline.list_knowledge_entries(scope).await
+    }
+}
+
+/// Knowledge face over a single-scope fixture that admits `scope_id` for
+/// every authenticated peer; the fixture store ignores the scope itself.
+fn knowledge_face(
+    baseline: Arc<dyn BaselinePorts + Send + Sync>,
+    scope_id: &str,
+) -> Arc<RemoteKnowledgeFace> {
+    let admitted: Scope =
+        serde_json::from_value(json!({ "scope_id": scope_id })).expect("valid Scope");
+    Arc::new(RemoteKnowledgeFace {
+        store: Arc::new(ScopedBaselineStore { baseline }),
+        admission: Arc::new(move |_| SpokeResult::Ok(admitted.clone())),
+    })
+}
+
 /// Start a responder whose ports face carries the memory service (when given)
 /// and whose manifest advertises `capabilities`.
 async fn start_host(
@@ -174,7 +225,9 @@ async fn start_host_with_budget(
     let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
     let baseline: Arc<dyn BaselinePorts + Send + Sync> =
         Arc::new(ToyWorldAdapter::with_committed_fixtures());
-    let mut ports = RemoteServePortsComposite::new(baseline, None, None);
+    // The lifecycle oracle reads the KE authority through the scope it names.
+    let mut ports = RemoteServePortsComposite::new(Arc::clone(&baseline), None, None)
+        .with_knowledge(knowledge_face(baseline, "no-ke-boundary"));
     if let Some(memory) = memory {
         ports = ports.with_memory(memory);
     }
@@ -2308,7 +2361,10 @@ async fn start_cognition_host(
 ) -> (Arc<ConnectResponder>, LoopbackTransportPair) {
     let pair = loopback_transport_pair();
     let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
-    let ports = RemoteServePortsComposite::new(source, None, None).with_memory(memory);
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = source;
+    let ports = RemoteServePortsComposite::new(Arc::clone(&baseline), None, None)
+        .with_knowledge(knowledge_face(baseline, "world_1"))
+        .with_memory(memory);
     let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(ports);
     let responder = connect_responder(ConnectResponderOptions {
         transport: Arc::new(pair.server.clone()),

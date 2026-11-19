@@ -167,8 +167,8 @@ void assert_identity_and_versions(const Golden& golden) {
     check(protocol == 1, kValuesLabel,
           "protocol_version() reported " + std::to_string(protocol) + " instead of 1");
     const uint64_t abi = unwrap(abi_version(), "abi_version");
-    check(abi == 1, kValuesLabel,
-          "abi_version() reported " + std::to_string(abi) + " instead of the ABI revision 1");
+    check(abi == 2, kValuesLabel,
+          "abi_version() reported " + std::to_string(abi) + " instead of the ABI revision 2");
 }
 
 /** A tampered hello is rejected with the hello status on the C++ error. */
@@ -396,6 +396,9 @@ const char* const kServedEntryJson =
     "\"entry_type\":\"note\",\"canonical_name\":\"C++ convenience knowledge entry\","
     "\"status\":\"confirmed\",\"body\":{\"summary\":\"served through the convenience callback "
     "bridge\"},\"extensions\":{}}";
+/** The scope the resolver admits: the knowledge ops are served inside it and
+    no scope crosses on the wire for `get` / `put`. */
+const char* const kKnowledgeScopeJson = "{\"scope_id\":\"scope_cpp_convenience\"}";
 const char* const kRefusalMessage = "the smoke's host tool handler refuses";
 const char* const kRefusalKind = "smoke_reject_kind";
 const char* const kRefusalWireCode = "smoke_reject_wire";
@@ -630,6 +633,33 @@ std::unique_ptr<PortsCallbacks> make_ports(std::shared_ptr<HostPorts> host) {
     callbacks->compute = refusal;
     callbacks->list_fork_timeline_events = refusal;
     callbacks->extract = refusal;
+    // The scoped knowledge face: without the resolver the three knowledge ops
+    // answer the missing-face deny branch instead of this host's provider.
+    callbacks->knowledge_scope = [](std::string_view) -> Result<std::string> {
+        return Result<std::string>::success(std::string(kKnowledgeScopeJson));
+    };
+    callbacks->get_scoped_knowledge_entry =
+        [host](std::string_view, std::string_view entry_id) -> Result<std::string> {
+        host->counters->calls.fetch_add(1);
+        {
+            std::lock_guard<std::mutex> guard(host->mutex);
+            host->calls += 1;
+            host->last_entry_id = std::string(entry_id);
+        }
+        return Result<std::string>::success(std::string(kServedEntryJson));
+    };
+    callbacks->put_scoped_knowledge_entry =
+        [host](std::string_view, std::string_view,
+               std::optional<uint64_t> expected_base_revision) -> Result<std::string> {
+        host->counters->calls.fetch_add(1);
+        {
+            std::lock_guard<std::mutex> guard(host->mutex);
+            host->calls += 1;
+            host->last_revision = expected_base_revision;
+        }
+        return Result<std::string>::success(std::string(kServedEntryJson));
+    };
+    callbacks->list_scoped_knowledge_entries = refusal;
     return callbacks;
 }
 

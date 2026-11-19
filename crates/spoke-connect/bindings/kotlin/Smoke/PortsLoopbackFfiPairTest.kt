@@ -673,6 +673,25 @@ class PortsLoopbackFfiPairTest {
             return served.toString()
         }
 
+        // The scoped knowledge face: `list` is served inside the admitted
+        // scope, `get` / `put` stay ordinary refusals in this double.
+        override fun servesKnowledge(): Boolean = true
+
+        override fun knowledgeScope(peerId: String): String =
+            """{"scope_id":"toy-scope-001","viewpoint":"kb_tw_mira"}"""
+
+        override fun getScopedKnowledgeEntry(scopeJson: String, entryId: String): String =
+            throw unserved("get_knowledge_entry")
+
+        override fun putScopedKnowledgeEntry(
+            scopeJson: String,
+            entryJson: String,
+            expectedBaseRevision: ULong?,
+        ): String = throw unserved("put_knowledge_entry")
+
+        override fun listScopedKnowledgeEntries(scopeJson: String): String =
+            listKnowledgeEntries(scopeJson)
+
         /** Catalogue ops this double does not serve: an ordinary application
          * reject (`wireCode` null), never containment. */
         private fun unserved(op: String): FfiException = FfiException.Rejected(
@@ -843,6 +862,26 @@ class PortsLoopbackFfiPairTest {
         )
 
         override fun listKnowledgeEntries(scopeJson: String): String = JSONArray(entries.values.toList()).toString()
+
+        /** The scoped knowledge face over the same store: `get` / `put` carry
+         * no wire scope, so the admitted value below is the only one they are
+         * served in. */
+        override fun servesKnowledge(): Boolean = true
+
+        override fun knowledgeScope(peerId: String): String =
+            """{"scope_id":"scope_kotlin_ports_smoke"}"""
+
+        override fun getScopedKnowledgeEntry(scopeJson: String, entryId: String): String =
+            getKnowledgeEntry(entryId)
+
+        override fun putScopedKnowledgeEntry(
+            scopeJson: String,
+            entryJson: String,
+            expectedBaseRevision: ULong?,
+        ): String = putKnowledgeEntry(entryJson, expectedBaseRevision)
+
+        override fun listScopedKnowledgeEntries(scopeJson: String): String =
+            listKnowledgeEntries(scopeJson)
 
         override fun listTimelineEvents(scopeJson: String): String = "[]"
 

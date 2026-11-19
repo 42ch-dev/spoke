@@ -133,6 +133,7 @@ function scopedStoreFace(
   admission: (peerId: string) => SpokeResult<Scope>,
   storeCalls: string[] = [],
   storeGate?: Promise<void>,
+  storeRejectOn?: "put" | "get",
 ): RemoteKnowledgeFace {
   const entries = new Map<string, Map<string, KnowledgeEntry>>();
   const bucket = (scopeId: string): Map<string, KnowledgeEntry> => {
@@ -147,6 +148,9 @@ function scopedStoreFace(
     store: {
       async getScopedKnowledgeEntry(scope, entryId) {
         storeCalls.push("get");
+        if (storeRejectOn === "get") {
+          throw new Error("store get exploded");
+        }
         if (storeGate !== undefined) {
           await storeGate;
         }
@@ -157,6 +161,9 @@ function scopedStoreFace(
       },
       async putScopedKnowledgeEntry(scope, entry, expectedBaseRevision) {
         storeCalls.push("put");
+        if (storeRejectOn === "put") {
+          throw new Error("store put exploded");
+        }
         if (storeGate !== undefined) {
           await storeGate;
         }
@@ -212,6 +219,7 @@ async function dialKnowledgeOnlyHost(options: {
   clientCapabilities: string[];
   storeCalls?: string[];
   storeGate?: Promise<void>;
+  storeRejectOn?: "put" | "get";
   invokeTimeoutMs?: number;
 }): Promise<DialedKnowledgeHost> {
   const hostSeed = seed(0xa0);
@@ -227,7 +235,12 @@ async function dialKnowledgeOnlyHost(options: {
     allowlist: [clientPeerId],
     peerKeys: { [clientPeerId]: clientPubkey },
     ports: knowledgeOnlyServePorts(
-      scopedStoreFace(options.admission, options.storeCalls, options.storeGate),
+      scopedStoreFace(
+        options.admission,
+        options.storeCalls,
+        options.storeGate,
+        options.storeRejectOn,
+      ),
     ),
     invokeTimeoutMs: options.invokeTimeoutMs,
   });
@@ -602,6 +615,52 @@ describe("knowledge-only responder", () => {
       }
       // The store was invoked before the budget answered.
       expect(storeCalls).toEqual(["put"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("answers OUTCOME_UNCERTAIN when the put store rejects after invocation", async () => {
+    const storeCalls: string[] = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(SCOPE_A),
+      clientSeed: seed(0x18),
+      clientCapabilities: ["spoke-knowledge"],
+      storeCalls,
+      storeRejectOn: "put",
+    });
+    try {
+      const put = await client.putKnowledgeEntry(entry("kb_rej"), null);
+      expect(put.ok).toBe(false);
+      if (!put.ok) {
+        expect(put.code).toBe("OUTCOME_UNCERTAIN");
+        expect(put.details?.kind).toBe("provider_error");
+        expect(put.details?.retry_class).toBe("uncertain");
+        expect(put.message).toContain("outcome is unknown");
+      }
+      expect(storeCalls).toEqual(["put"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("keeps the internal error when the get store rejects after invocation", async () => {
+    const storeCalls: string[] = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(SCOPE_A),
+      clientSeed: seed(0x19),
+      clientCapabilities: ["spoke-knowledge"],
+      storeCalls,
+      storeRejectOn: "get",
+    });
+    try {
+      const got = await client.getKnowledgeEntry("kb_rej_get");
+      expect(got.ok).toBe(false);
+      if (!got.ok) {
+        expect(got.code).toBe("INTERNAL_ERROR");
+        expect(got.details?.retry_class).toBeUndefined();
+      }
+      expect(storeCalls).toEqual(["get"]);
     } finally {
       close();
     }

@@ -2076,29 +2076,47 @@ export class ConnectResponder {
               { retry_class: "uncertain", kind: "timeout" },
             )
           : undefined;
-      const knowledgeResult: SpokeResult<unknown> = await this.#withServeBudget(
-        (): Promise<SpokeResult<unknown>> => {
-          switch (doc.op) {
-            case "port.knowledge.get":
-              return face.store.getScopedKnowledgeEntry(
-                admitted.value,
-                payload.entry_id as string,
-              );
-            case "port.knowledge.put":
-              // Rust decodes `Option<u64>`: a missing member is None (create),
-              // so the store must never receive `undefined` here.
-              return face.store.putScopedKnowledgeEntry(
-                admitted.value,
-                payload.entry as KnowledgeEntry,
-                (payload.expected_base_revision ?? null) as number | null,
-              );
-            default:
-              return face.store.listScopedKnowledgeEntries(listedScope);
-          }
-        },
-        knowledgeUncertainOnExpiry,
-        remainingMs,
-      );
+      let knowledgeResult: SpokeResult<unknown>;
+      try {
+        knowledgeResult = await this.#withServeBudget(
+          (): Promise<SpokeResult<unknown>> => {
+            switch (doc.op) {
+              case "port.knowledge.get":
+                return face.store.getScopedKnowledgeEntry(
+                  admitted.value,
+                  payload.entry_id as string,
+                );
+              case "port.knowledge.put":
+                // Rust decodes `Option<u64>`: a missing member is None (create),
+                // so the store must never receive `undefined` here.
+                return face.store.putScopedKnowledgeEntry(
+                  admitted.value,
+                  payload.entry as KnowledgeEntry,
+                  (payload.expected_base_revision ?? null) as number | null,
+                );
+              default:
+                return face.store.listScopedKnowledgeEntries(listedScope);
+            }
+          },
+          knowledgeUncertainOnExpiry,
+          remainingMs,
+        );
+      } catch (error) {
+        // A store that threw or rejected was already invoked, so a put may
+        // have applied: answer an unknown outcome (matching Rust's
+        // `knowledge_uncertain_reject` and the memory provider path) instead of
+        // the generic internal error. Reads keep the internal-error mapping.
+        if (doc.op !== "port.knowledge.put") {
+          throw error;
+        }
+        knowledgeResult = spokeReject(
+          SpokeRejectCode.OUTCOME_UNCERTAIN,
+          `knowledge store failed after invocation: ${
+            error instanceof Error ? error.message : String(error)
+          }; the outcome is unknown — re-read the entry to observe the committed revision before replaying the same request`,
+          { retry_class: "uncertain", kind: "provider_error" },
+        );
+      }
       if (this.#stateInternal === "Closed") {
         return;
       }

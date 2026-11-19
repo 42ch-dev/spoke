@@ -178,6 +178,8 @@ Each operation maps to the capability it requires on the session's `negotiated_c
 | `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, `port.fork.list_timeline_events` carrying a non-empty `scope.viewpoint` | The row capability **plus** `ke-ownership` |
 | Product-defined operations | The capability the product documents |
 
+`assemble` is classified as `spoke-baseline` by the capability gate, but the responder has no `assemble` serving arm. Assembly is executed locally by `orchestrateAssemble`; the baseline classification governs capability checks, not remote op serving.
+
 A capability-token grant authorizes session membership for the ops its `capabilities[]` covers, but it does not replace `negotiated_capabilities` — both the token grant and the negotiated set must allow an op when the token gate is active. Token matching names the required flag exactly: a grant for the three knowledge ops includes `spoke-knowledge`. Session dispatch and routing apply the directed `spoke-baseline` ⇒ `spoke-knowledge` rule; `spoke-knowledge` alone does not authorize baseline operations.
 
 ## Port-method ops (RemoteAdapter)

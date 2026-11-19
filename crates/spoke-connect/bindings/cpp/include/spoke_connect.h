@@ -395,11 +395,15 @@ typedef struct SpokeConnectTransportTable {
 
 /**
  * Ports callback table: one pointer per `PortsHandler` method plus the
- * mandatory `destroy`. Every baseline and optional-op pointer is required; a
- * table missing one is rejected as invalid argument, ownership of `user_data`
- * stays with the caller and `destroy` is not called. A provider declines an
- * unsupported method by returning `SPOKE_CONNECT_FFI_REJECTED`, which preserves
- * the distinction between absent ports and an explicitly refusing callback.
+ * mandatory `destroy`. Only `destroy` is required; every op pointer is
+ * optional. A family with no callbacks is genuinely absent, so a host needs no
+ * stubs for unserved baseline or optional families. An op whose family is
+ * present but whose own pointer is NULL is contained as an internal error when
+ * called. A NULL table or missing `destroy` is rejected as invalid argument,
+ * ownership of `user_data` stays with the caller and `destroy` is not called.
+ * A provider declines an unsupported method by returning
+ * `SPOKE_CONNECT_FFI_REJECTED`, which preserves the distinction between absent
+ * ports and an explicitly refusing callback.
  *
  * The four trailing knowledge pointers are optional and appended after
  * `destroy`, so every field declared before them keeps its offset. A NULL

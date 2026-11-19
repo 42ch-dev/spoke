@@ -39,27 +39,29 @@ counterpart, and every C declaration has a C++ counterpart in
 no production capability is left without a C++ surface, and the convenience
 layer adds no C export.**
 
-Concretely: the 83 declarations in the header account for all 82 facade
+Concretely: the 84 declarations in the header account for all 86 facade
 members (8 core functions, 6 core object members, 22 `RemoteAdapterFFI`
 members, 15 `MultiPeerRouterFFI` members, 8 `ConnectResponderFFI` members, the
-3 `Transport` callbacks, the 13 `PortsHandler` callbacks, the 1 `ToolHandler`
+3 `Transport` callbacks, the 17 `PortsHandler` callbacks, the 1 `ToolHandler`
 callback, the 6 loopback helpers) and all 15 facade error variants. Every one
 of those declarations is consumed by name in the C++ column below: the eight
 core functions keep their facade name, each of the 11 opaque handles becomes
 one move-only class whose destructor performs that handle's release
-declaration, the three callback-table constructors become `Transport::create` /
-`PortsHandler::create` / `ToolHandler::create` over the `TransportCallbacks` /
-`PortsCallbacks` / `ToolCallbacks` records, and the four boundary-only
-primitives become `abi_version()`, `Buffer`'s destructor, and the two internal
-records that own an optional buffer and an error record for one call. Each row
-is marked as business API (a method returning `Result<…>`) or RAII mechanics (a
-move-only class that releases through the matching carrier function) — a
-destructor only frees, and only `RemoteAdapter::close` /
-`ConnectResponder::close` / `LoopbackTransport::close` end a session.
+declaration, the four callback-table constructor declarations become three C++
+factories — `Transport::create` / `PortsHandler::create` /
+`ToolHandler::create` over the `TransportCallbacks` / `PortsCallbacks` /
+`ToolCallbacks` records — and the four boundary-only primitives become
+`abi_version()`, `Buffer`'s destructor, and the two internal records that own
+an optional buffer and an error record for one call. Each row is marked as
+business API (a method returning `Result<…>`) or RAII mechanics (a move-only
+class that releases through the matching carrier function) — a destructor only
+frees, and only `RemoteAdapter::close` / `ConnectResponder::close` /
+`LoopbackTransport::close` end a session.
 
 The remaining declarations are C-owned mechanics rather than business API: 11
-handle-release functions (a Rust `Arc` has no explicit free), the 3 callback
-table constructors (a facade callback trait crosses as a boxed trait object),
+handle-release functions (a Rust `Arc` has no explicit free), the 4 callback
+table constructor declarations (a facade callback trait crosses as a boxed
+trait object, with a sized revision-2 ports constructor beside the original),
 and 4 boundary-only declarations (an ABI-version reporter and the buffer /
 error release primitives) that exist only because C has no Rust drop glue and
 no status/out convention of its own. Their C++ counterparts are likewise
@@ -209,11 +211,15 @@ explicit session end.
 ## Callback families
 
 Each facade callback trait is mirrored by a C table with one pointer per trait
-method plus the context destructor. Only the destructor is required on the ports
-table: a pointer left NULL leaves that family absent, and a provider declines a
-single unsupported method by returning `SPOKE_CONNECT_FFI_REJECTED` from a slot
-it did set — the distinction between an absent family and an explicitly
-refusing callback is preserved.
+method plus the context destructor. Ports accounting is the 13 original op
+callbacks + `destroy` + `knowledge_scope` + 3 scoped knowledge callbacks. Only
+the destructor is required on the ports table: an original op pointer left NULL
+leaves that family absent, and a provider declines a single unsupported method
+by returning `SPOKE_CONNECT_FFI_REJECTED` from a slot it did set. The four
+knowledge pointers are all-or-nothing: all present serves the scoped face, all
+NULL removes the three knowledge ops with runtime `op_unsupported`, and a
+partial block is invalid. The distinction between an absent family and an
+explicitly refusing callback is preserved.
 
 | Facade trait method (`ffi.rs`) | C callback slot | C++ counterpart |
 |---|---|---|
@@ -237,13 +243,17 @@ refusing callback is preserved.
 | `PortsHandler::list_fork_timeline_events` (:507) | `SpokeConnectPortsHandlerTable.list_fork_timeline_events` (`SpokeConnectPortsTextFn`) | `PortsCallbacks::list_fork_timeline_events` |
 | `PortsHandler::extract` (:522) | `SpokeConnectPortsHandlerTable.extract` (`SpokeConnectPortsTextFn`) | `PortsCallbacks::extract` |
 | context destruction | `SpokeConnectPortsHandlerTable.destroy` (`SpokeConnectCallbackDestroyFn`) | the `PortsCallbacks` record is owned by the carrier and deleted by that `destroy` slot — no C++ member |
+| `PortsHandler::knowledge_scope` (:517) | `SpokeConnectPortsHandlerTable.knowledge_scope` (`SpokeConnectPortsTextFn`) | `PortsCallbacks::knowledge_scope` |
+| `PortsHandler::get_scoped_knowledge_entry` (:521) | `SpokeConnectPortsHandlerTable.get_scoped_knowledge_entry` (`SpokeConnectPortsScopedTextFn`) | `PortsCallbacks::get_scoped_knowledge_entry` |
+| `PortsHandler::put_scoped_knowledge_entry` (:526) | `SpokeConnectPortsHandlerTable.put_scoped_knowledge_entry` (`SpokeConnectPortsScopedRevisionFn`) | `PortsCallbacks::put_scoped_knowledge_entry` (`std::optional<uint64_t>` revision) |
+| `PortsHandler::list_scoped_knowledge_entries` (:532) | `SpokeConnectPortsHandlerTable.list_scoped_knowledge_entries` (`SpokeConnectPortsTextFn`) | `PortsCallbacks::list_scoped_knowledge_entries` |
 
 Table construction and handle release:
 
 | Facade seam (`ffi.rs`) | C declaration | C++ counterpart |
 |---|---|---|
 | callback `Transport` accepted by `connect_remote_adapter_ffi` / `connect_responder_ffi` (wrapped by `ForeignCallbackTransport`, :164-171) | `spoke_connect_transport_new` / `spoke_connect_transport_free` | `Transport::create(std::unique_ptr<TransportCallbacks>&)` — it renders the complete table and consumes the record only on success — plus `Transport`'s destructor |
-| callback `PortsHandler` accepted by `connect_responder_ffi` (wrapped by `into_remote_serve_ports`) | `spoke_connect_ports_handler_new` / `spoke_connect_ports_handler_free` | `PortsHandler::create(std::unique_ptr<PortsCallbacks>&)` plus `PortsHandler`'s destructor |
+| callback `PortsHandler` accepted by `connect_responder_ffi` (wrapped by `into_remote_serve_ports`) | `spoke_connect_ports_handler_new` / `spoke_connect_ports_handler_new_v2` / `spoke_connect_ports_handler_free` | `PortsHandler::create(std::unique_ptr<PortsCallbacks>&)` calls the sized revision-2 C constructor, plus `PortsHandler`'s destructor |
 | callback `ToolHandler` accepted by `register_tool_handler` on both faces (wrapped by `into_remote_handler`) | `spoke_connect_tool_handler_new` / `spoke_connect_tool_handler_free` | `ToolHandler::create(std::unique_ptr<ToolCallbacks>&)` plus `ToolHandler`'s destructor |
 
 The `extract` slot is one optional family like any other: a provider that serves
@@ -320,7 +330,7 @@ parity gaps.
 
 | C declaration | Why it exists | C++ counterpart |
 |---|---|---|
-| `spoke_connect_abi_version` | Reports the boundary revision (1). The facade has no ABI-version concept — its nearest relative is the hello protocol version, which is a separate declaration. | `abi_version()` |
+| `spoke_connect_abi_version` | Reports the boundary revision (2). The facade has no ABI-version concept — its nearest relative is the hello protocol version, which is a separate declaration. | `abi_version()` |
 | `spoke_connect_buffer_free` | Releases an owned `SpokeConnectBuffer` (and an optional buffer's contained buffer). Rust drops owned results itself. | `Buffer`'s destructor and move-assignment |
 | `spoke_connect_optional_buffer_free` | Releases an owned optional buffer and marks it absent. | `detail::OptionalBufferRecord`'s destructor — the optional-buffer out-record of one call |
 | `spoke_connect_error_free` | Releases the four owned textual fields of an error record. Rust returns errors by value. | `detail::CErrorRecord`'s destructor — it guards the copy into `Error` so a failing copy cannot leak the record |
@@ -335,12 +345,12 @@ parity gaps.
 | `MultiPeerRouterFFI` (constructor + 14 methods) | 15 | 16 (15 + release) | `MultiPeerRouter`: `create` + 14 methods (business API) + its destructor (RAII) |
 | `ConnectResponderFFI` (constructor + 7 methods) | 8 | 9 (8 + release) | `ConnectResponder`: `serve` + 7 methods (business API) + its destructor (RAII) |
 | `Transport` callbacks + table seam | 3 | 2 (`transport_new` / `transport_free`; the callbacks are table slots) | `TransportCallbacks` (3 `std::function` members) + `Transport::create` + `Transport`'s destructor |
-| `PortsHandler` callbacks + table seam | 13 | 2 (`ports_handler_new` / `ports_handler_free`) | `PortsCallbacks` (13 optional members, unset = absent family) + `PortsHandler::create` + its destructor |
+| `PortsHandler` callbacks + table seam | 17 (13 original ops + `knowledge_scope` + 3 scoped) | 3 (`ports_handler_new` / `ports_handler_new_v2` / `ports_handler_free`; the callbacks and `destroy` are table slots) | `PortsCallbacks` (17 optional members; the four knowledge members form an all-or-nothing face) + `PortsHandler::create` + its destructor |
 | `ToolHandler` callback + table seam | 1 | 2 (`tool_handler_new` / `tool_handler_free`) | `ToolCallbacks` (1 member) + `ToolHandler::create` + its destructor |
 | Loopback helpers | 6 | 8 (6 + pair/end releases) | `LoopbackTransportPair::create` / `client` / `server`, `LoopbackTransport::send` / `recv` / `close`, and both destructors |
 | Error enumerations | 15 variants | mapped to statuses 100–107 / 200–202 / 300 / 301 / 400 / 401 | `Error` — `status` uses the existing constants, plus `message` / `code` / `kind` / `wire_code` / `expected` / `actual` inside `Result<…>` |
 | Boundary-only | — | 4 | `abi_version()`, `Buffer`'s destructor, `detail::OptionalBufferRecord`, `detail::CErrorRecord` |
-| **Total** | **82 facade members + 15 error variants** | **83 declarations, 0 unmatched** | **83 declarations consumed, 0 without a counterpart** |
+| **Total** | **86 facade members + 15 error variants** | **84 declarations, 0 unmatched** | **84 declarations consumed, 0 without a counterpart** |
 
 ## Re-running the gate
 

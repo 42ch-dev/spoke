@@ -101,7 +101,7 @@ putScopedKnowledgeEntry(
 listScopedKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>>;
 ```
 
-Attach this standalone port to the responder's knowledge face with an admission callback that maps the authenticated peer id to its permitted `Scope`. The responder supplies that admitted scope to every method; list requests carry narrowing refinements while `scope_id` and `viewpoint` come from admission.
+Attach this standalone port to the responder's knowledge face with an admission callback that maps the authenticated peer id to its permitted `Scope`. The three knowledge ops require `spoke-knowledge` explicitly in `negotiated_capabilities`; `spoke-baseline` authorizes only baseline ops, so a baseline host serving knowledge adds `spoke-knowledge` and attaches this face. The responder supplies the admitted scope to every method. For lists, `scope_id` and `viewpoint` equal the admitted values; requested `entry_ids`, `timeline_event_ids` and `entry_types` may be subsets of the admitted sets and are passed to the store. Any requested value outside its admitted set refuses `NOT_AUTHORIZED` before the store.
 
 ### FindingPort — checker output persistence
 

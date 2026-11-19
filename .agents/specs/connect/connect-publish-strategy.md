@@ -287,10 +287,10 @@ A module declared in a subdirectory would be versioned by subdirectory-prefixed 
 | Field | Value |
 |-------|-------|
 | Carrier | `crates/spoke-connect-capi` — package `spoke-connect-capi`, library `spoke_connect_capi`, `publish = false`, `crate-type = ["rlib", "cdylib"]`; wraps the public `spoke_connect::ffi` functions and objects |
-| Header | `crates/spoke-connect/bindings/cpp/include/spoke_connect.h` — C99 floor with `extern "C"` inclusion for C++, opaque per-type handles, `int32_t` status plus a caller-supplied error record, ABI revision `1` through `spoke_connect_abi_version`; `include/spoke_connect.hpp` — header-only C++17 convenience layer (namespace `spoke::connect`) |
+| Header | `crates/spoke-connect/bindings/cpp/include/spoke_connect.h` — C99 floor with `extern "C"` inclusion for C++, opaque per-type handles, `int32_t` status plus a caller-supplied error record, ABI revision `2` through `spoke_connect_abi_version`; `include/spoke_connect.hpp` — header-only C++17 convenience layer (namespace `spoke::connect`) |
 | Layout | `crates/spoke-connect/bindings/cpp/` — both headers, `native/osx-arm64/libspoke_connect_capi.dylib`, `native/win-x64/spoke_connect_capi.dll` + `spoke_connect_capi.dll.lib`, `native/provenance.json`, `Smoke/`, `parity.md`, `ue/`, `README.md` |
 | Generator route | Hand-written headers, no generator; the drift gate is executable: `node tooling/connect/cpp-symbol-check.mjs --header <header> --library <native>` |
-| Parity | `crates/spoke-connect/bindings/cpp/parity.md` maps every production facade member, callback and error variant to its C declaration and C++ counterpart (83 declarations) |
+| Parity | `crates/spoke-connect/bindings/cpp/parity.md` maps every production facade member, callback and error variant to its C declaration and C++ counterpart (84 declarations) |
 | CI lane | `.github/workflows/cpp-connect.yml` runs `windows-smoke` on `windows-latest` and `macos-smoke` on `macos-15` for every pull request (run steps short-circuit on docs-only diffs), with path-filtered pushes and manual dispatch |
 | Distribution | Git-based — headers and per-RID natives resolve together from the tag `vX.Y.Z`; the two carrier libraries are git-lfs objects; no registry feed and no Release archive assets |
 

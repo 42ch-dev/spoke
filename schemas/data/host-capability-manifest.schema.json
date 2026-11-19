@@ -37,7 +37,7 @@
       "items": {
         "type": "string"
       },
-      "description": "Open string capability flags. Core vocabulary (documented, not enforced): spoke-baseline, spoke-knowledge, l2-computable, spoke-cognition. A host advertises spoke-cognition only when every mandatory rule applicable to its served surface is implemented; the manifest string alone is never conformance evidence (KE-only hosts need not serve Memory; combined hosts may not advertise incomplete Memory cognition)."
+      "description": "Open string capability flags. Core vocabulary (documented, not enforced): spoke-baseline, spoke-knowledge, l2-computable, spoke-cognition. The three remote knowledge ops require spoke-knowledge explicitly in negotiated_capabilities; spoke-baseline authorizes only baseline ops, and a baseline host serving knowledge also declares spoke-knowledge and attaches the scoped knowledge face. Capability-token grants use exact membership. A host advertises spoke-cognition only when every mandatory rule applicable to its served surface is implemented; the manifest string alone is never conformance evidence (KE-only hosts need not serve Memory; combined hosts may not advertise incomplete Memory cognition)."
     },
     "namespaces": {
       "type": "array",

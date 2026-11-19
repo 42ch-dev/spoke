@@ -171,7 +171,7 @@ Each operation maps to the capability it requires on the session's `negotiated_c
 | Operation | Required capability |
 |-----------|---------------------|
 | `upsert`, `promote`, `relate`, `check`, `assemble` (and the remaining baseline `port.*` ops) | `spoke-baseline` |
-| `port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries` | `spoke-knowledge`; `spoke-baseline` also satisfies this requirement |
+| `port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries` | `spoke-knowledge` explicitly; `spoke-baseline` does not satisfy this requirement |
 | `extract` | `ke-extraction` |
 | `project`, `compute` (and `port.computable.*`) | `l2-computable` |
 | `listForkTimelineEvents` (and `port.fork.*`) | `l5-fork` |
@@ -180,7 +180,7 @@ Each operation maps to the capability it requires on the session's `negotiated_c
 
 `assemble` is classified as `spoke-baseline` by the capability gate, but the responder has no `assemble` serving arm. Assembly is executed locally by `orchestrateAssemble`; the baseline classification governs capability checks, not remote op serving.
 
-A capability-token grant authorizes session membership for the ops its `capabilities[]` covers, but it does not replace `negotiated_capabilities` — both the token grant and the negotiated set must allow an op when the token gate is active. Token matching names the required flag exactly: a grant for the three knowledge ops includes `spoke-knowledge`. Session dispatch and routing apply the directed `spoke-baseline` ⇒ `spoke-knowledge` rule; `spoke-knowledge` alone does not authorize baseline operations.
+A capability-token grant authorizes session membership for the ops its `capabilities[]` covers, but it does not replace `negotiated_capabilities` — both the token grant and the negotiated set must allow an op when the token gate is active. Token matching names the required flag exactly: a grant for the three knowledge ops includes `spoke-knowledge`. Session dispatch and routing use the same exact-membership rule; `spoke-baseline` authorizes only baseline operations and never substitutes for `spoke-knowledge`. A baseline host that serves knowledge declares `spoke-knowledge` and attaches the scoped knowledge face.
 
 ## Port-method ops (RemoteAdapter)
 
@@ -252,7 +252,7 @@ Each `PortsHandler` method takes the request payload as a JSON string and return
 
 A `RemoteKnowledgeFace` combines a `ScopedKnowledgePort` store with `admission(peerId)` (Rust: `KnowledgeAdmission`). The responder checks the dispatch capability, Scope ownership/cognition requirements and declaration, decodes the request, probes the knowledge face, and then admits the authenticated peer. Admission refusals and list-scope mismatches return `NOT_AUTHORIZED` with no entry-existence details.
 
-For knowledge listing, the request's `scope_id` and `viewpoint` equal the admitted values. The store receives those admitted values with the request's narrowing entry, source, timeline, fork, extension and cognition refinements. Knowledge get and put receive the admitted Scope directly. A baseline-manifest host attaches the knowledge face to serve these ops; a knowledge-only host declares `spoke-knowledge` and attaches only that face.
+For knowledge listing, the request's `scope_id` and `viewpoint` equal the admitted values. Requested `entry_ids`, `timeline_event_ids` and `entry_types` may be subsets of the admitted sets and are passed to the store; a request naming any value outside its admitted set refuses `NOT_AUTHORIZED` before the store. Knowledge get and put receive the admitted Scope directly. A baseline host serving these ops declares `spoke-knowledge` explicitly and attaches the knowledge face; a knowledge-only host declares only the capabilities it serves and attaches only that face.
 
 ### Drive (adapter)
 

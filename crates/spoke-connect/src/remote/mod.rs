@@ -27,7 +27,8 @@ use spoke_operations::{SpokeReject, SpokeRejectCode};
 use spoke_schemas::Scope;
 
 use crate::core::{
-    CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE, CAPABILITY_SPOKE_KNOWLEDGE,
+    capability_satisfies, dispatch_allowed, CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE,
+    CAPABILITY_SPOKE_KNOWLEDGE,
 };
 
 mod multi_peer_router;
@@ -98,6 +99,18 @@ pub(crate) fn port_op_requirement(op: &str) -> Option<&'static str> {
         "port.fork.list_timeline_events" => Some(CAPABILITY_L5_FORK),
         _ => None,
     }
+}
+
+/// The responder's combined serve gate for one op: the core op table first
+/// (which also covers the self-describing `tools.*` family), then the product
+/// `port.*` map.
+///
+/// Named and pure so the serve decision is asserted directly from the shared
+/// capability matrix instead of only through the per-table lookups.
+pub(crate) fn port_dispatch_allowed(op: &str, negotiated: &[String]) -> bool {
+    dispatch_allowed(op, negotiated)
+        || port_op_requirement(op)
+            .is_some_and(|required| capability_satisfies(negotiated, required))
 }
 
 // ── `ke-ownership` conditional requirement (frozen F2) ─────────────────────
@@ -201,7 +214,7 @@ pub(crate) fn baseline_scope_shape(op: &str, payload: &Value) -> Result<(), Spok
 
 #[cfg(test)]
 mod capability_matrix {
-    use super::{port_op_requirement, select_peer_for_op, SelectablePeer};
+    use super::{port_dispatch_allowed, port_op_requirement, select_peer_for_op, SelectablePeer};
     use crate::core::{capability_satisfies, required_capability};
     use serde_json::{json, Value};
     use spoke_operations::SpokeResult;
@@ -290,6 +303,21 @@ mod capability_matrix {
                 expected_allowed,
                 "{op}: dispatch verdict drifted for negotiated {negotiated:?}"
             );
+
+            // The responder's actual combined gate, not just the row's owning
+            // table: a core-table entry for a `port.*` op would otherwise pass
+            // both lookups above while admitting the wrong session.
+            assert_eq!(
+                port_dispatch_allowed(op, &negotiated),
+                expected_allowed,
+                "{op}: serve gate drifted for negotiated {negotiated:?}"
+            );
+            if op.starts_with("port.") {
+                assert!(
+                    required_capability(op).is_none(),
+                    "{op}: the core table must not claim a `port.*` op"
+                );
+            }
 
             // The real selection path, not just the table lookup: one
             // candidate carrying exactly this row's negotiated set must be

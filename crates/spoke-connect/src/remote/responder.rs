@@ -79,8 +79,8 @@ use spoke_schemas::{
 use crate::cognition::{unsupported_cognition_requirement, WIRE_INVALID_INPUT};
 use crate::core::{
     authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
-    capability_satisfies, check_response_correlation, cognition_requirement_present,
-    derive_peer_id_from_ed25519_pubkey, dispatch_allowed, is_allowlisted, required_capability,
+    check_response_correlation, cognition_requirement_present,
+    derive_peer_id_from_ed25519_pubkey, is_allowlisted, required_capability,
     sign_hello_ed25519, verify_hello_ed25519, verify_invoke_request_auth, verify_invoke_response_auth,
     Correlation, EnvelopeAuthError, InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput,
     NonceStore, OutboundSequence, SessionSignInput, CAPABILITY_KE_OWNERSHIP,
@@ -95,7 +95,7 @@ use crate::remote::remote_adapter::{
 use crate::remote::serve_ports::RemoteServePorts;
 use crate::remote::transport::Transport;
 use crate::remote::{
-    baseline_scope_shape, port_op_requirement, requires_ownership_capability,
+    baseline_scope_shape, port_dispatch_allowed, requires_ownership_capability,
     validate_scope_declaration,
 };
 use crate::runtime::generate_request_id;
@@ -1213,12 +1213,10 @@ impl ConnectResponder {
         Ok(())
     }
 
-    /// Dispatch gate: core table (incl. `tools.*`) then the port product map.
+    /// Dispatch gate: the named combined gate (core table incl. `tools.*`,
+    /// then the product `port.*` map).
     fn gate_allows(&self, op: &str, negotiated: &[String]) -> bool {
-        if dispatch_allowed(op, negotiated) {
-            return true;
-        }
-        port_op_requirement(op).is_some_and(|required| capability_satisfies(negotiated, required))
+        port_dispatch_allowed(op, negotiated)
     }
 
     /// Serve a `tools.*` invoke through the registered handler (or deny).

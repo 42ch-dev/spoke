@@ -99,6 +99,7 @@ import {
   capabilitySatisfies,
   cognitionRequirementField,
   cognitionRequirementPresent,
+  dispatchAllowed,
   requiredCapability,
   WIRE_INVALID_INPUT,
 } from "../core/dispatch.js";
@@ -233,6 +234,22 @@ export const PORT_OP_CAPABILITY_REQUIREMENTS: Readonly<Record<string, string>> =
   "port.computable.compute": "l2-computable",
   "port.fork.list_timeline_events": "l5-fork",
 };
+
+/**
+ * The responder's combined serve gate for one op: the core op table first
+ * (which also covers the self-describing `tools.*` family), then the product
+ * `port.*` map above.
+ *
+ * Named and pure so the serve decision is asserted directly from the shared
+ * capability matrix instead of only through the per-table lookups.
+ */
+export function portDispatchAllowed(op: string, negotiated: readonly string[]): boolean {
+  if (dispatchAllowed(op, negotiated)) {
+    return true;
+  }
+  const required = PORT_OP_CAPABILITY_REQUIREMENTS[op];
+  return required !== undefined && capabilitySatisfies(negotiated, required);
+}
 
 /**
  * Optional-family op → method on the injected `ports` object (D4
@@ -1370,17 +1387,9 @@ export class ConnectResponder {
     }
   }
 
-  /** Dispatch gate: core table (incl. `tools.*`) then the port product map. */
+  /** Dispatch gate: the named combined gate (core table incl. `tools.*`, then the port product map). */
   #gateAllows(op: string, session: Session): boolean {
-    const negotiated = session.negotiated_capabilities;
-    if (session.dispatchAllowed(op)) {
-      return true;
-    }
-    const required = PORT_OP_CAPABILITY_REQUIREMENTS[op];
-    if (required === undefined || !capabilitySatisfies(negotiated, required)) {
-      return false;
-    }
-    return true;
+    return portDispatchAllowed(op, session.negotiated_capabilities);
   }
 
   /**

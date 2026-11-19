@@ -7,7 +7,7 @@ import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
 
 import { capabilitySatisfies, requiredCapability } from "../src/core/dispatch.js";
 import { selectPeerForOp, type SelectablePeer } from "../src/remote/multi-peer-router.js";
-import { PORT_OP_CAPABILITY_REQUIREMENTS } from "../src/remote/responder.js";
+import { PORT_OP_CAPABILITY_REQUIREMENTS, portDispatchAllowed } from "../src/remote/responder.js";
 
 /**
  * Capability selection matrix parity. The fixture is a byte-identical
@@ -79,6 +79,19 @@ describe("shared capability matrix", () => {
         capabilitySatisfies(row.negotiated, row.required),
         `${row.op}: verdict for negotiated [${row.negotiated.join(", ")}]`,
       ).toBe(row.allowed);
+
+      // The responder's actual combined gate, not just the row's owning
+      // table: a core-table entry for a `port.*` op would otherwise pass both
+      // lookups above while admitting the wrong session.
+      expect(
+        portDispatchAllowed(row.op, row.negotiated),
+        `${row.op}: serve gate for negotiated [${row.negotiated.join(", ")}]`,
+      ).toBe(row.allowed);
+      if (row.op.startsWith("port.")) {
+        expect(requiredCapability(row.op), `${row.op}: core table must not claim a port.* op`).toBe(
+          undefined,
+        );
+      }
 
       // The real selection path, not just the table lookup: one candidate
       // carrying exactly this row's negotiated set must be selected for an

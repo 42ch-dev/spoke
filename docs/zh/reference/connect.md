@@ -170,7 +170,7 @@ RemoteAdapter（TypeScript `./remote` 子路径、Rust `remote-adapter` feature�
 
 | 操作 | 所需能力 |
 |------|----------|
-| `upsert`、`promote`、`relate`、`check`、`assemble`（以及 `port.*` 基线操作） | `spoke-baseline` |
+| `upsert`、`promote`、`relate`、`check`、`assemble`（以及其余 `port.*` 基线操作） | `spoke-baseline` |
 | `port.knowledge.get`、`port.knowledge.put`、`port.scope.list_knowledge_entries` | 显式要求 `spoke-knowledge`；`spoke-baseline` 不满足该要求 |
 | `extract` | `ke-extraction` |
 | `project`、`compute`（以及 `port.computable.*`） | `l2-computable` |
@@ -252,7 +252,7 @@ Provider 面是 operations crate 的契约（`@42ch/spoke-operations`）；组�
 
 `RemoteKnowledgeFace` 由 `ScopedKnowledgePort` 存储与 `admission(peerId)`（Rust：`KnowledgeAdmission`）组成。响应方依次检查分派能力、Scope 归属/认知要求与声明，解码请求，探测知识面，然后准入已认证对等节点。准入拒绝与列表作用域不匹配返回 `NOT_AUTHORIZED`，且不透露条目是否存在。
 
-知识列表时，请求的 `scope_id` 与 `viewpoint` 等于准入值。请求的 `entry_ids`、`timeline_event_ids` 与 `entry_types` 可以是准入集合的子集，并会传给存储；任一请求值超出对应准入集合时，在访问存储前拒绝 `NOT_AUTHORIZED`。知识 get 与 put 直接接收准入的 Scope。提供这些操作的基线主机必须显式声明 `spoke-knowledge` 并挂载知识面；仅知识主机只声明其实际服务的能力，并只挂载该面。
+知识列表时，请求的 `scope_id` 与 `viewpoint` 等于准入值。请求的 `entry_ids` 与 `timeline_event_ids` 会与对应准入集合求交集，交集传给存储；交集为空时不返回结果。这些 id 过滤器绝不会扩大准入范围，也不会因 id 不在准入集合中而拒绝。请求的 `entry_types` 可以是准入集合的子集；标量约束（`source_id`、`timeline_scale`、`fork_id`）存在时必须等于准入值。只有这些约束中出现准入集合外的值时，才在访问存储前拒绝 `NOT_AUTHORIZED`。知识 get 与 put 直接接收准入的 Scope。提供这些操作的基线主机必须显式声明 `spoke-knowledge` 并挂载知识面；仅知识主机只声明其实际服务的能力，并只挂载该面。
 
 ### 驱动（adapter）
 
@@ -289,7 +289,7 @@ RemoteAdapter 在已建立的会话上像任何基线方法一样代理这三个
 | 成功 `payload` | `ExtractResponse` 成功分支 —— `{ candidates, run }`。`candidates` 为空数组是成功的零结果运行；每个返回的候选都携带 `status: "provisional"`；`run.run_id` 原样回显请求，`run.method` / `run.coverage_hint` 是产品的咨询性运行元数据 |
 | 错误 | `ExtractResponse` 错误分支复用共享 `ErrorEnvelope`，走应用拒绝路径 |
 
-服务方主机拥有源加载与抽取：loader 值保留在其 port 本地，请求方只需协商后的标志。服务是一个 connect 拥有的服务面 —— TypeScript `RemoteExtractService.extract(request)` 组合进响应方的 `ports`（`BaselinePorts & Partial<RemoteExtractService>`，以函数值的 `ports.extract` 做结构性探测）；Rust `RemoteExtractService` 经 `RemoteServePorts::as_extract` 探测，并以 `RemoteServePortsComposite::with_extract` 接入混合主机；FFI 上则是经 `into_remote_serve_ports` 桥接的 `PortsHandler.extract(extract_request_json)` 回调。服务顺序是 gate → probe → serve/deny，因此声明了 `ke-extraction` 且不服务抽取的主机，应答与不服务 `ports` 面的主机相同的拒绝分支。
+服务方主机拥有源加载与抽取：loader 值保留在其 port 本地，请求方只需协商后的标志。服务是一个 connect 拥有的服务面 —— TypeScript 响应方的 `ports` 类型为 `RemoteServePorts & Partial<RemoteExtractService> & Partial<RemoteMemoryService>`（`RemoteServePorts` 本身只有 `baseline?` 与 `knowledge?`）；Rust `RemoteExtractService` 经 `RemoteServePorts::as_extract` 探测，并以 `RemoteServePortsComposite::with_extract` 接入混合主机；FFI 上则是经 `into_remote_serve_ports` 桥接的 `PortsHandler.extract(extract_request_json)` 回调。服务顺序是 gate → probe → serve/deny，因此声明了 `ke-extraction` 且不服务抽取的主机，应答与不服务 `ports` 面的主机相同的拒绝分支。
 
 ### 归属门禁（The ownership gate，`ke-ownership`）
 

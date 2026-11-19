@@ -3,9 +3,9 @@
   "nativeArtifacts": {
     "osx-arm64": {
       "target": "aarch64-apple-darwin",
-      "sourceRevision": "1ef7b3e8a3d35c2353d7e92ad4369db85f0aebfd",
-      "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
-      "compilerVersion": "Apple clang version 17.0.0 (clang-1700.0.13.5)",
+      "sourceRevision": "f41eb39be5f1630ab17a03f3cd6cd908a4887051",
+      "rustcVersion": "rustc 1.101.0-nightly (249c1e4e3 2026-11-05)\nbinary: rustc\ncommit-hash: 249c1e4e31111b54ad2483cfd4cea06c7020c653\ncommit-date: 2026-11-05\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.5",
+      "compilerVersion": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
       "buildFlags": {
         "cargoArgs": [
           "build",
@@ -20,12 +20,12 @@
         ],
         "rustFlags": []
       },
-      "headerSha256": "7b4b4472f8a3d877978f1d0805c4acdfc6f02c99d44a1643a33a54a3aeec88a1",
-      "hppSha256": "eb5fe1ec7b1f3ebf479175774bd86b515c2ab937d33590e134e657c62600f605",
+      "headerSha256": "615a77973cbbb136c118d5a8c6db09986270223a35bf845380462d5db5abeda4",
+      "hppSha256": "4fcde037808fa093149b06553a0157e27ffc25c0c93a727ae70abb0de529ad5c",
       "artifacts": [
         {
           "path": "libspoke_connect_capi.dylib",
-          "sha256": "f9e7d0fb45d225fb71b32f9a31c8a8d5756173f88c68fdbb8408726244a7406d"
+          "sha256": "155e75a84d1c341b4db814ed4b887baec1317a652836a76f6cde1260003aedd6"
         }
       ]
     },

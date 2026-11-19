@@ -8171,7 +8171,11 @@ impl ScopedKnowledgePort for PendingStore {
     }
 }
 
-/// Start a knowledge-only responder over `store` with a 25ms serve budget.
+/// Start a knowledge-only responder over `store` with a 500ms serve budget:
+/// admission spends part of the one deadline on the blocking pool, so a budget
+/// tight enough to be eaten by that hop would answer the plain timeout before
+/// the parked store is reached. 500ms keeps the hop's scheduling out of the
+/// assertion while staying well inside the tests' 2s outer bound.
 async fn start_pending_store_peer(
     store: &Arc<PendingStore>,
 ) -> (Arc<ConnectResponder>, LoopbackTransportPair, [u8; 32]) {
@@ -8183,7 +8187,7 @@ async fn start_pending_store_peer(
     });
     let ports: Arc<dyn RemoteServePorts + Send + Sync> =
         Arc::new(RemoteServePortsComposite::knowledge_only(face));
-    start_raw_ke_responder_with_budget(ports, &["spoke-knowledge"], Some(25)).await
+    start_raw_ke_responder_with_budget(ports, &["spoke-knowledge"], Some(500)).await
 }
 
 /// Issue: a put whose store call is still running when the serve budget
@@ -8279,7 +8283,7 @@ async fn knowledge_read_timeouts_keep_the_plain_serve_timeout() {
         get["error"]["message"]
             .as_str()
             .unwrap_or_default()
-            .contains("serve wait exceeded the local budget of 25ms"),
+            .contains("serve wait exceeded the local budget of 500ms"),
         "the read expiry stays the plain serve timeout: {get}"
     );
     assert!(

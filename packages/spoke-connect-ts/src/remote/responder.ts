@@ -2114,7 +2114,7 @@ export class ConnectResponder {
         knowledgeResult = spokeReject(
           SpokeRejectCode.OUTCOME_UNCERTAIN,
           "knowledge store failed after invocation; the outcome is unknown — re-read the entry to observe the committed revision before replaying the same request",
-          { retry_class: "uncertain", kind: "timeout" },
+          { retry_class: "uncertain", kind: "panic" },
         );
       }
       if (this.#stateInternal === "Closed") {

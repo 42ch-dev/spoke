@@ -3,7 +3,10 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
+
 import { capabilitySatisfies, requiredCapability } from "../src/core/dispatch.js";
+import { selectPeerForOp, type SelectablePeer } from "../src/remote/multi-peer-router.js";
 import { PORT_OP_CAPABILITY_REQUIREMENTS } from "../src/remote/responder.js";
 
 /**
@@ -33,6 +36,34 @@ function tableRequirement(row: CapabilityCase): string | undefined {
     : PORT_OP_CAPABILITY_REQUIREMENTS[row.op];
 }
 
+/** A payload valid for the row's op (Scope-bearing rows declare a Scope, no viewpoint). */
+function payloadFor(op: string): Record<string, unknown> {
+  switch (op) {
+    case "port.scope.list_knowledge_entries":
+    case "port.scope.list_timeline_events":
+      return { scope: { scope_id: "s" } };
+    case "port.knowledge.get":
+      return { entry_id: "e" };
+    case "port.knowledge.put":
+      return { entry: {} };
+    default:
+      return {};
+  }
+}
+
+/** One candidate whose manifest advertises exactly the row's negotiated set. */
+function candidate(negotiated: string[]): SelectablePeer {
+  const manifest: HostCapabilityManifest = {
+    schema_version: 1,
+    host_id: "h-matrix",
+    roles: ["data-store"],
+    capabilities: negotiated as [string, ...string[]],
+    namespaces: ["ns"],
+    extensions: {},
+  };
+  return { peerId: "peer-matrix", manifest };
+}
+
 describe("shared capability matrix", () => {
   it("carries schema_version 1 rows", () => {
     expect(MATRIX.schema_version).toBe(1);
@@ -48,6 +79,24 @@ describe("shared capability matrix", () => {
         capabilitySatisfies(row.negotiated, row.required),
         `${row.op}: verdict for negotiated [${row.negotiated.join(", ")}]`,
       ).toBe(row.allowed);
+
+      // The real selection path, not just the table lookup: one candidate
+      // carrying exactly this row's negotiated set must be selected for an
+      // allowed row and rejected for a denied one.
+      const selection = selectPeerForOp([candidate(row.negotiated)], row.op, payloadFor(row.op));
+      if (row.allowed) {
+        expect(selection.ok, `${row.op}: router must select the row's peer`).toBe(true);
+        if (selection.ok) {
+          expect(selection.value.peerId, `${row.op}: router selected an unexpected peer`).toBe(
+            "peer-matrix",
+          );
+        }
+      } else {
+        expect(
+          selection.ok,
+          `${row.op}: router must reject negotiated [${row.negotiated.join(", ")}]`,
+        ).toBe(false);
+      }
     }
   });
 });

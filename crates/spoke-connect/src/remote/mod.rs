@@ -201,8 +201,40 @@ pub(crate) fn baseline_scope_shape(op: &str, payload: &Value) -> Result<(), Spok
 
 #[cfg(test)]
 mod capability_matrix {
-    use super::port_op_requirement;
+    use super::{port_op_requirement, select_peer_for_op, SelectablePeer};
     use crate::core::{capability_satisfies, required_capability};
+    use serde_json::{json, Value};
+    use spoke_operations::SpokeResult;
+
+    /// A payload valid for the row's op (Scope-bearing rows declare a Scope,
+    /// no `viewpoint` — the row's capability is the only gate under test).
+    fn payload_for(op: &str) -> Value {
+        match op {
+            "port.scope.list_knowledge_entries" | "port.scope.list_timeline_events" => {
+                json!({ "scope": { "scope_id": "s" } })
+            }
+            "port.knowledge.get" => json!({ "entry_id": "e" }),
+            "port.knowledge.put" => json!({ "entry": {} }),
+            _ => json!({}),
+        }
+    }
+
+    /// One candidate whose manifest advertises exactly the row's negotiated
+    /// capabilities, so selection's answer follows from that set alone.
+    fn candidate(negotiated: &[String]) -> SelectablePeer {
+        SelectablePeer {
+            peer_id: "peer-matrix".to_string(),
+            manifest: serde_json::from_value(json!({
+                "schema_version": 1,
+                "host_id": "h-matrix",
+                "roles": ["data-store"],
+                "capabilities": negotiated,
+                "namespaces": ["ns"],
+                "extensions": {},
+            }))
+            .expect("manifest shaped with the row's negotiated capabilities"),
+        }
+    }
 
     // Shared SSOT (Rust fixture) + the TS copy the other harness reads; the
     // byte-equality assertion keeps the two languages on one matrix.
@@ -258,6 +290,27 @@ mod capability_matrix {
                 expected_allowed,
                 "{op}: dispatch verdict drifted for negotiated {negotiated:?}"
             );
+
+            // The real selection path, not just the table lookup: one
+            // candidate carrying exactly this row's negotiated set must be
+            // selected for an allowed row and rejected for a denied one.
+            match (
+                expected_allowed,
+                select_peer_for_op(&[candidate(&negotiated)], op, &payload_for(op)),
+            ) {
+                (true, SpokeResult::Ok(peer)) => assert_eq!(
+                    peer.peer_id, "peer-matrix",
+                    "{op}: router selected an unexpected peer"
+                ),
+                (true, SpokeResult::Reject(reject)) => panic!(
+                    "{op}: router rejected an allowed row for negotiated {negotiated:?}: {reject:?}"
+                ),
+                (false, SpokeResult::Ok(peer)) => panic!(
+                    "{op}: router selected {} for a denied row with negotiated {negotiated:?}",
+                    peer.peer_id
+                ),
+                (false, SpokeResult::Reject(_)) => {}
+            }
         }
     }
 }

@@ -33,7 +33,7 @@
  *   Counts use `size_t` and are validated before slices are constructed.
  *
  * ABI version
- *   `spoke_connect_abi_version` reports ABI revision `1`. It is distinct from
+ *   `spoke_connect_abi_version` reports ABI revision `2`. It is distinct from
  *   the connect hello protocol version reported by
  *   `spoke_connect_protocol_version`.
  */
@@ -330,6 +330,30 @@ typedef int32_t (SPOKE_CONNECT_CALL *SpokeConnectPortsListRulesFn)(
     SpokeConnectForeignError *out_error);
 
 /**
+ * A scoped ports callback: the admitted scope JSON followed by one borrowed
+ * UTF-8 argument — `get_scoped_knowledge_entry` (the entry id). Both spans are
+ * borrowed only until the callback returns.
+ */
+typedef int32_t (SPOKE_CONNECT_CALL *SpokeConnectPortsScopedTextFn)(
+    void *user_data,
+    SpokeConnectSlice scope_json,
+    SpokeConnectSlice input_text,
+    SpokeConnectForeignBuffer *out_json,
+    SpokeConnectForeignError *out_error);
+
+/**
+ * A scoped revision callback: the admitted scope JSON, the payload JSON and
+ * the optional expected base revision — `put_scoped_knowledge_entry`.
+ */
+typedef int32_t (SPOKE_CONNECT_CALL *SpokeConnectPortsScopedRevisionFn)(
+    void *user_data,
+    SpokeConnectSlice scope_json,
+    SpokeConnectSlice input_json,
+    SpokeConnectOptionalU64 expected_base_revision,
+    SpokeConnectForeignBuffer *out_json,
+    SpokeConnectForeignError *out_error);
+
+/**
  * A ports callback that takes no argument and answers one JSON buffer:
  * `list_peer_host_capability_manifests`.
  */
@@ -371,11 +395,19 @@ typedef struct SpokeConnectTransportTable {
 
 /**
  * Ports callback table: one pointer per `PortsHandler` method plus the
- * mandatory `destroy`. Every pointer is required; a table missing one is
- * rejected as invalid argument, ownership of `user_data` stays with the
- * caller and `destroy` is not called. A provider declines an unsupported
- * method by returning `SPOKE_CONNECT_FFI_REJECTED`, which preserves the
- * distinction between absent ports and an explicitly refusing callback.
+ * mandatory `destroy`. Every baseline and optional-op pointer is required; a
+ * table missing one is rejected as invalid argument, ownership of `user_data`
+ * stays with the caller and `destroy` is not called. A provider declines an
+ * unsupported method by returning `SPOKE_CONNECT_FFI_REJECTED`, which preserves
+ * the distinction between absent ports and an explicitly refusing callback.
+ *
+ * The four trailing knowledge pointers are optional and appended after
+ * `destroy`, so every field declared before them keeps its offset. A NULL
+ * `knowledge_scope` means the handler serves no scoped knowledge face: the
+ * three knowledge ops answer the missing-face deny branch
+ * (`CAPABILITY_PORT_MISSING`) and the three scoped callbacks are never called.
+ * A non-NULL `knowledge_scope` admits one peer per call by answering that
+ * peer's `Scope` JSON; a refusal admits nobody.
  */
 typedef struct SpokeConnectPortsHandlerTable {
     SpokeConnectPortsTextFn get_knowledge_entry;
@@ -392,6 +424,11 @@ typedef struct SpokeConnectPortsHandlerTable {
     SpokeConnectPortsTextFn list_fork_timeline_events;
     SpokeConnectPortsTextFn extract;
     SpokeConnectCallbackDestroyFn destroy;
+    /* Appended in ABI revision 2 — optional; NULL `knowledge_scope` = absent. */
+    SpokeConnectPortsTextFn knowledge_scope;
+    SpokeConnectPortsScopedTextFn get_scoped_knowledge_entry;
+    SpokeConnectPortsScopedRevisionFn put_scoped_knowledge_entry;
+    SpokeConnectPortsTextFn list_scoped_knowledge_entries;
 } SpokeConnectPortsHandlerTable;
 
 /**
@@ -467,7 +504,7 @@ typedef struct SpokeConnectToolHandler SpokeConnectToolHandler;
  * a plain prototype list so `tooling/connect/cpp-symbol-check.mjs` can parse
  * it. Platform macro definitions above may be conditional. */
 
-/** Reports the C boundary revision (currently 1). Not the hello version. */
+/** Reports the C boundary revision (currently 2). Not the hello version. */
 SPOKE_CONNECT_API int32_t SPOKE_CONNECT_CALL spoke_connect_abi_version(
     uint64_t *out_version,
     SpokeConnectError *out_error);
@@ -989,10 +1026,12 @@ SPOKE_CONNECT_API int32_t SPOKE_CONNECT_CALL spoke_connect_multi_peer_router_inv
 /* ── Serving side: ports, tools and responder ──────────────────────────── */
 
 /**
- * Creates a ports-handler handle over a host callback table. Every table
- * pointer is required. On success ownership of `user_data` transfers and its
- * `destroy` runs exactly once after the last reference and in-flight callback
- * is gone; on failure there is no transfer and no destroy call.
+ * Creates a ports-handler handle over a host callback table. Every baseline and
+ * optional-op pointer is required; the four trailing knowledge pointers are
+ * optional (NULL `knowledge_scope` = no scoped knowledge face). On success
+ * ownership of `user_data` transfers and its `destroy` runs exactly once after
+ * the last reference and in-flight callback is gone; on failure there is no
+ * transfer and no destroy call.
  */
 SPOKE_CONNECT_API int32_t SPOKE_CONNECT_CALL spoke_connect_ports_handler_new(
     const SpokeConnectPortsHandlerTable *table,

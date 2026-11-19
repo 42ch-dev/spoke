@@ -3,7 +3,7 @@
 Hand-written C ABI over the Rust `spoke-connect` reference, plus a C++17
 convenience layer over that ABI: `include/spoke_connect.h` is the C contract and
 `include/spoke_connect.hpp` is the header-only C++ surface, with a committed
-dynamic library per platform. The boundary reports ABI revision `1` through
+dynamic library per platform. The boundary reports ABI revision `2` through
 `spoke_connect_abi_version`.
 
 A C++17 host includes `spoke_connect.hpp` (which includes the C header) and

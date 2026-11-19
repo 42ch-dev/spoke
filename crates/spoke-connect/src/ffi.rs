@@ -452,8 +452,8 @@ mod foreign_ports_handler {
     use serde::de::DeserializeOwned;
     use spoke_operations::{
         BaselinePorts, ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort,
-        KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-        SpokeReject, SpokeRejectCode, SpokeResult,
+        KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort, ScopedKnowledgePort,
+        ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
     };
     use spoke_schemas::{
         ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
@@ -461,7 +461,10 @@ mod foreign_ports_handler {
         Scope, TimelineEvent,
     };
 
-    use crate::remote::{RemoteExtractService, RemoteServePorts, RemoteServePortsComposite};
+    use crate::remote::{
+        KnowledgeAdmission, RemoteExtractService, RemoteKnowledgeFace, RemoteServePorts,
+        RemoteServePortsComposite,
+    };
 
     use super::ffi_runtime;
     use super::foreign_tool_handler::{containment_reject, rehang_details};
@@ -499,6 +502,32 @@ mod foreign_ports_handler {
         ) -> Result<String, FfiError>;
         fn list_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError>;
         fn list_timeline_events(&self, scope_json: String) -> Result<String, FfiError>;
+
+        /// Whether this handler serves the scoped knowledge face. `false`
+        /// means the face is absent: the responder answers the missing-face
+        /// deny branch and never calls the four knowledge callbacks below.
+        /// The C carrier derives it from a NULL `knowledge_scope` pointer.
+        fn serves_knowledge(&self) -> bool;
+
+        /// The `Scope` JSON the authenticated peer may read and write. The
+        /// scope never comes from the wire, and a refusal (an error return)
+        /// is the responder's `NOT_AUTHORIZED` row with no existence detail.
+        fn knowledge_scope(&self, peer_id: String) -> Result<String, FfiError>;
+
+        /// Scoped `get`/`put`/`list`: the admitted scope crosses as JSON in
+        /// front of the same payload the unscoped callback carries.
+        fn get_scoped_knowledge_entry(
+            &self,
+            scope_json: String,
+            entry_id: String,
+        ) -> Result<String, FfiError>;
+        fn put_scoped_knowledge_entry(
+            &self,
+            scope_json: String,
+            entry_json: String,
+            expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError>;
+        fn list_scoped_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError>;
         fn put_findings(&self, findings_json: String) -> Result<String, FfiError>;
         fn list_rules(&self, rule_refs: Vec<String>) -> Result<String, FfiError>;
         fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError>;
@@ -592,19 +621,43 @@ mod foreign_ports_handler {
     pub fn into_remote_serve_ports(
         handler: Box<dyn PortsHandler>,
     ) -> Arc<dyn RemoteServePorts + Send + Sync> {
+        let serves_knowledge = handler.serves_knowledge();
         let bridge = Arc::new(RemoteServePortsBridge {
             handler: Arc::from(handler),
         });
-        // One callback object, four faces: the plain `let` bindings are what
+        // One callback object, five faces: the plain `let` bindings are what
         // coerce the concrete `Arc` into each trait object.
         let baseline: Arc<dyn BaselinePorts + Send + Sync> = bridge.clone();
         let computable: Arc<dyn ComputablePort + Send + Sync> = bridge.clone();
         let fork: Arc<dyn ForkTimelineQueryPort + Send + Sync> = bridge.clone();
-        let extract: Arc<dyn RemoteExtractService> = bridge;
-        Arc::new(
-            RemoteServePortsComposite::new(baseline, Some(computable), Some(fork))
-                .with_extract(extract),
-        )
+        let extract: Arc<dyn RemoteExtractService> = bridge.clone();
+        let composite = RemoteServePortsComposite::new(baseline, Some(computable), Some(fork))
+            .with_extract(extract);
+        // A handler with no resolver exposes no knowledge face at all: the
+        // three ops answer the responder's missing-face deny branch and the
+        // scoped callbacks stay unreachable.
+        if !serves_knowledge {
+            return Arc::new(composite);
+        }
+        let store: Arc<dyn ScopedKnowledgePort + Send + Sync> = bridge.clone();
+        let admission_handler = Arc::clone(&bridge.handler);
+        let admission: KnowledgeAdmission = Arc::new(move |peer_id: &str| {
+            let refused = || {
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::NotAuthorized,
+                    message: "knowledge scope not authorized".into(),
+                    details: None,
+                })
+            };
+            match admission_handler.knowledge_scope(peer_id.to_owned()) {
+                Ok(scope_json) => match serde_json::from_str(&scope_json) {
+                    Ok(scope) => SpokeResult::Ok(scope),
+                    Err(_) => refused(),
+                },
+                Err(_) => refused(),
+            }
+        });
+        Arc::new(composite.with_knowledge(Arc::new(RemoteKnowledgeFace { store, admission })))
     }
 
     /// The bridge face: one callback call per D4 serve op.
@@ -669,6 +722,50 @@ mod foreign_ports_handler {
             let scope_json = serde_json::to_string(scope).expect("scope serializes");
             call_ports(handler, "list_knowledge_entries", move |handler| {
                 handler.list_knowledge_entries(scope_json)
+            })
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl ScopedKnowledgePort for RemoteServePortsBridge {
+        async fn get_scoped_knowledge_entry(
+            &self,
+            scope: &Scope,
+            entry_id: &str,
+        ) -> SpokeResult<KnowledgeEntry> {
+            let handler = Arc::clone(&self.handler);
+            let scope_json = serde_json::to_string(scope).expect("scope serializes");
+            let entry_id = entry_id.to_owned();
+            call_ports(handler, "get_scoped_knowledge_entry", move |handler| {
+                handler.get_scoped_knowledge_entry(scope_json, entry_id)
+            })
+            .await
+        }
+
+        async fn put_scoped_knowledge_entry(
+            &self,
+            scope: &Scope,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
+            let handler = Arc::clone(&self.handler);
+            let scope_json = serde_json::to_string(scope).expect("scope serializes");
+            let entry_json = serde_json::to_string(&entry).expect("knowledge entry serializes");
+            call_ports(handler, "put_scoped_knowledge_entry", move |handler| {
+                handler.put_scoped_knowledge_entry(scope_json, entry_json, expected_base_revision)
+            })
+            .await
+        }
+
+        async fn list_scoped_knowledge_entries(
+            &self,
+            scope: &Scope,
+        ) -> SpokeResult<Vec<KnowledgeEntry>> {
+            let handler = Arc::clone(&self.handler);
+            let scope_json = serde_json::to_string(scope).expect("scope serializes");
+            call_ports(handler, "list_scoped_knowledge_entries", move |handler| {
+                handler.list_scoped_knowledge_entries(scope_json)
             })
             .await
         }
@@ -5775,6 +5872,38 @@ mod connect_responder_ffi_tests {
             }))
             .expect("extract response serializes"))
         }
+
+        fn serves_knowledge(&self) -> bool {
+            true
+        }
+
+        /// The admitted scope: this double serves one fixed scope, so the
+        /// three knowledge ops are reached through it and never through the
+        /// baseline callbacks. The resolver is not counted as a serve call.
+        fn knowledge_scope(&self, _peer_id: String) -> Result<String, FfiError> {
+            Ok(json!({ "scope_id": "scope_ffi_ports" }).to_string())
+        }
+
+        fn get_scoped_knowledge_entry(
+            &self,
+            _scope_json: String,
+            entry_id: String,
+        ) -> Result<String, FfiError> {
+            self.get_knowledge_entry(entry_id)
+        }
+
+        fn put_scoped_knowledge_entry(
+            &self,
+            _scope_json: String,
+            entry_json: String,
+            expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            self.put_knowledge_entry(entry_json, expected_base_revision)
+        }
+
+        fn list_scoped_knowledge_entries(&self, _scope_json: String) -> Result<String, FfiError> {
+            self.list_knowledge_entries(String::new())
+        }
     }
 
     #[test]
@@ -6914,8 +7043,20 @@ mod ke_remote_ffi_tests {
     struct KeRemotePortsHandler {
         answer: ExtractAnswer,
         entries: Vec<Value>,
+        /// The `Scope` the resolver admits. A list must name it exactly, so a
+        /// battery that lists with a viewpoint admits that viewpoint first.
+        admitted_scope_json: String,
         extract_requests: Arc<Mutex<Vec<Value>>>,
         scope_calls: Arc<Mutex<Vec<Value>>>,
+    }
+
+    impl KeRemotePortsHandler {
+        /// Admits the reader viewpoint too, so a list that names it serves.
+        fn admitting_viewpoint(mut self: Box<Self>, viewpoint: &str) -> Box<Self> {
+            self.admitted_scope_json =
+                json!({ "scope_id": "toy-scope-001", "viewpoint": viewpoint }).to_string();
+            self
+        }
     }
 
     fn ke_ports_handler(
@@ -6932,6 +7073,7 @@ mod ke_remote_ffi_tests {
             Box::new(KeRemotePortsHandler {
                 answer,
                 entries,
+                admitted_scope_json: json!({ "scope_id": "toy-scope-001" }).to_string(),
                 extract_requests: Arc::clone(&extract_requests),
                 scope_calls: Arc::clone(&scope_calls),
             }),
@@ -7104,6 +7246,35 @@ mod ke_remote_ffi_tests {
 
         fn list_fork_timeline_events(&self, _scope_json: String) -> Result<String, FfiError> {
             unserved("list_fork_timeline_events")
+        }
+
+        fn serves_knowledge(&self) -> bool {
+            true
+        }
+
+        fn knowledge_scope(&self, _peer_id: String) -> Result<String, FfiError> {
+            Ok(self.admitted_scope_json.clone())
+        }
+
+        fn get_scoped_knowledge_entry(
+            &self,
+            _scope_json: String,
+            _entry_id: String,
+        ) -> Result<String, FfiError> {
+            unserved("get_knowledge_entry")
+        }
+
+        fn put_scoped_knowledge_entry(
+            &self,
+            _scope_json: String,
+            _entry_json: String,
+            _expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            unserved("put_knowledge_entry")
+        }
+
+        fn list_scoped_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError> {
+            self.list_knowledge_entries(scope_json)
         }
     }
 
@@ -7298,6 +7469,7 @@ mod ke_remote_ffi_tests {
         let entries = vec![served_entry("kb_ffi_ke_own", "FFI KE Own")];
         let (handler, extract_requests, scope_calls) =
             ke_ports_handler(ExtractAnswer::Batch, entries);
+        let handler = handler.admitting_viewpoint("kb_tw_mira");
         let (responder, dialer) =
             dial_ke_remote(&["ke-ownership"], &["ke-ownership"], Some(handler));
 

@@ -48,8 +48,9 @@ mod responder;
 mod abi_layout;
 
 /// The C boundary revision exposed by [`spoke_connect_abi_version`]; distinct
-/// from the connect hello protocol version.
-pub const SPOKE_CONNECT_ABI_VERSION: u64 = 1;
+/// from the connect hello protocol version. Revision 2 appends the four
+/// knowledge callbacks to `SpokeConnectPortsHandlerTable`.
+pub const SPOKE_CONNECT_ABI_VERSION: u64 = 2;
 
 /// Call succeeded.
 pub const SPOKE_CONNECT_OK: i32 = 0;

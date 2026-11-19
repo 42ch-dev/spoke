@@ -340,24 +340,91 @@ fn scope_matches_admission(requested: &Scope, admitted: &Scope) -> bool {
     requested.scope_id == admitted.scope_id && requested.viewpoint == admitted.viewpoint
 }
 
+/// Adopt one admitted scalar constraint: the admitted value when the request
+/// omits or repeats it. An outer `None` means the request named a different
+/// value — a widening, not a narrowing.
+fn adopted_scalar<T: Clone + PartialEq>(
+    admitted: &Option<T>,
+    requested: &Option<T>,
+) -> Option<Option<T>> {
+    match (admitted, requested) {
+        (Some(admitted), Some(requested)) if admitted != requested => None,
+        (Some(admitted), _) => Some(Some(admitted.clone())),
+        (None, requested) => Some(requested.clone()),
+    }
+}
+
+/// Admitted ∩ requested ids: the request only narrows, and an empty
+/// intersection stays an empty filter (no results), never the admitted set.
+fn intersected_ids(
+    admitted: &Option<Vec<String>>,
+    requested: &Option<Vec<String>>,
+) -> Option<Vec<String>> {
+    match (admitted, requested) {
+        (Some(admitted), Some(requested)) => Some(
+            requested
+                .iter()
+                .filter(|id| admitted.contains(id))
+                .cloned()
+                .collect(),
+        ),
+        (Some(admitted), None) => Some(admitted.clone()),
+        (None, requested) => requested.clone(),
+    }
+}
+
 /// The scope passed to the store for a list: the admitted `scope_id` /
-/// `viewpoint` are authoritative, the request's narrowing refinements
-/// (`entry_ids`, `entry_types`, `source_id`, `timeline_scale`, `fork_id`,
-/// `extensions`) and any cognition selection only narrow.
-fn effective_scope(requested: &Scope, admitted: &Scope) -> Scope {
+/// `viewpoint` are authoritative (equal to the request — the caller checked)
+/// and every other admitted constraint bounds the request. `None` refuses: the
+/// request named a scalar value the admission does not grant, and honouring it
+/// would widen the query. Id lists intersect; admitted `extensions` namespaces
+/// win on conflict; the request's cognition selection is untouched.
+fn effective_scope(requested: &Scope, admitted: &Scope) -> Option<Scope> {
+    let entry_types = match (&admitted.entry_types, &requested.entry_types) {
+        (Some(admitted), Some(requested))
+            if admitted.len() != requested.len()
+                || !admitted.iter().all(|entry_type| requested.contains(entry_type)) =>
+        {
+            return None;
+        }
+        (admitted, requested) => admitted.clone().or_else(|| requested.clone()),
+    };
+    let source_id = adopted_scalar(&admitted.source_id, &requested.source_id)?;
+    let timeline_scale = adopted_scalar(&admitted.timeline_scale, &requested.timeline_scale)?;
+    let fork_id = adopted_scalar(&admitted.fork_id, &requested.fork_id)?;
     let mut scope = requested.clone();
     scope.scope_id = admitted.scope_id.clone();
     scope.viewpoint = admitted.viewpoint.clone();
-    scope
+    scope.entry_ids = intersected_ids(&admitted.entry_ids, &requested.entry_ids);
+    scope.timeline_event_ids =
+        intersected_ids(&admitted.timeline_event_ids, &requested.timeline_event_ids);
+    scope.entry_types = entry_types;
+    scope.source_id = source_id;
+    scope.timeline_scale = timeline_scale;
+    scope.fork_id = fork_id;
+    scope.extensions = match (&requested.extensions, &admitted.extensions) {
+        (None, admitted_extensions) => admitted_extensions.clone(),
+        (Some(requested_extensions), None) => Some(requested_extensions.clone()),
+        (Some(requested_extensions), Some(admitted_extensions)) => {
+            let mut merged = requested_extensions.clone();
+            for (namespace, value) in admitted_extensions.iter() {
+                merged.0.insert(namespace.clone(), value.clone());
+            }
+            Some(merged)
+        }
+    };
+    Some(scope)
 }
 
 /// Serve one decoded [`KnowledgeCall`] against the admitted scope. Runs
-/// inside the serve bound; admission and the list scope equality check ran
-/// before it, so a refusal never reaches the store.
+/// inside the serve bound; admission and the list scope intersection ran
+/// before it, so a refusal never reaches the store and `list_scope` is
+/// present exactly when the call lists.
 async fn call_knowledge_op(
     call: KnowledgeCall<'_>,
     face: &crate::remote::RemoteKnowledgeFace,
     admitted: &Scope,
+    list_scope: Option<&Scope>,
 ) -> SpokeResult<Value> {
     match call {
         KnowledgeCall::GetKnowledgeEntry(entry_id) => map_result(
@@ -370,10 +437,9 @@ async fn call_knowledge_op(
                 .put_scoped_knowledge_entry(admitted, entry, expected)
                 .await,
         ),
-        KnowledgeCall::ListKnowledgeEntries(requested) => {
-            map_result(face.store
-                .list_scoped_knowledge_entries(&effective_scope(requested, admitted))
-                .await)
+        KnowledgeCall::ListKnowledgeEntries(_) => {
+            let scope = list_scope.expect("a list call carries its effective scope");
+            map_result(face.store.list_scoped_knowledge_entries(scope).await)
         }
     }
 }
@@ -1679,10 +1745,10 @@ impl ConnectResponder {
     /// Serve one of the three knowledge ops through the knowledge face.
     ///
     /// Gate order: decode → face probe → admission (exactly once, keyed by
-    /// the authenticated peer, inside the serve bound) → list scope equality
-    /// → store call (inside the same bound). `Ok(None)` means a refusal
-    /// envelope was already sent and the store was never called — a refusal
-    /// discloses nothing, not even whether the entry exists.
+    /// the authenticated peer) → list scope equality/intersection → store
+    /// call. Admission and the store share ONE deadline; `Ok(None)` means a
+    /// refusal envelope was already sent and the store was never called — a
+    /// refusal discloses nothing, not even whether the entry exists.
     async fn serve_knowledge_op(
         &self,
         doc: &Value,
@@ -1732,9 +1798,12 @@ impl ConnectResponder {
             self.deny_knowledge_serve_timeout(doc).await?;
             return Ok(None);
         }
+        // One deadline for the whole op: admission and the store call share the
+        // local budget, so a slow admission cannot buy a second full timeout.
+        let deadline = std::time::Instant::now() + self.invoke_timeout;
         let admission = Arc::clone(&face.admission);
         let admitted = match tokio::time::timeout(
-            self.invoke_timeout,
+            deadline.saturating_duration_since(std::time::Instant::now()),
             tokio::task::spawn_blocking(move || admission(&peer_id)),
         )
         .await
@@ -1762,18 +1831,37 @@ impl ConnectResponder {
                 return Ok(None);
             }
         };
-        // A list must name exactly the admitted scope; a mismatch refuses
-        // before the store call so it cannot widen the query.
-        if let KnowledgeCall::ListKnowledgeEntries(requested) = &call {
-            if !scope_matches_admission(requested, &admitted) {
-                self.deny_knowledge_scope(doc).await?;
-                return Ok(None);
+        // A list must name exactly the admitted scope, then its effective scope
+        // is the admitted authority intersected with the request. Both refusals
+        // land before the store call so a request cannot widen the query.
+        let list_scope = match &call {
+            KnowledgeCall::ListKnowledgeEntries(requested) => {
+                if !scope_matches_admission(requested, &admitted) {
+                    self.deny_knowledge_scope(doc).await?;
+                    return Ok(None);
+                }
+                match effective_scope(requested, &admitted) {
+                    Some(effective) => Some(effective),
+                    None => {
+                        self.deny_knowledge_scope(doc).await?;
+                        return Ok(None);
+                    }
+                }
             }
+            _ => None,
+        };
+        // The store call runs under what is left of the same deadline. A budget
+        // already spent on admission answers the signed timeout without
+        // reaching the store, so a caller that timed out cannot still mutate.
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Ok(Some(SpokeResult::Reject(serve_timeout_reject(
+                self.invoke_timeout,
+            ))));
         }
-        // Same serve bound as the baseline path, covering the store call.
         let result = match tokio::time::timeout(
-            self.invoke_timeout,
-            call_knowledge_op(call, face.as_ref(), &admitted),
+            remaining,
+            call_knowledge_op(call, face.as_ref(), &admitted, list_scope.as_ref()),
         )
         .await
         {

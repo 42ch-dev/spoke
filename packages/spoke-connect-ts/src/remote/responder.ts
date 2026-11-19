@@ -801,6 +801,92 @@ function scopeMatchesAdmission(
   );
 }
 
+const WIDENING = Symbol("widening");
+
+/**
+ * Adopt one admitted constraint: the admitted value when the request omits or
+ * repeats it, the request's value when admission omits it, `WIDENING` when the
+ * request names a different value (a widening, never a narrowing).
+ */
+function adoptedConstraint<T>(
+  admitted: T | undefined,
+  requested: T | undefined,
+  equals: (a: T, b: T) => boolean = (a, b) => a === b,
+): T | undefined | typeof WIDENING {
+  if (admitted === undefined) {
+    return requested;
+  }
+  if (requested === undefined || equals(admitted, requested)) {
+    return admitted;
+  }
+  return WIDENING;
+}
+
+/** Admitted ∩ requested ids: an empty intersection stays an empty filter. */
+function intersectedIds(
+  admitted: string[] | undefined,
+  requested: string[] | undefined,
+): string[] | undefined {
+  if (admitted === undefined) {
+    return requested;
+  }
+  return requested === undefined
+    ? admitted
+    : requested.filter((id) => admitted.includes(id));
+}
+
+/**
+ * The scope passed to the store for a list: the admitted `scope_id` /
+ * `viewpoint` are authoritative (equal to the request — the caller checked)
+ * and every other admitted constraint bounds the request. `null` refuses: the
+ * request named a scalar value the admission does not grant, and honouring it
+ * would widen the query. Id lists intersect; admitted `extensions` namespaces
+ * win on conflict; the request's cognition selection is untouched.
+ */
+function effectiveScope(requested: Scope, admitted: Scope): Scope | null {
+  const entryTypes = adoptedConstraint(
+    admitted.entry_types,
+    requested.entry_types,
+    (a, b) => a.length === b.length && a.every((value) => b.includes(value)),
+  );
+  const sourceId = adoptedConstraint(admitted.source_id, requested.source_id);
+  const timelineScale = adoptedConstraint(
+    admitted.timeline_scale,
+    requested.timeline_scale,
+  );
+  const forkId = adoptedConstraint(admitted.fork_id, requested.fork_id);
+  if (
+    entryTypes === WIDENING ||
+    sourceId === WIDENING ||
+    timelineScale === WIDENING ||
+    forkId === WIDENING
+  ) {
+    return null;
+  }
+  const scope: Scope = {
+    ...requested,
+    scope_id: admitted.scope_id,
+    viewpoint: admitted.viewpoint,
+    entry_ids: intersectedIds(admitted.entry_ids, requested.entry_ids),
+    timeline_event_ids: intersectedIds(
+      admitted.timeline_event_ids,
+      requested.timeline_event_ids,
+    ),
+    entry_types: entryTypes,
+    source_id: sourceId,
+    timeline_scale: timelineScale,
+    fork_id: forkId,
+  };
+  if (admitted.extensions !== undefined) {
+    // Admitted namespaces win on conflict.
+    scope.extensions = { ...requested.extensions, ...admitted.extensions };
+  }
+  if (scope.viewpoint === undefined) {
+    delete scope.viewpoint;
+  }
+  return scope;
+}
+
 const OPTIONAL_PORT_METHODS: Readonly<Record<string, string>> = {
   "port.computable.project": "project",
   "port.computable.compute": "compute",
@@ -1607,17 +1693,20 @@ export class ConnectResponder {
    * The armed budget is tracked so `#close` disarms it (no serve timer
    * outlives the session), and a serve dispatch that resumes after a close
    * answers nothing.
+   *
+   * `budgetMs` defaults to the configured budget; a multi-stage serve passes
+   * what remains of its ONE deadline so stages cannot each get a full budget.
    */
   async #withServeBudget<T>(
     work: () => Promise<T>,
     expiryEnvelope?: SpokeReject,
+    budgetMs: number = this.#invokeTimeoutMs,
   ): Promise<T | SpokeReject> {
-    const budgetMs = this.#invokeTimeoutMs;
     const expiryReject =
       expiryEnvelope ??
       spokeReject(
         SpokeRejectCode.INTERNAL_ERROR,
-        `serve wait exceeded the local budget of ${budgetMs}ms`,
+        `serve wait exceeded the local budget of ${this.#invokeTimeoutMs}ms`,
         { kind: "timeout" },
       );
     if (budgetMs === 0) {
@@ -1921,6 +2010,9 @@ export class ConnectResponder {
         });
         return;
       }
+      // One deadline per knowledge op: admission spends part of the local
+      // budget, so the store call only gets what remains of it.
+      const deadlineMs = Date.now() + this.#invokeTimeoutMs;
       const admitted = face.admission(peerId);
       if (!admitted.ok) {
         // No existence detail: the refusal names only the scope verdict.
@@ -1946,19 +2038,21 @@ export class ConnectResponder {
         });
         return;
       }
-      // The admitted scope owns scope_id/viewpoint; the wire request's
-      // narrowing filters (entry_ids, entry_types, source_id, extensions)
-      // and cognition selection pass through unchanged on top of it.
-      const listedScope: Scope =
-        requestedScope === undefined
-          ? admitted.value
-          : { ...requestedScope, scope_id: admitted.value.scope_id };
-      if (listedScope !== admitted.value) {
-        if (admitted.value.viewpoint === undefined) {
-          delete listedScope.viewpoint;
-        } else {
-          listedScope.viewpoint = admitted.value.viewpoint;
+      // The admitted scope owns scope_id/viewpoint and bounds every other
+      // constraint; a request naming a scalar the admission does not grant
+      // refuses here, before the store.
+      let listedScope: Scope = admitted.value;
+      if (doc.op === "port.scope.list_knowledge_entries") {
+        const effective = effectiveScope(requestedScope as Scope, admitted.value);
+        if (effective === null) {
+          await this.#sendReverseErrorEnvelope(doc, {
+            code: SpokeRejectCode.NOT_AUTHORIZED,
+            message: "knowledge scope not authorized",
+            extensions: {},
+          });
+          return;
         }
+        listedScope = effective;
       }
       const knowledgeResult: SpokeResult<unknown> = await this.#withServeBudget(
         (): Promise<SpokeResult<unknown>> => {
@@ -1978,6 +2072,8 @@ export class ConnectResponder {
               return face.store.listScopedKnowledgeEntries(listedScope);
           }
         },
+        undefined,
+        Math.max(0, deadlineMs - Date.now()),
       );
       if (this.#stateInternal === "Closed") {
         return;

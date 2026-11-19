@@ -127,6 +127,7 @@ describe("selectPeerForOp knowledge rows", () => {
 function scopedStoreFace(
   admission: (peerId: string) => SpokeResult<Scope>,
   storeCalls: string[] = [],
+  listGate?: Promise<void>,
 ): RemoteKnowledgeFace {
   const entries = new Map<string, Map<string, KnowledgeEntry>>();
   const bucket = (scopeId: string): Map<string, KnowledgeEntry> => {
@@ -165,7 +166,19 @@ function scopedStoreFace(
       },
       async listScopedKnowledgeEntries(scope) {
         storeCalls.push("list");
-        return spokeOk([...bucket(scope.scope_id).values()]);
+        // A pending gate keeps the store call outstanding, so only the serve
+        // deadline can answer.
+        if (listGate !== undefined) {
+          await listGate;
+        }
+        const all = [...bucket(scope.scope_id).values()];
+        return spokeOk(
+          scope.entry_ids === undefined
+            ? all
+            : all.filter((candidate) =>
+                scope.entry_ids!.includes(candidate.entry_id),
+              ),
+        );
       },
     },
     admission,
@@ -182,6 +195,9 @@ async function dialKnowledgeOnlyHost(options: {
   admission: (peerId: string) => SpokeResult<Scope>;
   clientSeed: Uint8Array;
   clientCapabilities: string[];
+  storeCalls?: string[];
+  listGate?: Promise<void>;
+  invokeTimeoutMs?: number;
 }): Promise<DialedKnowledgeHost> {
   const hostSeed = seed(0xa0);
   const hostPubkey = getPublicKeyEd25519(hostSeed);
@@ -195,7 +211,10 @@ async function dialKnowledgeOnlyHost(options: {
     manifest: manifest("knowledge-host", ["spoke-knowledge"]),
     allowlist: [clientPeerId],
     peerKeys: { [clientPeerId]: clientPubkey },
-    ports: knowledgeOnlyServePorts(scopedStoreFace(options.admission)),
+    ports: knowledgeOnlyServePorts(
+      scopedStoreFace(options.admission, options.storeCalls, options.listGate),
+    ),
+    invokeTimeoutMs: options.invokeTimeoutMs,
   });
   const client = await connectRemoteAdapter({
     transport: pair.client,
@@ -480,6 +499,121 @@ describe("knowledge-only responder", () => {
         2,
       );
       expect(fresh.ok).toBe(true);
+    } finally {
+      close();
+    }
+  });
+
+  it("shares one serve deadline between admission and the list store call", async () => {
+    const storeCalls: string[] = [];
+    // Executor form: `Promise.withResolvers` needs the ES2024 lib. The store
+    // call stays outstanding, so only the serve deadline can answer.
+    const listGate = new Promise<void>(() => {
+      /* never settles */
+    });
+    const { client, close } = await dialKnowledgeOnlyHost({
+      // Admission is synchronous producer work, so it spends the budget in
+      // place (the Rust path parks it on the blocking pool).
+      admission: () => {
+        const until = Date.now() + 80;
+        while (Date.now() < until) {
+          /* spend the serve budget */
+        }
+        return spokeOk(SCOPE_A);
+      },
+      clientSeed: seed(0x13),
+      clientCapabilities: ["spoke-knowledge"],
+      storeCalls,
+      listGate,
+      invokeTimeoutMs: 100,
+    });
+    try {
+      const started = Date.now();
+      const listed = await client.listKnowledgeEntries(SCOPE_A);
+      const elapsed = Date.now() - started;
+      expect(listed.ok).toBe(false);
+      if (!listed.ok) {
+        expect(listed.code).toBe("INTERNAL_ERROR");
+        expect(listed.details?.kind).toBe("timeout");
+      }
+      expect(storeCalls).toEqual(["list"]);
+      // 80 ms admission + 80 ms of store would answer at ~160 ms with two
+      // budgets; the one shared deadline answers at the 100 ms budget.
+      expect(elapsed).toBeLessThan(150);
+    } finally {
+      close();
+    }
+  });
+
+  it("never widens a list scope beyond the admitted authority", async () => {
+    const admitted: Scope = {
+      scope_id: "scope_a",
+      entry_ids: ["kb_adm1"],
+      entry_types: ["note"],
+      source_id: "source_a",
+      extensions: { product: { limit: "admitted" } },
+    };
+    const storeCalls: string[] = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(admitted),
+      clientSeed: seed(0x14),
+      clientCapabilities: ["spoke-knowledge"],
+      storeCalls,
+    });
+    try {
+      expect((await client.putKnowledgeEntry(entry("kb_adm1"), null)).ok).toBe(
+        true,
+      );
+      expect((await client.putKnowledgeEntry(entry("kb_adm2"), null)).ok).toBe(
+        true,
+      );
+
+      // The request omits the admitted narrowing: only the admitted id returns.
+      const admittedOnly = await client.listKnowledgeEntries({
+        scope_id: "scope_a",
+      });
+      expect(admittedOnly.ok).toBe(true);
+      if (admittedOnly.ok) {
+        expect(admittedOnly.value.map((listed) => listed.entry_id)).toEqual([
+          "kb_adm1",
+        ]);
+      }
+
+      // A wider request id set still intersects the admitted one.
+      const narrowed = await client.listKnowledgeEntries({
+        scope_id: "scope_a",
+        entry_ids: ["kb_adm1", "kb_adm2"],
+      });
+      expect(narrowed.ok).toBe(true);
+      if (narrowed.ok) {
+        expect(narrowed.value.map((listed) => listed.entry_id)).toEqual([
+          "kb_adm1",
+        ]);
+      }
+
+      // A disjoint admitted id is an empty intersection: no results, no
+      // refusal.
+      const disjoint = await client.listKnowledgeEntries({
+        scope_id: "scope_a",
+        entry_ids: ["kb_adm2"],
+      });
+      expect(disjoint.ok).toBe(true);
+      if (disjoint.ok) {
+        expect(disjoint.value).toEqual([]);
+      }
+
+      // A scalar the admission does not grant is not a narrowing: refuse
+      // before the store.
+      const callsBefore = storeCalls.length;
+      const refused = await client.listKnowledgeEntries({
+        scope_id: "scope_a",
+        source_id: "source_b",
+      });
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) {
+        expect(refused.code).toBe("NOT_AUTHORIZED");
+      }
+      expect(storeCalls).toHaveLength(callsBefore);
     } finally {
       close();
     }

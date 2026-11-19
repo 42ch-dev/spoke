@@ -7275,7 +7275,13 @@ impl ScopedKnowledgePort for ScopedKnowledgeStore {
                 .lock()
                 .expect("entries lock")
                 .iter()
-                .filter(|(entry_key, _)| *entry_key == key)
+                .filter(|(entry_key, entry)| {
+                    *entry_key == key
+                        && scope
+                            .entry_ids
+                            .as_ref()
+                            .is_none_or(|ids| ids.iter().any(|id| *id == entry.entry_id))
+                })
                 .map(|(_, entry)| entry.clone())
                 .collect(),
         )
@@ -7947,5 +7953,237 @@ async fn serve_timeout_bounds_a_parked_admission_without_reaching_the_store() {
         store.calls()
     );
     assert_eq!(responder.state(), RemoteAdapterState::Established);
+    responder.close();
+}
+
+// ── Fix round: one serve deadline / admitted scope is never widened ───────
+
+/// A store double whose list never completes, so only the serve deadline can
+/// answer; this witness never reads or writes.
+struct PendingListStore {
+    calls: AtomicUsize,
+    pending: Notify,
+}
+
+#[async_trait]
+impl ScopedKnowledgePort for PendingListStore {
+    async fn get_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        _entry_id: &str,
+    ) -> SpokeResult<KnowledgeEntry> {
+        unreachable!("the pending-list witness never reads")
+    }
+
+    async fn put_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        _entry: KnowledgeEntry,
+        _expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        unreachable!("the pending-list witness never writes")
+    }
+
+    async fn list_scoped_knowledge_entries(
+        &self,
+        _scope: &Scope,
+    ) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.pending.notified().await;
+        spoke_ok(Vec::new())
+    }
+}
+
+/// Issue 1: admission and the store share ONE deadline. An 80 ms admission
+/// inside a 100 ms budget leaves the store ~20 ms, so the answer is the signed
+/// serve timeout at the budget, not a success at ~160 ms from a second full
+/// budget. The store IS called (under the remaining budget); the expired wait
+/// discards its late completion.
+#[tokio::test]
+async fn knowledge_serve_shares_one_deadline_between_admission_and_the_store() {
+    let store = Arc::new(PendingListStore {
+        calls: AtomicUsize::new(0),
+        pending: Notify::new(),
+    });
+    let face = Arc::new(RemoteKnowledgeFace {
+        store: store.clone(),
+        admission: Arc::new(|_| {
+            std::thread::sleep(Duration::from_millis(80));
+            spoke_ok(scope_of("scope-a"))
+        }),
+    });
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::knowledge_only(face));
+    let (responder, pair, seed) =
+        start_raw_ke_responder_with_budget(ports, &["spoke-knowledge"], Some(100)).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+
+    let started = Instant::now();
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            0,
+            "shared-deadline",
+            "port.scope.list_knowledge_entries",
+            json!({ "scope": { "scope_id": "scope-a" } }),
+        ),
+    )
+    .await
+    .expect("the shared deadline answers without waiting out the store");
+    let elapsed = started.elapsed();
+
+    assert_eq!(response["error"]["code"], "INTERNAL_ERROR", "{response}");
+    assert_eq!(response["error"]["details"]["kind"], "timeout", "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("serve wait exceeded the local budget of 100ms"),
+        "the expiry names the responder's own budget: {response}"
+    );
+    assert!(
+        elapsed < Duration::from_millis(160),
+        "one shared budget answers at ~100 ms, not the 80 ms + 80 ms two-budget \
+         sum (took {elapsed:?})"
+    );
+    assert_eq!(
+        store.calls.load(Ordering::SeqCst),
+        1,
+        "the store runs under the remaining budget; its late completion is discarded"
+    );
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    responder.close();
+}
+
+/// Issue 2: the effective list scope is admitted ∩ requested — an admitted
+/// `entry_ids`/scalar constraint is never dropped, and a request naming a
+/// different scalar refuses before the store.
+#[tokio::test]
+async fn knowledge_face_intersects_the_list_scope_with_the_admission() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let admitted: Scope = serde_json::from_value(json!({
+        "scope_id": "scope-a",
+        "entry_ids": ["ke-a"],
+        "entry_types": ["note"],
+        "source_id": "source-a",
+        "extensions": { "product": { "limit": "admitted" } },
+    }))
+    .expect("valid Scope");
+    store.seed(&scope_of("scope-a"), scoped_entry("ke-a", "alpha"));
+    store.seed(&scope_of("scope-a"), scoped_entry("ke-b", "beta"));
+    let face = knowledge_face(Arc::clone(&store), move |_| spoke_ok(admitted.clone()));
+    let seed_a = seed(0x86);
+    let (responder, pair, session) =
+        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+
+    let entry_ids = |response: &Value| -> Vec<String> {
+        response["payload"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .map(|entry| entry["entry_id"].as_str().unwrap_or_default().to_owned())
+            .collect()
+    };
+
+    // The request omits the admitted narrowing: only the admitted ids return.
+    let listed = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        0,
+        "admitted-only",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "scope-a" } }),
+    )
+    .await;
+    assert_eq!(
+        entry_ids(&listed),
+        vec!["ke-a".to_owned()],
+        "admitted entry_ids bound the list: {listed}"
+    );
+
+    // A request-wide id set still intersects, and the admitted scalar and
+    // extension values bound what reaches the store.
+    let narrowed = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        1,
+        "narrowed",
+        "port.scope.list_knowledge_entries",
+        json!({
+            "scope": {
+                "scope_id": "scope-a",
+                "entry_ids": ["ke-a", "ke-b"],
+                "entry_types": ["note"],
+                "extensions": {
+                    "product": { "limit": "requested" },
+                    "other": { "kept": true },
+                },
+            },
+        }),
+    )
+    .await;
+    assert_eq!(
+        entry_ids(&narrowed),
+        vec!["ke-a".to_owned()],
+        "the request only narrows the admitted ids: {narrowed}"
+    );
+    let scopes = store.listed_scopes();
+    assert_eq!(scopes[1]["entry_ids"], json!(["ke-a"]));
+    assert_eq!(scopes[1]["entry_types"], json!(["note"]));
+    assert_eq!(scopes[1]["source_id"], json!("source-a"));
+    assert_eq!(
+        scopes[1]["extensions"]["product"],
+        json!({ "limit": "admitted" }),
+        "the admitted namespace wins on conflict"
+    );
+    assert_eq!(
+        scopes[1]["extensions"]["other"],
+        json!({ "kept": true }),
+        "the request-only namespace survives"
+    );
+
+    // A disjoint admitted id is an empty intersection: no results, no refusal.
+    let disjoint = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        2,
+        "disjoint",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "scope-a", "entry_ids": ["ke-b"] } }),
+    )
+    .await;
+    assert_eq!(disjoint["payload"], json!([]), "{disjoint}");
+
+    // A scalar the admission does not grant is not a narrowing: refuse before
+    // the store.
+    let calls_before = store.calls().len();
+    let refused = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        3,
+        "wider-scalar",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "scope-a", "source_id": "source-b" } }),
+    )
+    .await;
+    assert_eq!(refused["error"]["code"], "NOT_AUTHORIZED", "{refused}");
+    assert_eq!(
+        store.calls().len(),
+        calls_before,
+        "a refused widening never reaches the store"
+    );
+
     responder.close();
 }

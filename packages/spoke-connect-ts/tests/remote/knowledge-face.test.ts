@@ -694,6 +694,49 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(fractionalRevision.error?.code).toBe("INVALID_INPUT");
 
+      // `entry.schema_version` is a typed `SchemaVersion` (integer >= 1) in
+      // Rust; a missing or zero version fails decode.
+      const missingSchemaVersion = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        5,
+        "put-missing-schema-version",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_put"), schema_version: undefined },
+          expected_base_revision: null,
+        },
+      );
+      expect(missingSchemaVersion.error?.code).toBe("INVALID_INPUT");
+
+      const zeroSchemaVersion = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        6,
+        "put-zero-schema-version",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_put"), schema_version: 0 },
+          expected_base_revision: null,
+        },
+      );
+      expect(zeroSchemaVersion.error?.code).toBe("INVALID_INPUT");
+
+      // Rust decodes the revision as `Option<u64>`: an integer beyond
+      // `Number.MAX_SAFE_INTEGER` cannot be represented faithfully.
+      const unsafeRevision = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        7,
+        "put-unsafe-revision",
+        "port.knowledge.put",
+        { entry: entry("kb_put"), expected_base_revision: 1e20 },
+      );
+      expect(unsafeRevision.error?.code).toBe("INVALID_INPUT");
+
       expect(admissionCalls).toHaveLength(0);
       expect(storeCalls).toHaveLength(0);
 
@@ -702,7 +745,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
         clientEnd,
         seed(0x10),
         sessionId,
-        5,
+        8,
         "put-valid",
         "port.knowledge.put",
         { entry: entry("kb_put"), expected_base_revision: null },

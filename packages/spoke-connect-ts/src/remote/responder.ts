@@ -525,6 +525,14 @@ export function validateScopeOpPayload(
 function validateKnowledgeEntryFields(
   entry: Record<string, unknown>,
 ): string | null {
+  const schemaVersion = entry.schema_version;
+  if (
+    typeof schemaVersion !== "number" ||
+    !Number.isInteger(schemaVersion) ||
+    schemaVersion < 1
+  ) {
+    return "entry.schema_version must be an integer >= 1";
+  }
   for (const name of ["entry_id", "canonical_name"]) {
     const value = entry[name];
     if (typeof value !== "string" || value.length === 0) {
@@ -579,13 +587,13 @@ export function validateKnowledgeOpPayload(
       expected !== null &&
       !(
         typeof expected === "number" &&
-        Number.isInteger(expected) &&
+        Number.isSafeInteger(expected) &&
         expected >= 0
       )
     ) {
       return scopePayloadReject(
         op,
-        "expected_base_revision must be a non-negative integer or null",
+        "expected_base_revision must be a non-negative safe integer or null",
       );
     }
   }

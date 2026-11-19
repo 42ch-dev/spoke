@@ -7059,6 +7059,23 @@ mod ke_remote_ffi_tests {
         .to_string()
     }
 
+    /// How the foreign handler answers the `knowledge_scope` admission probe.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum ScopeAnswer {
+        /// Answer immediately with the admitted scope.
+        Serve,
+        /// Sleep first — the responder's worker must survive a blocking
+        /// resolver, not strand the request.
+        Block,
+        /// Panic — the bridge must turn it into the admission refusal instead
+        /// of unwinding the responder task.
+        Panic,
+    }
+
+    /// How long the blocking resolver sleeps: long enough to prove the
+    /// responder answers from elsewhere, far under the 5 s invoke timeout.
+    const SCOPE_RESOLVER_DELAY: Duration = Duration::from_millis(300);
+
     /// How the foreign handler answers an `extract` call.
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ExtractAnswer {
@@ -7082,6 +7099,8 @@ mod ke_remote_ffi_tests {
         /// The `Scope` the resolver admits. A list must name it exactly, so a
         /// battery that lists with a viewpoint admits that viewpoint first.
         admitted_scope_json: String,
+        /// How the resolver answers its admission probe.
+        scope_answer: ScopeAnswer,
         extract_requests: Arc<Mutex<Vec<Value>>>,
         scope_calls: Arc<Mutex<Vec<Value>>>,
     }
@@ -7091,6 +7110,18 @@ mod ke_remote_ffi_tests {
         fn admitting_viewpoint(mut self: Box<Self>, viewpoint: &str) -> Box<Self> {
             self.admitted_scope_json =
                 json!({ "scope_id": "toy-scope-001", "viewpoint": viewpoint }).to_string();
+            self
+        }
+
+        /// Blocks the resolver for [`SCOPE_RESOLVER_DELAY`] before admitting.
+        fn with_blocking_scope(mut self: Box<Self>) -> Box<Self> {
+            self.scope_answer = ScopeAnswer::Block;
+            self
+        }
+
+        /// Panics from the resolver instead of admitting.
+        fn with_panicking_scope(mut self: Box<Self>) -> Box<Self> {
+            self.scope_answer = ScopeAnswer::Panic;
             self
         }
     }
@@ -7110,6 +7141,7 @@ mod ke_remote_ffi_tests {
                 answer,
                 entries,
                 admitted_scope_json: json!({ "scope_id": "toy-scope-001" }).to_string(),
+                scope_answer: ScopeAnswer::Serve,
                 extract_requests: Arc::clone(&extract_requests),
                 scope_calls: Arc::clone(&scope_calls),
             }),
@@ -7289,6 +7321,11 @@ mod ke_remote_ffi_tests {
         }
 
         fn knowledge_scope(&self, _peer_id: String) -> Result<String, FfiError> {
+            match self.scope_answer {
+                ScopeAnswer::Serve => {}
+                ScopeAnswer::Block => std::thread::sleep(SCOPE_RESOLVER_DELAY),
+                ScopeAnswer::Panic => panic!("knowledge_scope resolver panicked"),
+            }
             Ok(self.admitted_scope_json.clone())
         }
 
@@ -7576,5 +7613,72 @@ mod ke_remote_ffi_tests {
             dialer.close();
             responder.close();
         }
+    }
+
+    /// A resolver that occupies its thread must not wedge the responder: the
+    /// handoff goes through `block_in_place` + the blocking pool, so the op
+    /// still answers with the admitted scope's entries.
+    #[test]
+    fn ke_remote_blocking_scope_resolver_still_serves_the_op() {
+        let entries = vec![served_entry("kb_ffi_ke_blocking", "FFI KE Blocking")];
+        let (handler, _extract_requests, scope_calls) =
+            ke_ports_handler(ExtractAnswer::Batch, entries);
+        let (responder, dialer) = dial_ke_remote(&[], &[], Some(handler.with_blocking_scope()));
+
+        let started = Instant::now();
+        let served_json = dialer
+            .list_knowledge_entries(json!({ "scope_id": "toy-scope-001" }).to_string())
+            .expect("a blocking resolver must still serve the op");
+        let elapsed = started.elapsed();
+        let served: Value = serde_json::from_str(&served_json).expect("served entries json");
+        assert_eq!(served[0]["entry_id"], "kb_ffi_ke_blocking");
+        assert!(
+            elapsed >= SCOPE_RESOLVER_DELAY,
+            "the resolver really blocked: {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the op answered within the invoke timeout instead of stranding it: {elapsed:?}"
+        );
+        assert_eq!(
+            scope_calls.lock().expect("scope calls lock").len(),
+            1,
+            "the store was reached once, after the resolver returned"
+        );
+
+        dialer.close();
+        responder.close();
+    }
+
+    /// A panicking resolver is contained into the one refusal shape
+    /// (`NOT_AUTHORIZED`, no existence detail) and never unwinds the responder
+    /// task, which keeps serving other ops.
+    #[test]
+    fn ke_remote_panicking_scope_resolver_refuses_the_op_and_the_session_survives() {
+        let entries = vec![served_entry("kb_ffi_ke_panic", "FFI KE Panic")];
+        let (handler, _extract_requests, scope_calls) =
+            ke_ports_handler(ExtractAnswer::Batch, entries);
+        let (responder, dialer) = dial_ke_remote(&[], &[], Some(handler.with_panicking_scope()));
+
+        let error = dialer
+            .list_knowledge_entries(json!({ "scope_id": "toy-scope-001" }).to_string())
+            .expect_err("a panicking resolver must refuse the op");
+        let message = assert_rejected(&error, "NOT_AUTHORIZED", None, None);
+        assert_eq!(message, "knowledge scope not authorized");
+        assert!(
+            scope_calls.lock().expect("scope calls lock").is_empty(),
+            "the refusal precedes the store call"
+        );
+
+        // The serve loop survived the foreign panic: a baseline op outside the
+        // knowledge face through the same session still answers (with the
+        // double's unserved row).
+        let error = dialer
+            .get_relation("rel_ffi_ke_panic".to_string())
+            .expect_err("the double does not serve get_relation");
+        assert_rejected(&error, "INVALID_INPUT", None, None);
+
+        dialer.close();
+        responder.close();
     }
 }

@@ -407,6 +407,20 @@ public static class PortsLoopbackSmoke
             return System.Text.Encoding.UTF8.GetString(stream.ToArray());
         }
 
+        // The scoped knowledge face over the same store: `get` / `put` carry
+        // no wire scope, so the admitted value below is the only one they are
+        // served in.
+        public bool ServesKnowledge() => true;
+
+        public string KnowledgeScope(string peerId) => "{\"scope_id\":\"scope_csharp_ports_smoke\"}";
+
+        public string GetScopedKnowledgeEntry(string scopeJson, string entryId) => GetKnowledgeEntry(entryId);
+
+        public string PutScopedKnowledgeEntry(string scopeJson, string entryJson, ulong? expectedBaseRevision) =>
+            PutKnowledgeEntry(entryJson, expectedBaseRevision);
+
+        public string ListScopedKnowledgeEntries(string scopeJson) => ListKnowledgeEntries(scopeJson);
+
         public string ListTimelineEvents(string scopeJson) => "[]";
 
         public string PutFindings(string findingsJson) => "[]";
@@ -992,6 +1006,20 @@ public static class PortsLoopbackSmoke
                     ["visibility"] = new Dictionary<string, object?> { ["scope"] = visibility },
                 },
             };
+
+        // The scoped knowledge face: `list` is served inside the admitted
+        // scope, `get` / `put` stay ordinary refusals in this double.
+        public bool ServesKnowledge() => true;
+
+        public string KnowledgeScope(string peerId) => "{\"scope_id\":\"toy-scope-001\",\"viewpoint\":\"kb_tw_mira\"}";
+
+        public string GetScopedKnowledgeEntry(string scopeJson, string entryId) =>
+            throw Unserved("get_knowledge_entry");
+
+        public string PutScopedKnowledgeEntry(string scopeJson, string entryJson, ulong? expectedBaseRevision) =>
+            throw Unserved("put_knowledge_entry");
+
+        public string ListScopedKnowledgeEntries(string scopeJson) => ListKnowledgeEntries(scopeJson);
 
         /// <summary>Catalogue ops this double does not serve: an ordinary
         /// application reject (`wireCode` null), never containment.</summary>

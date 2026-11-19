@@ -715,30 +715,50 @@ static class _UniFFILib {
     );
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void UniffiCallbackInterfacePortsHandlerMethod6(
-        ulong @uniffiHandle,RustBuffer @findingsJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+        ulong @uniffiHandle,IntPtr /*sbyte*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
     );
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void UniffiCallbackInterfacePortsHandlerMethod7(
-        ulong @uniffiHandle,RustBuffer @ruleRefs,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+        ulong @uniffiHandle,RustBuffer @peerId,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
     );
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void UniffiCallbackInterfacePortsHandlerMethod8(
-        ulong @uniffiHandle,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+        ulong @uniffiHandle,RustBuffer @scopeJson,RustBuffer @entryId,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
     );
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void UniffiCallbackInterfacePortsHandlerMethod9(
-        ulong @uniffiHandle,RustBuffer @projectRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+        ulong @uniffiHandle,RustBuffer @scopeJson,RustBuffer @entryJson,RustBuffer @expectedBaseRevision,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
     );
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void UniffiCallbackInterfacePortsHandlerMethod10(
-        ulong @uniffiHandle,RustBuffer @computeRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
-    );
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate void UniffiCallbackInterfacePortsHandlerMethod11(
         ulong @uniffiHandle,RustBuffer @scopeJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
     );
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod11(
+        ulong @uniffiHandle,RustBuffer @findingsJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void UniffiCallbackInterfacePortsHandlerMethod12(
+        ulong @uniffiHandle,RustBuffer @ruleRefs,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod13(
+        ulong @uniffiHandle,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod14(
+        ulong @uniffiHandle,RustBuffer @projectRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod15(
+        ulong @uniffiHandle,RustBuffer @computeRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod16(
+        ulong @uniffiHandle,RustBuffer @scopeJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod17(
         ulong @uniffiHandle,RustBuffer @extractRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
     );
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -768,6 +788,11 @@ static class _UniFFILib {
         public IntPtr @putRelation;
         public IntPtr @listKnowledgeEntries;
         public IntPtr @listTimelineEvents;
+        public IntPtr @servesKnowledge;
+        public IntPtr @knowledgeScope;
+        public IntPtr @getScopedKnowledgeEntry;
+        public IntPtr @putScopedKnowledgeEntry;
+        public IntPtr @listScopedKnowledgeEntries;
         public IntPtr @putFindings;
         public IntPtr @listRules;
         public IntPtr @listPeerHostCapabilityManifests;
@@ -792,6 +817,11 @@ static class _UniFFILib {
         public IntPtr @recv;
         public IntPtr @close;
     }
+    
+    
+    
+    
+    
     
     
     
@@ -3306,6 +3336,61 @@ static class _UniFFILib {
     [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
     public static extern
 #endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_serves_knowledge(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_knowledge_scope(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_get_scoped_knowledge_entry(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_put_scoped_knowledge_entry(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_list_scoped_knowledge_entries(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
      ushort uniffi_spoke_connect_checksum_method_portshandler_put_findings(
     );
 
@@ -3866,45 +3951,75 @@ static class _UniFFILib {
             }
         }
         {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_serves_knowledge();
+            if (checksum != 19663) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_serves_knowledge` checksum `19663`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_knowledge_scope();
+            if (checksum != 56261) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_knowledge_scope` checksum `56261`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_get_scoped_knowledge_entry();
+            if (checksum != 32088) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_get_scoped_knowledge_entry` checksum `32088`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_put_scoped_knowledge_entry();
+            if (checksum != 49545) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_put_scoped_knowledge_entry` checksum `49545`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_list_scoped_knowledge_entries();
+            if (checksum != 47635) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_scoped_knowledge_entries` checksum `47635`, library returned `{checksum}`");
+            }
+        }
+        {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_put_findings();
-            if (checksum != 24895) {
-                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_put_findings` checksum `24895`, library returned `{checksum}`");
+            if (checksum != 24645) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_put_findings` checksum `24645`, library returned `{checksum}`");
             }
         }
         {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_list_rules();
-            if (checksum != 64974) {
-                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_rules` checksum `64974`, library returned `{checksum}`");
+            if (checksum != 5719) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_rules` checksum `5719`, library returned `{checksum}`");
             }
         }
         {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests();
-            if (checksum != 48604) {
-                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests` checksum `48604`, library returned `{checksum}`");
+            if (checksum != 1482) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests` checksum `1482`, library returned `{checksum}`");
             }
         }
         {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_project();
-            if (checksum != 15269) {
-                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_project` checksum `15269`, library returned `{checksum}`");
+            if (checksum != 16431) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_project` checksum `16431`, library returned `{checksum}`");
             }
         }
         {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_compute();
-            if (checksum != 8096) {
-                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_compute` checksum `8096`, library returned `{checksum}`");
+            if (checksum != 9988) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_compute` checksum `9988`, library returned `{checksum}`");
             }
         }
         {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events();
-            if (checksum != 36942) {
-                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events` checksum `36942`, library returned `{checksum}`");
+            if (checksum != 7062) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events` checksum `7062`, library returned `{checksum}`");
             }
         }
         {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_extract();
-            if (checksum != 1921) {
-                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_extract` checksum `1921`, library returned `{checksum}`");
+            if (checksum != 39041) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_extract` checksum `39041`, library returned `{checksum}`");
             }
         }
         {
@@ -6561,6 +6676,30 @@ public interface PortsHandler {
     string ListKnowledgeEntries(string @scopeJson);
     /// <exception cref="FfiException"></exception>
     string ListTimelineEvents(string @scopeJson);
+    /// <summary>
+    /// Whether this handler serves the scoped knowledge face. `false`
+    /// means the face is absent: the responder answers the missing-face
+    /// deny branch and never calls the four knowledge callbacks below.
+    /// The C carrier derives it from a NULL `knowledge_scope` pointer.
+    /// </summary>
+    bool ServesKnowledge();
+    /// <summary>
+    /// The `Scope` JSON the authenticated peer may read and write. The
+    /// scope never comes from the wire, and a refusal (an error return)
+    /// is the responder's `NOT_AUTHORIZED` row with no existence detail.
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    string KnowledgeScope(string @peerId);
+    /// <summary>
+    /// Scoped `get`/`put`/`list`: the admitted scope crosses as JSON in
+    /// front of the same payload the unscoped callback carries.
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    string GetScopedKnowledgeEntry(string @scopeJson, string @entryId);
+    /// <exception cref="FfiException"></exception>
+    string PutScopedKnowledgeEntry(string @scopeJson, string @entryJson, ulong? @expectedBaseRevision);
+    /// <exception cref="FfiException"></exception>
+    string ListScopedKnowledgeEntries(string @scopeJson);
     /// <exception cref="FfiException"></exception>
     string PutFindings(string @findingsJson);
     /// <exception cref="FfiException"></exception>
@@ -6763,6 +6902,160 @@ class UniffiCallbackInterfacePortsHandler {
             }
             var result =
             uniffiObject.ListTimelineEvents(
+                FfiConverterString.INSTANCE.Lift(@scopeJson));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void ServesKnowledge(ulong @uniffiHandle,IntPtr /*sbyte*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.ServesKnowledge();
+            unsafe {
+                *(sbyte*)uniffiOutReturn = FfiConverterBoolean.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void KnowledgeScope(ulong @uniffiHandle,RustBuffer @peerId,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.KnowledgeScope(
+                FfiConverterString.INSTANCE.Lift(@peerId));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void GetScopedKnowledgeEntry(ulong @uniffiHandle,RustBuffer @scopeJson,RustBuffer @entryId,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.GetScopedKnowledgeEntry(
+                FfiConverterString.INSTANCE.Lift(@scopeJson), 
+                FfiConverterString.INSTANCE.Lift(@entryId));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void PutScopedKnowledgeEntry(ulong @uniffiHandle,RustBuffer @scopeJson,RustBuffer @entryJson,RustBuffer @expectedBaseRevision,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.PutScopedKnowledgeEntry(
+                FfiConverterString.INSTANCE.Lift(@scopeJson), 
+                FfiConverterString.INSTANCE.Lift(@entryJson), 
+                FfiConverterOptionalUInt64.INSTANCE.Lift(@expectedBaseRevision));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void ListScopedKnowledgeEntries(ulong @uniffiHandle,RustBuffer @scopeJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.ListScopedKnowledgeEntries(
                 FfiConverterString.INSTANCE.Lift(@scopeJson));
             unsafe {
                 *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
@@ -7031,13 +7324,18 @@ class UniffiCallbackInterfacePortsHandler {
     static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod3 _m3 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod3(PutRelation);
     static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod4 _m4 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod4(ListKnowledgeEntries);
     static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod5 _m5 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod5(ListTimelineEvents);
-    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod6 _m6 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod6(PutFindings);
-    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod7 _m7 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod7(ListRules);
-    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod8 _m8 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod8(ListPeerHostCapabilityManifests);
-    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod9 _m9 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod9(Project);
-    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod10 _m10 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod10(Compute);
-    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod11 _m11 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod11(ListForkTimelineEvents);
-    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod12 _m12 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod12(Extract);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod6 _m6 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod6(ServesKnowledge);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod7 _m7 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod7(KnowledgeScope);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod8 _m8 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod8(GetScopedKnowledgeEntry);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod9 _m9 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod9(PutScopedKnowledgeEntry);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod10 _m10 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod10(ListScopedKnowledgeEntries);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod11 _m11 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod11(PutFindings);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod12 _m12 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod12(ListRules);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod13 _m13 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod13(ListPeerHostCapabilityManifests);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod14 _m14 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod14(Project);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod15 _m15 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod15(Compute);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod16 _m16 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod16(ListForkTimelineEvents);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod17 _m17 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod17(Extract);
     static _UniFFILib.UniffiCallbackInterfaceFree _callback_interface_free = new _UniFFILib.UniffiCallbackInterfaceFree(UniffiFree);
     static _UniFFILib.UniffiCallbackInterfaceClone _callback_interface_clone = new _UniFFILib.UniffiCallbackInterfaceClone(UniffiClone);
 
@@ -7052,13 +7350,18 @@ class UniffiCallbackInterfacePortsHandler {
             @putRelation = Marshal.GetFunctionPointerForDelegate(_m3),
             @listKnowledgeEntries = Marshal.GetFunctionPointerForDelegate(_m4),
             @listTimelineEvents = Marshal.GetFunctionPointerForDelegate(_m5),
-            @putFindings = Marshal.GetFunctionPointerForDelegate(_m6),
-            @listRules = Marshal.GetFunctionPointerForDelegate(_m7),
-            @listPeerHostCapabilityManifests = Marshal.GetFunctionPointerForDelegate(_m8),
-            @project = Marshal.GetFunctionPointerForDelegate(_m9),
-            @compute = Marshal.GetFunctionPointerForDelegate(_m10),
-            @listForkTimelineEvents = Marshal.GetFunctionPointerForDelegate(_m11),
-            @extract = Marshal.GetFunctionPointerForDelegate(_m12),
+            @servesKnowledge = Marshal.GetFunctionPointerForDelegate(_m6),
+            @knowledgeScope = Marshal.GetFunctionPointerForDelegate(_m7),
+            @getScopedKnowledgeEntry = Marshal.GetFunctionPointerForDelegate(_m8),
+            @putScopedKnowledgeEntry = Marshal.GetFunctionPointerForDelegate(_m9),
+            @listScopedKnowledgeEntries = Marshal.GetFunctionPointerForDelegate(_m10),
+            @putFindings = Marshal.GetFunctionPointerForDelegate(_m11),
+            @listRules = Marshal.GetFunctionPointerForDelegate(_m12),
+            @listPeerHostCapabilityManifests = Marshal.GetFunctionPointerForDelegate(_m13),
+            @project = Marshal.GetFunctionPointerForDelegate(_m14),
+            @compute = Marshal.GetFunctionPointerForDelegate(_m15),
+            @listForkTimelineEvents = Marshal.GetFunctionPointerForDelegate(_m16),
+            @extract = Marshal.GetFunctionPointerForDelegate(_m17),
             @uniffiFree = Marshal.GetFunctionPointerForDelegate(_callback_interface_free),
             @uniffiClone = Marshal.GetFunctionPointerForDelegate(_callback_interface_clone),
         };

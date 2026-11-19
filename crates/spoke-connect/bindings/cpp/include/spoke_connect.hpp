@@ -1424,9 +1424,10 @@ inline void SPOKE_CONNECT_CALL tool_destroy(void* user_data) noexcept {
     return table;
 }
 
-/** The complete ports table over the static thunks. The four knowledge
-    pointers are installed only when their slot is set: an unset face stays
-    NULL, which the carrier reads as "no scoped knowledge face". */
+/** The complete ports table over the static thunks. Each knowledge pointer is
+    installed when its slot is set; an unset face stays NULL, which the carrier
+    reads as "no scoped knowledge face", and a partial block is refused by the
+    sized constructor. */
 [[nodiscard]] inline SpokeConnectPortsHandlerTable ports_table(
     const PortsCallbacks& callbacks) noexcept {
     SpokeConnectPortsHandlerTable table{};
@@ -1510,9 +1511,10 @@ class Transport : public detail::HandleBase<SpokeConnectTransport, &spoke_connec
  * Carries one host-callback ports-handler handle. Every baseline and optional-op
  * slot must be set: a provider that declines a method returns an application
  * reject from that slot, which keeps an explicitly refusing provider
- * distinguishable from an absent `ports` handler. The four scoped knowledge
- * slots are optional — leaving `knowledge_scope` unset keeps the knowledge face
- * absent.
+ * distinguishable from an absent `ports` handler.
+ * The four scoped knowledge slots are optional as a block — either all four are
+ * set, which serves the knowledge face, or all four are unset; a partial block
+ * is rejected with `SPOKE_CONNECT_INVALID_ARGUMENT`.
  */
 class PortsHandler
     : public detail::HandleBase<SpokeConnectPortsHandler, &spoke_connect_ports_handler_free> {
@@ -1527,8 +1529,8 @@ class PortsHandler
         const SpokeConnectPortsHandlerTable table = detail::ports_table(*callbacks);
         SpokeConnectPortsHandler* handle = nullptr;
         detail::CErrorRecord error;
-        const int32_t status =
-            spoke_connect_ports_handler_new(&table, callbacks.get(), &handle, error.out());
+        const int32_t status = spoke_connect_ports_handler_new_v2(
+            &table, sizeof(table), callbacks.get(), &handle, error.out());
         if (status != SPOKE_CONNECT_OK) {
             return Result<PortsHandler>::failure(detail::take_error(status, error));
         }

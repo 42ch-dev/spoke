@@ -2896,6 +2896,31 @@ public protocol PortsHandler: AnyObject, Sendable {
     
     func listTimelineEvents(scopeJson: String) throws  -> String
     
+    /**
+     * Whether this handler serves the scoped knowledge face. `false`
+     * means the face is absent: the responder answers the missing-face
+     * deny branch and never calls the four knowledge callbacks below.
+     * The C carrier derives it from a NULL `knowledge_scope` pointer.
+     */
+    func servesKnowledge()  -> Bool
+    
+    /**
+     * The `Scope` JSON the authenticated peer may read and write. The
+     * scope never comes from the wire, and a refusal (an error return)
+     * is the responder's `NOT_AUTHORIZED` row with no existence detail.
+     */
+    func knowledgeScope(peerId: String) throws  -> String
+    
+    /**
+     * Scoped `get`/`put`/`list`: the admitted scope crosses as JSON in
+     * front of the same payload the unscoped callback carries.
+     */
+    func getScopedKnowledgeEntry(scopeJson: String, entryId: String) throws  -> String
+    
+    func putScopedKnowledgeEntry(scopeJson: String, entryJson: String, expectedBaseRevision: UInt64?) throws  -> String
+    
+    func listScopedKnowledgeEntries(scopeJson: String) throws  -> String
+    
     func putFindings(findingsJson: String) throws  -> String
     
     func listRules(ruleRefs: [String]) throws  -> String
@@ -3091,6 +3116,134 @@ fileprivate struct UniffiCallbackInterfacePortsHandler {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
                 return try uniffiObj.listTimelineEvents(
+                     scopeJson: try FfiConverterString.lift(scopeJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        servesKnowledge: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<Int8>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Bool in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.servesKnowledge(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        knowledgeScope: { (
+            uniffiHandle: UInt64,
+            peerId: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.knowledgeScope(
+                     peerId: try FfiConverterString.lift(peerId)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        getScopedKnowledgeEntry: { (
+            uniffiHandle: UInt64,
+            scopeJson: RustBuffer,
+            entryId: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.getScopedKnowledgeEntry(
+                     scopeJson: try FfiConverterString.lift(scopeJson),
+                     entryId: try FfiConverterString.lift(entryId)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        putScopedKnowledgeEntry: { (
+            uniffiHandle: UInt64,
+            scopeJson: RustBuffer,
+            entryJson: RustBuffer,
+            expectedBaseRevision: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.putScopedKnowledgeEntry(
+                     scopeJson: try FfiConverterString.lift(scopeJson),
+                     entryJson: try FfiConverterString.lift(entryJson),
+                     expectedBaseRevision: try FfiConverterOptionUInt64.lift(expectedBaseRevision)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        listScopedKnowledgeEntries: { (
+            uniffiHandle: UInt64,
+            scopeJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.listScopedKnowledgeEntries(
                      scopeJson: try FfiConverterString.lift(scopeJson)
                 )
             }
@@ -4243,25 +4396,40 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events() != 58726) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_spoke_connect_checksum_method_portshandler_put_findings() != 24895) {
+    if (uniffi_spoke_connect_checksum_method_portshandler_serves_knowledge() != 19663) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_spoke_connect_checksum_method_portshandler_list_rules() != 64974) {
+    if (uniffi_spoke_connect_checksum_method_portshandler_knowledge_scope() != 56261) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests() != 48604) {
+    if (uniffi_spoke_connect_checksum_method_portshandler_get_scoped_knowledge_entry() != 32088) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_spoke_connect_checksum_method_portshandler_project() != 15269) {
+    if (uniffi_spoke_connect_checksum_method_portshandler_put_scoped_knowledge_entry() != 49545) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_spoke_connect_checksum_method_portshandler_compute() != 8096) {
+    if (uniffi_spoke_connect_checksum_method_portshandler_list_scoped_knowledge_entries() != 47635) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events() != 36942) {
+    if (uniffi_spoke_connect_checksum_method_portshandler_put_findings() != 24645) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_spoke_connect_checksum_method_portshandler_extract() != 1921) {
+    if (uniffi_spoke_connect_checksum_method_portshandler_list_rules() != 5719) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests() != 1482) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_project() != 16431) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_compute() != 9988) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events() != 7062) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_extract() != 39041) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_toolhandler_handle() != 47918) {

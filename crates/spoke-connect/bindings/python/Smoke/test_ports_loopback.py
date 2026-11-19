@@ -167,6 +167,26 @@ class _SmokePortsHandler:
     def list_knowledge_entries(self, scope_json: str) -> str:
         return json.dumps(list(self._entries.values()))
 
+    # The scoped knowledge face over the same store: `get` / `put` carry no
+    # wire scope, so the admitted value below is the only one they are served
+    # in.
+    def serves_knowledge(self) -> bool:
+        return True
+
+    def knowledge_scope(self, peer_id: str) -> str:
+        return json.dumps({"scope_id": "scope_python_ports_smoke"})
+
+    def get_scoped_knowledge_entry(self, scope_json: str, entry_id: str) -> str:
+        return self.get_knowledge_entry(entry_id)
+
+    def put_scoped_knowledge_entry(
+        self, scope_json: str, entry_json: str, expected_base_revision: object
+    ) -> str:
+        return self.put_knowledge_entry(entry_json, expected_base_revision)
+
+    def list_scoped_knowledge_entries(self, scope_json: str) -> str:
+        return self.list_knowledge_entries(scope_json)
+
     def list_timeline_events(self, scope_json: str) -> str:
         return "[]"
 
@@ -607,6 +627,27 @@ class _KeRemotePortsHandler:
     def put_knowledge_entry(self, entry_json: str, expected_base_revision: object) -> str:
         self._unserved("put_knowledge_entry")
         raise AssertionError("unreachable")
+
+    # The scoped knowledge face: `list` is served inside the admitted scope,
+    # `get` / `put` stay ordinary refusals in this double.
+    def serves_knowledge(self) -> bool:
+        return True
+
+    def knowledge_scope(self, peer_id: str) -> str:
+        return json.dumps({"scope_id": "toy-scope-001", "viewpoint": "kb_tw_mira"})
+
+    def get_scoped_knowledge_entry(self, scope_json: str, entry_id: str) -> str:
+        self._unserved("get_knowledge_entry")
+        raise AssertionError("unreachable")
+
+    def put_scoped_knowledge_entry(
+        self, scope_json: str, entry_json: str, expected_base_revision: object
+    ) -> str:
+        self._unserved("put_knowledge_entry")
+        raise AssertionError("unreachable")
+
+    def list_scoped_knowledge_entries(self, scope_json: str) -> str:
+        return self.list_knowledge_entries(scope_json)
 
     def get_relation(self, relation_id: str) -> str:
         self._unserved("get_relation")

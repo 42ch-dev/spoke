@@ -456,96 +456,166 @@ static void call_UniffiCallbackInterfacePortsHandlerMethod5(
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD6
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD6
-typedef void (*UniffiCallbackInterfacePortsHandlerMethod6)(uint64_t uniffi_handle, RustBuffer findings_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod6)(uint64_t uniffi_handle, int8_t* uniffi_out_return, RustCallStatus* callStatus );
 
 // Making function static workaround:
 // https://github.com/golang/go/issues/11263
 static void call_UniffiCallbackInterfacePortsHandlerMethod6(
-				UniffiCallbackInterfacePortsHandlerMethod6 cb, uint64_t uniffi_handle, RustBuffer findings_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
-{
-	return cb(uniffi_handle, findings_json, uniffi_out_return, callStatus );
-}
-
-
-#endif
-#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD7
-#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD7
-typedef void (*UniffiCallbackInterfacePortsHandlerMethod7)(uint64_t uniffi_handle, RustBuffer rule_refs, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
-
-// Making function static workaround:
-// https://github.com/golang/go/issues/11263
-static void call_UniffiCallbackInterfacePortsHandlerMethod7(
-				UniffiCallbackInterfacePortsHandlerMethod7 cb, uint64_t uniffi_handle, RustBuffer rule_refs, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
-{
-	return cb(uniffi_handle, rule_refs, uniffi_out_return, callStatus );
-}
-
-
-#endif
-#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD8
-#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD8
-typedef void (*UniffiCallbackInterfacePortsHandlerMethod8)(uint64_t uniffi_handle, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
-
-// Making function static workaround:
-// https://github.com/golang/go/issues/11263
-static void call_UniffiCallbackInterfacePortsHandlerMethod8(
-				UniffiCallbackInterfacePortsHandlerMethod8 cb, uint64_t uniffi_handle, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+				UniffiCallbackInterfacePortsHandlerMethod6 cb, uint64_t uniffi_handle, int8_t* uniffi_out_return, RustCallStatus* callStatus )
 {
 	return cb(uniffi_handle, uniffi_out_return, callStatus );
 }
 
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD7
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD7
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod7)(uint64_t uniffi_handle, RustBuffer peer_id, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+
+// Making function static workaround:
+// https://github.com/golang/go/issues/11263
+static void call_UniffiCallbackInterfacePortsHandlerMethod7(
+				UniffiCallbackInterfacePortsHandlerMethod7 cb, uint64_t uniffi_handle, RustBuffer peer_id, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+{
+	return cb(uniffi_handle, peer_id, uniffi_out_return, callStatus );
+}
+
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD8
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD8
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod8)(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer entry_id, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+
+// Making function static workaround:
+// https://github.com/golang/go/issues/11263
+static void call_UniffiCallbackInterfacePortsHandlerMethod8(
+				UniffiCallbackInterfacePortsHandlerMethod8 cb, uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer entry_id, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+{
+	return cb(uniffi_handle, scope_json, entry_id, uniffi_out_return, callStatus );
+}
+
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD9
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD9
-typedef void (*UniffiCallbackInterfacePortsHandlerMethod9)(uint64_t uniffi_handle, RustBuffer project_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod9)(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer entry_json, RustBuffer expected_base_revision, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
 
 // Making function static workaround:
 // https://github.com/golang/go/issues/11263
 static void call_UniffiCallbackInterfacePortsHandlerMethod9(
-				UniffiCallbackInterfacePortsHandlerMethod9 cb, uint64_t uniffi_handle, RustBuffer project_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+				UniffiCallbackInterfacePortsHandlerMethod9 cb, uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer entry_json, RustBuffer expected_base_revision, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
 {
-	return cb(uniffi_handle, project_request_json, uniffi_out_return, callStatus );
+	return cb(uniffi_handle, scope_json, entry_json, expected_base_revision, uniffi_out_return, callStatus );
 }
 
 
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD10
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD10
-typedef void (*UniffiCallbackInterfacePortsHandlerMethod10)(uint64_t uniffi_handle, RustBuffer compute_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod10)(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
 
 // Making function static workaround:
 // https://github.com/golang/go/issues/11263
 static void call_UniffiCallbackInterfacePortsHandlerMethod10(
-				UniffiCallbackInterfacePortsHandlerMethod10 cb, uint64_t uniffi_handle, RustBuffer compute_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
-{
-	return cb(uniffi_handle, compute_request_json, uniffi_out_return, callStatus );
-}
-
-
-#endif
-#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD11
-#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD11
-typedef void (*UniffiCallbackInterfacePortsHandlerMethod11)(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
-
-// Making function static workaround:
-// https://github.com/golang/go/issues/11263
-static void call_UniffiCallbackInterfacePortsHandlerMethod11(
-				UniffiCallbackInterfacePortsHandlerMethod11 cb, uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+				UniffiCallbackInterfacePortsHandlerMethod10 cb, uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
 {
 	return cb(uniffi_handle, scope_json, uniffi_out_return, callStatus );
 }
 
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD11
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD11
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod11)(uint64_t uniffi_handle, RustBuffer findings_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+
+// Making function static workaround:
+// https://github.com/golang/go/issues/11263
+static void call_UniffiCallbackInterfacePortsHandlerMethod11(
+				UniffiCallbackInterfacePortsHandlerMethod11 cb, uint64_t uniffi_handle, RustBuffer findings_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+{
+	return cb(uniffi_handle, findings_json, uniffi_out_return, callStatus );
+}
+
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD12
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD12
-typedef void (*UniffiCallbackInterfacePortsHandlerMethod12)(uint64_t uniffi_handle, RustBuffer extract_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod12)(uint64_t uniffi_handle, RustBuffer rule_refs, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
 
 // Making function static workaround:
 // https://github.com/golang/go/issues/11263
 static void call_UniffiCallbackInterfacePortsHandlerMethod12(
-				UniffiCallbackInterfacePortsHandlerMethod12 cb, uint64_t uniffi_handle, RustBuffer extract_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+				UniffiCallbackInterfacePortsHandlerMethod12 cb, uint64_t uniffi_handle, RustBuffer rule_refs, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+{
+	return cb(uniffi_handle, rule_refs, uniffi_out_return, callStatus );
+}
+
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD13
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD13
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod13)(uint64_t uniffi_handle, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+
+// Making function static workaround:
+// https://github.com/golang/go/issues/11263
+static void call_UniffiCallbackInterfacePortsHandlerMethod13(
+				UniffiCallbackInterfacePortsHandlerMethod13 cb, uint64_t uniffi_handle, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+{
+	return cb(uniffi_handle, uniffi_out_return, callStatus );
+}
+
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD14
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD14
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod14)(uint64_t uniffi_handle, RustBuffer project_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+
+// Making function static workaround:
+// https://github.com/golang/go/issues/11263
+static void call_UniffiCallbackInterfacePortsHandlerMethod14(
+				UniffiCallbackInterfacePortsHandlerMethod14 cb, uint64_t uniffi_handle, RustBuffer project_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+{
+	return cb(uniffi_handle, project_request_json, uniffi_out_return, callStatus );
+}
+
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD15
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD15
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod15)(uint64_t uniffi_handle, RustBuffer compute_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+
+// Making function static workaround:
+// https://github.com/golang/go/issues/11263
+static void call_UniffiCallbackInterfacePortsHandlerMethod15(
+				UniffiCallbackInterfacePortsHandlerMethod15 cb, uint64_t uniffi_handle, RustBuffer compute_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+{
+	return cb(uniffi_handle, compute_request_json, uniffi_out_return, callStatus );
+}
+
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD16
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD16
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod16)(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+
+// Making function static workaround:
+// https://github.com/golang/go/issues/11263
+static void call_UniffiCallbackInterfacePortsHandlerMethod16(
+				UniffiCallbackInterfacePortsHandlerMethod16 cb, uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+{
+	return cb(uniffi_handle, scope_json, uniffi_out_return, callStatus );
+}
+
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD17
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD17
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod17)(uint64_t uniffi_handle, RustBuffer extract_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+
+// Making function static workaround:
+// https://github.com/golang/go/issues/11263
+static void call_UniffiCallbackInterfacePortsHandlerMethod17(
+				UniffiCallbackInterfacePortsHandlerMethod17 cb, uint64_t uniffi_handle, RustBuffer extract_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
 {
 	return cb(uniffi_handle, extract_request_json, uniffi_out_return, callStatus );
 }
@@ -619,13 +689,18 @@ typedef struct UniffiVTableCallbackInterfacePortsHandler {
     UniffiCallbackInterfacePortsHandlerMethod3 putRelation;
     UniffiCallbackInterfacePortsHandlerMethod4 listKnowledgeEntries;
     UniffiCallbackInterfacePortsHandlerMethod5 listTimelineEvents;
-    UniffiCallbackInterfacePortsHandlerMethod6 putFindings;
-    UniffiCallbackInterfacePortsHandlerMethod7 listRules;
-    UniffiCallbackInterfacePortsHandlerMethod8 listPeerHostCapabilityManifests;
-    UniffiCallbackInterfacePortsHandlerMethod9 project;
-    UniffiCallbackInterfacePortsHandlerMethod10 compute;
-    UniffiCallbackInterfacePortsHandlerMethod11 listForkTimelineEvents;
-    UniffiCallbackInterfacePortsHandlerMethod12 extract;
+    UniffiCallbackInterfacePortsHandlerMethod6 servesKnowledge;
+    UniffiCallbackInterfacePortsHandlerMethod7 knowledgeScope;
+    UniffiCallbackInterfacePortsHandlerMethod8 getScopedKnowledgeEntry;
+    UniffiCallbackInterfacePortsHandlerMethod9 putScopedKnowledgeEntry;
+    UniffiCallbackInterfacePortsHandlerMethod10 listScopedKnowledgeEntries;
+    UniffiCallbackInterfacePortsHandlerMethod11 putFindings;
+    UniffiCallbackInterfacePortsHandlerMethod12 listRules;
+    UniffiCallbackInterfacePortsHandlerMethod13 listPeerHostCapabilityManifests;
+    UniffiCallbackInterfacePortsHandlerMethod14 project;
+    UniffiCallbackInterfacePortsHandlerMethod15 compute;
+    UniffiCallbackInterfacePortsHandlerMethod16 listForkTimelineEvents;
+    UniffiCallbackInterfacePortsHandlerMethod17 extract;
 } UniffiVTableCallbackInterfacePortsHandler;
 
 #endif
@@ -1761,6 +1836,36 @@ uint16_t uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events(
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_SERVES_KNOWLEDGE
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_SERVES_KNOWLEDGE
+uint16_t uniffi_spoke_connect_checksum_method_portshandler_serves_knowledge(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_KNOWLEDGE_SCOPE
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_KNOWLEDGE_SCOPE
+uint16_t uniffi_spoke_connect_checksum_method_portshandler_knowledge_scope(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_GET_SCOPED_KNOWLEDGE_ENTRY
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_GET_SCOPED_KNOWLEDGE_ENTRY
+uint16_t uniffi_spoke_connect_checksum_method_portshandler_get_scoped_knowledge_entry(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_PUT_SCOPED_KNOWLEDGE_ENTRY
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_PUT_SCOPED_KNOWLEDGE_ENTRY
+uint16_t uniffi_spoke_connect_checksum_method_portshandler_put_scoped_knowledge_entry(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_LIST_SCOPED_KNOWLEDGE_ENTRIES
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_LIST_SCOPED_KNOWLEDGE_ENTRIES
+uint16_t uniffi_spoke_connect_checksum_method_portshandler_list_scoped_knowledge_entries(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_PUT_FINDINGS
 #define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_PUT_FINDINGS
 uint16_t uniffi_spoke_connect_checksum_method_portshandler_put_findings(void
@@ -1840,13 +1945,18 @@ uint32_t ffi_spoke_connect_uniffi_contract_version(void
  void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod3(uint64_t uniffi_handle, RustBuffer relation_json, RustBuffer expected_base_revision, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
  void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod4(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
  void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod5(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
- void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod6(uint64_t uniffi_handle, RustBuffer findings_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
- void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod7(uint64_t uniffi_handle, RustBuffer rule_refs, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
- void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod8(uint64_t uniffi_handle, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
- void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod9(uint64_t uniffi_handle, RustBuffer project_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
- void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod10(uint64_t uniffi_handle, RustBuffer compute_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
- void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod11(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
- void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod12(uint64_t uniffi_handle, RustBuffer extract_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod6(uint64_t uniffi_handle, int8_t* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod7(uint64_t uniffi_handle, RustBuffer peer_id, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod8(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer entry_id, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod9(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer entry_json, RustBuffer expected_base_revision, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod10(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod11(uint64_t uniffi_handle, RustBuffer findings_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod12(uint64_t uniffi_handle, RustBuffer rule_refs, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod13(uint64_t uniffi_handle, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod14(uint64_t uniffi_handle, RustBuffer project_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod15(uint64_t uniffi_handle, RustBuffer compute_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod16(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod17(uint64_t uniffi_handle, RustBuffer extract_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
  void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerFree(uint64_t handle);
 uint64_t spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerClone(uint64_t handle);
  void spoke_connect_ffi_foreign_tool_handler_cgo_dispatchCallbackInterfaceToolHandlerMethod0(uint64_t uniffi_handle, RustBuffer arguments_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );

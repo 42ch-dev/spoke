@@ -59,6 +59,19 @@ export const DICE_ROLL_ENTRY_ID = "demo-harbor/artifact/dice-roll";
 /** The client submission that triggers the orchestration (the demo's compass). */
 export const DICE_ROLL_TRIGGER_ENTRY_ID = "demo-harbor/item/compass";
 
+/** The compass submission shape the demo flow puts (create) as the trigger. */
+export function diceRollTriggerEntry(): KnowledgeEntry {
+  return {
+    schema_version: 1,
+    entry_id: DICE_ROLL_TRIGGER_ENTRY_ID,
+    entry_type: "item",
+    canonical_name: "Compass",
+    status: "provisional",
+    body: { summary: "A brass compass." },
+    extensions: {},
+  };
+}
+
 /** The deterministic reverse-invoke the orchestration performs (2d6). */
 export const ORCHESTRATION_ROLL_ARGS = { count: 2, sides: 6 } as const;
 

@@ -144,6 +144,7 @@ export const DEMO_SERVER_MANIFEST: HostCapabilityManifest = {
   roles: ["checker", "assembler", "input-source"],
   capabilities: [
     "spoke-baseline",
+    "spoke-knowledge",
     TOY_WORLD_ROLL_DICE_ID,
     TOY_WORLD_LORE_LOOKUP_ID,
     "l2-computable",

@@ -663,6 +663,26 @@ void assert_loopback_pair_round_trip() {
 }
 
 /**
+ * The loopback session manifest: the golden host manifest with the
+ * `spoke-knowledge` capability the three knowledge ops require added. The
+ * fixture's own manifest text is the base, so the smoke never restates the
+ * golden host identity or its baseline capability. Both ends advertise the
+ * result, so `spoke-knowledge` is in the negotiated set — which is what the
+ * serving gate requires for a knowledge op.
+ */
+std::string loopback_manifest(const Golden& golden) {
+    std::string manifest = golden.manifest_json;
+    const std::string capabilities = "\"capabilities\":[\"spoke-baseline\"]";
+    if (manifest.find(capabilities) == std::string::npos) {
+        fail(kLoopbackLabel, "the golden manifest no longer carries the baseline capability to "
+                             "extend: " + manifest);
+    }
+    manifest.replace(manifest.find(capabilities), capabilities.size(),
+                     "\"capabilities\":[\"spoke-baseline\",\"spoke-knowledge\"]");
+    return manifest;
+}
+
+/**
  * A dialer and a responder over two cross-wired host queues, then one baseline
  * ports call across that loopback. Both ends use the golden identity, so the
  * fixture that pins the golden assertions also supplies the session identities.
@@ -704,7 +724,8 @@ void assert_host_queue_loopback_ports(const Golden& golden) {
                &error, kLoopbackLabel, "spoke_connect_ports_handler_new_v2");
 
     const SpokeConnectSlice seed = slice_of(golden.seed);
-    const SpokeConnectSlice manifest = slice_of(golden.manifest_json);
+    const std::string loopback_manifest_json = loopback_manifest(golden);
+    const SpokeConnectSlice manifest = slice_of(loopback_manifest_json);
     const SpokeConnectSlice pubkey = slice_of(golden.pubkey);
     const SpokeConnectSlice peer_id = slice_of(golden.peer_id);
     const SpokeConnectSlice allowlist[] = {peer_id};

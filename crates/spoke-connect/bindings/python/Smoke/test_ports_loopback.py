@@ -45,14 +45,14 @@ def _decode_hex(hex_str: str) -> bytes:
 
 def _ports_manifest_json(host_id: str) -> str:
     """Ports-carrying manifest — baseline + optional families, so the
-    negotiated set includes l2-computable / l5-fork. Mirror of the Rust
-    `ports_manifest_json` test helper."""
+    negotiated set includes spoke-knowledge / l2-computable / l5-fork. Mirror
+    of the Rust `ports_manifest_json` test helper."""
     return json.dumps(
         {
             "schema_version": 1,
             "host_id": host_id,
             "roles": ["data-store", "l2-computable"],
-            "capabilities": ["spoke-baseline", "l2-computable", "l5-fork"],
+            "capabilities": ["spoke-baseline", "spoke-knowledge", "l2-computable", "l5-fork"],
             "namespaces": ["toy_world"],
             "extensions": {},
         }
@@ -481,7 +481,7 @@ def _ke_manifest_json(host_id: str, capabilities: list[str]) -> str:
             "schema_version": 1,
             "host_id": host_id,
             "roles": ["data-store"],
-            "capabilities": ["spoke-baseline", *capabilities],
+            "capabilities": ["spoke-baseline", "spoke-knowledge", *capabilities],
             "namespaces": ["toy_world"],
             "extensions": {},
         }

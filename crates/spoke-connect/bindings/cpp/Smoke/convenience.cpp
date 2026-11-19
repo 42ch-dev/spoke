@@ -512,11 +512,12 @@ struct HostTool {
 };
 
 /**
- * The golden host manifest with the demo echo tool added: the fixture's own
- * manifest text is the base, so the smoke never restates the golden host
- * identity or its baseline capability. Both ends advertise the result, so
- * `tools.example.echo` is in the negotiated capability set — which is what the
- * dispatch gate requires for a tool invoke in either direction.
+ * The golden host manifest with the demo echo tool and the explicit knowledge
+ * capability added: the fixture's own manifest text is the base, so the smoke
+ * never restates the golden host identity or its baseline capability. Both
+ * ends advertise the result, so `tools.example.echo` and `spoke-knowledge` are
+ * in the negotiated capability set — which is what the dispatch gate requires
+ * for a tool invoke in either direction and for the served knowledge ops.
  */
 std::string tool_manifest(const Golden& golden) {
     std::string manifest = golden.manifest_json;
@@ -529,7 +530,7 @@ std::string tool_manifest(const Golden& golden) {
                             "empty namespace list to extend: " + manifest);
     }
     manifest.replace(manifest.find(capabilities), capabilities.size(),
-                     "\"capabilities\":[\"spoke-baseline\",\"" + tool + "\"]");
+                     "\"capabilities\":[\"spoke-baseline\",\"spoke-knowledge\",\"" + tool + "\"]");
     manifest.replace(manifest.find(namespaces), namespaces.size(),
                      "\"namespaces\":[\"example\"]");
     const std::string descriptor = "{\"capability_id\":\"" + tool +

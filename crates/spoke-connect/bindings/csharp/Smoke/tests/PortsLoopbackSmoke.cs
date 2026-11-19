@@ -245,8 +245,8 @@ public static class PortsLoopbackSmoke
     }
 
     /// <summary>Ports-carrying manifest — baseline + optional families, so
-    /// the negotiated set includes l2-computable / l5-fork. Mirror of the
-    /// Rust `ports_manifest_json` test helper.</summary>
+    /// the negotiated set includes spoke-knowledge / l2-computable / l5-fork.
+    /// Mirror of the Rust `ports_manifest_json` test helper.</summary>
     private static string PortsManifestJson(string hostId)
     {
         var manifest = new Dictionary<string, object?>
@@ -254,7 +254,7 @@ public static class PortsLoopbackSmoke
             ["schema_version"] = 1,
             ["host_id"] = hostId,
             ["roles"] = new[] { "data-store", "l2-computable" },
-            ["capabilities"] = new[] { "spoke-baseline", "l2-computable", "l5-fork" },
+            ["capabilities"] = new[] { "spoke-baseline", "spoke-knowledge", "l2-computable", "l5-fork" },
             ["namespaces"] = new[] { "toy_world" },
             ["extensions"] = new Dictionary<string, object?>(),
         };
@@ -505,7 +505,7 @@ public static class PortsLoopbackSmoke
     /// are set up. Mirror of the Rust `ke_manifest_json` test helper.</summary>
     private static string KeManifestJson(string hostId, string[] capabilities)
     {
-        var all = new List<string> { "spoke-baseline" };
+        var all = new List<string> { "spoke-baseline", "spoke-knowledge" };
         all.AddRange(capabilities);
         var manifest = new Dictionary<string, object?>
         {

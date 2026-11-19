@@ -332,10 +332,10 @@ func jsonField(t *testing.T, raw string, path string) string {
 }
 
 // portsManifestJSON — ports-carrying manifest: baseline + optional families,
-// so the negotiated set includes l2-computable / l5-fork. Mirror of the Rust
-// ports_manifest_json test helper.
+// so the negotiated set includes spoke-knowledge / l2-computable / l5-fork.
+// Mirror of the Rust ports_manifest_json test helper.
 func portsManifestJSON(hostID string) string {
-	return `{"schema_version":1,"host_id":"` + hostID + `","roles":["data-store","l2-computable"],"capabilities":["spoke-baseline","l2-computable","l5-fork"],"namespaces":["toy_world"],"extensions":{}}`
+	return `{"schema_version":1,"host_id":"` + hostID + `","roles":["data-store","l2-computable"],"capabilities":["spoke-baseline","spoke-knowledge","l2-computable","l5-fork"],"namespaces":["toy_world"],"extensions":{}}`
 }
 
 // smokePortsHandler — foreign-callback PortsHandler: in-memory knowledge
@@ -485,7 +485,7 @@ func (h *smokePortsHandler) Extract(extractRequestJSON string) (string, error) {
 // hellos to be negotiated, so the omitted side is how the deny scenarios are
 // set up. Mirror of the Rust `ke_manifest_json` test helper.
 func keManifestJSON(hostID string, capabilities []string) string {
-	all := append([]string{"spoke-baseline"}, capabilities...)
+	all := append([]string{"spoke-baseline", "spoke-knowledge"}, capabilities...)
 	out, err := json.Marshal(map[string]any{
 		"schema_version": 1,
 		"host_id":        hostID,

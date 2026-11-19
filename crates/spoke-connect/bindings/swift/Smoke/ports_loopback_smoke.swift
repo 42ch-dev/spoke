@@ -12,12 +12,12 @@
 import Foundation
 
 /// Ports-carrying manifest — baseline + optional families, so the negotiated
-/// set includes l2-computable / l5-fork. Mirror of the Rust
+/// set includes spoke-knowledge / l2-computable / l5-fork. Mirror of the Rust
 /// `ports_manifest_json` test helper.
 private func portsManifestJson(hostId: String) -> String {
     """
     {"schema_version":1,"host_id":"\(hostId)","roles":["data-store","l2-computable"],
-    "capabilities":["spoke-baseline","l2-computable","l5-fork"],
+    "capabilities":["spoke-baseline","spoke-knowledge","l2-computable","l5-fork"],
     "namespaces":["toy_world"],"extensions":{}}
     """
 }
@@ -560,7 +560,7 @@ private func keManifestJson(hostId: String, capabilities: [String]) -> String {
         "schema_version": 1,
         "host_id": hostId,
         "roles": ["data-store"],
-        "capabilities": ["spoke-baseline"] + capabilities,
+        "capabilities": ["spoke-baseline", "spoke-knowledge"] + capabilities,
         "namespaces": ["toy_world"],
         "extensions": [:],
     ]

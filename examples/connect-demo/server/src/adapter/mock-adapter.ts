@@ -324,11 +324,15 @@ export function demoKnowledgeFace(
       async putScopedKnowledgeEntry(scope, entry, expectedBaseRevision) {
         // OCC reads the existing row for compare-and-swap; a hidden entry
         // must reject before the engine sees the write so the store stays
-        // unchanged. A create on an absent entry is not gated — nothing
-        // exists to disclose — but a hidden existing row still rejects, so
-        // the OCC conflict path cannot reveal it either.
+        // unchanged. An absent row with a non-null expectedBaseRevision
+        // answers the identical not-found row — comparing it against the
+        // engine's stale-revision reject would disclose which ids exist.
+        // Only a create (`null`) is ungated: nothing exists to disclose.
         const existing = await adapter.getKnowledgeEntry(entry.entry_id);
         if (existing.ok && !inScope(scope, existing.value)) {
+          return notFound(entry.entry_id);
+        }
+        if (!existing.ok && expectedBaseRevision !== null) {
           return notFound(entry.entry_id);
         }
         return adapter.putKnowledgeEntry(entry, expectedBaseRevision);

@@ -91,7 +91,7 @@ pub trait ScopeQueryPort {
 
 /// Knowledge list query for check / assemble.
 #[async_trait]
-pub trait KnowledgeQueryPort {
+pub trait KnowledgeQueryPort: Send + Sync {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>>;
 }
 
@@ -101,7 +101,7 @@ pub trait KnowledgeQueryPort {
 /// [`BaselinePorts`] / [`FullPorts`] or the adapter aliases. A host exposes it
 /// to peers only together with an admission policy for the peer's scope.
 #[async_trait]
-pub trait ScopedKnowledgePort {
+pub trait ScopedKnowledgePort: Send + Sync {
     async fn get_scoped_knowledge_entry(
         &self,
         scope: &Scope,
@@ -592,6 +592,13 @@ mod tests {
     use crate::{spoke_ok, SpokeRejectCode};
     use serde_json::json;
     use std::collections::HashMap;
+
+    #[test]
+    fn knowledge_port_objects_are_send_sync() {
+        fn assert_send_sync<T: Send + Sync + ?Sized>() {}
+        assert_send_sync::<dyn KnowledgeQueryPort>();
+        assert_send_sync::<dyn ScopedKnowledgePort>();
+    }
 
     fn make_manifest(
         host_id: &str,

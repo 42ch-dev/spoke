@@ -210,7 +210,7 @@ function servePortsFor(
       listScopedKnowledgeEntries: (scope) =>
         provider.listKnowledgeEntries(scope),
     },
-    admission: () => spokeOk(payloadScope ?? { scope_id: "" }),
+    admission: () => spokeOk((payloadScope ?? { scope_id: "" }) as Scope),
   };
   return { baseline: provider, knowledge: face, invoke: provider.invoke };
 }

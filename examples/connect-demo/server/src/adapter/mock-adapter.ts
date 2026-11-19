@@ -31,12 +31,14 @@ import type {
   Scope,
   TimelineEvent,
 } from "@42ch/spoke-schemas";
+import type { RemoteKnowledgeFace } from "@42ch/spoke-connect/remote";
 import {
   assertSupportedCognitionSelection,
   filterKnowledgeEntriesByScope,
   filterTimelineEventsByScope,
   orchestrateExtract,
   spokeOk,
+  spokeReject,
   type ExtractionPort,
   type FullPorts,
   type RunExtractor,
@@ -44,7 +46,8 @@ import {
 } from "@42ch/spoke-operations";
 
 import { MockEngine } from "../engine/mock-engine.js";
-import { DEMO_SCOPE_ID } from "../engine/seed-corpus.js";
+import { DEMO_SCOPE_ID, DEMO_HOLDER_ENTRY_ID } from "../engine/seed-corpus.js";
+import { DEMO_CLIENT_PEER_ID } from "../identities.js";
 import {
   LORE_LOOKUP_DESCRIPTOR,
   ROLL_DICE_DESCRIPTOR,
@@ -283,4 +286,37 @@ export class MockAdapter implements FullPorts {
     // The demo inference host knows no peers; an empty list is valid.
     return spokeOk([]);
   }
+}
+
+/**
+ * The demo host's knowledge serving face (design §4/§7): a scoped store
+ * backed by the adapter's knowledge families plus a per-peer admission that
+ * maps the demo client peer to the demo scope.
+ */
+export function demoKnowledgeFace(
+  adapter: Pick<
+    FullPorts,
+    "getKnowledgeEntry" | "putKnowledgeEntry" | "listKnowledgeEntries"
+  >,
+): RemoteKnowledgeFace {
+  return {
+    store: {
+      async getScopedKnowledgeEntry(_scope, entryId) {
+        return adapter.getKnowledgeEntry(entryId);
+      },
+      async putScopedKnowledgeEntry(_scope, entry, expectedBaseRevision) {
+        return adapter.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+      async listScopedKnowledgeEntries(scope) {
+        return adapter.listKnowledgeEntries(scope);
+      },
+    },
+    admission: (peerId) =>
+      peerId === DEMO_CLIENT_PEER_ID
+        ? // The admitted viewpoint is authoritative: the responder forces it
+          // onto every served list, so the client's viewpoint-bearing
+          // ownership query reads as the demo holder.
+          spokeOk({ scope_id: DEMO_SCOPE_ID, viewpoint: DEMO_HOLDER_ENTRY_ID })
+        : spokeReject("NOT_AUTHORIZED", "knowledge scope not authorized"),
+  };
 }

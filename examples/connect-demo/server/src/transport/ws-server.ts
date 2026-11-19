@@ -22,7 +22,7 @@ import { connectResponder } from "@42ch/spoke-connect/remote";
 import type { EnvelopeBytes, Transport } from "@42ch/spoke-connect/remote";
 import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
 
-import { DEMO_SERVER_MANIFEST, MockAdapter } from "../adapter/mock-adapter.js";
+import { DEMO_SERVER_MANIFEST, MockAdapter, demoKnowledgeFace } from "../adapter/mock-adapter.js";
 import {
   DemoOrchestrator,
   type DemoOrchestration,
@@ -235,7 +235,12 @@ export async function serveConnectDemo(
       peerKeys: {
         [DEMO_CLIENT_PEER_ID]: DEMO_CLIENT_PUBKEY,
       },
-      ports: orchestrator,
+      ports: {
+        baseline: orchestrator,
+        knowledge: demoKnowledgeFace(orchestrator),
+        // ke-extraction stays a service probed on the ports object.
+        extract: (request) => orchestrator.extract(request),
+      },
     }).then((responder) => {
       orchestrator.setResponder(responder);
     });

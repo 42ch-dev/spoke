@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { spokeOk, spokeReject, type Scope, type SpokeResult } from "@42ch/spoke-operations";
+import { spokeOk, spokeReject, type SpokeResult } from "@42ch/spoke-operations";
 
 import {
   capabilitySatisfies,
@@ -31,6 +31,7 @@ import {
 import {
   connectResponder,
   knowledgeOnlyServePorts,
+  type RemoteAdapter,
   type RemoteKnowledgeFace,
 } from "../../src/remote/index.js";
 import {
@@ -43,7 +44,7 @@ import { authenticateInvokeRequest } from "../../src/core/envelope-auth.js";
 import { generateNonce } from "../../src/core/nonce.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../../src/core/hello.js";
 import { decodeJsonMessage, encodeJsonMessage } from "../../src/framing.js";
-import type { HostCapabilityManifest, KnowledgeEntry } from "@42ch/spoke-schemas";
+import type { HostCapabilityManifest, KnowledgeEntry, Scope } from "@42ch/spoke-schemas";
 
 const textEncoder = new TextEncoder();
 
@@ -121,6 +122,7 @@ describe("selectPeerForOp knowledge rows", () => {
 /** In-memory scoped store: entries partitioned by admitted scope_id. */
 function scopedStoreFace(
   admission: (peerId: string) => SpokeResult<Scope>,
+  storeCalls: string[] = [],
 ): RemoteKnowledgeFace {
   const entries = new Map<string, Map<string, KnowledgeEntry>>();
   const bucket = (scopeId: string): Map<string, KnowledgeEntry> => {
@@ -134,25 +136,31 @@ function scopedStoreFace(
   return {
     store: {
       async getScopedKnowledgeEntry(scope, entryId) {
+        storeCalls.push("get");
         const found = bucket(scope.scope_id).get(entryId);
         return found === undefined
           ? spokeReject("KNOWLEDGE_ENTRY_NOT_FOUND", "no such entry")
           : spokeOk(found);
       },
       async putScopedKnowledgeEntry(scope, entry, expectedBaseRevision) {
+        storeCalls.push("put");
         const store = bucket(scope.scope_id);
+        const stored = store.get(entry.entry_id);
         if (expectedBaseRevision === null) {
-          if (store.has(entry.entry_id)) {
+          if (stored !== undefined) {
             return spokeReject("KNOWLEDGE_ENTRY_ALREADY_EXISTS", "exists");
           }
-        } else if (store.get(entry.entry_id) === undefined) {
-          return spokeReject("KNOWLEDGE_ENTRY_NOT_FOUND", "no such entry");
+        } else if (
+          stored === undefined ||
+          stored.revision !== expectedBaseRevision
+        ) {
+          return spokeReject("STORED_REVISION_STALE", "revision mismatch");
         }
-        const stored = { ...entry };
-        store.set(entry.entry_id, stored);
-        return spokeOk(stored);
+        store.set(entry.entry_id, { ...entry });
+        return spokeOk({ ...entry });
       },
       async listScopedKnowledgeEntries(scope) {
+        storeCalls.push("list");
         return spokeOk([...bucket(scope.scope_id).values()]);
       },
     },
@@ -162,7 +170,7 @@ function scopedStoreFace(
 
 interface DialedKnowledgeHost {
   host: { close(): void; state: string };
-  client: { close(): void };
+  client: RemoteAdapter;
   close: () => void;
 }
 
@@ -300,12 +308,13 @@ describe("knowledge-only responder", () => {
     const unboundPeerId = derivePeerIdFromEd25519Pubkey(
       getPublicKeyEd25519(unboundSeed),
     );
+    const storeCalls: string[] = [];
     const face = scopedStoreFace((peerId) => {
       const scope = admitted.get(peerId);
       return scope === undefined
         ? spokeReject("NOT_AUTHORIZED", "knowledge scope not authorized")
         : spokeOk(scope);
-    });
+    }, storeCalls);
 
     const dial = async (
       clientSeed: Uint8Array,
@@ -379,11 +388,13 @@ describe("knowledge-only responder", () => {
       // An unbound caller is refused NOT_AUTHORIZED before any store call.
       const unbound = await dial(unboundSeed);
       try {
+        const callsBefore = storeCalls.length;
         const refused = await unbound.client.listKnowledgeEntries(SCOPE_A);
         expect(refused.ok).toBe(false);
         if (!refused.ok) {
           expect(refused.code).toBe("NOT_AUTHORIZED");
         }
+        expect(storeCalls.length).toBe(callsBefore);
       } finally {
         unbound.close();
       }
@@ -391,22 +402,26 @@ describe("knowledge-only responder", () => {
       // A scope_id mismatch refuses NOT_AUTHORIZED: caller A admitted to
       // scope A cannot list scope B even though the store call would have
       // been scoped.
+      const callsBeforeMismatch = storeCalls.length;
       const mismatch = await callerA.client.listKnowledgeEntries(SCOPE_B);
       expect(mismatch.ok).toBe(false);
       if (!mismatch.ok) {
         expect(mismatch.code).toBe("NOT_AUTHORIZED");
       }
+      expect(storeCalls.length).toBe(callsBeforeMismatch);
 
       // A viewpoint mismatch (admitted viewpoint the request omits) refuses.
       admitted.set(
         derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x10))),
         { scope_id: "scope_a", viewpoint: "holder-a" },
       );
+      const callsBeforeViewpoint = storeCalls.length;
       const omitted = await callerA.client.listKnowledgeEntries(SCOPE_A);
       expect(omitted.ok).toBe(false);
       if (!omitted.ok) {
         expect(omitted.code).toBe("NOT_AUTHORIZED");
       }
+      expect(storeCalls.length).toBe(callsBeforeViewpoint);
       // The matching viewpoint serves.
       const withViewpoint = await callerA.client.listKnowledgeEntries({
         scope_id: "scope_a",
@@ -416,6 +431,53 @@ describe("knowledge-only responder", () => {
     } finally {
       callerA.close();
       callerB.close();
+    }
+  });
+
+  it("rejects a stale-revision put end to end without replacing the entry", async () => {
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(SCOPE_A),
+      clientSeed: seed(0x10),
+      clientCapabilities: ["spoke-knowledge"],
+    });
+    try {
+      const created = await client.putKnowledgeEntry(entry("kb_stale"), null);
+      expect(created.ok).toBe(true);
+
+      // Advance the stored entry to revision 2.
+      const bump = await client.putKnowledgeEntry(
+        { ...entry("kb_stale"), revision: 2, body: { summary: "updated" } },
+        1,
+      );
+      expect(bump.ok).toBe(true);
+
+      // A put with a non-null expected revision that mismatches the stored
+      // one is refused and the entry is unchanged.
+      const stale = await client.putKnowledgeEntry(
+        { ...entry("kb_stale"), body: { summary: "overwritten" } },
+        1,
+      );
+      expect(stale.ok).toBe(false);
+      if (!stale.ok) {
+        expect(["STORED_REVISION_STALE", "REVISION_CONFLICT"]).toContain(
+          stale.code,
+        );
+      }
+      const got = await client.getKnowledgeEntry("kb_stale");
+      expect(got.ok).toBe(true);
+      if (got.ok) {
+        expect(got.value.body).toEqual({ summary: "updated" });
+        expect(got.value.revision).toBe(2);
+      }
+
+      // The matching expected revision serves.
+      const fresh = await client.putKnowledgeEntry(
+        { ...entry("kb_stale"), revision: 3, body: { summary: "v3" } },
+        2,
+      );
+      expect(fresh.ok).toBe(true);
+    } finally {
+      close();
     }
   });
 });

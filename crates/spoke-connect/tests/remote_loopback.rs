@@ -7771,3 +7771,181 @@ async fn knowledge_face_keeps_the_ownership_and_cognition_conjuncts() {
 
     responder.close();
 }
+
+// ── QC fix round: admission bound / absent face / optional-only host ──────
+
+/// An optional-family-only ports face (B5): it exposes `project` / `compute`
+/// and the fork timeline query, and no baseline face at all.
+struct OptionalOnlyPorts {
+    computable: Arc<ToyWorldAdapter>,
+    fork: Arc<ToyWorldAdapter>,
+}
+
+impl RemoteServePorts for OptionalOnlyPorts {
+    fn as_computable(&self) -> Option<&dyn ComputablePort> {
+        Some(self.computable.as_ref())
+    }
+
+    fn as_fork_timeline(&self) -> Option<&dyn ForkTimelineQueryPort> {
+        Some(self.fork.as_ref())
+    }
+}
+
+/// B5: the owning face is probed per operation, so a host that serves only the
+/// optional families must not be refused for lacking a baseline face.
+#[tokio::test]
+async fn optional_only_host_serves_compute_and_fork_without_a_baseline_face() {
+    let adapter = Arc::new(ToyWorldAdapter::with_committed_fixtures());
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(OptionalOnlyPorts {
+        computable: Arc::clone(&adapter),
+        fork: adapter,
+    });
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["l2-computable", "l5-fork"],
+        responder_capabilities: vec!["l2-computable", "l5-fork"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let request: ComputeRequest = serde_json::from_value(json!({
+        "session_id": "sess_tw_dawn_arrival",
+        "entry_id": "kb_tw_harbor",
+        "computable": { "tide_level": 2.5 },
+        "settle": true,
+    }))
+    .expect("valid ComputeRequest");
+    match client.compute(request).await {
+        SpokeResult::Reject(reject) => {
+            panic!("an optional-only host must serve compute: {reject:?}")
+        }
+        SpokeResult::Ok(_) => {}
+    }
+
+    let scope: Scope = serde_json::from_value(json!({
+        "scope_id": "pkt_tw_scope",
+        "fork_id": "fork_tw_storm_branch",
+    }))
+    .expect("valid Scope");
+    match client.list_fork_timeline_events(&scope).await {
+        SpokeResult::Ok(events) => assert_eq!(events.len(), 1, "the fork branch serves"),
+        SpokeResult::Reject(reject) => {
+            panic!("an optional-only host must serve the fork query: {reject:?}")
+        }
+    }
+
+    // A baseline op keeps the dispatch-deny row: the face really is absent.
+    match client.get_relation("rel_tw_harbor_tide").await {
+        SpokeResult::Ok(_) => panic!("an absent baseline face must deny relation reads"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(reject_wire_code(&reject), Some("op_unsupported"));
+        }
+    }
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    client.close();
+    responder.close();
+}
+
+/// B4: a negotiated knowledge op whose serving face is absent answers the
+/// dispatch-deny wire code (`op_unsupported`), not an application-coded
+/// `CAPABILITY_PORT_MISSING`.
+#[tokio::test]
+async fn absent_knowledge_face_answers_the_dispatch_deny_wire_code() {
+    let adapter = Arc::new(ToyWorldAdapter::with_committed_fixtures());
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = adapter;
+    // A baseline face with no knowledge face attached: the op clears the gate
+    // and reaches the probe.
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(baseline, None, None));
+    let (responder, pair, seed) =
+        start_raw_ke_responder(ports, &["spoke-knowledge"]).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "absent-knowledge-face",
+        "port.knowledge.get",
+        json!({ "entry_id": "kb_tw_mira" }),
+    )
+    .await;
+    assert_eq!(
+        response["error"]["code"], "op_unsupported",
+        "an absent knowledge face answers the dispatch-deny wire code: {response}"
+    );
+    assert_eq!(
+        response["error"]["message"],
+        json!("no knowledge face configured for port op port.knowledge.get"),
+        "the deny names the absent face: {response}"
+    );
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    responder.close();
+}
+
+/// B1: admission is provider work, so the serve budget bounds it. A resolver
+/// that keeps blocking past the budget yields exactly one signed timeout and
+/// the store is never reached.
+#[tokio::test]
+async fn serve_timeout_bounds_a_parked_admission_without_reaching_the_store() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let face = knowledge_face(Arc::clone(&store), |_| {
+        std::thread::sleep(Duration::from_millis(250));
+        spoke_ok(default_admitted_scope())
+    });
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::knowledge_only(face));
+    let (responder, pair, seed) =
+        start_raw_ke_responder_with_budget(ports, &["spoke-knowledge"], Some(25)).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+
+    let started = Instant::now();
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            0,
+            "parked-admission",
+            "port.knowledge.get",
+            json!({ "entry_id": "kb_tw_mira" }),
+        ),
+    )
+    .await
+    .expect("the bounded admission answers without waiting out the resolver");
+    let elapsed = started.elapsed();
+
+    assert_eq!(response["error"]["code"], "INTERNAL_ERROR", "{response}");
+    assert_eq!(response["error"]["details"]["kind"], "timeout", "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("serve wait exceeded the local budget of 25ms"),
+        "the expiry names the responder's own budget: {response}"
+    );
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "the answer must not wait for the still-blocking resolver (took {elapsed:?})"
+    );
+    assert!(
+        store.calls().is_empty(),
+        "a bounded-away admission never reaches the store: {:?}",
+        store.calls()
+    );
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    responder.close();
+}

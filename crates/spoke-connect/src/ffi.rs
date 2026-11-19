@@ -603,30 +603,18 @@ mod foreign_ports_handler {
         map_handled(what, handled)
     }
 
-    /// Run the synchronous `knowledge_scope` resolver from the responder's
-    /// async task.
+    /// Run the synchronous `knowledge_scope` resolver.
     ///
-    /// The admission seam is a plain `Fn(&str)` the responder calls
-    /// synchronously, so it cannot `.await` the blocking-pool handoff the way
-    /// [`call_ports`] does. `block_in_place` first releases the worker thread
-    /// — the runtime puts a replacement on the pool, so a blocking resolver
-    /// starves nothing — then the call itself runs on the blocking pool, and
-    /// a foreign panic is contained to an error instead of unwinding the
-    /// responder task and leaving the request unanswered.
+    /// The responder calls this from its own blocking task, because admission
+    /// is inside the serve-wait budget: a resolver MUST return within that
+    /// budget on its own. The blocking thread cannot be cancelled, so the
+    /// responder's bound — not a forced stop — is what the caller is
+    /// guaranteed, and a resolver that blocks forever leaks its blocking
+    /// thread. A foreign panic is contained to an error instead of unwinding
+    /// the serve loop.
     fn resolve_scope(handler: Arc<dyn PortsHandler>, peer_id: String) -> Result<String, FfiError> {
-        let handled = catch_unwind(AssertUnwindSafe(|| {
-            tokio::task::block_in_place(|| {
-                ffi_runtime().block_on(
-                    ffi_runtime().spawn_blocking(move || handler.knowledge_scope(peer_id)),
-                )
-            })
-        }));
-        match handled {
-            Ok(Ok(result)) => result,
-            Ok(Err(join)) => Err(FfiError::Dial {
-                kind: "task".into(),
-                message: format!("knowledge_scope task failed: {join}"),
-            }),
+        match catch_unwind(AssertUnwindSafe(|| handler.knowledge_scope(peer_id))) {
+            Ok(result) => result,
             Err(payload) => Err(FfiError::Dial {
                 kind: "panic".into(),
                 message: format!(
@@ -634,6 +622,34 @@ mod foreign_ports_handler {
                     panic_payload_message(payload)
                 ),
             }),
+        }
+    }
+
+    /// Which responder faces a foreign ports handler provides.
+    ///
+    /// The uniffi callback interface always serves every family (no face has
+    /// a way to say "absent"), so that route passes [`ServedFaces::all`]. A
+    /// carrier that sees a host's callback table can tell which families the
+    /// host actually filled in, and passes that here so an empty family stays
+    /// absent instead of becoming a stub the responder would serve (B6).
+    #[derive(Clone, Copy, Debug)]
+    pub struct ServedFaces {
+        pub baseline: bool,
+        pub computable: bool,
+        pub fork: bool,
+        pub extract: bool,
+    }
+
+    impl ServedFaces {
+        /// Every face present — the uniffi callback contract.
+        #[must_use]
+        pub const fn all() -> Self {
+            Self {
+                baseline: true,
+                computable: true,
+                fork: true,
+                extract: true,
+            }
         }
     }
 
@@ -654,8 +670,13 @@ mod foreign_ports_handler {
     /// through the composite is what opts extraction in — the full-optional
     /// blanket impl answers `None` from `as_extract` and would mask the
     /// callback as an absent provider.
+    ///
+    /// `faces` says which families the host actually provided, so an absent
+    /// family stays absent rather than becoming a stub (B6). A caller that
+    /// cannot tell passes [`ServedFaces::all`] — the uniffi callback contract.
     pub fn into_remote_serve_ports(
         handler: Box<dyn PortsHandler>,
+        faces: ServedFaces,
     ) -> Arc<dyn RemoteServePorts + Send + Sync> {
         let serves_knowledge = handler.serves_knowledge();
         let bridge = Arc::new(RemoteServePortsBridge {
@@ -667,8 +688,16 @@ mod foreign_ports_handler {
         let computable: Arc<dyn ComputablePort + Send + Sync> = bridge.clone();
         let fork: Arc<dyn ForkTimelineQueryPort + Send + Sync> = bridge.clone();
         let extract: Arc<dyn RemoteExtractService> = bridge.clone();
-        let composite = RemoteServePortsComposite::new(baseline, Some(computable), Some(fork))
-            .with_extract(extract);
+        let composite = RemoteServePortsComposite::faces(
+            faces.baseline.then_some(baseline),
+            faces.computable.then_some(computable),
+            faces.fork.then_some(fork),
+        );
+        let composite = if faces.extract {
+            composite.with_extract(extract)
+        } else {
+            composite
+        };
         // A handler with no resolver exposes no knowledge face at all: the
         // three ops answer the responder's missing-face deny branch and the
         // scoped callbacks stay unreachable.
@@ -922,7 +951,7 @@ mod foreign_ports_handler {
 }
 
 #[cfg(feature = "remote-adapter")]
-pub use foreign_ports_handler::PortsHandler;
+pub use foreign_ports_handler::{PortsHandler, ServedFaces};
 
 // ── Sync `RemoteAdapterFFI` over the async adapter (AR-4 / AR-5 / AR-6) ───
 #[cfg(feature = "remote-adapter")]
@@ -1492,7 +1521,9 @@ mod connect_responder_ffi {
         connect_responder, ConnectResponder, ConnectResponderOptions, RemoteIdentity,
     };
 
-    use super::foreign_ports_handler::{into_remote_serve_ports, PortsHandler as FfiPortsHandler};
+    use super::foreign_ports_handler::{
+        into_remote_serve_ports, PortsHandler as FfiPortsHandler, ServedFaces,
+    };
     use super::foreign_tool_handler::{into_remote_handler, ToolHandler as FfiToolHandler};
     use super::foreign_transport::ForeignCallbackTransport;
     use super::foreign_transport::Transport as FfiTransport;
@@ -1608,6 +1639,32 @@ mod connect_responder_ffi {
         ports: Option<Box<dyn FfiPortsHandler>>,
         invoke_timeout_ms: Option<u64>,
     ) -> Result<Arc<ConnectResponderFFI>, FfiError> {
+        connect_responder_ffi_with_faces(
+            transport,
+            seed,
+            manifest_json,
+            allowlist,
+            peer_keys,
+            ports,
+            ServedFaces::all(),
+            invoke_timeout_ms,
+        )
+    }
+
+    /// [`connect_responder_ffi`] for a carrier that knows which port families
+    /// its callback table actually fills in (B6). Not exported to the
+    /// bindings: the uniffi callback interface always serves every family.
+    #[allow(clippy::too_many_arguments)]
+    pub fn connect_responder_ffi_with_faces(
+        transport: Box<dyn FfiTransport>,
+        seed: Vec<u8>,
+        manifest_json: String,
+        allowlist: Vec<String>,
+        peer_keys: HashMap<String, Vec<u8>>,
+        ports: Option<Box<dyn FfiPortsHandler>>,
+        faces: ServedFaces,
+        invoke_timeout_ms: Option<u64>,
+    ) -> Result<Arc<ConnectResponderFFI>, FfiError> {
         let manifest: HostCapabilityManifest = serde_json::from_str(&manifest_json)
             .map_err(|error| FfiError::Dial {
                 kind: "config".into(),
@@ -1631,7 +1688,7 @@ mod connect_responder_ffi {
             manifest,
             allowlist,
             peer_keys,
-            ports: ports.map(into_remote_serve_ports),
+            ports: ports.map(|handler| into_remote_serve_ports(handler, faces)),
             invoke_timeout_ms,
         }))?;
         Ok(Arc::new(ConnectResponderFFI { inner: responder }))
@@ -1902,7 +1959,9 @@ mod loopback_smoke_host {
 #[cfg(feature = "remote-adapter")]
 pub use remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
 #[cfg(feature = "remote-adapter")]
-pub use connect_responder_ffi::{connect_responder_ffi, ConnectResponderFFI};
+pub use connect_responder_ffi::{
+    connect_responder_ffi, connect_responder_ffi_with_faces, ConnectResponderFFI,
+};
 #[cfg(feature = "remote-adapter")]
 pub use multi_peer_router_ffi::{new_multi_peer_router_ffi, MultiPeerRouterFFI};
 #[cfg(feature = "ffi-smoke-host")]

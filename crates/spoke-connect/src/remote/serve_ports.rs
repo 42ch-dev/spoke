@@ -84,6 +84,11 @@ pub type MemoryAdmission = Arc<dyn Fn(&str) -> SpokeResult<Principal> + Send + S
 
 /// Admission context: maps the authenticated connect peer to the `Scope` it
 /// may read and write. The scope never comes from the payload.
+///
+/// The responder calls it inside the local serve-wait budget, on the blocking
+/// pool: a host resolver MUST return within that budget on its own — the
+/// blocking thread cannot be cancelled, so the responder's bound (not a
+/// forced stop) is what the caller is guaranteed.
 pub type KnowledgeAdmission = Arc<dyn Fn(&str) -> SpokeResult<Scope> + Send + Sync>;
 
 /// Knowledge serving face: a scoped store plus per-peer admission. The three
@@ -356,8 +361,19 @@ impl RemoteServePortsComposite {
         computable: Option<Arc<dyn ComputablePort + Send + Sync>>,
         fork: Option<Arc<dyn ForkTimelineQueryPort + Send + Sync>>,
     ) -> Self {
+        Self::faces(Some(baseline), computable, fork)
+    }
+
+    /// Compose from per-family options: `None` is genuine face absence (the
+    /// responder answers the dispatch-deny branch), so a host that serves only
+    /// an optional family needs no baseline stub.
+    pub(crate) fn faces(
+        baseline: Option<Arc<dyn BaselinePorts + Send + Sync>>,
+        computable: Option<Arc<dyn ComputablePort + Send + Sync>>,
+        fork: Option<Arc<dyn ForkTimelineQueryPort + Send + Sync>>,
+    ) -> Self {
         Self {
-            baseline: Some(baseline),
+            baseline,
             knowledge: None,
             computable,
             fork,
@@ -370,12 +386,8 @@ impl RemoteServePortsComposite {
     /// and every other baseline op stays denied.
     pub fn knowledge_only(knowledge: Arc<RemoteKnowledgeFace>) -> Self {
         Self {
-            baseline: None,
             knowledge: Some(knowledge),
-            computable: None,
-            fork: None,
-            extract: None,
-            memory: None,
+            ..Self::faces(None, None, None)
         }
     }
 

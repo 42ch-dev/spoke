@@ -627,7 +627,7 @@ describe("scope filtering", () => {
     if (!unknownRequirement.ok) {
       expect(unknownRequirement.details).toMatchObject({
         reason: "unsupported_cognition_requirement",
-        field: "scope.cognition",
+        field: "scope.cognition.filter.q_min",
       });
     }
 

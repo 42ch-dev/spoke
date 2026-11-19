@@ -6922,7 +6922,7 @@ mod multi_peer_router_ffi_tests {
 #[cfg(all(test, feature = "remote-adapter"))]
 mod ke_remote_ffi_tests {
     use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Condvar, Mutex};
     use std::time::{Duration, Instant};
 
     use serde_json::{json, Value};
@@ -7064,17 +7064,71 @@ mod ke_remote_ffi_tests {
     enum ScopeAnswer {
         /// Answer immediately with the admitted scope.
         Serve,
-        /// Sleep first — the responder's worker must survive a blocking
-        /// resolver, not strand the request.
+        /// Park until the test releases the gate — the responder's worker
+        /// must survive a blocking resolver, not strand the request.
         Block,
         /// Panic — the bridge must turn it into the admission refusal instead
         /// of unwinding the responder task.
         Panic,
     }
 
-    /// How long the blocking resolver sleeps: long enough to prove the
-    /// responder answers from elsewhere, far under the 5 s invoke timeout.
-    const SCOPE_RESOLVER_DELAY: Duration = Duration::from_millis(300);
+    /// Coordination point for [`ScopeAnswer::Block`]: the resolver signals it
+    /// has parked, then waits until the test releases it — the test drives
+    /// the same session in between, and neither side guesses with a sleep.
+    struct ScopeGate {
+        entered: Mutex<bool>,
+        entered_cv: Condvar,
+        released: Mutex<bool>,
+        released_cv: Condvar,
+    }
+
+    impl ScopeGate {
+        fn new() -> Self {
+            Self {
+                entered: Mutex::new(false),
+                entered_cv: Condvar::new(),
+                released: Mutex::new(false),
+                released_cv: Condvar::new(),
+            }
+        }
+
+        /// Resolver side: announce the park, then block until released.
+        fn block_until_released(&self) {
+            *self.entered.lock().expect("entered lock") = true;
+            self.entered_cv.notify_all();
+            let mut released = self.released.lock().expect("released lock");
+            while !*released {
+                released = self.released_cv.wait(released).expect("released wait");
+            }
+        }
+
+        /// Test side: bounded wait for the resolver to park (a hang fails by
+        /// deadline rather than blocking the suite).
+        fn wait_entered(&self, timeout: Duration) {
+            let deadline = Instant::now() + timeout;
+            let mut entered = self.entered.lock().expect("entered lock");
+            while !*entered {
+                let remaining = deadline
+                    .checked_duration_since(Instant::now())
+                    .expect("the resolver must park before the timeout");
+                let (guard, _) = self
+                    .entered_cv
+                    .wait_timeout(entered, remaining)
+                    .expect("entered wait");
+                entered = guard;
+            }
+        }
+
+        /// Test side: let the parked resolver return.
+        fn release(&self) {
+            *self.released.lock().expect("released lock") = true;
+            self.released_cv.notify_all();
+        }
+    }
+
+    /// How long the test waits for the resolver to park: far under the 5 s
+    /// invoke timeout, so a stranded op fails the assertion, not the suite.
+    const SCOPE_RESOLVER_PARK_TIMEOUT: Duration = Duration::from_secs(5);
 
     /// How the foreign handler answers an `extract` call.
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -7101,6 +7155,8 @@ mod ke_remote_ffi_tests {
         admitted_scope_json: String,
         /// How the resolver answers its admission probe.
         scope_answer: ScopeAnswer,
+        /// The gate a [`ScopeAnswer::Block`] resolver parks on.
+        scope_gate: Option<Arc<ScopeGate>>,
         extract_requests: Arc<Mutex<Vec<Value>>>,
         scope_calls: Arc<Mutex<Vec<Value>>>,
     }
@@ -7113,9 +7169,10 @@ mod ke_remote_ffi_tests {
             self
         }
 
-        /// Blocks the resolver for [`SCOPE_RESOLVER_DELAY`] before admitting.
-        fn with_blocking_scope(mut self: Box<Self>) -> Box<Self> {
+        /// Parks the resolver on `gate` until the test releases it.
+        fn with_gated_scope(mut self: Box<Self>, gate: Arc<ScopeGate>) -> Box<Self> {
             self.scope_answer = ScopeAnswer::Block;
+            self.scope_gate = Some(gate);
             self
         }
 
@@ -7142,6 +7199,7 @@ mod ke_remote_ffi_tests {
                 entries,
                 admitted_scope_json: json!({ "scope_id": "toy-scope-001" }).to_string(),
                 scope_answer: ScopeAnswer::Serve,
+                scope_gate: None,
                 extract_requests: Arc::clone(&extract_requests),
                 scope_calls: Arc::clone(&scope_calls),
             }),
@@ -7323,7 +7381,11 @@ mod ke_remote_ffi_tests {
         fn knowledge_scope(&self, _peer_id: String) -> Result<String, FfiError> {
             match self.scope_answer {
                 ScopeAnswer::Serve => {}
-                ScopeAnswer::Block => std::thread::sleep(SCOPE_RESOLVER_DELAY),
+                ScopeAnswer::Block => self
+                    .scope_gate
+                    .as_ref()
+                    .expect("a gated resolver carries its gate")
+                    .block_until_released(),
                 ScopeAnswer::Panic => panic!("knowledge_scope resolver panicked"),
             }
             Ok(self.admitted_scope_json.clone())
@@ -7615,31 +7677,54 @@ mod ke_remote_ffi_tests {
         }
     }
 
-    /// A resolver that occupies its thread must not wedge the responder: the
-    /// handoff goes through `block_in_place` + the blocking pool, so the op
-    /// still answers with the admitted scope's entries.
+    /// A resolver that occupies its thread must not wedge the responder: while
+    /// it is parked, another op on the same session is served, and the parked
+    /// knowledge op then answers with the admitted scope's entries.
     #[test]
     fn ke_remote_blocking_scope_resolver_still_serves_the_op() {
         let entries = vec![served_entry("kb_ffi_ke_blocking", "FFI KE Blocking")];
         let (handler, _extract_requests, scope_calls) =
             ke_ports_handler(ExtractAnswer::Batch, entries);
-        let (responder, dialer) = dial_ke_remote(&[], &[], Some(handler.with_blocking_scope()));
+        let gate = Arc::new(ScopeGate::new());
+        let (responder, dialer) = dial_ke_remote(
+            &[],
+            &[],
+            Some(handler.with_gated_scope(Arc::clone(&gate))),
+        );
 
-        let started = Instant::now();
-        let served_json = dialer
-            .list_knowledge_entries(json!({ "scope_id": "toy-scope-001" }).to_string())
+        // The knowledge op parks inside the resolver on its own thread, so the
+        // test thread can drive this same session while it is blocked.
+        let op_dialer = Arc::clone(&dialer);
+        let knowledge_op = std::thread::spawn(move || {
+            op_dialer.list_knowledge_entries(json!({ "scope_id": "toy-scope-001" }).to_string())
+        });
+
+        gate.wait_entered(SCOPE_RESOLVER_PARK_TIMEOUT);
+        assert!(
+            scope_calls.lock().expect("scope calls lock").is_empty(),
+            "the store is untouched while the resolver is parked"
+        );
+
+        // A baseline op through the same session answers while the resolver is
+        // still parked. The double does not serve relations, so the answer is
+        // its refusal — the completed round trip is the point.
+        let error = dialer
+            .get_relation("rel_ffi_ke_blocking".to_string())
+            .expect_err("the double does not serve get_relation");
+        assert_rejected(&error, "INVALID_INPUT", None, None);
+        assert!(
+            scope_calls.lock().expect("scope calls lock").is_empty(),
+            "the knowledge op was still inside the resolver, not merely slow"
+        );
+
+        gate.release();
+
+        let served_json = knowledge_op
+            .join()
+            .expect("the knowledge op thread joins")
             .expect("a blocking resolver must still serve the op");
-        let elapsed = started.elapsed();
         let served: Value = serde_json::from_str(&served_json).expect("served entries json");
         assert_eq!(served[0]["entry_id"], "kb_ffi_ke_blocking");
-        assert!(
-            elapsed >= SCOPE_RESOLVER_DELAY,
-            "the resolver really blocked: {elapsed:?}"
-        );
-        assert!(
-            elapsed < Duration::from_secs(5),
-            "the op answered within the invoke timeout instead of stranding it: {elapsed:?}"
-        );
         assert_eq!(
             scope_calls.lock().expect("scope calls lock").len(),
             1,

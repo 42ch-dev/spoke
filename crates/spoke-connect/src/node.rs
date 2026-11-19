@@ -2144,10 +2144,10 @@ mod tests {
     /// answers, and no cognition diagnosis runs (fixed direction §2).
     #[tokio::test]
     async fn op_denial_precedes_the_cognition_diagnosis() {
-        // `port.scope.list_knowledge_entries` requires `spoke-baseline`
-        // (`PORT_OPS`). A session that negotiated the cognition family but not
-        // that required capability is denied at the op gate, so the malformed
-        // requirement below must never become the answer.
+        // `port.scope.list_knowledge_entries` requires `spoke-knowledge`
+        // (`PORT_OPS`). A session that negotiated only the cognition family is
+        // denied at the op gate, so the malformed requirement below must never
+        // become the answer.
         let (response, calls) = dispatch_cognition_op_request(
             vec![CAPABILITY_SPOKE_COGNITION.to_owned()],
             "port.scope.list_knowledge_entries",
@@ -2163,6 +2163,55 @@ mod tests {
         };
         assert_eq!(error.code, "op_unsupported", "{error:?}");
         assert_eq!(calls, 0, "the handler must not run for an op-denied request");
+    }
+
+    /// The product-map fallback (`op_capability_requirements`) through the
+    /// real node dispatch boundary: a knowledge op is served for a
+    /// `spoke-knowledge` or `spoke-baseline` session and denied — with zero
+    /// handler calls — for an unrelated capability set, while a
+    /// knowledge-only session never reaches a baseline op's handler.
+    #[tokio::test]
+    async fn product_map_gates_knowledge_ops_at_the_node_boundary() {
+        let caps = |list: &[&str]| -> Vec<String> {
+            list.iter().map(|cap| (*cap).to_owned()).collect()
+        };
+        let knowledge_op = "port.scope.list_knowledge_entries";
+        for allowed in [
+            caps(&[CAPABILITY_SPOKE_KNOWLEDGE]),
+            caps(&[CAPABILITY_SPOKE_BASELINE]),
+        ] {
+            let (response, calls) = dispatch_cognition_op_request(
+                allowed.clone(),
+                knowledge_op,
+                serde_json::json!({}),
+            );
+            assert!(
+                matches!(response, ConnectInvokeResponse::Variant0 { .. }),
+                "{allowed:?} must serve {knowledge_op}: {response:?}"
+            );
+            assert_eq!(calls, 1, "{allowed:?}: the handler runs once");
+        }
+        for denied in [caps(&["ke-ownership"]), caps(&[])] {
+            let (response, calls) =
+                dispatch_cognition_op_request(denied.clone(), knowledge_op, serde_json::json!({}));
+            let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+                panic!("{denied:?} must not serve {knowledge_op}");
+            };
+            assert_eq!(error.code, "op_unsupported", "{error:?}");
+            assert_eq!(calls, 0, "{denied:?}: the handler must not run");
+        }
+        // The implication is directed: the knowledge flag alone never
+        // authorizes a baseline op.
+        let (response, calls) = dispatch_cognition_op_request(
+            caps(&[CAPABILITY_SPOKE_KNOWLEDGE]),
+            "port.scope.list_timeline_events",
+            serde_json::json!({}),
+        );
+        let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+            panic!("a knowledge-only session must not serve a baseline op");
+        };
+        assert_eq!(error.code, "op_unsupported", "{error:?}");
+        assert_eq!(calls, 0);
     }
 
     /// Every shared served vector through the real node dispatch boundary:

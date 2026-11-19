@@ -2308,6 +2308,45 @@ mod tests {
         assert!(negotiated_cases >= 5, "negotiation vectors present");
     }
 
+    /// `gate_allows` (the serve gate) for the product-map knowledge ops: the
+    /// `spoke-knowledge` flag or the `spoke-baseline` flag that satisfies it
+    /// admits them; an unrelated set does not; a knowledge-only session is
+    /// still refused a baseline op.
+    #[tokio::test]
+    async fn gate_allows_requires_knowledge_capability_for_the_knowledge_ops() {
+        let pair = loopback_transport_pair();
+        let responder = ConnectResponder::new(ConnectResponderOptions {
+            transport: Arc::new(pair.server),
+            identity: RemoteIdentity { seed: [0x21; 32] },
+            manifest: test_manifest(),
+            allowlist: Vec::new(),
+            peer_keys: HashMap::new(),
+            ports: None,
+            invoke_timeout_ms: None,
+        });
+        let caps = |list: &[&str]| -> Vec<String> {
+            list.iter().map(|cap| (*cap).to_owned()).collect()
+        };
+        for op in ["port.knowledge.get", "port.scope.list_knowledge_entries"] {
+            assert!(responder.gate_allows(op, &caps(&["spoke-knowledge"])), "{op}");
+            assert!(responder.gate_allows(op, &caps(&["spoke-baseline"])), "{op}");
+            assert!(!responder.gate_allows(op, &caps(&["ke-ownership"])), "{op}");
+            assert!(!responder.gate_allows(op, &caps(&[])), "{op}");
+        }
+        assert!(
+            !responder.gate_allows(
+                "port.scope.list_timeline_events",
+                &caps(&["spoke-knowledge"])
+            ),
+            "a knowledge-only session must not serve a baseline op"
+        );
+        assert!(responder.gate_allows(
+            "port.scope.list_timeline_events",
+            &caps(&["spoke-baseline"])
+        ));
+        responder.close();
+    }
+
     /// Original first-denial preserved: a malformed baseline Scope answers
     /// its shape failure BEFORE the conditional `ke-ownership` conjunct, and a
     /// cognition-carrying payload whose baseline shape is malformed keeps that

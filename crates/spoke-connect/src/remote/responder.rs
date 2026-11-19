@@ -243,6 +243,26 @@ fn memory_uncertain_reject(budget: Duration) -> SpokeReject {
     }
 }
 
+/// §14.2/§14.3, knowledge face: the serve budget expired AFTER the store call
+/// was invoked, so the transport has no evidence that nothing committed — a
+/// create-style put (no `expected_base_revision` fence) may have applied. The
+/// response says the outcome is unknown instead of claiming a clean failure;
+/// the store work is neither cancelled nor rolled back by this end. Reads keep
+/// the plain serve timeout (no store effect to be uncertain about).
+fn knowledge_uncertain_reject(budget: Duration) -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("timeout".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: format!(
+            "knowledge serve wait exceeded the local budget of {}ms; the outcome is unknown — re-read the entry to observe the committed revision before replaying the same request",
+            budget.as_millis()
+        ),
+        details: Some(details),
+    }
+}
+
 /// §14.2/§14.3: the detached memory invoke panicked (or otherwise dropped
 /// its result channel) AFTER admission, so the transport has no evidence
 /// that nothing committed — a clean `INTERNAL_ERROR` would assert no-effect.
@@ -1865,6 +1885,10 @@ impl ConnectResponder {
                 self.invoke_timeout,
             ))));
         }
+        // Only a put mutates: an expiry after the store was invoked may have
+        // applied it, so that expiry reports an unknown outcome. Reads have no
+        // store effect to be uncertain about and keep the plain timeout.
+        let mutates = matches!(&call, KnowledgeCall::PutKnowledgeEntry(..));
         let result = match tokio::time::timeout(
             remaining,
             call_knowledge_op(call, face.as_ref(), &admitted, list_scope.as_ref()),
@@ -1872,6 +1896,9 @@ impl ConnectResponder {
         .await
         {
             Ok(result) => result,
+            Err(_) if mutates => {
+                SpokeResult::Reject(knowledge_uncertain_reject(self.invoke_timeout))
+            }
             Err(_) => SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout)),
         };
         Ok(Some(result))

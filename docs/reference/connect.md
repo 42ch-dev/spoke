@@ -170,14 +170,15 @@ Each operation maps to the capability it requires on the session's `negotiated_c
 
 | Operation | Required capability |
 |-----------|---------------------|
-| `upsert`, `promote`, `relate`, `check`, `assemble` (and the `port.*` baseline ops) | `spoke-baseline` |
+| `upsert`, `promote`, `relate`, `check`, `assemble` (and the remaining baseline `port.*` ops) | `spoke-baseline` |
+| `port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries` | `spoke-knowledge`; `spoke-baseline` also satisfies this requirement |
 | `extract` | `ke-extraction` |
 | `project`, `compute` (and `port.computable.*`) | `l2-computable` |
 | `listForkTimelineEvents` (and `port.fork.*`) | `l5-fork` |
 | `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, `port.fork.list_timeline_events` carrying a non-empty `scope.viewpoint` | The row capability **plus** `ke-ownership` |
 | Product-defined operations | The capability the product documents |
 
-A capability-token grant authorizes session membership for the ops its `capabilities[]` covers, but it does not replace `negotiated_capabilities` — both the token grant and the negotiated set must allow an op when the token gate is active.
+A capability-token grant authorizes session membership for the ops its `capabilities[]` covers, but it does not replace `negotiated_capabilities` — both the token grant and the negotiated set must allow an op when the token gate is active. Token matching names the required flag exactly: a grant for the three knowledge ops includes `spoke-knowledge`. Session dispatch and routing apply the directed `spoke-baseline` ⇒ `spoke-knowledge` rule; `spoke-knowledge` alone does not authorize baseline operations.
 
 ## Port-method ops (RemoteAdapter)
 
@@ -220,16 +221,19 @@ The responder serves a `port.*` invoke through its injected `ports` provider. Op
 
 | Face | Shape |
 |------|-------|
-| TypeScript — `connectResponder({ ports })` | A `ports` provider implementing `BaselinePorts` plus the optional methods (`project` / `compute` / `listForkTimelineEvents`); the composed `FullPorts` type covers all twelve serve methods |
-| Rust — `ConnectResponderOptions.ports` | `Arc<dyn RemoteServePorts>`: the blanket impl serves every family when the provider implements `BaselinePorts + ComputablePort + ForkTimelineQueryPort`; mixed hosts compose via `RemoteServePortsComposite::new(baseline, computable, fork)`, passing `None` for faces they do not provide |
+| TypeScript — `connectResponder({ ports })` | `RemoteServePorts` with `baseline?: BaselinePorts`, `knowledge?: RemoteKnowledgeFace`, and optional service faces; `withKnowledge(ports, face)` composes a mixed host and `knowledgeOnlyServePorts(face)` serves knowledge alone |
+| Rust — `ConnectResponderOptions.ports` | `Arc<dyn RemoteServePorts>` with `as_baseline()` / `as_knowledge()` probes; `RemoteServePortsComposite::with_knowledge` composes a mixed host and `knowledge_only` serves knowledge alone |
 | FFI — `connect_responder_ffi` `ports` argument | Optional foreign-callback `PortsHandler` implementing the port catalogue below plus the `extract` service face; see the callback table below |
 
 | FFI `PortsHandler` method | Family | Serves op |
 |---------------------------|--------|-----------|
-| `get_knowledge_entry(entry_id)` | baseline | `port.knowledge.get` |
-| `put_knowledge_entry(entry_json, expected_base_revision)` | baseline | `port.knowledge.put` |
+| `get_knowledge_entry(entry_id)` | knowledge (baseline face) | `port.knowledge.get` |
+| `put_knowledge_entry(entry_json, expected_base_revision)` | knowledge (baseline face) | `port.knowledge.put` |
 | `get_relation(relation_id)` / `put_relation(relation_json, expected_base_revision)` | baseline | `port.relation.get` / `port.relation.put` |
-| `list_knowledge_entries(scope_json)` / `list_timeline_events(scope_json)` | baseline | `port.scope.list_knowledge_entries` / `port.scope.list_timeline_events` |
+| `list_knowledge_entries(scope_json)` | knowledge (baseline face) | `port.scope.list_knowledge_entries` |
+| `list_timeline_events(scope_json)` | baseline | `port.scope.list_timeline_events` |
+| `knowledge_scope(peer_id)` | knowledge admission | Authenticated peer → admitted `Scope` |
+| `get_scoped_knowledge_entry(scope_json, entry_id)` / `put_scoped_knowledge_entry(scope_json, entry_json, expected_base_revision)` / `list_scoped_knowledge_entries(scope_json)` | knowledge | `port.knowledge.get` / `port.knowledge.put` / `port.scope.list_knowledge_entries` |
 | `put_findings(findings_json)` | baseline | `port.finding.put` |
 | `list_rules(rule_refs)` | baseline | `port.rule.list` |
 | `list_peer_host_capability_manifests()` | baseline | `port.host.list_peer_manifests` |
@@ -238,7 +242,13 @@ The responder serves a `port.*` invoke through its injected `ports` provider. Op
 | `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
 | `extract(extract_request_json)` | `ke-extraction` | `extract` |
 
-Each `PortsHandler` method takes the request payload as a JSON string and returns the success payload as a JSON string. `get_host_capability_manifest` is not in the catalogue — it is the session cache, never served through the ports handler. A method that does not serve an op raises `FfiError.Rejected`, which passes through to the invoker as an application reject; an absent `ports` handler (constructor `ports = None`) keeps the documented deny branch for every `port.*` invoke.
+Each `PortsHandler` method takes the request payload as a JSON string and returns the success payload as a JSON string. `get_host_capability_manifest` is not in the catalogue — it is the session cache, never served through the ports handler. A method that does not serve an op raises `FfiError.Rejected`, which passes through to the invoker as an application reject; an absent `ports` handler (constructor `ports = None`) keeps the documented deny branch for every `port.*` invoke. The C ABI is revision 2 (`SPOKE_CONNECT_ABI_VERSION = 2`), with the knowledge admission and scoped callbacks appended to the ports table.
+
+### Scoped knowledge serving
+
+A `RemoteKnowledgeFace` combines a `ScopedKnowledgePort` store with `admission(peerId)` (Rust: `KnowledgeAdmission`). The responder checks the dispatch capability, Scope ownership/cognition requirements and declaration, decodes the request, probes the knowledge face, and then admits the authenticated peer. Admission refusals and list-scope mismatches return `NOT_AUTHORIZED` with no entry-existence details.
+
+For knowledge listing, the request's `scope_id` and `viewpoint` equal the admitted values. The store receives those admitted values with the request's narrowing entry, source, timeline, fork, extension and cognition refinements. Knowledge get and put receive the admitted Scope directly. A baseline-manifest host attaches the knowledge face to serve these ops; a knowledge-only host declares `spoke-knowledge` and attaches only that face.
 
 ### Drive (adapter)
 
@@ -275,7 +285,7 @@ Two capabilities extend the adapter beyond the port catalogue: `ke-extraction` f
 | Success `payload` | The `ExtractResponse` success branch — `{ candidates, run }`. An empty `candidates` array is a successful zero-result run; every returned candidate carries `status: "provisional"`; `run.run_id` echoes the request verbatim, and `run.method` / `run.coverage_hint` are the product's advisory run metadata |
 | Error | The `ExtractResponse` error branch reuses the shared `ErrorEnvelope` and travels the application reject path |
 
-The serving host owns source loading and extraction: the loader value stays host-local in its port, and the requester needs only the negotiated flag. Serving is a connect-owned service face — TypeScript `RemoteExtractService.extract(request)` composed into the responder's `ports` (`BaselinePorts & Partial<RemoteExtractService>`, structurally probed as a function-valued `ports.extract`), Rust `RemoteExtractService` probed with `RemoteServePorts::as_extract` and opted into a mixed host through `RemoteServePortsComposite::with_extract`, and over FFI the `PortsHandler.extract(extract_request_json)` callback bridged by `into_remote_serve_ports`. Serving order is gate → probe → serve/deny, so a host that declares `ke-extraction` and serves no extract service answers the same deny branch as a host that serves no `ports` face.
+The serving host owns source loading and extraction: the loader value stays host-local in its port, and the requester needs only the negotiated flag. Serving is a connect-owned service face — TypeScript `RemoteServePorts.extract` composed into the responder's `ports`, Rust `RemoteExtractService` probed with `RemoteServePorts::as_extract` and opted into a mixed host through `RemoteServePortsComposite::with_extract`, and over FFI the `PortsHandler.extract(extract_request_json)` callback bridged by `into_remote_serve_ports`. Serving order is gate → probe → serve/deny, so a host that declares `ke-extraction` and serves no extract service answers the same deny branch as a host that serves no `ports` face.
 
 ### The ownership gate (`ke-ownership`)
 

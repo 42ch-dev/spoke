@@ -106,7 +106,7 @@ Host self-description for in-process collaboration. Required: `schema_version`, 
 |-------|------|-------|
 | `host_id` | string ≥ 1 char | Stable host identity, opaque to the protocol |
 | `roles` | string[], min 1, unique | Open vocabulary. Core list (documented, not enforced): `data-store`, `input-source`, `checker`, `assembler`, `computable-engine` |
-| `capabilities` | string[], min 1, unique | Open string capability flags. Core list (documented, not enforced): `spoke-baseline`, `l2-computable`, `l5-fork`, `spoke-cognition`, `narrative-modules`, `ke-extraction`, `ke-ownership`, `spoke-connect`, `spoke-memory`, `spoke-memory-reflection`, `spoke-memory-transfer`. A manifest that exposes tools also lists each `tools.<ns>.<tool_id>` capability id |
+| `capabilities` | string[], min 1, unique | Open string capability flags. Core list (documented, not enforced): `spoke-baseline`, `spoke-knowledge`, `l2-computable`, `l5-fork`, `spoke-cognition`, `narrative-modules`, `ke-extraction`, `ke-ownership`, `spoke-connect`, `spoke-memory`, `spoke-memory-reflection`, `spoke-memory-transfer`. A manifest that exposes tools also lists each `tools.<ns>.<tool_id>` capability id |
 | `namespaces` | string[], min 1, unique; keys `^[a-z][a-z0-9_-]*$` | Extension namespace keys this host owns in a collaboration context |
 | `authority` | `{ scope_key }`, optional | Explicit single-writer authority scope; when absent with `data-store` in roles, implicit authority is this manifest's `host_id` |
 | `extensions` | ExtensionMap, required | Deployment metadata — distinct surface from KnowledgeEntry `extensions` |

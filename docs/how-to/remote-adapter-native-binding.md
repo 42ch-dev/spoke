@@ -248,14 +248,17 @@ The constructor's `Result` slot carries config-validation failures only — mani
 
 ### The `PortsHandler` callback
 
-A `PortsHandler` is the responder's foreign-callback ports face: each method takes the request payload as a JSON string and returns the success payload as a JSON string — the same catalogue the library responder serves through its `ports` option, plus the `extract` service face. The interface has thirteen methods (nine baseline + three optional + `extract`):
+A `PortsHandler` is the responder's foreign-callback ports face: each method takes its arguments as JSON strings or scalar values and returns the success payload as a JSON string. The interface has seventeen methods: six baseline-face ops, knowledge admission plus three scoped knowledge ops, three optional-family ops, and `extract`. The C ABI exposes revision 2 (`SPOKE_CONNECT_ABI_VERSION = 2`) with the four knowledge callbacks appended to the ports table.
 
 | Method | Family | Serves op |
 |--------|--------|-----------|
-| `get_knowledge_entry(entry_id)` | baseline | `port.knowledge.get` |
-| `put_knowledge_entry(entry_json, expected_base_revision)` | baseline | `port.knowledge.put` |
+| `get_knowledge_entry(entry_id)` | baseline face | KnowledgeEntry access |
+| `put_knowledge_entry(entry_json, expected_base_revision)` | baseline face | KnowledgeEntry persistence |
 | `get_relation(relation_id)` / `put_relation(relation_json, expected_base_revision)` | baseline | `port.relation.get` / `port.relation.put` |
-| `list_knowledge_entries(scope_json)` / `list_timeline_events(scope_json)` | baseline | `port.scope.list_knowledge_entries` / `port.scope.list_timeline_events` |
+| `list_knowledge_entries(scope_json)` | baseline face | Scoped KnowledgeEntry query |
+| `list_timeline_events(scope_json)` | baseline | `port.scope.list_timeline_events` |
+| `knowledge_scope(peer_id)` | knowledge admission | Authenticated peer → admitted `Scope` |
+| `get_scoped_knowledge_entry(scope_json, entry_id)` / `put_scoped_knowledge_entry(scope_json, entry_json, expected_base_revision)` / `list_scoped_knowledge_entries(scope_json)` | knowledge | `port.knowledge.get` / `port.knowledge.put` / `port.scope.list_knowledge_entries` |
 | `put_findings(findings_json)` | baseline | `port.finding.put` |
 | `list_rules(rule_refs)` | baseline | `port.rule.list` |
 | `list_peer_host_capability_manifests()` | baseline | `port.host.list_peer_manifests` |
@@ -264,7 +267,7 @@ A `PortsHandler` is the responder's foreign-callback ports face: each method tak
 | `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
 | `extract(extract_request_json)` | `ke-extraction` | `extract` |
 
-`get_host_capability_manifest` is not in the catalogue — it is the session cache, never served through the ports handler. A method may raise `FfiError.Rejected` to deny an op it does not serve; the reject passes through to the invoker as an application reject, which is how an extract callback declines extraction. The optional families are served only when the pair negotiated the family (both manifests declare it) — the capability gate runs before the callback, and a host that declared a family but does not provide its method answers the same deny branch as absent `ports`.
+`get_host_capability_manifest` is not in the catalogue — it is the session cache, never served through the ports handler. For the three knowledge ops, `knowledge_scope(peer_id)` maps the authenticated peer to its admitted Scope and the scoped callbacks receive that Scope. List requests match the admitted `scope_id` and `viewpoint`, then narrow the query with their remaining Scope refinements. Admission refusals and scope mismatches reject with `NOT_AUTHORIZED` and no entry-existence details. A method may raise `FfiError.Rejected` to deny an op it does not serve; the reject passes through to the invoker as an application reject, which is how an extract callback declines extraction. The optional families are served only when the pair negotiated the family (both manifests declare it) — the capability gate runs before the callback, and a host that declared a family but does not provide its method answers the same deny branch as absent `ports`.
 
 The reference shape ships in the Python loopback smoke (`bindings/python/Smoke/test_ports_loopback.py`); the optional methods show the JSON contract:
 

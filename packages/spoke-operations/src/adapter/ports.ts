@@ -136,12 +136,38 @@ export interface RelationPort {
   ): Promise<SpokeResult<Relation>>;
 }
 
-/** Scope query for check / assemble — knowledge entries and timeline events. */
+/** Scope query for check / assemble — timeline events only. */
 export interface ScopeQueryPort {
-  listKnowledgeEntries(
+  listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>>;
+}
+
+/**
+ * Scope-scoped knowledge persistence — the serving face a host attaches to
+ * answer the three remote knowledge ops. `scope` comes from the responder's
+ * per-peer admission, never from the wire request.
+ */
+export interface ScopedKnowledgePort {
+  getScopedKnowledgeEntry(
+    scope: Scope,
+    entryId: string,
+  ): Promise<SpokeResult<KnowledgeEntry>>;
+  putScopedKnowledgeEntry(
+    scope: Scope,
+    entry: KnowledgeEntry,
+    expectedBaseRevision: number | null,
+  ): Promise<SpokeResult<KnowledgeEntry>>;
+  listScopedKnowledgeEntries(
     scope: Scope,
   ): Promise<SpokeResult<KnowledgeEntry[]>>;
-  listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>>;
+}
+
+/**
+ * Unscoped knowledge listing — the read side `check` / `assemble` (and the
+ * remote `port.scope.list_knowledge_entries` client) rely on. Write-side
+ * knowledge ops stay on `KnowledgeEntryPort`.
+ */
+export interface KnowledgeQueryPort {
+  listKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>>;
 }
 
 /** Finding persistence. */
@@ -183,6 +209,7 @@ export interface ForkTimelineQueryPort {
 
 /** Ports required for spoke-baseline orchestration. */
 export type BaselinePorts = KnowledgeEntryPort &
+  KnowledgeQueryPort &
   RelationPort &
   ScopeQueryPort &
   FindingPort &

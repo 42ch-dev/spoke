@@ -42,7 +42,7 @@ import {
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import { isAllowlisted } from "../../src/core/allowlist.js";
-import { requiredCapability } from "../../src/core/dispatch.js";
+import { capabilitySatisfies, requiredCapability } from "../../src/core/dispatch.js";
 import {
   authenticateInvokeResponse,
   authenticateSession,
@@ -70,11 +70,11 @@ const SESSION_ID = "test-session-loopback-0001";
  * `spoke-baseline`.
  */
 const DEFAULT_PORT_CAPABILITY_REQUIREMENTS: Record<string, string> = {
-  "port.knowledge.get": "spoke-baseline",
-  "port.knowledge.put": "spoke-baseline",
+  "port.knowledge.get": "spoke-knowledge",
+  "port.knowledge.put": "spoke-knowledge",
   "port.relation.get": "spoke-baseline",
   "port.relation.put": "spoke-baseline",
-  "port.scope.list_knowledge_entries": "spoke-baseline",
+  "port.scope.list_knowledge_entries": "spoke-knowledge",
   "port.scope.list_timeline_events": "spoke-baseline",
   "port.finding.put": "spoke-baseline",
   "port.rule.list": "spoke-baseline",
@@ -351,7 +351,7 @@ type GateResult =
     const required = requirements[doc.op] ?? requiredCapability(doc.op);
     if (
       required === undefined ||
-      !current.negotiated_capabilities.includes(required)
+      !capabilitySatisfies(current.negotiated_capabilities, required)
     ) {
       stats.dispatchDenials += 1;
       await sendErrorResponse(

@@ -16,6 +16,15 @@
 /** Baseline capability: required by the baseline core ops. */
 export const CAPABILITY_SPOKE_BASELINE = "spoke-baseline";
 
+/**
+ * Optional capability: required by the three remote knowledge ops
+ * (`port.knowledge.get` / `port.knowledge.put` /
+ * `port.scope.list_knowledge_entries`). A peer negotiating
+ * `spoke-baseline` satisfies this requirement; the reverse never holds —
+ * `spoke-knowledge` alone authorizes no core op.
+ */
+export const CAPABILITY_SPOKE_KNOWLEDGE = "spoke-knowledge";
+
 /** Optional capability: required by the compute-family core ops. */
 export const CAPABILITY_L2_COMPUTABLE = "l2-computable";
 
@@ -128,6 +137,24 @@ export function requiredCapability(op: string): string | undefined {
 }
 
 /**
+ * Whether `negotiated` satisfies `required` (port capability gate):
+ * direct membership, OR a negotiated `spoke-baseline` satisfying a
+ * `spoke-knowledge` requirement. Fails closed for everything else —
+ * `spoke-knowledge` never satisfies `spoke-baseline`, and no other
+ * capability implies another.
+ */
+export function capabilitySatisfies(
+  negotiated: readonly string[],
+  required: string,
+): boolean {
+  return (
+    negotiated.includes(required) ||
+    (required === CAPABILITY_SPOKE_KNOWLEDGE &&
+      negotiated.includes(CAPABILITY_SPOKE_BASELINE))
+  );
+}
+
+/**
  * Whether `op` may be dispatched in a session with `negotiatedCapabilities`.
  *
  * Fails closed: an unknown `op` has no core-table requirement and is not
@@ -138,7 +165,7 @@ export function dispatchAllowed(op: string, negotiatedCapabilities: readonly str
   if (required === undefined) {
     return false;
   }
-  return negotiatedCapabilities.includes(required);
+  return capabilitySatisfies(negotiatedCapabilities, required);
 }
 
 /**

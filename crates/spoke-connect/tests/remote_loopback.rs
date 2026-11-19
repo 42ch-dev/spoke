@@ -8116,6 +8116,202 @@ async fn knowledge_serve_shares_one_deadline_between_admission_and_the_store() {
     responder.close();
 }
 
+/// A store double whose get/put/list never completes, so only the serve
+/// deadline can answer; the recorded op names prove the store was invoked.
+struct PendingStore {
+    calls: Mutex<Vec<String>>,
+    pending: Notify,
+}
+
+impl PendingStore {
+    fn new() -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            pending: Notify::new(),
+        }
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().expect("calls lock").clone()
+    }
+
+    async fn park(&self, op: &str) {
+        self.calls.lock().expect("calls lock").push(op.to_owned());
+        self.pending.notified().await;
+    }
+}
+
+#[async_trait]
+impl ScopedKnowledgePort for PendingStore {
+    async fn get_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        _entry_id: &str,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.park("get").await;
+        unreachable!("the serve deadline answers before this read completes")
+    }
+
+    async fn put_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        _entry: KnowledgeEntry,
+        _expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.park("put").await;
+        unreachable!("the serve deadline answers before this write completes")
+    }
+
+    async fn list_scoped_knowledge_entries(
+        &self,
+        _scope: &Scope,
+    ) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.park("list").await;
+        unreachable!("the serve deadline answers before this list completes")
+    }
+}
+
+/// Start a knowledge-only responder over `store` with a 500ms serve budget:
+/// admission spends part of the one deadline on the blocking pool, so a budget
+/// tight enough to be eaten by that hop would answer the plain timeout before
+/// the parked store is reached. 500ms keeps the hop's scheduling out of the
+/// assertion while staying well inside the tests' 2s outer bound.
+async fn start_pending_store_peer(
+    store: &Arc<PendingStore>,
+) -> (Arc<ConnectResponder>, LoopbackTransportPair, [u8; 32]) {
+    let pending = Arc::clone(store);
+    let store_face: Arc<dyn ScopedKnowledgePort + Send + Sync> = pending;
+    let face = Arc::new(RemoteKnowledgeFace {
+        store: store_face,
+        admission: Arc::new(|_| spoke_ok(scope_of("scope-a"))),
+    });
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::knowledge_only(face));
+    start_raw_ke_responder_with_budget(ports, &["spoke-knowledge"], Some(500)).await
+}
+
+/// Issue: a put whose store call is still running when the serve budget
+/// expires may have applied — a create-style put has no `expected_base_revision`
+/// to fence a replay, so a clean `INTERNAL_ERROR` would invite a double-apply.
+/// The answer is `OUTCOME_UNCERTAIN` / `retry_class: uncertain`, matching the
+/// memory family, and the store really was invoked.
+#[tokio::test]
+async fn knowledge_put_timeout_answers_an_uncertain_outcome() {
+    let store = Arc::new(PendingStore::new());
+    let (responder, pair, seed) = start_pending_store_peer(&store).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            0,
+            "put-uncertain",
+            "port.knowledge.put",
+            json!({
+                "entry": raw_knowledge_entry(scoped_entry("ke-uncertain", "harbor tide")),
+                // Create-style: no base revision fences a replay.
+                "expected_base_revision": Value::Null,
+            }),
+        ),
+    )
+    .await
+    .expect("the serve deadline answers without waiting out the store");
+
+    assert_eq!(
+        response["error"]["code"], "OUTCOME_UNCERTAIN",
+        "an expired put is an unknown outcome, not a clean failure: {response}"
+    );
+    assert_eq!(
+        response["error"]["details"]["retry_class"], "uncertain",
+        "{response}"
+    );
+    assert_eq!(
+        response["error"]["details"]["kind"], "timeout",
+        "{response}"
+    );
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("the outcome is unknown"),
+        "the answer must say the outcome is unknown: {response}"
+    );
+    assert_eq!(store.calls(), vec!["put"]);
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    responder.close();
+}
+
+/// A read has no store effect to be uncertain about, so its expiry keeps the
+/// plain signed serve timeout — and the admissibility bound really was the
+/// responder's own budget.
+#[tokio::test]
+async fn knowledge_read_timeouts_keep_the_plain_serve_timeout() {
+    let store = Arc::new(PendingStore::new());
+    let (responder, pair, seed) = start_pending_store_peer(&store).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+
+    let get = tokio::time::timeout(
+        Duration::from_secs(2),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            0,
+            "get-timeout",
+            "port.knowledge.get",
+            json!({ "entry_id": "ke-uncertain" }),
+        ),
+    )
+    .await
+    .expect("the serve deadline answers without waiting out the store");
+    assert_eq!(get["error"]["code"], "INTERNAL_ERROR", "{get}");
+    assert_eq!(get["error"]["details"]["kind"], "timeout", "{get}");
+    assert!(
+        get["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("serve wait exceeded the local budget of 500ms"),
+        "the read expiry stays the plain serve timeout: {get}"
+    );
+    assert!(
+        get["error"]["details"].get("retry_class").is_none(),
+        "a read expiry carries no uncertain classification: {get}"
+    );
+
+    let list = tokio::time::timeout(
+        Duration::from_secs(2),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            1,
+            "list-timeout",
+            "port.scope.list_knowledge_entries",
+            json!({ "scope": { "scope_id": "scope-a" } }),
+        ),
+    )
+    .await
+    .expect("the serve deadline answers without waiting out the store");
+    assert_eq!(list["error"]["code"], "INTERNAL_ERROR", "{list}");
+    assert_eq!(list["error"]["details"]["kind"], "timeout", "{list}");
+    assert_eq!(store.calls(), vec!["get", "list"]);
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    responder.close();
+}
+
 /// Issue 2: the effective list scope is admitted ∩ requested — an admitted
 /// `entry_ids`/scalar constraint is never dropped, a requested `entry_types`
 /// subset narrows (a value outside the admitted set refuses before the

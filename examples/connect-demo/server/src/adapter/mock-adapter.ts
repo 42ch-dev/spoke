@@ -35,6 +35,7 @@ import type { RemoteKnowledgeFace } from "@42ch/spoke-connect/remote";
 import {
   assertSupportedCognitionSelection,
   filterKnowledgeEntriesByScope,
+  knowledgeEntryVisibleToViewpoint,
   filterTimelineEventsByScope,
   orchestrateExtract,
   spokeOk,
@@ -300,12 +301,40 @@ export function demoKnowledgeFace(
     "getKnowledgeEntry" | "putKnowledgeEntry" | "listKnowledgeEntries"
   >,
 ): RemoteKnowledgeFace {
+  const notFound = (entryId: string): SpokeResult<KnowledgeEntry> =>
+    spokeReject(
+      "KNOWLEDGE_ENTRY_NOT_FOUND",
+      `KnowledgeEntry not found: ${entryId}`,
+      { entry_id: entryId },
+    );
+  // A raw entry is in-scope only inside the demo scope and when the
+  // viewpoint's ownership predicate admits it — the same disclosure/ownership
+  // rule the list path applies.
+  const inScope = (scope: Scope, entry: KnowledgeEntry): boolean =>
+    (scope.scope_id === undefined || scope.scope_id === DEMO_SCOPE_ID) &&
+    knowledgeEntryVisibleToViewpoint(entry, scope.viewpoint);
   return {
     store: {
-      async getScopedKnowledgeEntry(_scope, entryId) {
-        return adapter.getKnowledgeEntry(entryId);
+      async getScopedKnowledgeEntry(scope, entryId) {
+        const got = await adapter.getKnowledgeEntry(entryId);
+        // A hidden entry answers the same not-found row as a missing one:
+        // no existence disclosure.
+        return got.ok && inScope(scope, got.value) ? got : notFound(entryId);
       },
-      async putScopedKnowledgeEntry(_scope, entry, expectedBaseRevision) {
+      async putScopedKnowledgeEntry(scope, entry, expectedBaseRevision) {
+        // OCC reads the existing row for compare-and-swap; a hidden entry
+        // must reject before the engine sees the write so the store stays
+        // unchanged. An absent row with a non-null expectedBaseRevision
+        // answers the identical not-found row — comparing it against the
+        // engine's stale-revision reject would disclose which ids exist.
+        // Only a create (`null`) is ungated: nothing exists to disclose.
+        const existing = await adapter.getKnowledgeEntry(entry.entry_id);
+        if (existing.ok && !inScope(scope, existing.value)) {
+          return notFound(entry.entry_id);
+        }
+        if (!existing.ok && expectedBaseRevision !== null) {
+          return notFound(entry.entry_id);
+        }
         return adapter.putKnowledgeEntry(entry, expectedBaseRevision);
       },
       async listScopedKnowledgeEntries(scope) {

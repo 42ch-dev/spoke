@@ -35,6 +35,7 @@ import {
   DEMO_SERVER_MANIFEST,
   MockAdapter,
   demoExtractCandidateEntryId,
+  demoKnowledgeFace,
 } from "../src/adapter/mock-adapter.js";
 import { MockEngine } from "../src/engine/mock-engine.js";
 import {
@@ -721,6 +722,122 @@ describe("ownership-aware scope query", () => {
       expect(ids).not.toContain(DEMO_OWN_PRIVATE_ENTRY_ID);
       expect(ids).not.toContain(DEMO_FOREIGN_PRIVATE_ENTRY_ID);
     }
+  });
+});
+
+describe("scoped knowledge face", () => {
+  // The admitted scope carries the demo holder's viewpoint; get/put serve
+  // inside it without a wire scope, so the store itself enforces the same
+  // ownership predicate the list path applies.
+  const admittedScope = { scope_id: DEMO_SCOPE_ID, viewpoint: DEMO_HOLDER_ENTRY_ID };
+
+  it("answers not-found for a foreign owner-private get and keeps the demo entries servable", async () => {
+    const adapter = new MockAdapter();
+    const face = demoKnowledgeFace(adapter);
+
+    const hidden = await face.store.getScopedKnowledgeEntry(
+      admittedScope,
+      DEMO_FOREIGN_PRIVATE_ENTRY_ID,
+    );
+    expectRejected(hidden, "KNOWLEDGE_ENTRY_NOT_FOUND");
+
+    const shared = await face.store.getScopedKnowledgeEntry(
+      admittedScope,
+      DEMO_SHARED_ENTRY_ID,
+    );
+    expect(shared.ok).toBe(true);
+    const ownPrivate = await face.store.getScopedKnowledgeEntry(
+      admittedScope,
+      DEMO_OWN_PRIVATE_ENTRY_ID,
+    );
+    expect(ownPrivate.ok).toBe(true);
+  });
+
+  it("refuses a scoped put to a foreign owner-private entry without mutating the store", async () => {
+    const adapter = new MockAdapter();
+    const face = demoKnowledgeFace(adapter);
+
+    const forged: KnowledgeEntry = {
+      schema_version: 1,
+      entry_id: DEMO_FOREIGN_PRIVATE_ENTRY_ID,
+      entry_type: "note",
+      canonical_name: "Overwritten rival log",
+      status: "confirmed",
+      body: { summary: "A peer must not reach this row." },
+      revision: 1,
+      extensions: {},
+    };
+    const put = await face.store.putScopedKnowledgeEntry(admittedScope, forged, 1);
+    expectRejected(put, "KNOWLEDGE_ENTRY_NOT_FOUND");
+
+    const after = await adapter.getKnowledgeEntry(DEMO_FOREIGN_PRIVATE_ENTRY_ID);
+    expect(after.ok).toBe(true);
+    if (after.ok) {
+      expect(after.value.canonical_name).toBe("Rival's private log");
+      expect(after.value.revision).toBe(1);
+    }
+  });
+  it("answers an absent-id OCC put with the identical not-found row as a hidden put", async () => {
+    const PROBE_ID = "demo-harbor/character/probe";
+    const forged = (entry_id: string): KnowledgeEntry => ({
+      schema_version: 1,
+      entry_id,
+      entry_type: "note",
+      canonical_name: "Probe",
+      status: "confirmed",
+      body: { summary: "Existence probe." },
+      revision: 1,
+      extensions: {},
+    });
+
+    // The same probe id, hidden in one store and absent in another, must
+    // answer the identical reject row — code, message and details — so the
+    // error channel cannot disclose which ids exist.
+    const hiddenAdapter = new MockAdapter();
+    await hiddenAdapter.putKnowledgeEntry(
+      { ...forged(PROBE_ID), disclosure: "owner-private", owner: "demo-harbor/character/rival" },
+      null,
+    );
+    const hidden = await demoKnowledgeFace(hiddenAdapter).store.putScopedKnowledgeEntry(
+      admittedScope,
+      forged(PROBE_ID),
+      1,
+    );
+
+    const absentAdapter = new MockAdapter();
+    const absent = await demoKnowledgeFace(absentAdapter).store.putScopedKnowledgeEntry(
+      admittedScope,
+      forged(PROBE_ID),
+      0,
+    );
+
+    expect(absent).toEqual(hidden);
+    expectRejected(absent, "KNOWLEDGE_ENTRY_NOT_FOUND");
+    expectRejected(
+      await absentAdapter.getKnowledgeEntry(PROBE_ID),
+      SpokeRejectCode.KNOWLEDGE_ENTRY_NOT_FOUND,
+    );
+  });
+
+  it("creates on an absent id with expectedBaseRevision null", async () => {
+    const adapter = new MockAdapter();
+    const face = demoKnowledgeFace(adapter);
+
+    const created = await face.store.putScopedKnowledgeEntry(
+      admittedScope,
+      {
+        schema_version: 1,
+        entry_id: "demo-harbor/note/fresh",
+        entry_type: "note",
+        canonical_name: "Fresh note",
+        status: "confirmed",
+        body: { summary: "Created through the scoped face." },
+        revision: 1,
+        extensions: {},
+      },
+      null,
+    );
+    expect(created.ok).toBe(true);
   });
 });
 

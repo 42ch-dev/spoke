@@ -19,6 +19,7 @@ use spoke_schemas::{
     ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
     ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
 };
+use spoke_schemas::ops::compute_response::Shared0 as ComputeResponseComputable;
 
 #[derive(Debug, Default)]
 struct SmokeStore {
@@ -319,7 +320,7 @@ impl ComputablePort for SmokeBaselineAdapter {
         spoke_ok(ComputeResponse::Variant0 {
             session_id: request.session_id,
             entry_id: request.entry_id,
-            computable: request.computable,
+            computable: ComputeResponseComputable(request.computable),
             state,
             extensions: Default::default(),
         })

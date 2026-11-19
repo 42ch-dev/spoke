@@ -39,7 +39,8 @@ use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     parse_tool_capability_id, spoke_ok, FindingPort, HostManifestPort, KnowledgeEntryPort,
-    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    KnowledgeQueryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode,
+    SpokeResult,
 };
 use spoke_schemas::host_capability_manifest::{
     ExtensionKey, HostCapabilityManifestHostId, ToolDescriptor,
@@ -51,7 +52,8 @@ use spoke_schemas::{
 use super::remote_adapter::{RemoteAdapter, RemoteAdapterState};
 use super::{port_op_requirement, requires_ownership_capability};
 use crate::core::{
-    cognition_requirement_present, CAPABILITY_KE_OWNERSHIP, CAPABILITY_SPOKE_COGNITION,
+    capability_satisfies, cognition_requirement_present, CAPABILITY_KE_OWNERSHIP,
+    CAPABILITY_SPOKE_COGNITION,
 };
 
 /// The router's own identity when the consumer configures none (contract §8).
@@ -235,11 +237,7 @@ pub fn select_peer_for_op(
     let mut survivors: Vec<&SelectablePeer> = candidates
         .iter()
         .filter(|candidate| {
-            candidate
-                .manifest
-                .capabilities
-                .iter()
-                .any(|c| c == required_capability)
+            capability_satisfies(&candidate.manifest.capabilities, required_capability)
         })
         .collect();
     if survivors.is_empty() {
@@ -443,7 +441,7 @@ impl RoutedRemoteAdapter for RemoteAdapter {
     }
 
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-        <Self as ScopeQueryPort>::list_knowledge_entries(self, scope).await
+        <Self as KnowledgeQueryPort>::list_knowledge_entries(self, scope).await
     }
 
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
@@ -733,7 +731,7 @@ impl RelationPort for MultiPeerRouter {
 }
 
 #[async_trait]
-impl ScopeQueryPort for MultiPeerRouter {
+impl KnowledgeQueryPort for MultiPeerRouter {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         // The selection payload carries the request Scope so the §2
         // namespace / §3 authority derivations see it (the same Scope the
@@ -747,7 +745,10 @@ impl ScopeQueryPort for MultiPeerRouter {
         };
         selected.adapter.list_knowledge_entries(scope).await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for MultiPeerRouter {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         let selected = match self.select_for_op(
             "port.scope.list_timeline_events",
@@ -1925,6 +1926,58 @@ mod tests {
             SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-a"),
             SpokeResult::Reject(reject) => panic!("must select peer-a: {reject:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn knowledge_ops_select_knowledge_or_baseline_peers_only() {
+        let knowledge_only = SelectablePeer {
+            peer_id: "peer-k".to_string(),
+            manifest: manifest("h-k", &["spoke-knowledge"]),
+        };
+        let baseline = SelectablePeer {
+            peer_id: "peer-b".to_string(),
+            manifest: manifest("h-b", &["spoke-baseline"]),
+        };
+        let unrelated = SelectablePeer {
+            peer_id: "peer-u".to_string(),
+            manifest: manifest("h-u", &["l2-computable"]),
+        };
+
+        for op in [
+            "port.knowledge.get",
+            "port.knowledge.put",
+            "port.scope.list_knowledge_entries",
+        ] {
+            // A knowledge-only peer is the target of the three knowledge ops.
+            match select_peer_for_op(
+                &[unrelated.clone(), knowledge_only.clone()],
+                op,
+                &json!({}),
+            ) {
+                SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-k"),
+                SpokeResult::Reject(reject) => panic!("must select peer-k for {op}: {reject:?}"),
+            }
+            // `spoke-baseline` satisfies `spoke-knowledge`.
+            match select_peer_for_op(&[baseline.clone(), unrelated.clone()], op, &json!({})) {
+                SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-b"),
+                SpokeResult::Reject(reject) => panic!("must select peer-b for {op}: {reject:?}"),
+            }
+            // Neither flag, no candidate.
+            assert!(
+                matches!(
+                    select_peer_for_op(&[unrelated.clone()], op, &json!({})),
+                    SpokeResult::Reject(_)
+                ),
+                "{op} must reject without spoke-knowledge or spoke-baseline"
+            );
+        }
+
+        // The reverse never holds: `spoke-knowledge` alone serves no baseline
+        // `port.*` op.
+        assert!(matches!(
+            select_peer_for_op(&[knowledge_only], "port.relation.get", &json!({})),
+            SpokeResult::Reject(_)
+        ));
     }
 
     #[tokio::test]

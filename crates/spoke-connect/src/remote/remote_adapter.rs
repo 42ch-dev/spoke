@@ -34,8 +34,8 @@ use serde_json::{json, Map, Value};
 use spoke_operations::{
     from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
     ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
-    MemoryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode,
-    SpokeResult,
+    KnowledgeQueryPort, MemoryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject,
+    SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -1495,7 +1495,7 @@ impl RelationPort for RemoteAdapter {
 }
 
 #[async_trait]
-impl ScopeQueryPort for RemoteAdapter {
+impl KnowledgeQueryPort for RemoteAdapter {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.invoke_mapped(
             "port.scope.list_knowledge_entries",
@@ -1503,7 +1503,10 @@ impl ScopeQueryPort for RemoteAdapter {
         )
         .await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for RemoteAdapter {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         self.invoke_mapped("port.scope.list_timeline_events", json!({ "scope": scope }))
             .await

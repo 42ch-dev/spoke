@@ -12,8 +12,8 @@ use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     spoke_ok, spoke_reject, ComputablePort, FindingPort, ForkTimelineQueryPort,
-    HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-    SpokeRejectCode, SpokeResult,
+    HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::{
     ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
@@ -255,12 +255,15 @@ impl RelationPort for SmokeBaselineAdapter {
 }
 
 #[async_trait]
-impl ScopeQueryPort for SmokeBaselineAdapter {
+impl KnowledgeQueryPort for SmokeBaselineAdapter {
     async fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         let store = self.store.lock().expect("smoke store lock");
         store.list_knowledge_entries()
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for SmokeBaselineAdapter {
     async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         let store = self.store.lock().expect("smoke store lock");
         store.list_timeline_events()

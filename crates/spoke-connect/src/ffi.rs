@@ -452,8 +452,8 @@ mod foreign_ports_handler {
     use serde::de::DeserializeOwned;
     use spoke_operations::{
         BaselinePorts, ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort,
-        KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject,
-        SpokeRejectCode, SpokeResult,
+        KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
+        SpokeReject, SpokeRejectCode, SpokeResult,
     };
     use spoke_schemas::{
         ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
@@ -663,7 +663,7 @@ mod foreign_ports_handler {
     }
 
     #[async_trait]
-    impl ScopeQueryPort for RemoteServePortsBridge {
+    impl KnowledgeQueryPort for RemoteServePortsBridge {
         async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             let handler = Arc::clone(&self.handler);
             let scope_json = serde_json::to_string(scope).expect("scope serializes");
@@ -672,7 +672,10 @@ mod foreign_ports_handler {
             })
             .await
         }
+    }
 
+    #[async_trait]
+    impl ScopeQueryPort for RemoteServePortsBridge {
         async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             let handler = Arc::clone(&self.handler);
             let scope_json = serde_json::to_string(scope).expect("scope serializes");
@@ -803,8 +806,8 @@ mod remote_adapter_ffi {
     use serde_json::Value;
     use spoke_operations::{
         parse_tool_capability_id, ComputablePort, FindingPort, ForkTimelineQueryPort,
-        HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-        SpokeReject, SpokeResult,
+        HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort,
+        ScopeQueryPort, SpokeReject, SpokeResult,
     };
     use spoke_schemas::{
         ComputeRequest, ExtractRequest, Finding, HostCapabilityManifest, KnowledgeEntry,
@@ -1517,8 +1520,8 @@ mod multi_peer_router_ffi {
 
     use serde_json::Value;
     use spoke_operations::{
-        FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
-        ScopeQueryPort,
+        FindingPort, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort,
+        RuleQueryPort, ScopeQueryPort,
     };
     use spoke_schemas::{Finding, KnowledgeEntry, Relation, Scope};
 

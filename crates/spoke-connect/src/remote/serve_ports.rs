@@ -1,9 +1,12 @@
 //! Responder ports face — the D4 catalogue seam `connect_responder` serves
 //! `port.*` ops through.
 //!
-//! [`RemoteServePorts`] carries the baseline six families (via the
-//! `BaselinePorts` supertrait) plus the optional l2-computable / l5-fork
-//! faces, probed with [`RemoteServePorts::as_computable`] /
+//! [`RemoteServePorts`] probes each family it can serve instead of extending
+//! one provider trait: the distributed baseline six through
+//! [`RemoteServePorts::as_baseline`], the three knowledge ops through
+//! [`RemoteServePorts::as_knowledge`] (a [`RemoteKnowledgeFace`]: scoped
+//! store + per-peer admission), the optional l2-computable / l5-fork faces
+//! through [`RemoteServePorts::as_computable`] /
 //! [`RemoteServePorts::as_fork_timeline`] — the operations-crate
 //! dyn-availability probe convention (`ComputablePorts` / `ForkPorts`). The
 //! core `extract` op is served through the separate optional
@@ -20,7 +23,8 @@
 //! ForkTimelineQueryPort`) are covered by the blanket impl; baseline-only
 //! and mixed hosts compose via [`RemoteServePortsComposite::new`] without
 //! manual trait impls, opting into extraction with
-//! [`RemoteServePortsComposite::with_extract`].
+//! [`RemoteServePortsComposite::with_extract`]; a host that serves only the
+//! knowledge ops composes with [`RemoteServePortsComposite::knowledge_only`].
 
 use std::future::Future;
 use std::sync::Arc;
@@ -30,14 +34,10 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use spoke_operations::{
-    spoke_reject, BaselinePorts, ComputablePort, FindingPort, ForkTimelineQueryPort,
-    HostManifestPort, KnowledgeEntryPort, MemoryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-    SpokeRejectCode, SpokeResult,
+    spoke_reject, BaselinePorts, ComputablePort, ForkTimelineQueryPort, MemoryPort,
+    ScopedKnowledgePort, SpokeRejectCode, SpokeResult,
 };
-use spoke_schemas::{
-    ExtractRequest, ExtractResponse, Finding, HostCapabilityManifest, KnowledgeEntry, Principal,
-    Relation, Rule, Scope, TimelineEvent,
-};
+use spoke_schemas::{ExtractRequest, ExtractResponse, Principal, Scope};
 
 /// Connect-owned service face for the core `extract` op: the serving host
 /// runs its own extraction — local loader, local extractor, local
@@ -81,6 +81,19 @@ pub trait RemoteMemoryService: Send + Sync {
 /// `Principal` the provider admits. The principal never comes from the
 /// payload (MEM-R003).
 pub type MemoryAdmission = Arc<dyn Fn(&str) -> SpokeResult<Principal> + Send + Sync>;
+
+/// Admission context: maps the authenticated connect peer to the `Scope` it
+/// may read and write. The scope never comes from the payload.
+pub type KnowledgeAdmission = Arc<dyn Fn(&str) -> SpokeResult<Scope> + Send + Sync>;
+
+/// Knowledge serving face: a scoped store plus per-peer admission. The three
+/// knowledge ops are served only inside the admitted scope; `get`/`put`
+/// carry no wire scope, and the list op's wire scope must match the
+/// admission exactly.
+pub struct RemoteKnowledgeFace {
+    pub store: Arc<dyn ScopedKnowledgePort + Send + Sync>,
+    pub admission: KnowledgeAdmission,
+}
 
 /// [`RemoteMemoryService`] over a provider [`MemoryPort`]: the 33 `memory.*`
 /// op names map onto their typed port methods, so a host attaches an existing
@@ -248,20 +261,41 @@ where
     }
 }
 
-/// Responder ports face (D4 catalogue): baseline six + optional families,
-/// capability-gated. `Option` probes mirror the operations-crate
-/// `ComputablePorts` / `ForkPorts` availability convention.
-pub trait RemoteServePorts: BaselinePorts {
+/// Responder ports face (D4 catalogue): per-family probes, capability-gated.
+/// `Option` probes mirror the operations-crate `ComputablePorts` /
+/// `ForkPorts` availability convention; every probe defaults to `None`, so a
+/// host opts into exactly the families it serves. The knowledge ops are
+/// served through [`RemoteServePorts::as_knowledge`] instead of the
+/// distributed baseline six.
+pub trait RemoteServePorts: Send + Sync {
+    /// Optional distributed baseline face (the six port families), when
+    /// provided.
+    fn as_baseline(&self) -> Option<&(dyn BaselinePorts + Send + Sync)> {
+        None
+    }
+
+    /// Optional knowledge serving face (scoped store + admission), when
+    /// provided.
+    fn as_knowledge(&self) -> Option<Arc<RemoteKnowledgeFace>> {
+        None
+    }
+
     /// Optional l2-computable face (project / compute), when provided.
-    fn as_computable(&self) -> Option<&dyn ComputablePort>;
+    fn as_computable(&self) -> Option<&dyn ComputablePort> {
+        None
+    }
 
     /// Optional l5-fork timeline face, when provided.
-    fn as_fork_timeline(&self) -> Option<&dyn ForkTimelineQueryPort>;
+    fn as_fork_timeline(&self) -> Option<&dyn ForkTimelineQueryPort> {
+        None
+    }
 
     /// Optional `extract` service face, when provided. `None` is genuine
     /// optional absence (a host that does not serve extraction), not a stub
     /// service — the responder answers the dispatch-deny branch.
-    fn as_extract(&self) -> Option<&dyn RemoteExtractService>;
+    fn as_extract(&self) -> Option<&dyn RemoteExtractService> {
+        None
+    }
 
     /// Optional memory service face, when provided. Absent means the host
     /// declared `spoke-memory` without providing the service — the responder
@@ -269,24 +303,25 @@ pub trait RemoteServePorts: BaselinePorts {
     ///
     /// Owned (not borrowed) because the responder detaches the admitted
     /// invoke from its response deadline (§14.3): the spawned task must own
-    /// the face. Defaults to `None`, so adding this optional family stays
-    /// additive: every existing `RemoteServePorts` implementation compiles
-    /// unchanged and hosts opt in by overriding it (as
-    /// [`RemoteServePortsComposite::with_memory`] does).
+    /// the face.
     fn as_memory(&self) -> Option<Arc<dyn RemoteMemoryService>> {
         None
     }
 }
 
 /// Blanket impl: a provider carrying the baseline six + both optional faces
-/// serves every family through the responder (the probes return the faces).
-/// The full-optional surface does **not** imply extraction: a provider opts
-/// into the `extract` service explicitly through
-/// [`RemoteServePortsComposite::with_extract`].
+/// serves those families through the responder (the probes return the
+/// faces). The full-optional surface does **not** imply extraction or a
+/// knowledge face: a provider opts into those explicitly through
+/// [`RemoteServePortsComposite`].
 impl<T> RemoteServePorts for T
 where
-    T: BaselinePorts + ComputablePort + ForkTimelineQueryPort,
+    T: BaselinePorts + ComputablePort + ForkTimelineQueryPort + Send + Sync,
 {
+    fn as_baseline(&self) -> Option<&(dyn BaselinePorts + Send + Sync)> {
+        Some(self)
+    }
+
     fn as_computable(&self) -> Option<&dyn ComputablePort> {
         Some(self)
     }
@@ -294,19 +329,16 @@ where
     fn as_fork_timeline(&self) -> Option<&dyn ForkTimelineQueryPort> {
         Some(self)
     }
-
-    fn as_extract(&self) -> Option<&dyn RemoteExtractService> {
-        None
-    }
 }
 
-/// Composite responder ports face: a baseline provider plus optional
-/// computable / fork / extract faces (each may be absent). Baseline-only and
-/// mixed hosts compose via [`RemoteServePortsComposite::new`] without manual
-/// trait impls; extraction is added with the consuming
-/// [`RemoteServePortsComposite::with_extract`].
+/// Composite responder ports face: each family is optional and independent.
+/// Baseline-only and mixed hosts compose via [`RemoteServePortsComposite::new`]
+/// without manual trait impls; a knowledge-only host composes with
+/// [`RemoteServePortsComposite::knowledge_only`]; extraction, memory and
+/// knowledge are added with the consuming builders.
 pub struct RemoteServePortsComposite {
-    baseline: Arc<dyn BaselinePorts + Send + Sync>,
+    baseline: Option<Arc<dyn BaselinePorts + Send + Sync>>,
+    knowledge: Option<Arc<RemoteKnowledgeFace>>,
     computable: Option<Arc<dyn ComputablePort + Send + Sync>>,
     fork: Option<Arc<dyn ForkTimelineQueryPort + Send + Sync>>,
     extract: Option<Arc<dyn RemoteExtractService>>,
@@ -325,12 +357,33 @@ impl RemoteServePortsComposite {
         fork: Option<Arc<dyn ForkTimelineQueryPort + Send + Sync>>,
     ) -> Self {
         Self {
-            baseline,
+            baseline: Some(baseline),
+            knowledge: None,
             computable,
             fork,
             extract: None,
             memory: None,
         }
+    }
+
+    /// Compose a knowledge-only face: no baseline provider, so `assemble`
+    /// and every other baseline op stays denied.
+    pub fn knowledge_only(knowledge: Arc<RemoteKnowledgeFace>) -> Self {
+        Self {
+            baseline: None,
+            knowledge: Some(knowledge),
+            computable: None,
+            fork: None,
+            extract: None,
+            memory: None,
+        }
+    }
+
+    /// Attach the knowledge serving face (consuming builder).
+    #[must_use]
+    pub fn with_knowledge(mut self, knowledge: Arc<RemoteKnowledgeFace>) -> Self {
+        self.knowledge = Some(knowledge);
+        self
     }
 
     /// Attach the optional `extract` service face (consuming builder).
@@ -348,79 +401,17 @@ impl RemoteServePortsComposite {
     }
 }
 
-#[async_trait]
-impl KnowledgeEntryPort for RemoteServePortsComposite {
-    async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
-        self.baseline.get_knowledge_entry(entry_id).await
-    }
-
-    async fn put_knowledge_entry(
-        &self,
-        entry: KnowledgeEntry,
-        expected_base_revision: Option<u64>,
-    ) -> SpokeResult<KnowledgeEntry> {
-        self.baseline
-            .put_knowledge_entry(entry, expected_base_revision)
-            .await
-    }
-}
-
-#[async_trait]
-impl RelationPort for RemoteServePortsComposite {
-    async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
-        self.baseline.get_relation(relation_id).await
-    }
-
-    async fn put_relation(
-        &self,
-        relation: Relation,
-        expected_base_revision: Option<u64>,
-    ) -> SpokeResult<Relation> {
-        self.baseline
-            .put_relation(relation, expected_base_revision)
-            .await
-    }
-}
-
-#[async_trait]
-impl ScopeQueryPort for RemoteServePortsComposite {
-    async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-        self.baseline.list_knowledge_entries(scope).await
-    }
-
-    async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-        self.baseline.list_timeline_events(scope).await
-    }
-}
-
-#[async_trait]
-impl FindingPort for RemoteServePortsComposite {
-    async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
-        self.baseline.put_findings(findings).await
-    }
-}
-
-#[async_trait]
-impl RuleQueryPort for RemoteServePortsComposite {
-    async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-        self.baseline.list_rules(rule_refs).await
-    }
-}
-
-#[async_trait]
-impl HostManifestPort for RemoteServePortsComposite {
-    async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
-        self.baseline.get_host_capability_manifest().await
-    }
-
-    async fn list_peer_host_capability_manifests(
-        &self,
-    ) -> SpokeResult<Vec<HostCapabilityManifest>> {
-        self.baseline.list_peer_host_capability_manifests().await
-    }
-}
-
 impl RemoteServePorts for RemoteServePortsComposite {
+    fn as_baseline(&self) -> Option<&(dyn BaselinePorts + Send + Sync)> {
+        self.baseline
+            .as_ref()
+            .map(|baseline| baseline.as_ref() as &(dyn BaselinePorts + Send + Sync))
+    }
+
+    fn as_knowledge(&self) -> Option<Arc<RemoteKnowledgeFace>> {
+        self.knowledge.clone()
+    }
+
     fn as_computable(&self) -> Option<&dyn ComputablePort> {
         self.computable
             .as_ref()

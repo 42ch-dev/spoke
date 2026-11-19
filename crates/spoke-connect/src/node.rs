@@ -1047,14 +1047,12 @@ impl EventLoop {
                                         .get(request.op.as_str())
                                         .map(String::as_str)
                                 });
-                                let negotiated_allowed = required.is_some_and(
-                                    |required| {
-                                        session
-                                            .negotiated_capabilities
-                                            .iter()
-                                            .any(|granted| granted == required)
-                                    },
-                                );
+                                let negotiated_allowed = required.is_some_and(|required| {
+                                    crate::core::capability_satisfies(
+                                        &session.negotiated_capabilities,
+                                        required,
+                                    )
+                                });
                                 let token_allowed = token_grant
                                     .as_deref()
                                     .is_none_or(|grant| {
@@ -1912,7 +1910,7 @@ pub fn parse_multiaddr(addr: &str) -> Result<Multiaddr, ConnectError> {
 mod tests {
     use super::*;
     use crate::config::ConnectConfig;
-    use crate::core::CAPABILITY_SPOKE_BASELINE;
+    use crate::core::{CAPABILITY_SPOKE_BASELINE, CAPABILITY_SPOKE_KNOWLEDGE};
     use libp2p::identity::Keypair;
 
     fn manifest(host_id: &str) -> HostCapabilityManifest {
@@ -1994,10 +1992,13 @@ mod tests {
     }
 
     /// The product-map port ops the shared vectors dispatch.
-    const PORT_OPS: &[&str] = &[
-        "port.scope.list_knowledge_entries",
-        "port.scope.list_timeline_events",
-        "port.fork.list_timeline_events",
+    const PORT_OPS: &[(&str, &str)] = &[
+        (
+            "port.scope.list_knowledge_entries",
+            CAPABILITY_SPOKE_KNOWLEDGE,
+        ),
+        ("port.scope.list_timeline_events", CAPABILITY_SPOKE_BASELINE),
+        ("port.fork.list_timeline_events", CAPABILITY_SPOKE_BASELINE),
     ];
 
     /// One signed inbound invoke through the real node dispatch path: a
@@ -2032,7 +2033,7 @@ mod tests {
         // table has no row for them), exactly as a product host configures it.
         cfg.op_capability_requirements = PORT_OPS
             .iter()
-            .map(|port_op| ((*port_op).to_owned(), CAPABILITY_SPOKE_BASELINE.to_owned()))
+            .map(|(port_op, capability)| ((*port_op).to_owned(), (*capability).to_owned()))
             .collect();
         let mut loop_ = session_event_loop(cfg, peer, peer_keypair.public(), negotiated);
         let request = signed_request(&peer_seed, 0, "req-0001", op, payload);
@@ -2143,10 +2144,10 @@ mod tests {
     /// answers, and no cognition diagnosis runs (fixed direction §2).
     #[tokio::test]
     async fn op_denial_precedes_the_cognition_diagnosis() {
-        // `port.scope.list_knowledge_entries` requires `spoke-baseline`
-        // (`PORT_OPS`). A session that negotiated the cognition family but not
-        // that required capability is denied at the op gate, so the malformed
-        // requirement below must never become the answer.
+        // `port.scope.list_knowledge_entries` requires `spoke-knowledge`
+        // (`PORT_OPS`). A session that negotiated only the cognition family is
+        // denied at the op gate, so the malformed requirement below must never
+        // become the answer.
         let (response, calls) = dispatch_cognition_op_request(
             vec![CAPABILITY_SPOKE_COGNITION.to_owned()],
             "port.scope.list_knowledge_entries",
@@ -2162,6 +2163,55 @@ mod tests {
         };
         assert_eq!(error.code, "op_unsupported", "{error:?}");
         assert_eq!(calls, 0, "the handler must not run for an op-denied request");
+    }
+
+    /// The product-map fallback (`op_capability_requirements`) through the
+    /// real node dispatch boundary: a knowledge op is served for a
+    /// `spoke-knowledge` or `spoke-baseline` session and denied — with zero
+    /// handler calls — for an unrelated capability set, while a
+    /// knowledge-only session never reaches a baseline op's handler.
+    #[tokio::test]
+    async fn product_map_gates_knowledge_ops_at_the_node_boundary() {
+        let caps = |list: &[&str]| -> Vec<String> {
+            list.iter().map(|cap| (*cap).to_owned()).collect()
+        };
+        let knowledge_op = "port.scope.list_knowledge_entries";
+        for allowed in [
+            caps(&[CAPABILITY_SPOKE_KNOWLEDGE]),
+            caps(&[CAPABILITY_SPOKE_BASELINE]),
+        ] {
+            let (response, calls) = dispatch_cognition_op_request(
+                allowed.clone(),
+                knowledge_op,
+                serde_json::json!({}),
+            );
+            assert!(
+                matches!(response, ConnectInvokeResponse::Variant0 { .. }),
+                "{allowed:?} must serve {knowledge_op}: {response:?}"
+            );
+            assert_eq!(calls, 1, "{allowed:?}: the handler runs once");
+        }
+        for denied in [caps(&["ke-ownership"]), caps(&[])] {
+            let (response, calls) =
+                dispatch_cognition_op_request(denied.clone(), knowledge_op, serde_json::json!({}));
+            let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+                panic!("{denied:?} must not serve {knowledge_op}");
+            };
+            assert_eq!(error.code, "op_unsupported", "{error:?}");
+            assert_eq!(calls, 0, "{denied:?}: the handler must not run");
+        }
+        // The implication is directed: the knowledge flag alone never
+        // authorizes a baseline op.
+        let (response, calls) = dispatch_cognition_op_request(
+            caps(&[CAPABILITY_SPOKE_KNOWLEDGE]),
+            "port.scope.list_timeline_events",
+            serde_json::json!({}),
+        );
+        let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+            panic!("a knowledge-only session must not serve a baseline op");
+        };
+        assert_eq!(error.code, "op_unsupported", "{error:?}");
+        assert_eq!(calls, 0);
     }
 
     /// Every shared served vector through the real node dispatch boundary:

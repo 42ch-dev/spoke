@@ -227,10 +227,10 @@ The responder serves a `port.*` invoke through its injected `ports` provider. Op
 
 | FFI `PortsHandler` method | Family | Serves op |
 |---------------------------|--------|-----------|
-| `get_knowledge_entry(entry_id)` | knowledge (baseline face) | `port.knowledge.get` |
-| `put_knowledge_entry(entry_json, expected_base_revision)` | knowledge (baseline face) | `port.knowledge.put` |
+| `get_knowledge_entry(entry_id)` | knowledge (baseline face) | None — local `BaselinePorts` method only |
+| `put_knowledge_entry(entry_json, expected_base_revision)` | knowledge (baseline face) | None — local `BaselinePorts` method only |
 | `get_relation(relation_id)` / `put_relation(relation_json, expected_base_revision)` | baseline | `port.relation.get` / `port.relation.put` |
-| `list_knowledge_entries(scope_json)` | knowledge (baseline face) | `port.scope.list_knowledge_entries` |
+| `list_knowledge_entries(scope_json)` | knowledge (baseline face) | None — local `BaselinePorts` method only |
 | `list_timeline_events(scope_json)` | baseline | `port.scope.list_timeline_events` |
 | `knowledge_scope(peer_id)` | knowledge admission | Authenticated peer → admitted `Scope` |
 | `get_scoped_knowledge_entry(scope_json, entry_id)` / `put_scoped_knowledge_entry(scope_json, entry_json, expected_base_revision)` / `list_scoped_knowledge_entries(scope_json)` | knowledge | `port.knowledge.get` / `port.knowledge.put` / `port.scope.list_knowledge_entries` |
@@ -241,6 +241,8 @@ The responder serves a `port.*` invoke through its injected `ports` provider. Op
 | `compute(compute_request_json)` | `l2-computable` | `port.computable.compute` |
 | `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
 | `extract(extract_request_json)` | `ke-extraction` | `extract` |
+
+The three remote knowledge ops are served only through `knowledge_scope` admission and the scoped knowledge callbacks. The unscoped `get_knowledge_entry`, `put_knowledge_entry`, and `list_knowledge_entries` callbacks remain local `BaselinePorts` methods; they are not a remote serving path.
 
 Each `PortsHandler` method takes the request payload as a JSON string and returns the success payload as a JSON string. `get_host_capability_manifest` is not in the catalogue — it is the session cache, never served through the ports handler. A method that does not serve an op raises `FfiError.Rejected`, which passes through to the invoker as an application reject; an absent `ports` handler (constructor `ports = None`) keeps the documented deny branch for every `port.*` invoke. The C ABI is revision 2 (`SPOKE_CONNECT_ABI_VERSION = 2`), with the knowledge admission and scoped callbacks appended to the ports table.
 

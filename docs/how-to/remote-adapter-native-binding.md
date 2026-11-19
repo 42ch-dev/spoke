@@ -248,7 +248,7 @@ The constructor's `Result` slot carries config-validation failures only — mani
 
 ### The `PortsHandler` callback
 
-A `PortsHandler` is the responder's foreign-callback ports face: each method takes its arguments as JSON strings or scalar values and returns the success payload as a JSON string. The interface has seventeen methods: six baseline-face ops, knowledge admission plus three scoped knowledge ops, three optional-family ops, and `extract`. The C ABI exposes revision 2 (`SPOKE_CONNECT_ABI_VERSION = 2`) with the four knowledge callbacks appended to the ports table.
+A `PortsHandler` is the responder's foreign-callback ports face: each method takes its arguments as JSON strings or scalar values and returns the success payload as a JSON string. The interface has seventeen methods: nine baseline callbacks (including the three unscoped knowledge methods used by local `BaselinePorts`), of which six serve baseline ops remotely; knowledge admission plus three scoped knowledge ops; three optional-family ops; and `extract`. The C ABI exposes revision 2 (`SPOKE_CONNECT_ABI_VERSION = 2`) with the four knowledge callbacks appended to the ports table.
 
 | Method | Family | Serves op |
 |--------|--------|-----------|

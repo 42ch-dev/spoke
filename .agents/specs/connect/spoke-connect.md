@@ -380,7 +380,7 @@ Open string (documented, not JSON Schema enum). Schema `description` on `Connect
 
 `extract` is a **whole-operation** core op: `payload` carries the existing extraction request envelope itself and the success `payload` carries the existing extraction response envelope (`{ candidates, run, extensions? }`) — no `{ request }` / `{ result }` wrapper. The serving host performs the extraction orchestration, including source loading through its own in-process loader port, so the loaded input value is host-local and is never a request or response field. Its requester-side surface is the `extract` method on the remote adapter ([`spoke-remote-adapter.md`](../adapters/spoke-remote-adapter.md) D4).
 
-Reserved product prefixes are open strings documented in specs only — the connect schema `description` on `ConnectInvokeRequest.op` lists the eight core values and stays closed to product prefixes. `port.*` is the reserved product prefix for proxied `BaselinePorts` method calls — the baseline six families plus the optional `project` / `compute` / `listForkTimelineEvents` methods ([`spoke-remote-adapter.md`](../adapters/spoke-remote-adapter.md)); `tools.<ns>.<tool_id>` is the reserved product prefix for self-describing tool invokes declared in `HostCapabilityManifest.tools[]` (see [`spoke-data-model.md`](../protocol/spoke-data-model.md) §HostCapabilityManifest and §[Op dispatch gate](#op-dispatch-gate)). `memory.*` is the reserved product prefix for the optional `spoke-memory` family — one op per typed `MemoryPort` method, 33 ops across three capability flags ([`spoke-memory.md`](../memory/spoke-memory.md) §7).
+Reserved product prefixes are open strings documented in specs only — the connect schema `description` on `ConnectInvokeRequest.op` lists the eight core values and stays closed to product prefixes. `port.*` is the reserved product prefix for proxied `BaselinePorts` method calls — the baseline seven families (`KnowledgeEntryPort`, `KnowledgeQueryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, `HostManifestPort`) plus the optional `project` / `compute` / `listForkTimelineEvents` methods ([`spoke-remote-adapter.md`](../adapters/spoke-remote-adapter.md)); `tools.<ns>.<tool_id>` is the reserved product prefix for self-describing tool invokes declared in `HostCapabilityManifest.tools[]` (see [`spoke-data-model.md`](../protocol/spoke-data-model.md) §HostCapabilityManifest and §[Op dispatch gate](#op-dispatch-gate)). `memory.*` is the reserved product prefix for the optional `spoke-memory` family — one op per typed `MemoryPort` method, 33 ops across three capability flags ([`spoke-memory.md`](../memory/spoke-memory.md) §7).
 
 Unknown `op` values are valid on the wire; receivers return `ErrorEnvelope` with an appropriate `code` (e.g. `op_unsupported`) when they cannot handle them. Connect does not close the vocabulary. The core vocabulary above MUST stay in sync with the schema `description` fields under `schemas/connect/` and the corresponding ops schema text under `schemas/ops/`.
 
@@ -393,11 +393,16 @@ Required capabilities (core table):
 | `op` | Required capability |
 |------|---------------------|
 | `upsert`, `promote`, `relate`, `check`, `assemble` | `spoke-baseline` (or a deployment-documented synonym that both peers list and intersect into `negotiated_capabilities`) |
-| `port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries` | `spoke-knowledge`; a negotiated `spoke-baseline` satisfies this requirement |
 | `project`, `compute` | `l2-computable` |
 | `extract` | `ke-extraction` |
 | `memory.*` (reserved product prefix; 33 ops) | `spoke-memory` for the 25 core ops; `spoke-memory-reflection` for `memory.reflections.state` / `.list` / `.generate`; `spoke-memory-transfer` for `memory.exports.*` / `memory.imports.*` |
 | `tools.<ns>.<tool_id>` (reserved product prefix) | the op string itself |
+
+Product capability mapping (`port.*`):
+
+| Product `op` | Required capability |
+|--------------|---------------------|
+| `port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries` | `spoke-knowledge`; a negotiated `spoke-baseline` satisfies this requirement |
 
 `tools.*` is a **core gate rule**: `tools.<ns>.<tool_id>` ops are self-describing, so the required capability is the op string itself — no registry, no umbrella flag. This is the core-table counterpart of `port.*` being product-map territory: a `tools.*` op never consults a product capability map. A tool id enters `negotiated_capabilities` only when both hellos list that exact string (the agreed-subset rule of §[Session-core state machine](#session-core-state-machine)); the gate then evaluates that exact string as for every op.
 

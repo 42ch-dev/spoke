@@ -86,10 +86,11 @@ const EXPECTED_DICE_ROLL = { rolls: [1, 2], total: 3 };
  * Tools-less client manifest — the negative tool e2e: this client negotiates
  * no tool, so the host's mid-orchestration reverse invoke must be denied by
  * the protocol (capability gate → op_unsupported →
- * CAPABILITY_PORT_MISSING). It still declares the two KE capability flags the
- * demo flow itself performs (the extract call and the viewpoint-bearing scope
- * query) so the flow reaches the reverse invoke instead of failing on its own
- * steps: capability flags are not tools, and this manifest still lists none.
+ * CAPABILITY_PORT_MISSING). It declares the KE capability flags the demo
+ * flow performs that are not knowledge-face ops (the extract call) and
+ * deliberately omits `spoke-knowledge`: the flow's knowledge round-trip is
+ * gated on that flag, and a knowledge op from this dialer would deny
+ * (explicit membership — `ke-ownership` alone never implies it).
  */
 const MINIMAL_CLIENT_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
@@ -183,6 +184,13 @@ afterEach(() => {
   }
 });
 
+const denyServers: ServeConnectDemoHandle[] = [];
+afterEach(() => {
+  for (const denyServer of denyServers.splice(0)) {
+    denyServer.close();
+  }
+});
+
 afterAll(() => {
   server.close();
 });
@@ -204,7 +212,11 @@ describe("connect demo over a real WebSocket", () => {
     ]);
 
     // put → get round-trip with OCC: create (revision 1), compare-and-swap
-    // update (revision 2), then fetch the updated entry back.
+    // update (revision 2), then fetch the updated entry back. The default
+    // manifest negotiates `spoke-knowledge`, so the round-trip always ran.
+    if (run.created === undefined || run.updated === undefined || run.fetched === undefined) {
+      throw new Error("demo flow: knowledge round-trip did not run");
+    }
     expect(run.created.revision).toBe(1);
     expect(run.updated.revision).toBe(2);
     expect(run.updated.status).toBe("confirmed");
@@ -345,12 +357,21 @@ describe("connect demo over a real WebSocket", () => {
   });
 
   it("denies a reverse invoke for a tool the client does not list (capability deny)", async () => {
-    const baseline = server.orchestrations.length;
+    // The tools-less dialer does not negotiate `spoke-knowledge`, so it
+    // cannot put the orchestration trigger itself; the host seeds the
+    // compass submission (which records the orchestration) and the deny
+    // below is exactly the recorded reverse invoke.
+    const denyServer = await serveConnectDemo({
+      port: 0,
+      seedTriggerEntry: true,
+    });
+    denyServers.push(denyServer);
+    const baseline = denyServer.orchestrations.length;
     // This client negotiates no tools and registers no handlers — the host's
     // orchestration still attempts the roll and must surface the protocol
     // deny instead of succeeding silently.
     const run = await runDemoClient({
-      url: server.url,
+      url: denyServer.url,
       manifest: MINIMAL_CLIENT_MANIFEST,
       registerTools: false,
     });
@@ -359,7 +380,11 @@ describe("connect demo over a real WebSocket", () => {
     expect(run.registeredToolIds).toEqual([]);
     expect(run.serverManifest).toEqual(DEMO_SERVER_MANIFEST);
 
-    const records = server.orchestrations.slice(baseline);
+    // The seed lands asynchronously after the dial establishes; wait for it
+    // so the orchestration record exists before asserting.
+    await Promise.all(denyServer.seedPromises);
+
+    const records = denyServer.orchestrations.slice(baseline);
     expect(records).toHaveLength(1);
     const [record] = records;
     // No tools were discovered in the authenticated manifest.

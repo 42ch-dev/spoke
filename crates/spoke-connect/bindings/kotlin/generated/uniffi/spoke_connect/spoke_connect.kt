@@ -669,24 +669,39 @@ internal interface UniffiCallbackInterfacePortsHandlerMethod5 : com.sun.jna.Call
     fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfacePortsHandlerMethod6 : com.sun.jna.Callback {
-    fun callback(`uniffiHandle`: Long,`findingsJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+    fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: ByteByReference,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfacePortsHandlerMethod7 : com.sun.jna.Callback {
-    fun callback(`uniffiHandle`: Long,`ruleRefs`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+    fun callback(`uniffiHandle`: Long,`peerId`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfacePortsHandlerMethod8 : com.sun.jna.Callback {
-    fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+    fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`entryId`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfacePortsHandlerMethod9 : com.sun.jna.Callback {
-    fun callback(`uniffiHandle`: Long,`projectRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+    fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`entryJson`: RustBuffer.ByValue,`expectedBaseRevision`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfacePortsHandlerMethod10 : com.sun.jna.Callback {
-    fun callback(`uniffiHandle`: Long,`computeRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
-}
-internal interface UniffiCallbackInterfacePortsHandlerMethod11 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
 }
+internal interface UniffiCallbackInterfacePortsHandlerMethod11 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`findingsJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
 internal interface UniffiCallbackInterfacePortsHandlerMethod12 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`ruleRefs`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod13 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod14 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`projectRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod15 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`computeRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod16 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod17 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`extractRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfaceToolHandlerMethod0 : com.sun.jna.Callback {
@@ -701,7 +716,7 @@ internal interface UniffiCallbackInterfaceTransportMethod1 : com.sun.jna.Callbac
 internal interface UniffiCallbackInterfaceTransportMethod2 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
-@Structure.FieldOrder("uniffiFree", "uniffiClone", "getKnowledgeEntry", "putKnowledgeEntry", "getRelation", "putRelation", "listKnowledgeEntries", "listTimelineEvents", "putFindings", "listRules", "listPeerHostCapabilityManifests", "project", "compute", "listForkTimelineEvents", "extract")
+@Structure.FieldOrder("uniffiFree", "uniffiClone", "getKnowledgeEntry", "putKnowledgeEntry", "getRelation", "putRelation", "listKnowledgeEntries", "listTimelineEvents", "servesKnowledge", "knowledgeScope", "getScopedKnowledgeEntry", "putScopedKnowledgeEntry", "listScopedKnowledgeEntries", "putFindings", "listRules", "listPeerHostCapabilityManifests", "project", "compute", "listForkTimelineEvents", "extract")
 internal open class UniffiVTableCallbackInterfacePortsHandler(
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
     @JvmField internal var `uniffiClone`: UniffiCallbackInterfaceClone? = null,
@@ -711,13 +726,18 @@ internal open class UniffiVTableCallbackInterfacePortsHandler(
     @JvmField internal var `putRelation`: UniffiCallbackInterfacePortsHandlerMethod3? = null,
     @JvmField internal var `listKnowledgeEntries`: UniffiCallbackInterfacePortsHandlerMethod4? = null,
     @JvmField internal var `listTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod5? = null,
-    @JvmField internal var `putFindings`: UniffiCallbackInterfacePortsHandlerMethod6? = null,
-    @JvmField internal var `listRules`: UniffiCallbackInterfacePortsHandlerMethod7? = null,
-    @JvmField internal var `listPeerHostCapabilityManifests`: UniffiCallbackInterfacePortsHandlerMethod8? = null,
-    @JvmField internal var `project`: UniffiCallbackInterfacePortsHandlerMethod9? = null,
-    @JvmField internal var `compute`: UniffiCallbackInterfacePortsHandlerMethod10? = null,
-    @JvmField internal var `listForkTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod11? = null,
-    @JvmField internal var `extract`: UniffiCallbackInterfacePortsHandlerMethod12? = null,
+    @JvmField internal var `servesKnowledge`: UniffiCallbackInterfacePortsHandlerMethod6? = null,
+    @JvmField internal var `knowledgeScope`: UniffiCallbackInterfacePortsHandlerMethod7? = null,
+    @JvmField internal var `getScopedKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod8? = null,
+    @JvmField internal var `putScopedKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod9? = null,
+    @JvmField internal var `listScopedKnowledgeEntries`: UniffiCallbackInterfacePortsHandlerMethod10? = null,
+    @JvmField internal var `putFindings`: UniffiCallbackInterfacePortsHandlerMethod11? = null,
+    @JvmField internal var `listRules`: UniffiCallbackInterfacePortsHandlerMethod12? = null,
+    @JvmField internal var `listPeerHostCapabilityManifests`: UniffiCallbackInterfacePortsHandlerMethod13? = null,
+    @JvmField internal var `project`: UniffiCallbackInterfacePortsHandlerMethod14? = null,
+    @JvmField internal var `compute`: UniffiCallbackInterfacePortsHandlerMethod15? = null,
+    @JvmField internal var `listForkTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod16? = null,
+    @JvmField internal var `extract`: UniffiCallbackInterfacePortsHandlerMethod17? = null,
 ) : Structure() {
     class UniffiByValue(
         `uniffiFree`: UniffiCallbackInterfaceFree? = null,
@@ -728,14 +748,19 @@ internal open class UniffiVTableCallbackInterfacePortsHandler(
         `putRelation`: UniffiCallbackInterfacePortsHandlerMethod3? = null,
         `listKnowledgeEntries`: UniffiCallbackInterfacePortsHandlerMethod4? = null,
         `listTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod5? = null,
-        `putFindings`: UniffiCallbackInterfacePortsHandlerMethod6? = null,
-        `listRules`: UniffiCallbackInterfacePortsHandlerMethod7? = null,
-        `listPeerHostCapabilityManifests`: UniffiCallbackInterfacePortsHandlerMethod8? = null,
-        `project`: UniffiCallbackInterfacePortsHandlerMethod9? = null,
-        `compute`: UniffiCallbackInterfacePortsHandlerMethod10? = null,
-        `listForkTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod11? = null,
-        `extract`: UniffiCallbackInterfacePortsHandlerMethod12? = null,
-    ): UniffiVTableCallbackInterfacePortsHandler(`uniffiFree`,`uniffiClone`,`getKnowledgeEntry`,`putKnowledgeEntry`,`getRelation`,`putRelation`,`listKnowledgeEntries`,`listTimelineEvents`,`putFindings`,`listRules`,`listPeerHostCapabilityManifests`,`project`,`compute`,`listForkTimelineEvents`,`extract`,), Structure.ByValue
+        `servesKnowledge`: UniffiCallbackInterfacePortsHandlerMethod6? = null,
+        `knowledgeScope`: UniffiCallbackInterfacePortsHandlerMethod7? = null,
+        `getScopedKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod8? = null,
+        `putScopedKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod9? = null,
+        `listScopedKnowledgeEntries`: UniffiCallbackInterfacePortsHandlerMethod10? = null,
+        `putFindings`: UniffiCallbackInterfacePortsHandlerMethod11? = null,
+        `listRules`: UniffiCallbackInterfacePortsHandlerMethod12? = null,
+        `listPeerHostCapabilityManifests`: UniffiCallbackInterfacePortsHandlerMethod13? = null,
+        `project`: UniffiCallbackInterfacePortsHandlerMethod14? = null,
+        `compute`: UniffiCallbackInterfacePortsHandlerMethod15? = null,
+        `listForkTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod16? = null,
+        `extract`: UniffiCallbackInterfacePortsHandlerMethod17? = null,
+    ): UniffiVTableCallbackInterfacePortsHandler(`uniffiFree`,`uniffiClone`,`getKnowledgeEntry`,`putKnowledgeEntry`,`getRelation`,`putRelation`,`listKnowledgeEntries`,`listTimelineEvents`,`servesKnowledge`,`knowledgeScope`,`getScopedKnowledgeEntry`,`putScopedKnowledgeEntry`,`listScopedKnowledgeEntries`,`putFindings`,`listRules`,`listPeerHostCapabilityManifests`,`project`,`compute`,`listForkTimelineEvents`,`extract`,), Structure.ByValue
 
    internal fun uniffiSetValue(other: UniffiVTableCallbackInterfacePortsHandler) {
         `uniffiFree` = other.`uniffiFree`
@@ -746,6 +771,11 @@ internal open class UniffiVTableCallbackInterfacePortsHandler(
         `putRelation` = other.`putRelation`
         `listKnowledgeEntries` = other.`listKnowledgeEntries`
         `listTimelineEvents` = other.`listTimelineEvents`
+        `servesKnowledge` = other.`servesKnowledge`
+        `knowledgeScope` = other.`knowledgeScope`
+        `getScopedKnowledgeEntry` = other.`getScopedKnowledgeEntry`
+        `putScopedKnowledgeEntry` = other.`putScopedKnowledgeEntry`
+        `listScopedKnowledgeEntries` = other.`listScopedKnowledgeEntries`
         `putFindings` = other.`putFindings`
         `listRules` = other.`listRules`
         `listPeerHostCapabilityManifests` = other.`listPeerHostCapabilityManifests`
@@ -823,6 +853,8 @@ internal object IntegrityCheckingUniffiLib {
         uniffiCheckContractApiVersion(this)
         uniffiCheckApiChecksums(this)
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_spoke_connect_checksum_func_check_response_correlation(
     ): Int
     external fun uniffi_spoke_connect_checksum_func_derive_peer_id_from_ed25519_pubkey(
@@ -965,6 +997,16 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events(
     ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_serves_knowledge(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_knowledge_scope(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_get_scoped_knowledge_entry(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_put_scoped_knowledge_entry(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_list_scoped_knowledge_entries(
+    ): Int
     external fun uniffi_spoke_connect_checksum_method_portshandler_put_findings(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_portshandler_list_rules(
@@ -1008,6 +1050,8 @@ internal object UniffiLib {
         uniffiCallbackInterfaceTransport.register(this)
         
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_spoke_connect_fn_clone_inboundsequence(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_spoke_connect_fn_free_inboundsequence(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1295,250 +1339,265 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
-    if (lib.uniffi_spoke_connect_checksum_func_check_response_correlation() != 57062) {
+    if ((lib.uniffi_spoke_connect_checksum_func_check_response_correlation() and 0xFFFF) != 57062) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_derive_peer_id_from_ed25519_pubkey() != 37906) {
+    if ((lib.uniffi_spoke_connect_checksum_func_derive_peer_id_from_ed25519_pubkey() and 0xFFFF) != 37906) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_dispatch_allowed() != 25989) {
+    if ((lib.uniffi_spoke_connect_checksum_func_dispatch_allowed() and 0xFFFF) != 25989) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_is_allowlisted() != 52933) {
+    if ((lib.uniffi_spoke_connect_checksum_func_is_allowlisted() and 0xFFFF) != 52933) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_protocol_version() != 50454) {
+    if ((lib.uniffi_spoke_connect_checksum_func_protocol_version() and 0xFFFF) != 50454) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_required_capability() != 8417) {
+    if ((lib.uniffi_spoke_connect_checksum_func_required_capability() and 0xFFFF) != 8417) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_sign_hello_ed25519() != 37896) {
+    if ((lib.uniffi_spoke_connect_checksum_func_sign_hello_ed25519() and 0xFFFF) != 37896) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_verify_hello_ed25519() != 15847) {
+    if ((lib.uniffi_spoke_connect_checksum_func_verify_hello_ed25519() and 0xFFFF) != 15847) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_connect_responder_ffi() != 24246) {
+    if ((lib.uniffi_spoke_connect_checksum_func_connect_responder_ffi() and 0xFFFF) != 24246) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597) {
+    if ((lib.uniffi_spoke_connect_checksum_func_loopback_transport_pair() and 0xFFFF) != 40597) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi() != 46664) {
+    if ((lib.uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi() and 0xFFFF) != 46664) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi() != 44915) {
+    if ((lib.uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi() and 0xFFFF) != 44915) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_inboundsequence_advance() != 17976) {
+    if ((lib.uniffi_spoke_connect_checksum_method_inboundsequence_advance() and 0xFFFF) != 17976) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_noncestore_check_and_record() != 41909) {
+    if ((lib.uniffi_spoke_connect_checksum_method_noncestore_check_and_record() and 0xFFFF) != 41909) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_outboundsequence_allocate() != 57422) {
+    if ((lib.uniffi_spoke_connect_checksum_method_outboundsequence_allocate() and 0xFFFF) != 57422) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_close() != 12558) {
+    if ((lib.uniffi_spoke_connect_checksum_method_connectresponderffi_close() and 0xFFFF) != 12558) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_invoke_tool() != 1388) {
+    if ((lib.uniffi_spoke_connect_checksum_method_connectresponderffi_invoke_tool() and 0xFFFF) != 1388) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_register_tool_handler() != 8493) {
+    if ((lib.uniffi_spoke_connect_checksum_method_connectresponderffi_register_tool_handler() and 0xFFFF) != 8493) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_remote_manifest() != 14971) {
+    if ((lib.uniffi_spoke_connect_checksum_method_connectresponderffi_remote_manifest() and 0xFFFF) != 14971) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_remote_peer_id() != 61887) {
+    if ((lib.uniffi_spoke_connect_checksum_method_connectresponderffi_remote_peer_id() and 0xFFFF) != 61887) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_session_id() != 11982) {
+    if ((lib.uniffi_spoke_connect_checksum_method_connectresponderffi_session_id() and 0xFFFF) != 11982) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_state() != 49043) {
+    if ((lib.uniffi_spoke_connect_checksum_method_connectresponderffi_state() and 0xFFFF) != 49043) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_loopbacktransport_close() != 20355) {
+    if ((lib.uniffi_spoke_connect_checksum_method_loopbacktransport_close() and 0xFFFF) != 20355) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_loopbacktransport_recv() != 39606) {
+    if ((lib.uniffi_spoke_connect_checksum_method_loopbacktransport_recv() and 0xFFFF) != 39606) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_loopbacktransport_send() != 16974) {
+    if ((lib.uniffi_spoke_connect_checksum_method_loopbacktransport_send() and 0xFFFF) != 16974) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_client() != 9696) {
+    if ((lib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_client() and 0xFFFF) != 9696) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_server() != 13605) {
+    if ((lib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_server() and 0xFFFF) != 13605) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_host_capability_manifest() != 59432) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_host_capability_manifest() and 0xFFFF) != 59432) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry() != 22722) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry() and 0xFFFF) != 22722) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation() != 18470) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation() and 0xFFFF) != 18470) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_invoke_tool() != 26685) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_invoke_tool() and 0xFFFF) != 26685) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries() != 38484) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries() and 0xFFFF) != 38484) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peer_host_capability_manifests() != 61680) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peer_host_capability_manifests() and 0xFFFF) != 61680) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peers() != 20421) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peers() and 0xFFFF) != 20421) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_rules() != 33290) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_rules() and 0xFFFF) != 33290) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_timeline_events() != 63418) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_timeline_events() and 0xFFFF) != 63418) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_findings() != 49739) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_findings() and 0xFFFF) != 49739) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_knowledge_entry() != 21998) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_knowledge_entry() and 0xFFFF) != 21998) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_relation() != 128) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_relation() and 0xFFFF) != 128) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_register_peer() != 58386) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_register_peer() and 0xFFFF) != 58386) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_unregister_peer() != 56292) {
+    if ((lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_unregister_peer() and 0xFFFF) != 56292) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_close() != 18719) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_close() and 0xFFFF) != 18719) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_compute() != 30870) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_compute() and 0xFFFF) != 30870) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_extract() != 63566) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_extract() and 0xFFFF) != 63566) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest() != 41950) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest() and 0xFFFF) != 41950) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_knowledge_entry() != 44466) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_knowledge_entry() and 0xFFFF) != 44466) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation() != 47371) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation() and 0xFFFF) != 47371) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_invoke_tool() != 50002) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_invoke_tool() and 0xFFFF) != 50002) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_fork_timeline_events() != 57279) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_fork_timeline_events() and 0xFFFF) != 57279) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries() != 8982) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries() and 0xFFFF) != 8982) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_peer_host_capability_manifests() != 7630) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_peer_host_capability_manifests() and 0xFFFF) != 7630) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_rules() != 57745) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_rules() and 0xFFFF) != 57745) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events() != 30715) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events() and 0xFFFF) != 30715) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_project() != 41885) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_project() and 0xFFFF) != 41885) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings() != 8509) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings() and 0xFFFF) != 8509) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_knowledge_entry() != 46465) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_knowledge_entry() and 0xFFFF) != 46465) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation() != 40493) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation() and 0xFFFF) != 40493) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_register_tool_handler() != 2890) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_register_tool_handler() and 0xFFFF) != 2890) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest() != 12957) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest() and 0xFFFF) != 12957) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_peer_id() != 25676) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_peer_id() and 0xFFFF) != 25676) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_session_id() != 15819) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_session_id() and 0xFFFF) != 15819) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_state() != 28869) {
+    if ((lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_state() and 0xFFFF) != 28869) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_constructor_inboundsequence_new() != 21926) {
+    if ((lib.uniffi_spoke_connect_checksum_constructor_inboundsequence_new() and 0xFFFF) != 21926) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_constructor_noncestore_new() != 5575) {
+    if ((lib.uniffi_spoke_connect_checksum_constructor_noncestore_new() and 0xFFFF) != 5575) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_constructor_outboundsequence_new() != 6716) {
+    if ((lib.uniffi_spoke_connect_checksum_constructor_outboundsequence_new() and 0xFFFF) != 6716) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_get_knowledge_entry() != 40017) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_get_knowledge_entry() and 0xFFFF) != 40017) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_put_knowledge_entry() != 48406) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_put_knowledge_entry() and 0xFFFF) != 48406) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_get_relation() != 48343) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_get_relation() and 0xFFFF) != 48343) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_put_relation() != 3125) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_put_relation() and 0xFFFF) != 3125) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_list_knowledge_entries() != 43680) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_list_knowledge_entries() and 0xFFFF) != 43680) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events() != 58726) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events() and 0xFFFF) != 58726) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_put_findings() != 24895) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_serves_knowledge() and 0xFFFF) != 19663) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_list_rules() != 64974) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_knowledge_scope() and 0xFFFF) != 56261) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests() != 48604) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_get_scoped_knowledge_entry() and 0xFFFF) != 32088) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_project() != 15269) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_put_scoped_knowledge_entry() and 0xFFFF) != 49545) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_compute() != 8096) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_list_scoped_knowledge_entries() and 0xFFFF) != 47635) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events() != 36942) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_put_findings() and 0xFFFF) != 24645) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_portshandler_extract() != 1921) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_list_rules() and 0xFFFF) != 5719) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_toolhandler_handle() != 47918) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests() and 0xFFFF) != 1482) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_transport_send() != 34348) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_project() and 0xFFFF) != 16431) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_transport_recv() != 49799) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_compute() and 0xFFFF) != 9988) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_method_transport_close() != 43413) {
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events() and 0xFFFF) != 7062) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_spoke_connect_checksum_method_portshandler_extract() and 0xFFFF) != 39041) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_spoke_connect_checksum_method_toolhandler_handle() and 0xFFFF) != 47918) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_spoke_connect_checksum_method_transport_send() and 0xFFFF) != 34348) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_spoke_connect_checksum_method_transport_recv() and 0xFFFF) != 49799) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_spoke_connect_checksum_method_transport_close() and 0xFFFF) != 43413) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1547,10 +1606,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
  * @suppress
  */
 public fun uniffiEnsureInitialized() {
-    IntegrityCheckingUniffiLib
-    // UniffiLib() initialized as objects are used, but we still need to explicitly
-    // reference it so initialization across crates works as expected.
-    UniffiLib
+    // Call arbitrary methods on IntegrityCheckingUniffiLib and UniffiLib to ensure that
+    // their init blocks run. This ensures initialization across crates works as expected.
+    IntegrityCheckingUniffiLib.ensureInitialized()
+    UniffiLib.ensureInitialized()
 }
 
 // Async support
@@ -5555,6 +5614,31 @@ public interface PortsHandler {
     
     fun `listTimelineEvents`(`scopeJson`: kotlin.String): kotlin.String
     
+    /**
+     * Whether this handler serves the scoped knowledge face. `false`
+     * means the face is absent: the responder answers the missing-face
+     * deny branch and never calls the four knowledge callbacks below.
+     * The C carrier derives it from a NULL `knowledge_scope` pointer.
+     */
+    fun `servesKnowledge`(): kotlin.Boolean
+    
+    /**
+     * The `Scope` JSON the authenticated peer may read and write. The
+     * scope never comes from the wire, and a refusal (an error return)
+     * is the responder's `NOT_AUTHORIZED` row with no existence detail.
+     */
+    fun `knowledgeScope`(`peerId`: kotlin.String): kotlin.String
+    
+    /**
+     * Scoped `get`/`put`/`list`: the admitted scope crosses as JSON in
+     * front of the same payload the unscoped callback carries.
+     */
+    fun `getScopedKnowledgeEntry`(`scopeJson`: kotlin.String, `entryId`: kotlin.String): kotlin.String
+    
+    fun `putScopedKnowledgeEntry`(`scopeJson`: kotlin.String, `entryJson`: kotlin.String, `expectedBaseRevision`: kotlin.ULong?): kotlin.String
+    
+    fun `listScopedKnowledgeEntries`(`scopeJson`: kotlin.String): kotlin.String
+    
     fun `putFindings`(`findingsJson`: kotlin.String): kotlin.String
     
     fun `listRules`(`ruleRefs`: List<kotlin.String>): kotlin.String
@@ -5695,7 +5779,89 @@ internal object uniffiCallbackInterfacePortsHandler {
             )
         }
     }
-    internal object `putFindings`: UniffiCallbackInterfacePortsHandlerMethod6 {
+    internal object `servesKnowledge`: UniffiCallbackInterfacePortsHandlerMethod6 {
+        override fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: ByteByReference,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`servesKnowledge`(
+                )
+            }
+            val writeReturn = { value: kotlin.Boolean -> uniffiOutReturn.setValue(FfiConverterBoolean.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `knowledgeScope`: UniffiCallbackInterfacePortsHandlerMethod7 {
+        override fun callback(`uniffiHandle`: Long,`peerId`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`knowledgeScope`(
+                    FfiConverterString.lift(`peerId`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `getScopedKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod8 {
+        override fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`entryId`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`getScopedKnowledgeEntry`(
+                    FfiConverterString.lift(`scopeJson`),
+                    FfiConverterString.lift(`entryId`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `putScopedKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod9 {
+        override fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`entryJson`: RustBuffer.ByValue,`expectedBaseRevision`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`putScopedKnowledgeEntry`(
+                    FfiConverterString.lift(`scopeJson`),
+                    FfiConverterString.lift(`entryJson`),
+                    FfiConverterOptionalULong.lift(`expectedBaseRevision`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `listScopedKnowledgeEntries`: UniffiCallbackInterfacePortsHandlerMethod10 {
+        override fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`listScopedKnowledgeEntries`(
+                    FfiConverterString.lift(`scopeJson`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `putFindings`: UniffiCallbackInterfacePortsHandlerMethod11 {
         override fun callback(`uniffiHandle`: Long,`findingsJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -5712,7 +5878,7 @@ internal object uniffiCallbackInterfacePortsHandler {
             )
         }
     }
-    internal object `listRules`: UniffiCallbackInterfacePortsHandlerMethod7 {
+    internal object `listRules`: UniffiCallbackInterfacePortsHandlerMethod12 {
         override fun callback(`uniffiHandle`: Long,`ruleRefs`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -5729,7 +5895,7 @@ internal object uniffiCallbackInterfacePortsHandler {
             )
         }
     }
-    internal object `listPeerHostCapabilityManifests`: UniffiCallbackInterfacePortsHandlerMethod8 {
+    internal object `listPeerHostCapabilityManifests`: UniffiCallbackInterfacePortsHandlerMethod13 {
         override fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -5745,7 +5911,7 @@ internal object uniffiCallbackInterfacePortsHandler {
             )
         }
     }
-    internal object `project`: UniffiCallbackInterfacePortsHandlerMethod9 {
+    internal object `project`: UniffiCallbackInterfacePortsHandlerMethod14 {
         override fun callback(`uniffiHandle`: Long,`projectRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -5762,7 +5928,7 @@ internal object uniffiCallbackInterfacePortsHandler {
             )
         }
     }
-    internal object `compute`: UniffiCallbackInterfacePortsHandlerMethod10 {
+    internal object `compute`: UniffiCallbackInterfacePortsHandlerMethod15 {
         override fun callback(`uniffiHandle`: Long,`computeRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -5779,7 +5945,7 @@ internal object uniffiCallbackInterfacePortsHandler {
             )
         }
     }
-    internal object `listForkTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod11 {
+    internal object `listForkTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod16 {
         override fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -5796,7 +5962,7 @@ internal object uniffiCallbackInterfacePortsHandler {
             )
         }
     }
-    internal object `extract`: UniffiCallbackInterfacePortsHandlerMethod12 {
+    internal object `extract`: UniffiCallbackInterfacePortsHandlerMethod17 {
         override fun callback(`uniffiHandle`: Long,`extractRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -5835,6 +6001,11 @@ internal object uniffiCallbackInterfacePortsHandler {
         `putRelation`,
         `listKnowledgeEntries`,
         `listTimelineEvents`,
+        `servesKnowledge`,
+        `knowledgeScope`,
+        `getScopedKnowledgeEntry`,
+        `putScopedKnowledgeEntry`,
+        `listScopedKnowledgeEntries`,
         `putFindings`,
         `listRules`,
         `listPeerHostCapabilityManifests`,

@@ -12,13 +12,14 @@ use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     spoke_ok, spoke_reject, ComputablePort, FindingPort, ForkTimelineQueryPort,
-    HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-    SpokeRejectCode, SpokeResult,
+    HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::{
     ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
     ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
 };
+use spoke_schemas::ops::compute_response::Shared0 as ComputeResponseComputable;
 
 #[derive(Debug, Default)]
 struct SmokeStore {
@@ -255,12 +256,15 @@ impl RelationPort for SmokeBaselineAdapter {
 }
 
 #[async_trait]
-impl ScopeQueryPort for SmokeBaselineAdapter {
+impl KnowledgeQueryPort for SmokeBaselineAdapter {
     async fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         let store = self.store.lock().expect("smoke store lock");
         store.list_knowledge_entries()
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for SmokeBaselineAdapter {
     async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         let store = self.store.lock().expect("smoke store lock");
         store.list_timeline_events()
@@ -316,7 +320,7 @@ impl ComputablePort for SmokeBaselineAdapter {
         spoke_ok(ComputeResponse::Variant0 {
             session_id: request.session_id,
             entry_id: request.entry_id,
-            computable: request.computable,
+            computable: ComputeResponseComputable(request.computable),
             state,
             extensions: Default::default(),
         })

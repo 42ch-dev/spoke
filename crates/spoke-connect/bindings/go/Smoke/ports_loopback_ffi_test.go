@@ -332,10 +332,10 @@ func jsonField(t *testing.T, raw string, path string) string {
 }
 
 // portsManifestJSON — ports-carrying manifest: baseline + optional families,
-// so the negotiated set includes l2-computable / l5-fork. Mirror of the Rust
-// ports_manifest_json test helper.
+// so the negotiated set includes spoke-knowledge / l2-computable / l5-fork.
+// Mirror of the Rust ports_manifest_json test helper.
 func portsManifestJSON(hostID string) string {
-	return `{"schema_version":1,"host_id":"` + hostID + `","roles":["data-store","l2-computable"],"capabilities":["spoke-baseline","l2-computable","l5-fork"],"namespaces":["toy_world"],"extensions":{}}`
+	return `{"schema_version":1,"host_id":"` + hostID + `","roles":["data-store","l2-computable"],"capabilities":["spoke-baseline","spoke-knowledge","l2-computable","l5-fork"],"namespaces":["toy_world"],"extensions":{}}`
 }
 
 // smokePortsHandler — foreign-callback PortsHandler: in-memory knowledge
@@ -386,6 +386,26 @@ func (h *smokePortsHandler) ListKnowledgeEntries(scopeJSON string) (string, erro
 		return "", err
 	}
 	return string(out), nil
+}
+
+// The scoped knowledge face over the same store: `get` / `put` carry no wire
+// scope, so the admitted value below is the only one they are served in.
+func (h *smokePortsHandler) ServesKnowledge() bool { return true }
+
+func (h *smokePortsHandler) KnowledgeScope(peerID string) (string, error) {
+	return `{"scope_id":"scope_go_ports_smoke"}`, nil
+}
+
+func (h *smokePortsHandler) GetScopedKnowledgeEntry(scopeJSON string, entryID string) (string, error) {
+	return h.GetKnowledgeEntry(entryID)
+}
+
+func (h *smokePortsHandler) PutScopedKnowledgeEntry(scopeJSON string, entryJSON string, expectedBaseRevision *uint64) (string, error) {
+	return h.PutKnowledgeEntry(entryJSON, expectedBaseRevision)
+}
+
+func (h *smokePortsHandler) ListScopedKnowledgeEntries(scopeJSON string) (string, error) {
+	return h.ListKnowledgeEntries(scopeJSON)
 }
 
 func (h *smokePortsHandler) ListTimelineEvents(scopeJSON string) (string, error) {
@@ -465,7 +485,7 @@ func (h *smokePortsHandler) Extract(extractRequestJSON string) (string, error) {
 // hellos to be negotiated, so the omitted side is how the deny scenarios are
 // set up. Mirror of the Rust `ke_manifest_json` test helper.
 func keManifestJSON(hostID string, capabilities []string) string {
-	all := append([]string{"spoke-baseline"}, capabilities...)
+	all := append([]string{"spoke-baseline", "spoke-knowledge"}, capabilities...)
 	out, err := json.Marshal(map[string]any{
 		"schema_version": 1,
 		"host_id":        hostID,
@@ -642,6 +662,26 @@ func (h *keRemotePortsHandler) GetKnowledgeEntry(entryID string) (string, error)
 
 func (h *keRemotePortsHandler) PutKnowledgeEntry(entryJSON string, expectedBaseRevision *uint64) (string, error) {
 	return h.keUnserved("put_knowledge_entry")
+}
+
+// The scoped knowledge face: `list` is served inside the admitted scope,
+// `get` / `put` stay ordinary refusals in this double.
+func (h *keRemotePortsHandler) ServesKnowledge() bool { return true }
+
+func (h *keRemotePortsHandler) KnowledgeScope(peerID string) (string, error) {
+	return `{"scope_id":"toy-scope-001","viewpoint":"kb_tw_mira"}`, nil
+}
+
+func (h *keRemotePortsHandler) GetScopedKnowledgeEntry(scopeJSON string, entryID string) (string, error) {
+	return h.keUnserved("get_knowledge_entry")
+}
+
+func (h *keRemotePortsHandler) PutScopedKnowledgeEntry(scopeJSON string, entryJSON string, expectedBaseRevision *uint64) (string, error) {
+	return h.keUnserved("put_knowledge_entry")
+}
+
+func (h *keRemotePortsHandler) ListScopedKnowledgeEntries(scopeJSON string) (string, error) {
+	return h.ListKnowledgeEntries(scopeJSON)
 }
 
 func (h *keRemotePortsHandler) GetRelation(relationID string) (string, error) {

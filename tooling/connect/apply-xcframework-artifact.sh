@@ -9,13 +9,15 @@
 # the provenance sidecar.
 #
 # Downloads the xcframework artifact from <run-id>, verifies the run's
-# provenance (workflow, conclusion, headSha), checksum-verifies the artifact
-# against its mandatory hash manifest, validates the producer record the CI
-# now ships inside the artifact (its sourceHead and its actual checkoutRevision
-# must both equal the run head — a pull-request virtual merge records a merge
-# checkout while declaring the PR head, and accepting it would bind the
-# committed carrier to a head it was never built from — and its embedded
-# manifest must equal the artifact manifest byte-for-byte, which
+# provenance (workflow, conclusion, headSha, plus a `changes` gate job if the
+# workflow ran one), checksum-verifies the artifact against its mandatory hash
+# manifest, validates the producer record the CI ships inside the artifact (its
+# sourceHead must equal the run head, and its actual checkoutRevision must be
+# the run head or a checkout whose build inputs are byte-identical to it — a
+# pull-request virtual merge records a merge checkout while declaring the PR
+# head, so the identical-build-input compare is what keeps the committed
+# carrier bound to a tree it was really built from — and its embedded manifest
+# must equal the artifact manifest byte-for-byte, which
 # also yields the observed compiler version), rsyncs the artifact over the
 # committed tree (checksum-based so same-size same-mtime files are not
 # silently skipped), re-verifies the delivered tree against the manifest
@@ -34,8 +36,8 @@
 # runs or failures limited to the consumer smoke check, with successful build,
 # manifest, provenance and upload steps in either case.
 # The run head must match HEAD unless --allow-sha pins it. The override only
-# relaxes that destination check; the producer record must still show a
-# checkout of exactly the declared run head.
+# relaxes that destination check; the producer record must still show the
+# declared run head or a checkout whose build inputs are byte-identical to it.
 
 set -euo pipefail
 
@@ -123,9 +125,18 @@ import sys
 
 try:
     jobs = json.load(sys.stdin)["jobs"]
-    if len(jobs) != 1 or jobs[0]["name"] != "xcframework":
-        raise ValueError("expected exactly the xcframework job")
-    job = jobs[0]
+    producer = [job for job in jobs if job["name"] == "xcframework"]
+    if len(producer) != 1:
+        raise ValueError("expected exactly one xcframework job")
+    # The workflow may carry path-filter gate jobs beside the producer
+    # (`changes`). A gate must have succeeded; anything else in the run is an
+    # unknown producer and is refused.
+    for gate in (job for job in jobs if job["name"] != "xcframework"):
+        if gate["name"] != "changes":
+            raise ValueError("unexpected job '%s' beside the xcframework producer" % gate["name"])
+        if gate["status"] != "completed" or gate["conclusion"] != "success":
+            raise ValueError("gate job '%s' did not succeed" % gate["name"])
+    job = producer[0]
     if job["status"] != "completed" or job["conclusion"] != sys.argv[1]:
         raise ValueError("job status or conclusion does not match run")
     steps = job["steps"]
@@ -230,12 +241,9 @@ if record.get("sourceHead") != os.environ["RUN_HEAD_SHA"]:
         file=sys.stderr,
     )
     raise SystemExit(1)
-if record.get("checkoutRevision") != os.environ["RUN_HEAD_SHA"]:
-    print(
-        "error: artifact provenance checkoutRevision %s != run head %s — the producer did not build at the declared head"
-        % (record.get("checkoutRevision"), os.environ["RUN_HEAD_SHA"]),
-        file=sys.stderr,
-    )
+checkout = record.get("checkoutRevision")
+if not isinstance(checkout, str) or len(checkout) != 40:
+    print("error: artifact provenance carries no checkoutRevision", file=sys.stderr)
     raise SystemExit(1)
 with open(os.environ["MANIFEST"], encoding="utf-8") as handle:
     if record.get("manifest") != handle.read():
@@ -250,6 +258,43 @@ PY
 )"; then
   echo "error: artifact provenance does not match the run and manifest" >&2
   exit 1
+fi
+
+PRODUCER_CHECKOUT="$(
+  PRODUCER_RECORD="${PRODUCER_RECORD}" python3 - <<'PY'
+import json
+import os
+
+with open(os.environ["PRODUCER_RECORD"], encoding="utf-8") as handle:
+    record = json.load(handle)
+print(record["checkoutRevision"])
+PY
+)"
+
+# A pull-request run builds GitHub's virtual merge commit, not the PR head, so
+# an exact-hash compare would refuse every PR artifact. Accept a differing
+# checkout only when every build input the artifact covers is byte-identical
+# to the declared run head; the object must be local (never assumed).
+BUILD_INPUT_PATHS=(
+  crates/spoke-connect
+  crates/spoke-schemas
+  crates/spoke-operations
+  Cargo.toml
+  Cargo.lock
+  Package.swift
+  tooling/connect
+  .github/workflows/xcframework.yml
+)
+if [[ "${PRODUCER_CHECKOUT}" != "${RUN_HEAD_SHA}" ]]; then
+  if ! git cat-file -e "${PRODUCER_CHECKOUT}^{commit}" 2>/dev/null; then
+    echo "error: producer checkout ${PRODUCER_CHECKOUT} is not in this checkout — run 'git fetch origin ${PRODUCER_CHECKOUT}' and retry" >&2
+    exit 1
+  fi
+  if ! git diff --quiet "${PRODUCER_CHECKOUT}" "${RUN_HEAD_SHA}" -- "${BUILD_INPUT_PATHS[@]}"; then
+    echo "error: producer checkout ${PRODUCER_CHECKOUT} differs from run head ${RUN_HEAD_SHA} in build inputs — refusing" >&2
+    exit 1
+  fi
+  echo "note: producer built checkout ${PRODUCER_CHECKOUT} (not the declared head); build inputs identical to run head ${RUN_HEAD_SHA}"
 fi
 
 # Content-aware transfer: rsync's default size/mtime shortcut skips same-size
@@ -332,7 +377,8 @@ APPLIED_AT_HEAD="${EXPECT_SHA}" ALLOW_SHA_USED="${ALLOW_SHA_USED}" \
 ARTIFACT_NAME="${ARTIFACT_NAME}" WF_NAME="${WF_NAME}" RECIPE_SOURCE="${RECIPE_SOURCE}" \
 MANIFEST_NAME="${MANIFEST_NAME}" MANIFEST_SHA="${MANIFEST_SHA}" \
 DECLARED_TOOLCHAIN="${DECLARED_TOOLCHAIN}" DECLARED_TARGETS="${DECLARED_TARGETS}" \
-DECLARED_LOCKED="${DECLARED_LOCKED}" OBSERVED_RUSTC="${OBSERVED_RUSTC}" python3 - "${RECORD}" <<'PY'
+DECLARED_LOCKED="${DECLARED_LOCKED}" OBSERVED_RUSTC="${OBSERVED_RUSTC}" \
+PRODUCER_CHECKOUT="${PRODUCER_CHECKOUT}" python3 - "${RECORD}" <<'PY'
 import json
 import os
 import sys
@@ -346,6 +392,7 @@ record = {
         "runId": int(env["RUN_ID"]),
         "runConclusion": env["RUN_CONCLUSION"],
         "headSha": env["RUN_HEAD_SHA"],
+        "producerCheckout": env["PRODUCER_CHECKOUT"],
         "appliedAtHead": env["APPLIED_AT_HEAD"],
         "allowSha": env["ALLOW_SHA_USED"] or None,
         "declaredRecipe": {

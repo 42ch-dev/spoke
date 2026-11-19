@@ -446,14 +446,15 @@ pub use foreign_tool_handler::ToolHandler;
 // one blocking-pool thread per in-flight callback.
 #[cfg(feature = "remote-adapter")]
 mod foreign_ports_handler {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::Arc;
 
     use async_trait::async_trait;
     use serde::de::DeserializeOwned;
     use spoke_operations::{
         BaselinePorts, ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort,
-        KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject,
-        SpokeRejectCode, SpokeResult,
+        KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort, ScopedKnowledgePort,
+        ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
     };
     use spoke_schemas::{
         ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
@@ -461,10 +462,14 @@ mod foreign_ports_handler {
         Scope, TimelineEvent,
     };
 
-    use crate::remote::{RemoteExtractService, RemoteServePorts, RemoteServePortsComposite};
+    use crate::remote::{
+        KnowledgeAdmission, RemoteExtractService, RemoteKnowledgeFace, RemoteServePorts,
+        RemoteServePortsComposite,
+    };
 
     use super::ffi_runtime;
     use super::foreign_tool_handler::{containment_reject, rehang_details};
+    use super::panic_payload_message;
     use super::remote_adapter_ffi::FfiError;
 
     /// Foreign-callback responder ports face (D16): the native binding
@@ -499,6 +504,32 @@ mod foreign_ports_handler {
         ) -> Result<String, FfiError>;
         fn list_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError>;
         fn list_timeline_events(&self, scope_json: String) -> Result<String, FfiError>;
+
+        /// Whether this handler serves the scoped knowledge face. `false`
+        /// means the face is absent: the responder answers the missing-face
+        /// deny branch and never calls the four knowledge callbacks below.
+        /// The C carrier derives it from a NULL `knowledge_scope` pointer.
+        fn serves_knowledge(&self) -> bool;
+
+        /// The `Scope` JSON the authenticated peer may read and write. The
+        /// scope never comes from the wire, and a refusal (an error return)
+        /// is the responder's `NOT_AUTHORIZED` row with no existence detail.
+        fn knowledge_scope(&self, peer_id: String) -> Result<String, FfiError>;
+
+        /// Scoped `get`/`put`/`list`: the admitted scope crosses as JSON in
+        /// front of the same payload the unscoped callback carries.
+        fn get_scoped_knowledge_entry(
+            &self,
+            scope_json: String,
+            entry_id: String,
+        ) -> Result<String, FfiError>;
+        fn put_scoped_knowledge_entry(
+            &self,
+            scope_json: String,
+            entry_json: String,
+            expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError>;
+        fn list_scoped_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError>;
         fn put_findings(&self, findings_json: String) -> Result<String, FfiError>;
         fn list_rules(&self, rule_refs: Vec<String>) -> Result<String, FfiError>;
         fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError>;
@@ -572,6 +603,56 @@ mod foreign_ports_handler {
         map_handled(what, handled)
     }
 
+    /// Run the synchronous `knowledge_scope` resolver.
+    ///
+    /// The responder calls this from its own blocking task, because admission
+    /// is inside the serve-wait budget: a resolver MUST return within that
+    /// budget on its own. The blocking thread cannot be cancelled, so the
+    /// responder's bound — not a forced stop — is what the caller is
+    /// guaranteed, and a resolver that blocks forever leaks its blocking
+    /// thread. A foreign panic is contained to an error instead of unwinding
+    /// the serve loop.
+    fn resolve_scope(handler: Arc<dyn PortsHandler>, peer_id: String) -> Result<String, FfiError> {
+        match catch_unwind(AssertUnwindSafe(|| handler.knowledge_scope(peer_id))) {
+            Ok(result) => result,
+            Err(payload) => Err(FfiError::Dial {
+                kind: "panic".into(),
+                message: format!(
+                    "knowledge_scope panicked: {}",
+                    panic_payload_message(payload)
+                ),
+            }),
+        }
+    }
+
+    /// Which responder faces a foreign ports handler provides.
+    ///
+    /// The uniffi callback interface always serves every family (no face has
+    /// a way to say "absent"), so that route passes [`ServedFaces::all`]. A
+    /// carrier that sees a host's callback table can tell which families the
+    /// host actually filled in, and passes that here so an empty family stays
+    /// absent instead of becoming a stub the responder would serve (B6).
+    #[derive(Clone, Copy, Debug)]
+    pub struct ServedFaces {
+        pub baseline: bool,
+        pub computable: bool,
+        pub fork: bool,
+        pub extract: bool,
+    }
+
+    impl ServedFaces {
+        /// Every face present — the uniffi callback contract.
+        #[must_use]
+        pub const fn all() -> Self {
+            Self {
+                baseline: true,
+                computable: true,
+                fork: true,
+                extract: true,
+            }
+        }
+    }
+
     /// Bridge a foreign-callback [`PortsHandler`] into the library
     /// [`crate::remote::RemoteServePorts`] type (D16 threading model).
     ///
@@ -589,22 +670,59 @@ mod foreign_ports_handler {
     /// through the composite is what opts extraction in — the full-optional
     /// blanket impl answers `None` from `as_extract` and would mask the
     /// callback as an absent provider.
+    ///
+    /// `faces` says which families the host actually provided, so an absent
+    /// family stays absent rather than becoming a stub (B6). A caller that
+    /// cannot tell passes [`ServedFaces::all`] — the uniffi callback contract.
     pub fn into_remote_serve_ports(
         handler: Box<dyn PortsHandler>,
+        faces: ServedFaces,
     ) -> Arc<dyn RemoteServePorts + Send + Sync> {
+        let serves_knowledge = handler.serves_knowledge();
         let bridge = Arc::new(RemoteServePortsBridge {
             handler: Arc::from(handler),
         });
-        // One callback object, four faces: the plain `let` bindings are what
+        // One callback object, five faces: the plain `let` bindings are what
         // coerce the concrete `Arc` into each trait object.
         let baseline: Arc<dyn BaselinePorts + Send + Sync> = bridge.clone();
         let computable: Arc<dyn ComputablePort + Send + Sync> = bridge.clone();
         let fork: Arc<dyn ForkTimelineQueryPort + Send + Sync> = bridge.clone();
-        let extract: Arc<dyn RemoteExtractService> = bridge;
-        Arc::new(
-            RemoteServePortsComposite::new(baseline, Some(computable), Some(fork))
-                .with_extract(extract),
-        )
+        let extract: Arc<dyn RemoteExtractService> = bridge.clone();
+        let composite = RemoteServePortsComposite::faces(
+            faces.baseline.then_some(baseline),
+            faces.computable.then_some(computable),
+            faces.fork.then_some(fork),
+        );
+        let composite = if faces.extract {
+            composite.with_extract(extract)
+        } else {
+            composite
+        };
+        // A handler with no resolver exposes no knowledge face at all: the
+        // three ops answer the responder's missing-face deny branch and the
+        // scoped callbacks stay unreachable.
+        if !serves_knowledge {
+            return Arc::new(composite);
+        }
+        let store: Arc<dyn ScopedKnowledgePort + Send + Sync> = bridge.clone();
+        let admission_handler = Arc::clone(&bridge.handler);
+        let admission: KnowledgeAdmission = Arc::new(move |peer_id: &str| {
+            let refused = || {
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::NotAuthorized,
+                    message: "knowledge scope not authorized".into(),
+                    details: None,
+                })
+            };
+            match resolve_scope(Arc::clone(&admission_handler), peer_id.to_owned()) {
+                Ok(scope_json) => match serde_json::from_str(&scope_json) {
+                    Ok(scope) => SpokeResult::Ok(scope),
+                    Err(_) => refused(),
+                },
+                Err(_) => refused(),
+            }
+        });
+        Arc::new(composite.with_knowledge(Arc::new(RemoteKnowledgeFace { store, admission })))
     }
 
     /// The bridge face: one callback call per D4 serve op.
@@ -663,7 +781,7 @@ mod foreign_ports_handler {
     }
 
     #[async_trait]
-    impl ScopeQueryPort for RemoteServePortsBridge {
+    impl KnowledgeQueryPort for RemoteServePortsBridge {
         async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             let handler = Arc::clone(&self.handler);
             let scope_json = serde_json::to_string(scope).expect("scope serializes");
@@ -672,7 +790,54 @@ mod foreign_ports_handler {
             })
             .await
         }
+    }
 
+    #[async_trait]
+    impl ScopedKnowledgePort for RemoteServePortsBridge {
+        async fn get_scoped_knowledge_entry(
+            &self,
+            scope: &Scope,
+            entry_id: &str,
+        ) -> SpokeResult<KnowledgeEntry> {
+            let handler = Arc::clone(&self.handler);
+            let scope_json = serde_json::to_string(scope).expect("scope serializes");
+            let entry_id = entry_id.to_owned();
+            call_ports(handler, "get_scoped_knowledge_entry", move |handler| {
+                handler.get_scoped_knowledge_entry(scope_json, entry_id)
+            })
+            .await
+        }
+
+        async fn put_scoped_knowledge_entry(
+            &self,
+            scope: &Scope,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
+            let handler = Arc::clone(&self.handler);
+            let scope_json = serde_json::to_string(scope).expect("scope serializes");
+            let entry_json = serde_json::to_string(&entry).expect("knowledge entry serializes");
+            call_ports(handler, "put_scoped_knowledge_entry", move |handler| {
+                handler.put_scoped_knowledge_entry(scope_json, entry_json, expected_base_revision)
+            })
+            .await
+        }
+
+        async fn list_scoped_knowledge_entries(
+            &self,
+            scope: &Scope,
+        ) -> SpokeResult<Vec<KnowledgeEntry>> {
+            let handler = Arc::clone(&self.handler);
+            let scope_json = serde_json::to_string(scope).expect("scope serializes");
+            call_ports(handler, "list_scoped_knowledge_entries", move |handler| {
+                handler.list_scoped_knowledge_entries(scope_json)
+            })
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl ScopeQueryPort for RemoteServePortsBridge {
         async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             let handler = Arc::clone(&self.handler);
             let scope_json = serde_json::to_string(scope).expect("scope serializes");
@@ -786,7 +951,7 @@ mod foreign_ports_handler {
 }
 
 #[cfg(feature = "remote-adapter")]
-pub use foreign_ports_handler::PortsHandler;
+pub use foreign_ports_handler::{PortsHandler, ServedFaces};
 
 // ── Sync `RemoteAdapterFFI` over the async adapter (AR-4 / AR-5 / AR-6) ───
 #[cfg(feature = "remote-adapter")]
@@ -803,8 +968,8 @@ mod remote_adapter_ffi {
     use serde_json::Value;
     use spoke_operations::{
         parse_tool_capability_id, ComputablePort, FindingPort, ForkTimelineQueryPort,
-        HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-        SpokeReject, SpokeResult,
+        HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort,
+        ScopeQueryPort, SpokeReject, SpokeResult,
     };
     use spoke_schemas::{
         ComputeRequest, ExtractRequest, Finding, HostCapabilityManifest, KnowledgeEntry,
@@ -1356,7 +1521,9 @@ mod connect_responder_ffi {
         connect_responder, ConnectResponder, ConnectResponderOptions, RemoteIdentity,
     };
 
-    use super::foreign_ports_handler::{into_remote_serve_ports, PortsHandler as FfiPortsHandler};
+    use super::foreign_ports_handler::{
+        into_remote_serve_ports, PortsHandler as FfiPortsHandler, ServedFaces,
+    };
     use super::foreign_tool_handler::{into_remote_handler, ToolHandler as FfiToolHandler};
     use super::foreign_transport::ForeignCallbackTransport;
     use super::foreign_transport::Transport as FfiTransport;
@@ -1472,6 +1639,32 @@ mod connect_responder_ffi {
         ports: Option<Box<dyn FfiPortsHandler>>,
         invoke_timeout_ms: Option<u64>,
     ) -> Result<Arc<ConnectResponderFFI>, FfiError> {
+        connect_responder_ffi_with_faces(
+            transport,
+            seed,
+            manifest_json,
+            allowlist,
+            peer_keys,
+            ports,
+            ServedFaces::all(),
+            invoke_timeout_ms,
+        )
+    }
+
+    /// [`connect_responder_ffi`] for a carrier that knows which port families
+    /// its callback table actually fills in (B6). Not exported to the
+    /// bindings: the uniffi callback interface always serves every family.
+    #[allow(clippy::too_many_arguments)]
+    pub fn connect_responder_ffi_with_faces(
+        transport: Box<dyn FfiTransport>,
+        seed: Vec<u8>,
+        manifest_json: String,
+        allowlist: Vec<String>,
+        peer_keys: HashMap<String, Vec<u8>>,
+        ports: Option<Box<dyn FfiPortsHandler>>,
+        faces: ServedFaces,
+        invoke_timeout_ms: Option<u64>,
+    ) -> Result<Arc<ConnectResponderFFI>, FfiError> {
         let manifest: HostCapabilityManifest = serde_json::from_str(&manifest_json)
             .map_err(|error| FfiError::Dial {
                 kind: "config".into(),
@@ -1495,7 +1688,7 @@ mod connect_responder_ffi {
             manifest,
             allowlist,
             peer_keys,
-            ports: ports.map(into_remote_serve_ports),
+            ports: ports.map(|handler| into_remote_serve_ports(handler, faces)),
             invoke_timeout_ms,
         }))?;
         Ok(Arc::new(ConnectResponderFFI { inner: responder }))
@@ -1517,8 +1710,8 @@ mod multi_peer_router_ffi {
 
     use serde_json::Value;
     use spoke_operations::{
-        FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
-        ScopeQueryPort,
+        FindingPort, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort,
+        RuleQueryPort, ScopeQueryPort,
     };
     use spoke_schemas::{Finding, KnowledgeEntry, Relation, Scope};
 
@@ -1724,7 +1917,7 @@ mod loopback_smoke_host {
         start_loopback_smoke_host_inner(
             server,
             seed_host(),
-            manifest("test-host", &["spoke-baseline"]),
+            manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
             Arc::new(SmokeBaselineAdapter::default()),
         )
         .unwrap_or_else(|error| panic!("loopback smoke host start: {error}"))
@@ -1766,7 +1959,9 @@ mod loopback_smoke_host {
 #[cfg(feature = "remote-adapter")]
 pub use remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
 #[cfg(feature = "remote-adapter")]
-pub use connect_responder_ffi::{connect_responder_ffi, ConnectResponderFFI};
+pub use connect_responder_ffi::{
+    connect_responder_ffi, connect_responder_ffi_with_faces, ConnectResponderFFI,
+};
 #[cfg(feature = "remote-adapter")]
 pub use multi_peer_router_ffi::{new_multi_peer_router_ffi, MultiPeerRouterFFI};
 #[cfg(feature = "ffi-smoke-host")]
@@ -2551,7 +2746,7 @@ mod remote_adapter_ffi_tests {
     }
 
     fn client_manifest_json() -> String {
-        serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest")
+        serde_json::to_string(&manifest("test-client", &["spoke-baseline", "spoke-knowledge"])).expect("manifest")
     }
 
     /// Callback transport that signals once after the first post-dial `send` succeeds
@@ -2727,7 +2922,7 @@ mod remote_adapter_ffi_tests {
                 crate::test_support::loopback_oracle::LoopbackHostOptions {
                     transport: Arc::new(pair.server),
                     host_seed: seed_host(),
-                    host_manifest: manifest("test-host", &["spoke-baseline"]),
+                    host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                     allowlist: vec![derive_peer_id_from_ed25519_pubkey(
                         &crate::test_support::loopback_oracle::pubkey_client(),
                     )],
@@ -2789,7 +2984,7 @@ mod remote_adapter_ffi_tests {
             start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
                 adapter: Arc::new(host_adapter),
                 delay: Box::new(|_| 0),
@@ -3118,7 +3313,7 @@ mod remote_adapter_ffi_tests {
             let host = start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: options
                     .host_allowlist
                     .clone()
@@ -3141,7 +3336,7 @@ mod remote_adapter_ffi_tests {
         let manifest_json = serde_json::to_string(
             &options
                 .client_manifest
-                .unwrap_or_else(|| manifest("test-client", &["spoke-baseline"])),
+                .unwrap_or_else(|| manifest("test-client", &["spoke-baseline", "spoke-knowledge"])),
         )
         .expect("manifest");
         let ffi = connect_remote_adapter_ffi(
@@ -3474,7 +3669,7 @@ mod remote_adapter_ffi_tests {
             let host = start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: vec![other_peer.clone()],
                 adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(|_| 0),
@@ -3487,7 +3682,7 @@ mod remote_adapter_ffi_tests {
                 local_identity: RemoteIdentity {
                     seed: seed_client(),
                 },
-                local_manifest: manifest("test-client", &["spoke-baseline"]),
+                local_manifest: manifest("test-client", &["spoke-baseline", "spoke-knowledge"]),
                 remote_pubkey: pubkey_host(),
                 allowlist: vec![peer_id_host.clone()],
                 invoke_timeout_ms: Some(2000),
@@ -3506,7 +3701,7 @@ mod remote_adapter_ffi_tests {
             start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: vec![other_peer],
                 adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(|_| 0),
@@ -3520,7 +3715,7 @@ mod remote_adapter_ffi_tests {
                 inner: pair.client,
             }),
             seed_client().to_vec(),
-            serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest"),
+            serde_json::to_string(&manifest("test-client", &["spoke-baseline", "spoke-knowledge"])).expect("manifest"),
             pubkey_host().to_vec(),
             vec![peer_id_host],
             Some(2000),
@@ -3547,7 +3742,7 @@ mod remote_adapter_ffi_tests {
             start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
                 adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(|_| 0),
@@ -3586,7 +3781,7 @@ mod remote_adapter_ffi_tests {
                 local_identity: RemoteIdentity {
                     seed: seed_client(),
                 },
-                local_manifest: manifest("test-client", &["spoke-baseline"]),
+                local_manifest: manifest("test-client", &["spoke-baseline", "spoke-knowledge"]),
                 remote_pubkey: pubkey_host(),
                 allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
                 invoke_timeout_ms: Some(50),
@@ -3602,7 +3797,7 @@ mod remote_adapter_ffi_tests {
         let ffi_err = match connect_remote_adapter_ffi(
             Box::new(HangingRecvTransportHolder(Arc::clone(&hanging))),
             seed_client().to_vec(),
-            serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest"),
+            serde_json::to_string(&manifest("test-client", &["spoke-baseline", "spoke-knowledge"])).expect("manifest"),
             pubkey_host().to_vec(),
             vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
             Some(50),
@@ -3666,7 +3861,7 @@ mod remote_adapter_ffi_tests {
             start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
                 adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(move |_| {
@@ -3761,7 +3956,7 @@ mod remote_adapter_ffi_tests {
                 crate::test_support::loopback_oracle::LoopbackHostOptions {
                     transport: Arc::new(pair.server),
                     host_seed: golden_seed(),
-                    host_manifest: manifest("golden-host", &["spoke-baseline"]),
+                    host_manifest: manifest("golden-host", &["spoke-baseline", "spoke-knowledge"]),
                     allowlist: vec![derive_peer_id_from_ed25519_pubkey(&golden_pubkey())],
                     adapter: Arc::new(host_adapter),
                     delay: Box::new(|_| 0),
@@ -3776,7 +3971,7 @@ mod remote_adapter_ffi_tests {
         let ffi = connect_remote_adapter_ffi(
             Box::new(LoopbackCallback { inner: client }),
             golden_seed().to_vec(),
-            serde_json::to_string(&manifest("golden-client", &["spoke-baseline"]))
+            serde_json::to_string(&manifest("golden-client", &["spoke-baseline", "spoke-knowledge"]))
                 .expect("manifest"),
             golden_pubkey().to_vec(),
             vec![golden().peer_id.clone()],
@@ -5504,7 +5699,12 @@ mod connect_responder_ffi_tests {
                 "schema_version": 1,
                 "host_id": host_id,
                 "roles": ["data-store", "l2-computable"],
-                "capabilities": ["spoke-baseline", "l2-computable", "l5-fork"],
+                "capabilities": [
+                    "spoke-baseline",
+                    "spoke-knowledge",
+                    "l2-computable",
+                    "l5-fork",
+                ],
                 "namespaces": ["toy_world"],
                 "extensions": {},
             }))
@@ -5772,6 +5972,38 @@ mod connect_responder_ffi_tests {
             }))
             .expect("extract response serializes"))
         }
+
+        fn serves_knowledge(&self) -> bool {
+            true
+        }
+
+        /// The admitted scope: this double serves one fixed scope, so the
+        /// three knowledge ops are reached through it and never through the
+        /// baseline callbacks. The resolver is not counted as a serve call.
+        fn knowledge_scope(&self, _peer_id: String) -> Result<String, FfiError> {
+            Ok(json!({ "scope_id": "scope_ffi_ports" }).to_string())
+        }
+
+        fn get_scoped_knowledge_entry(
+            &self,
+            _scope_json: String,
+            entry_id: String,
+        ) -> Result<String, FfiError> {
+            self.get_knowledge_entry(entry_id)
+        }
+
+        fn put_scoped_knowledge_entry(
+            &self,
+            _scope_json: String,
+            entry_json: String,
+            expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            self.put_knowledge_entry(entry_json, expected_base_revision)
+        }
+
+        fn list_scoped_knowledge_entries(&self, _scope_json: String) -> Result<String, FfiError> {
+            self.list_knowledge_entries(String::new())
+        }
     }
 
     #[test]
@@ -6015,7 +6247,7 @@ mod multi_peer_router_ffi_tests {
             local_identity: RemoteIdentity {
                 seed: seed_client(),
             },
-            local_manifest: manifest("test-client", &["spoke-baseline"]),
+            local_manifest: manifest("test-client", &["spoke-baseline", "spoke-knowledge"]),
             remote_pubkey: host_pubkey,
             allowlist: vec![peer_id_host],
             invoke_timeout_ms: None,
@@ -6065,7 +6297,7 @@ mod multi_peer_router_ffi_tests {
     #[test]
     fn multi_peer_router_ffi_routes_orchestrate_upsert_equivalent_to_capable_peer() {
         let (baseline_adapter, baseline_host) = ffi_runtime().block_on(async {
-            dial_peer([0xa1; 32], manifest("host-baseline", &["spoke-baseline"])).await
+            dial_peer([0xa1; 32], manifest("host-baseline", &["spoke-baseline", "spoke-knowledge"])).await
         });
         let (computable_adapter, computable_host) = ffi_runtime().block_on(async {
             dial_peer([0xb2; 32], manifest("host-computable", &["l2-computable"])).await
@@ -6133,7 +6365,7 @@ mod multi_peer_router_ffi_tests {
     #[test]
     fn multi_peer_router_ffi_breaks_ties_on_lowest_peer_id() {
         let (alpha_adapter, alpha_host) = ffi_runtime().block_on(async {
-            dial_peer([0xc3; 32], manifest("host-alpha", &["spoke-baseline"])).await
+            dial_peer([0xc3; 32], manifest("host-alpha", &["spoke-baseline", "spoke-knowledge"])).await
         });
         let (beta_adapter, beta_host) = ffi_runtime().block_on(async {
             dial_peer(
@@ -6190,7 +6422,7 @@ mod multi_peer_router_ffi_tests {
                 [0xa1; 32],
                 manifest_with(
                     "host-alpha",
-                    &["spoke-baseline"],
+                    &["spoke-baseline", "spoke-knowledge"],
                     &["data-store"],
                     &["alpha"],
                 ),
@@ -6231,7 +6463,10 @@ mod multi_peer_router_ffi_tests {
         assert_eq!(composed.host_id.as_str(), "multi-peer-router");
         let mut capabilities = composed.capabilities.clone();
         capabilities.sort();
-        assert_eq!(capabilities, vec!["l2-computable", "spoke-baseline"]);
+        assert_eq!(
+            capabilities,
+            vec!["l2-computable", "spoke-baseline", "spoke-knowledge"]
+        );
         let mut roles = composed.roles.clone();
         roles.sort();
         assert_eq!(roles, vec!["checker", "data-store"]);
@@ -6265,7 +6500,7 @@ mod multi_peer_router_ffi_tests {
         let (alpha_adapter, alpha_host) = ffi_runtime().block_on(async {
             dial_peer(
                 [0xa1; 32],
-                manifest_with("host-alpha", &["spoke-baseline"], &["data-store"], &["alpha"]),
+                manifest_with("host-alpha", &["spoke-baseline", "spoke-knowledge"], &["data-store"], &["alpha"]),
             )
             .await
         });
@@ -6336,7 +6571,7 @@ mod multi_peer_router_ffi_tests {
     #[test]
     fn multi_peer_router_ffi_unregister_leaves_adapter_usable() {
         let (adapter, host) = ffi_runtime().block_on(async {
-            dial_peer([0xc3; 32], manifest("host-unreg", &["spoke-baseline"])).await
+            dial_peer([0xc3; 32], manifest("host-unreg", &["spoke-baseline", "spoke-knowledge"])).await
         });
         let ffi_adapter = RemoteAdapterFFI::from_adapter(adapter.clone());
         let peer_id = adapter.remote_peer_id().expect("peer id");
@@ -6754,7 +6989,7 @@ mod multi_peer_router_ffi_tests {
 #[cfg(all(test, feature = "remote-adapter"))]
 mod ke_remote_ffi_tests {
     use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Condvar, Mutex};
     use std::time::{Duration, Instant};
 
     use serde_json::{json, Value};
@@ -6804,7 +7039,7 @@ mod ke_remote_ffi_tests {
     /// scenario negotiates — a capability must appear in *both* hellos to be
     /// negotiated, so the omitted side is how the deny scenarios are set up.
     fn ke_manifest_json(host_id: &str, capabilities: &[&str]) -> String {
-        let mut all = vec!["spoke-baseline"];
+        let mut all = vec!["spoke-baseline", "spoke-knowledge"];
         all.extend_from_slice(capabilities);
         serde_json::to_string(&json!({
             "schema_version": 1,
@@ -6891,6 +7126,115 @@ mod ke_remote_ffi_tests {
         .to_string()
     }
 
+    /// How the foreign handler answers the `knowledge_scope` admission probe.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum ScopeAnswer {
+        /// Answer immediately with the admitted scope.
+        Serve,
+        /// Park until the test releases the gate — the responder's worker
+        /// must survive a blocking resolver, not strand the request.
+        Block,
+        /// Panic — the bridge must turn it into the admission refusal instead
+        /// of unwinding the responder task.
+        Panic,
+    }
+
+    /// Coordination point for [`ScopeAnswer::Block`]: the resolver signals it
+    /// has parked, then waits until the test releases it — the test drives
+    /// the same session in between, and neither side guesses with a sleep.
+    struct ScopeGate {
+        /// How many resolvers are parked at once.
+        entered: Mutex<usize>,
+        entered_cv: Condvar,
+        released: Mutex<bool>,
+        released_cv: Condvar,
+    }
+
+    impl ScopeGate {
+        fn new() -> Self {
+            Self {
+                entered: Mutex::new(0),
+                entered_cv: Condvar::new(),
+                released: Mutex::new(false),
+                released_cv: Condvar::new(),
+            }
+        }
+
+        /// Resolver side: announce the park, then block until released.
+        fn block_until_released(&self) {
+            *self.entered.lock().expect("entered lock") += 1;
+            self.entered_cv.notify_all();
+            let mut released = self.released.lock().expect("released lock");
+            while !*released {
+                released = self.released_cv.wait(released).expect("released wait");
+            }
+        }
+
+        /// Test side: bounded wait for `wanted` resolvers to be parked at the
+        /// same time; `false` when the deadline passes with fewer. A hang
+        /// fails the assertion instead of blocking the suite.
+        fn wait_for_entered(&self, wanted: usize, timeout: Duration) -> bool {
+            let deadline = Instant::now() + timeout;
+            let mut entered = self.entered.lock().expect("entered lock");
+            while *entered < wanted {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    return false;
+                };
+                let (guard, _) = self
+                    .entered_cv
+                    .wait_timeout(entered, remaining)
+                    .expect("entered wait");
+                entered = guard;
+            }
+            true
+        }
+
+        /// Test side: bounded wait for one resolver to park.
+        fn wait_entered(&self, timeout: Duration) {
+            assert!(
+                self.wait_for_entered(1, timeout),
+                "the resolver must park before the timeout"
+            );
+        }
+
+        /// Test side: let the parked resolver return.
+        fn release(&self) {
+            *self.released.lock().expect("released lock") = true;
+            self.released_cv.notify_all();
+        }
+    }
+
+    /// Releases the gate when the test leaves by panic: the FFI runtime is
+    /// process-wide, so a stranded park would hang the rest of the suite.
+    struct ReleaseOnDrop(Arc<ScopeGate>);
+
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            self.0.release();
+        }
+    }
+
+    /// How long the test waits for the resolver to park: far under the 5 s
+    /// invoke timeout, so a stranded op fails the assertion, not the suite.
+    const SCOPE_RESOLVER_PARK_TIMEOUT: Duration = Duration::from_secs(5);
+
+    /// How long the baseline op may take while every worker is parked: same
+    /// bound, so a stranded round trip fails the assertion, not the suite.
+    const SCOPE_BASELINE_TIMEOUT: Duration = Duration::from_secs(5);
+
+    /// Worker threads the shared FFI runtime runs with — the runtime's own
+    /// rule (`TOKIO_WORKER_THREADS` override, else available parallelism).
+    /// The runtime is a process-wide `OnceLock`, so its count cannot be
+    /// configured for the test; derive the same number instead.
+    fn ffi_worker_threads() -> usize {
+        std::env::var("TOKIO_WORKER_THREADS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism().map_or(1, |count| count.get())
+            })
+    }
+
     /// How the foreign handler answers an `extract` call.
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ExtractAnswer {
@@ -6911,8 +7255,37 @@ mod ke_remote_ffi_tests {
     struct KeRemotePortsHandler {
         answer: ExtractAnswer,
         entries: Vec<Value>,
+        /// The `Scope` the resolver admits. A list must name it exactly, so a
+        /// battery that lists with a viewpoint admits that viewpoint first.
+        admitted_scope_json: String,
+        /// How the resolver answers its admission probe.
+        scope_answer: ScopeAnswer,
+        /// The gate a [`ScopeAnswer::Block`] resolver parks on.
+        scope_gate: Option<Arc<ScopeGate>>,
         extract_requests: Arc<Mutex<Vec<Value>>>,
         scope_calls: Arc<Mutex<Vec<Value>>>,
+    }
+
+    impl KeRemotePortsHandler {
+        /// Admits the reader viewpoint too, so a list that names it serves.
+        fn admitting_viewpoint(mut self: Box<Self>, viewpoint: &str) -> Box<Self> {
+            self.admitted_scope_json =
+                json!({ "scope_id": "toy-scope-001", "viewpoint": viewpoint }).to_string();
+            self
+        }
+
+        /// Parks the resolver on `gate` until the test releases it.
+        fn with_gated_scope(mut self: Box<Self>, gate: Arc<ScopeGate>) -> Box<Self> {
+            self.scope_answer = ScopeAnswer::Block;
+            self.scope_gate = Some(gate);
+            self
+        }
+
+        /// Panics from the resolver instead of admitting.
+        fn with_panicking_scope(mut self: Box<Self>) -> Box<Self> {
+            self.scope_answer = ScopeAnswer::Panic;
+            self
+        }
     }
 
     fn ke_ports_handler(
@@ -6929,6 +7302,9 @@ mod ke_remote_ffi_tests {
             Box::new(KeRemotePortsHandler {
                 answer,
                 entries,
+                admitted_scope_json: json!({ "scope_id": "toy-scope-001" }).to_string(),
+                scope_answer: ScopeAnswer::Serve,
+                scope_gate: None,
                 extract_requests: Arc::clone(&extract_requests),
                 scope_calls: Arc::clone(&scope_calls),
             }),
@@ -7101,6 +7477,44 @@ mod ke_remote_ffi_tests {
 
         fn list_fork_timeline_events(&self, _scope_json: String) -> Result<String, FfiError> {
             unserved("list_fork_timeline_events")
+        }
+
+        fn serves_knowledge(&self) -> bool {
+            true
+        }
+
+        fn knowledge_scope(&self, _peer_id: String) -> Result<String, FfiError> {
+            match self.scope_answer {
+                ScopeAnswer::Serve => {}
+                ScopeAnswer::Block => self
+                    .scope_gate
+                    .as_ref()
+                    .expect("a gated resolver carries its gate")
+                    .block_until_released(),
+                ScopeAnswer::Panic => panic!("knowledge_scope resolver panicked"),
+            }
+            Ok(self.admitted_scope_json.clone())
+        }
+
+        fn get_scoped_knowledge_entry(
+            &self,
+            _scope_json: String,
+            _entry_id: String,
+        ) -> Result<String, FfiError> {
+            unserved("get_knowledge_entry")
+        }
+
+        fn put_scoped_knowledge_entry(
+            &self,
+            _scope_json: String,
+            _entry_json: String,
+            _expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            unserved("put_knowledge_entry")
+        }
+
+        fn list_scoped_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError> {
+            self.list_knowledge_entries(scope_json)
         }
     }
 
@@ -7295,6 +7709,7 @@ mod ke_remote_ffi_tests {
         let entries = vec![served_entry("kb_ffi_ke_own", "FFI KE Own")];
         let (handler, extract_requests, scope_calls) =
             ke_ports_handler(ExtractAnswer::Batch, entries);
+        let handler = handler.admitting_viewpoint("kb_tw_mira");
         let (responder, dialer) =
             dial_ke_remote(&["ke-ownership"], &["ke-ownership"], Some(handler));
 
@@ -7365,5 +7780,205 @@ mod ke_remote_ffi_tests {
             dialer.close();
             responder.close();
         }
+    }
+
+    /// A resolver that occupies its thread must not wedge the responder: while
+    /// it is parked, another op on the same session is served, and the parked
+    /// knowledge op then answers with the admitted scope's entries.
+    #[test]
+    fn ke_remote_blocking_scope_resolver_still_serves_the_op() {
+        let entries = vec![served_entry("kb_ffi_ke_blocking", "FFI KE Blocking")];
+        let (handler, _extract_requests, scope_calls) =
+            ke_ports_handler(ExtractAnswer::Batch, entries);
+        let gate = Arc::new(ScopeGate::new());
+        let (responder, dialer) = dial_ke_remote(
+            &[],
+            &[],
+            Some(handler.with_gated_scope(Arc::clone(&gate))),
+        );
+
+        // The knowledge op parks inside the resolver on its own thread, so the
+        // test thread can drive this same session while it is blocked.
+        let op_dialer = Arc::clone(&dialer);
+        let knowledge_op = std::thread::spawn(move || {
+            op_dialer.list_knowledge_entries(json!({ "scope_id": "toy-scope-001" }).to_string())
+        });
+
+        gate.wait_entered(SCOPE_RESOLVER_PARK_TIMEOUT);
+        assert!(
+            scope_calls.lock().expect("scope calls lock").is_empty(),
+            "the store is untouched while the resolver is parked"
+        );
+
+        // A baseline op through the same session answers while the resolver is
+        // still parked. The double does not serve relations, so the answer is
+        // its refusal — the completed round trip is the point.
+        let error = dialer
+            .get_relation("rel_ffi_ke_blocking".to_string())
+            .expect_err("the double does not serve get_relation");
+        assert_rejected(&error, "INVALID_INPUT", None, None);
+        assert!(
+            scope_calls.lock().expect("scope calls lock").is_empty(),
+            "the knowledge op was still inside the resolver, not merely slow"
+        );
+
+        gate.release();
+
+        let served_json = knowledge_op
+            .join()
+            .expect("the knowledge op thread joins")
+            .expect("a blocking resolver must still serve the op");
+        let served: Value = serde_json::from_str(&served_json).expect("served entries json");
+        assert_eq!(served[0]["entry_id"], "kb_ffi_ke_blocking");
+        assert_eq!(
+            scope_calls.lock().expect("scope calls lock").len(),
+            1,
+            "the store was reached once, after the resolver returned"
+        );
+
+        dialer.close();
+        responder.close();
+    }
+
+    /// More concurrent parks than runtime workers: `N + 2` knowledge ops
+    /// (N = worker threads) each park inside the resolver at once, and a
+    /// baseline op on a separate, already-established session still answers
+    /// before any resolver is released.
+    ///
+    /// A regression that runs the resolver synchronously on an async worker
+    /// parks at most N resolvers — the bounded wait below fails — and leaves
+    /// no worker to answer the baseline op.
+    #[test]
+    fn ke_remote_resolver_park_exhausts_the_workers_and_still_serves() {
+        let workers = ffi_worker_threads().max(4);
+        let parked_ops = workers + 2;
+        let gate = Arc::new(ScopeGate::new());
+        let entries = vec![served_entry("kb_ffi_ke_exhaustion", "FFI KE Exhaustion")];
+
+        // Every session is established before any resolver parks: a handshake
+        // needs a worker, so a mid-test dial would hang instead of failing on
+        // a deadline.
+        let (baseline_handler, _extract_requests, _baseline_scope_calls) =
+            ke_ports_handler(ExtractAnswer::Batch, Vec::new());
+        let (baseline_responder, baseline_dialer) =
+            dial_ke_remote(&[], &[], Some(baseline_handler));
+
+        let mut sessions = Vec::new();
+        for _ in 0..parked_ops {
+            let (handler, _extract_requests, scope_calls) =
+                ke_ports_handler(ExtractAnswer::Batch, entries.clone());
+            let (responder, dialer) =
+                dial_ke_remote(&[], &[], Some(handler.with_gated_scope(Arc::clone(&gate))));
+            sessions.push((responder, dialer, scope_calls));
+        }
+
+        // A failed assertion must still unpark the resolvers: the runtime is
+        // process-wide, so stranded parks would hang the rest of the suite.
+        let _release_on_drop = ReleaseOnDrop(Arc::clone(&gate));
+
+        let knowledge_ops: Vec<_> = sessions
+            .iter()
+            .map(|(_, dialer, _)| {
+                let op_dialer = Arc::clone(dialer);
+                std::thread::spawn(move || {
+                    op_dialer
+                        .list_knowledge_entries(json!({ "scope_id": "toy-scope-001" }).to_string())
+                })
+            })
+            .collect();
+
+        // One park per worker plus two: the extra resolvers only fit because
+        // every parked resolver handed its worker back to the pool.
+        assert!(
+            gate.wait_for_entered(parked_ops, SCOPE_RESOLVER_PARK_TIMEOUT),
+            "all {parked_ops} resolvers must park at once on {workers} worker threads"
+        );
+        assert!(
+            sessions.iter().all(|(_, _, scope_calls)| scope_calls
+                .lock()
+                .expect("scope calls lock")
+                .is_empty()),
+            "no store is reached while its resolver is parked"
+        );
+
+        // Every worker is parked in a resolver; the baseline op on its own
+        // session still completes its round trip (the double refuses
+        // get_relation, so that refusal is the answer).
+        let (baseline_tx, baseline_rx) = std::sync::mpsc::channel();
+        let baseline_op_dialer = Arc::clone(&baseline_dialer);
+        std::thread::spawn(move || {
+            let _ = baseline_tx.send(
+                baseline_op_dialer.get_relation("rel_ffi_ke_exhaustion".to_string()),
+            );
+        });
+        let baseline_answer = baseline_rx
+            .recv_timeout(SCOPE_BASELINE_TIMEOUT)
+            .expect("the baseline op must answer while every worker is parked");
+        let error = baseline_answer.expect_err("the double does not serve get_relation");
+        assert_rejected(&error, "INVALID_INPUT", None, None);
+        assert!(
+            sessions.iter().all(|(_, _, scope_calls)| scope_calls
+                .lock()
+                .expect("scope calls lock")
+                .is_empty()),
+            "the baseline answer did not release the parked resolvers"
+        );
+
+        gate.release();
+
+        for op in knowledge_ops {
+            let served_json = op
+                .join()
+                .expect("the knowledge op thread joins")
+                .expect("every parked knowledge op is served after release");
+            let served: Value = serde_json::from_str(&served_json).expect("served entries json");
+            assert_eq!(served[0]["entry_id"], "kb_ffi_ke_exhaustion");
+        }
+        for (_responder, _dialer, scope_calls) in &sessions {
+            assert_eq!(
+                scope_calls.lock().expect("scope calls lock").len(),
+                1,
+                "each parked op reached its store once, after the resolver returned"
+            );
+        }
+
+        for (responder, dialer, _scope_calls) in sessions {
+            dialer.close();
+            responder.close();
+        }
+        baseline_dialer.close();
+        baseline_responder.close();
+    }
+
+    /// A panicking resolver is contained into the one refusal shape
+    /// (`NOT_AUTHORIZED`, no existence detail) and never unwinds the responder
+    /// task, which keeps serving other ops.
+    #[test]
+    fn ke_remote_panicking_scope_resolver_refuses_the_op_and_the_session_survives() {
+        let entries = vec![served_entry("kb_ffi_ke_panic", "FFI KE Panic")];
+        let (handler, _extract_requests, scope_calls) =
+            ke_ports_handler(ExtractAnswer::Batch, entries);
+        let (responder, dialer) = dial_ke_remote(&[], &[], Some(handler.with_panicking_scope()));
+
+        let error = dialer
+            .list_knowledge_entries(json!({ "scope_id": "toy-scope-001" }).to_string())
+            .expect_err("a panicking resolver must refuse the op");
+        let message = assert_rejected(&error, "NOT_AUTHORIZED", None, None);
+        assert_eq!(message, "knowledge scope not authorized");
+        assert!(
+            scope_calls.lock().expect("scope calls lock").is_empty(),
+            "the refusal precedes the store call"
+        );
+
+        // The serve loop survived the foreign panic: a baseline op outside the
+        // knowledge face through the same session still answers (with the
+        // double's unserved row).
+        let error = dialer
+            .get_relation("rel_ffi_ke_panic".to_string())
+            .expect_err("the double does not serve get_relation");
+        assert_rejected(&error, "INVALID_INPUT", None, None);
+
+        dialer.close();
+        responder.close();
     }
 }

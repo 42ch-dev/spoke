@@ -31,6 +31,7 @@ import {
   DEMO_EXTRACTION_CANARY,
   DEMO_SERVER_MANIFEST,
   MockAdapter,
+  demoKnowledgeFace,
 } from "../src/adapter/mock-adapter.js";
 import {
   DICE_ROLL_ENTRY_ID,
@@ -46,7 +47,7 @@ import {
   DEMO_SERVER_PUBKEY,
   DEMO_SERVER_SEED,
 } from "../src/identities.js";
-import { DEMO_SCOPE_ID } from "../src/engine/seed-corpus.js";
+import { DEMO_HOLDER_ENTRY_ID, DEMO_SCOPE_ID } from "../src/engine/seed-corpus.js";
 import {
   LORE_LOOKUP_DESCRIPTOR,
   ROLL_DICE_DESCRIPTOR,
@@ -58,15 +59,17 @@ import {
 /** The deterministic 2d6 roll the orchestration asserts (client handler parity). */
 const EXPECTED_DICE_ROLL = { rolls: [1, 2], total: 3 };
 
-/** Client manifest with the two frozen tools (same shape as the demo client). */
+/** Client manifest with the two frozen tools plus `spoke-knowledge` for the knowledge ops and `ke-ownership` for the viewpoint-bearing list (same shape as the demo client). */
 const TOOLS_CLIENT_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
   host_id: "demo-third-party-app",
   roles: ["input-source"],
   capabilities: [
     "spoke-baseline",
+    "spoke-knowledge",
     TOY_WORLD_ROLL_DICE_ID,
     TOY_WORLD_LORE_LOOKUP_ID,
+    "ke-ownership",
   ],
   namespaces: [DEMO_SCOPE_ID, TOY_WORLD_NAMESPACE],
   tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
@@ -140,7 +143,12 @@ async function dialOrchestrated(
     manifest: DEMO_SERVER_MANIFEST,
     allowlist: [DEMO_CLIENT_PEER_ID],
     peerKeys: { [DEMO_CLIENT_PEER_ID]: DEMO_CLIENT_PUBKEY },
-    ports: orchestrator,
+    ports: {
+      baseline: orchestrator,
+      knowledge: demoKnowledgeFace(orchestrator),
+      // ke-extraction stays a service probed on the ports object.
+      extract: (request) => orchestrator.extract(request),
+    },
   });
   orchestrator.setResponder(responder);
 
@@ -160,17 +168,39 @@ async function dialOrchestrated(
     }));
   }
 
+  const dialManifest = options.manifest ?? TOOLS_CLIENT_MANIFEST;
+  // The knowledge put requires `spoke-knowledge`; negative dialers (e.g. the
+  // tools-less manifest) must see the explicit-membership denial.
   const created = await client.putKnowledgeEntry(COMPASS_ENTRY, null);
-  expect(created.ok).toBe(true);
+  if (dialManifest.capabilities.includes("spoke-knowledge")) {
+    expect(created.ok).toBe(true);
+  } else {
+    expect(created.ok).toBe(false);
+    if (!created.ok) {
+      expect(created.code).toBe("CAPABILITY_PORT_MISSING");
+    }
+    // The denial means the trigger entry never reached the engine; seed it
+    // directly so the tool-deny orchestration still runs for this dialer.
+    await orchestrator.putKnowledgeEntry(COMPASS_ENTRY, null);
+  }
 
-  const listed = await client.listKnowledgeEntries({ scope_id: DEMO_SCOPE_ID });
-  expect(listed.ok).toBe(true);
+  // A viewpoint-bearing scope query requires the dialer to negotiate
+  // `ke-ownership`; the negative dialers skip the list probe.
+  let listedIds: string[] = [];
+  if (dialManifest.capabilities.includes("ke-ownership")) {
+    const listed = await client.listKnowledgeEntries({
+      scope_id: DEMO_SCOPE_ID,
+      viewpoint: DEMO_HOLDER_ENTRY_ID,
+    });
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      listedIds = listed.value.map((entry) => entry.entry_id);
+    }
+  }
 
   return {
     records,
-    listedIds: listed.ok
-      ? listed.value.map((entry) => entry.entry_id)
-      : [],
+    listedIds,
     client,
     close: () => {
       client.close();

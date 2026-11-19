@@ -15,7 +15,8 @@ adapter port 类型按能力切片。选择与你的主机所声明能力匹配�
 
 | 能力标志 | 需要实现的 ports | 组合别名 |
 |----------|------------------|----------|
-| `spoke-baseline` | `KnowledgeEntryPort`、`RelationPort`、`ScopeQueryPort`、`FindingPort`、`RuleQueryPort`、`HostManifestPort` | `BaselineAdapter` |
+| `spoke-baseline` | `KnowledgeEntryPort`、`KnowledgeQueryPort`、`RelationPort`、`ScopeQueryPort`、`FindingPort`、`RuleQueryPort`、`HostManifestPort` | `BaselineAdapter` |
+| `spoke-knowledge` | 独立的 `ScopedKnowledgePort`，外加用于 connect 服务的逐对等节点作用域准入 | 无 —— 作为响应方的知识面挂载 |
 | `spoke-baseline` + `l2-computable` | 基线 + `ComputablePort` | `ComputableAdapter` |
 | `spoke-baseline` + `l5-fork` | 基线 + `ForkTimelineQueryPort` | `ForkAdapter` |
 | `spoke-baseline` + `ke-extraction` | 独立的 `ExtractionPort` | 无 —— 该 port 直接传给 `orchestrateExtract` |
@@ -31,6 +32,8 @@ import type {
   ForkAdapter,
   FullAdapter,
   KnowledgeEntryPort,
+  KnowledgeQueryPort,
+  ScopedKnowledgePort,
   RelationPort,
   ScopeQueryPort,
   FindingPort,
@@ -72,14 +75,33 @@ putRelation(
 
 修订号分配由 adapter 负责：创建时（`expectedBaseRevision: null`）初始化 `revision = 1`；接受更新时持久化 `revision = stored + 1`。返回的 Relation 携带已分配的修订号 —— 调用方无需自行设置。
 
-### ScopeQueryPort —— check/assemble 的作用域读取
+### KnowledgeQueryPort —— check/assemble 的知识读取
 
 ```ts
 listKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>>;
+```
+
+### ScopeQueryPort —— check/assemble 的时间轴读取
+
+```ts
 listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>>;
 ```
 
 编排器通过这两个 port 加载作用域数据，再应用作用域过滤辅助函数（`filterKnowledgeEntriesByScope`、`filterTimelineEventsByScope`）收窄到请求的 `entry_ids` / `entry_types` / `timeline_scale` 细化条件。
+
+### ScopedKnowledgePort —— 经准入的 connect 知识服务
+
+```ts
+getScopedKnowledgeEntry(scope: Scope, entryId: string): Promise<SpokeResult<KnowledgeEntry>>;
+putScopedKnowledgeEntry(
+  scope: Scope,
+  entry: KnowledgeEntry,
+  expectedBaseRevision: number | null,
+): Promise<SpokeResult<KnowledgeEntry>>;
+listScopedKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>>;
+```
+
+把该独立 port 挂到响应方的知识面，并配一个把已认证 peer id 映射到其允许 `Scope` 的准入回调。三个知识操作都要求 `negotiated_capabilities` 显式包含 `spoke-knowledge`；`spoke-baseline` 只授权基线操作，因此提供知识服务的基线主机还要声明 `spoke-knowledge` 并挂载该面。响应方把准入作用域供给每个方法。列表请求的 `scope_id` 与 `viewpoint` 必须等于准入值。请求的 `entry_ids` 与 `timeline_event_ids` 会与对应准入集合求交集，交集传给存储；交集为空时不返回结果。这些 id 过滤器绝不会扩大准入范围，也不会因 id 不在准入集合中而拒绝。请求的 `entry_types` 必须是准入集合的子集。对于标量约束（`source_id`、`timeline_scale`、`fork_id`），准入作用域声明了某个约束时，省略该约束的请求使用准入值，指定不同值的请求在访问存储前拒绝 `NOT_AUTHORIZED`；准入作用域省略该约束时，请求值作为通配收窄过滤器使用，不会被拒绝。
 
 ### FindingPort —— 检查器输出持久化
 

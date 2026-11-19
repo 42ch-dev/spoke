@@ -73,6 +73,7 @@ import {
   type BaselinePorts,
   type ComputablePort,
   type ForkTimelineQueryPort,
+  type ScopedKnowledgePort,
   type SpokeReject,
   type SpokeResult,
 } from "@42ch/spoke-operations";
@@ -94,8 +95,11 @@ import {
 } from "../core/envelope-auth.js";
 import {
   CAPABILITY_SPOKE_COGNITION,
+  CAPABILITY_SPOKE_KNOWLEDGE,
+  capabilitySatisfies,
   cognitionRequirementField,
   cognitionRequirementPresent,
+  dispatchAllowed,
   requiredCapability,
   WIRE_INVALID_INPUT,
 } from "../core/dispatch.js";
@@ -213,11 +217,11 @@ function mapErrorEnvelope(error: ErrorEnvelope): SpokeReject {
  * routing cannot drift from serving.
  */
 export const PORT_OP_CAPABILITY_REQUIREMENTS: Readonly<Record<string, string>> = {
-  "port.knowledge.get": "spoke-baseline",
-  "port.knowledge.put": "spoke-baseline",
+  "port.knowledge.get": CAPABILITY_SPOKE_KNOWLEDGE,
+  "port.knowledge.put": CAPABILITY_SPOKE_KNOWLEDGE,
   "port.relation.get": "spoke-baseline",
   "port.relation.put": "spoke-baseline",
-  "port.scope.list_knowledge_entries": "spoke-baseline",
+  "port.scope.list_knowledge_entries": CAPABILITY_SPOKE_KNOWLEDGE,
   "port.scope.list_timeline_events": "spoke-baseline",
   "port.finding.put": "spoke-baseline",
   "port.rule.list": "spoke-baseline",
@@ -230,6 +234,22 @@ export const PORT_OP_CAPABILITY_REQUIREMENTS: Readonly<Record<string, string>> =
   "port.computable.compute": "l2-computable",
   "port.fork.list_timeline_events": "l5-fork",
 };
+
+/**
+ * The responder's combined serve gate for one op: the core op table first
+ * (which also covers the self-describing `tools.*` family), then the product
+ * `port.*` map above.
+ *
+ * Named and pure so the serve decision is asserted directly from the shared
+ * capability matrix instead of only through the per-table lookups.
+ */
+export function portDispatchAllowed(op: string, negotiated: readonly string[]): boolean {
+  if (dispatchAllowed(op, negotiated)) {
+    return true;
+  }
+  const required = PORT_OP_CAPABILITY_REQUIREMENTS[op];
+  return required !== undefined && capabilitySatisfies(negotiated, required);
+}
 
 /**
  * Optional-family op → method on the injected `ports` object (D4
@@ -497,6 +517,89 @@ export function validateScopeOpPayload(
   return null;
 }
 
+/**
+ * Required `KnowledgeEntry` members of a `port.knowledge.put` payload. Rust
+ * decodes the typed struct, so a missing or mistyped member is `INVALID_INPUT`
+ * before admission; these are the members that decode enforces.
+ */
+function validateKnowledgeEntryFields(
+  entry: Record<string, unknown>,
+): string | null {
+  const schemaVersion = entry.schema_version;
+  if (
+    typeof schemaVersion !== "number" ||
+    !Number.isInteger(schemaVersion) ||
+    schemaVersion < 1
+  ) {
+    return "entry.schema_version must be an integer >= 1";
+  }
+  for (const name of ["entry_id", "canonical_name"]) {
+    const value = entry[name];
+    if (typeof value !== "string" || value.length === 0) {
+      return `entry.${name} must be a non-empty string`;
+    }
+  }
+  for (const name of ["entry_type", "status"]) {
+    if (typeof entry[name] !== "string") {
+      return `entry.${name} must be a string`;
+    }
+  }
+  for (const name of ["body", "extensions"]) {
+    if (!isJsonObject(entry[name])) {
+      return `entry.${name} must be an object`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Payload pre-validation for the three knowledge ops, mirroring Rust
+ * `decode_knowledge_call`: malformed get/put payloads answer `INVALID_INPUT`
+ * before the face probe, admission, and any store call. The list op keeps
+ * the existing Scope shape check (`validateScopeOpPayload`, which runs
+ * earlier in the port dispatch).
+ */
+export function validateKnowledgeOpPayload(
+  op: string,
+  payload: Record<string, unknown>,
+): SpokeReject | null {
+  if (!isJsonObject(payload)) {
+    return scopePayloadReject(op, "payload must be an object");
+  }
+  if (op === "port.knowledge.get") {
+    const entryId = payload.entry_id;
+    if (!(typeof entryId === "string" && entryId.length > 0)) {
+      return scopePayloadReject(op, "entry_id must be a non-empty string");
+    }
+    return null;
+  }
+  if (op === "port.knowledge.put") {
+    if (!isJsonObject(payload.entry)) {
+      return scopePayloadReject(op, "entry must be an object");
+    }
+    const entryError = validateKnowledgeEntryFields(payload.entry);
+    if (entryError !== null) {
+      return scopePayloadReject(op, entryError);
+    }
+    const expected = payload.expected_base_revision;
+    if (
+      expected !== undefined &&
+      expected !== null &&
+      !(
+        typeof expected === "number" &&
+        Number.isSafeInteger(expected) &&
+        expected >= 0
+      )
+    ) {
+      return scopePayloadReject(
+        op,
+        "expected_base_revision must be a non-negative safe integer or null",
+      );
+    }
+  }
+  return null;
+}
+
 function isValidSourceSpan(value: unknown): boolean {
   if (!isJsonObject(value)) {
     return false;
@@ -643,6 +746,164 @@ export interface RemoteMemoryService {
   ): Promise<SpokeResult<unknown>>;
 }
 
+/**
+ * The knowledge serving face: a scoped store plus per-peer admission.
+ * `admission(peerId)` returns the peer's admitted `Scope` or rejects —
+ * the responder then serves only inside that admitted scope; the wire
+ * request never carries a scope for the get/put ops and the list op's
+ * scope must match the admission exactly.
+ */
+export interface RemoteKnowledgeFace {
+  store: ScopedKnowledgePort;
+  admission: (peerId: string) => SpokeResult<Scope>;
+}
+
+/**
+ * The serving faces a responder host may inject. Baseline ops are served
+ * through `baseline`; the three knowledge ops through `knowledge`. An
+ * absent face keeps the documented dispatch-deny answer for its family —
+ * a knowledge-only host injects only `knowledge`.
+ */
+export interface RemoteServePorts {
+  baseline?: BaselinePorts;
+  knowledge?: RemoteKnowledgeFace;
+}
+
+/** Knowledge-only serve ports: no baseline face, so `assemble` and every other baseline op stays denied. */
+export function knowledgeOnlyServePorts(face: RemoteKnowledgeFace): RemoteServePorts {
+  return { knowledge: face };
+}
+
+/** Attach the knowledge face to existing serve ports (returns a new object). */
+export function withKnowledge(ports: RemoteServePorts, face: RemoteKnowledgeFace): RemoteServePorts {
+  return { ...ports, knowledge: face };
+}
+
+/** The three remote knowledge ops — served only through the knowledge face. */
+const KNOWLEDGE_OPS: Readonly<Record<string, true>> = {
+  "port.knowledge.get": true,
+  "port.knowledge.put": true,
+  "port.scope.list_knowledge_entries": true,
+};
+
+/**
+ * Scope equality between the requested and the admitted scope: same
+ * `scope_id` AND the same `viewpoint` (both absent or equal strings). Any
+ * mismatch — including an admitted viewpoint the request omits — refuses.
+ */
+function scopeMatchesAdmission(
+  requested: Scope,
+  admitted: Scope,
+): boolean {
+  return (
+    requested.scope_id === admitted.scope_id &&
+    (requested.viewpoint ?? undefined) === (admitted.viewpoint ?? undefined)
+  );
+}
+
+const WIDENING = Symbol("widening");
+
+/**
+ * Adopt one admitted constraint: the admitted value when the request omits or
+ * repeats it, the request's value when admission omits it, `WIDENING` when the
+ * request names a different value (a widening, never a narrowing).
+ */
+function adoptedConstraint<T>(
+  admitted: T | undefined,
+  requested: T | undefined,
+  equals: (a: T, b: T) => boolean = (a, b) => a === b,
+): T | undefined | typeof WIDENING {
+  if (admitted === undefined) {
+    return requested;
+  }
+  if (requested === undefined || equals(admitted, requested)) {
+    return admitted;
+  }
+  return WIDENING;
+}
+
+/**
+ * Adopt an admitted set-valued constraint: a requested set that is a subset of
+ * the admitted one narrows the query and is used as given; a requested set
+ * naming any value outside the admitted one is a widening (`WIDENING`).
+ */
+function adoptedSetConstraint(
+  admitted: string[] | undefined,
+  requested: string[] | undefined,
+): string[] | undefined | typeof WIDENING {
+  if (admitted === undefined) {
+    return requested;
+  }
+  if (requested === undefined) {
+    return admitted;
+  }
+  return requested.every((value) => admitted.includes(value)) ? requested : WIDENING;
+}
+
+/** Admitted ∩ requested ids: an empty intersection stays an empty filter. */
+function intersectedIds(
+  admitted: string[] | undefined,
+  requested: string[] | undefined,
+): string[] | undefined {
+  if (admitted === undefined) {
+    return requested;
+  }
+  return requested === undefined
+    ? admitted
+    : requested.filter((id) => admitted.includes(id));
+}
+
+/**
+ * The scope passed to the store for a list: the admitted `scope_id` /
+ * `viewpoint` are authoritative (equal to the request — the caller checked)
+ * and every other admitted constraint bounds the request. `null` refuses: the
+ * request named a scalar value the admission does not grant, and honouring it
+ * would widen the query. Id lists intersect; admitted `extensions` namespaces
+ * win on conflict; the request's cognition selection is untouched.
+ */
+function effectiveScope(requested: Scope, admitted: Scope): Scope | null {
+  const entryTypes = adoptedSetConstraint(
+    admitted.entry_types,
+    requested.entry_types,
+  );
+  const sourceId = adoptedConstraint(admitted.source_id, requested.source_id);
+  const timelineScale = adoptedConstraint(
+    admitted.timeline_scale,
+    requested.timeline_scale,
+  );
+  const forkId = adoptedConstraint(admitted.fork_id, requested.fork_id);
+  if (
+    entryTypes === WIDENING ||
+    sourceId === WIDENING ||
+    timelineScale === WIDENING ||
+    forkId === WIDENING
+  ) {
+    return null;
+  }
+  const scope: Scope = {
+    ...requested,
+    scope_id: admitted.scope_id,
+    viewpoint: admitted.viewpoint,
+    entry_ids: intersectedIds(admitted.entry_ids, requested.entry_ids),
+    timeline_event_ids: intersectedIds(
+      admitted.timeline_event_ids,
+      requested.timeline_event_ids,
+    ),
+    entry_types: entryTypes,
+    source_id: sourceId,
+    timeline_scale: timelineScale,
+    fork_id: forkId,
+  };
+  if (admitted.extensions !== undefined) {
+    // Admitted namespaces win on conflict.
+    scope.extensions = { ...requested.extensions, ...admitted.extensions };
+  }
+  if (scope.viewpoint === undefined) {
+    delete scope.viewpoint;
+  }
+  return scope;
+}
+
 const OPTIONAL_PORT_METHODS: Readonly<Record<string, string>> = {
   "port.computable.project": "project",
   "port.computable.compute": "compute",
@@ -682,13 +943,6 @@ function dispatchPortOp(
   ports: BaselinePorts,
 ): Promise<SpokeResult<unknown>> {
   switch (op) {
-    case "port.knowledge.get":
-      return ports.getKnowledgeEntry(payload.entry_id as string);
-    case "port.knowledge.put":
-      return ports.putKnowledgeEntry(
-        payload.entry as KnowledgeEntry,
-        payload.expected_base_revision as number | null,
-      );
     case "port.relation.get":
       return ports.getRelation(payload.relation_id as string);
     case "port.relation.put":
@@ -696,8 +950,6 @@ function dispatchPortOp(
         payload.relation as Relation,
         payload.expected_base_revision as number | null,
       );
-    case "port.scope.list_knowledge_entries":
-      return ports.listKnowledgeEntries(payload.scope as Scope);
     case "port.scope.list_timeline_events":
       return ports.listTimelineEvents(payload.scope as Scope);
     case "port.finding.put":
@@ -758,13 +1010,13 @@ export interface ConnectResponderOptions {
    */
   peerKeys: Readonly<Record<string, Uint8Array>>;
   /**
-   * Local async `BaselinePorts` served on the remote side via the D4
-   * catalogue. Absent `ports` still answers `port.*` invokes with the
-   * dispatch-deny branch (documented behavior).
+   * Local serving faces (D4 catalogue + knowledge face). Absent `ports`
+   * still answers `port.*` invokes with the dispatch-deny branch
+   * (documented behavior). Baseline ops require `ports.baseline`; the
+   * three knowledge ops require `ports.knowledge` — a knowledge-only host
+   * injects only that face via `knowledgeOnlyServePorts`.
    */
-  ports?: BaselinePorts &
-    Partial<RemoteExtractService> &
-    Partial<RemoteMemoryService>;
+  ports?: RemoteServePorts & Partial<RemoteExtractService> & Partial<RemoteMemoryService>;
   /**
    * Bounded-wait deadline for each reverse-invoke waiter AND the local
    * serve-wait budget bounding every served `port.*` provider call and the
@@ -810,7 +1062,7 @@ export class ConnectResponder {
   readonly #allowlist: readonly string[];
   readonly #peerKeys: Readonly<Record<string, Uint8Array>>;
   readonly #ports:
-    | (BaselinePorts & Partial<RemoteExtractService> & Partial<RemoteMemoryService>)
+    | (RemoteServePorts & Partial<RemoteExtractService> & Partial<RemoteMemoryService>)
     | undefined;
   readonly #invokeTimeoutMs: number;
   readonly #nonceStore = new NonceStore();
@@ -1321,17 +1573,9 @@ export class ConnectResponder {
     }
   }
 
-  /** Dispatch gate: core table (incl. `tools.*`) then the port product map. */
+  /** Dispatch gate: the named combined gate (core table incl. `tools.*`, then the port product map). */
   #gateAllows(op: string, session: Session): boolean {
-    const negotiated = session.negotiated_capabilities;
-    if (session.dispatchAllowed(op)) {
-      return true;
-    }
-    const required = PORT_OP_CAPABILITY_REQUIREMENTS[op];
-    if (required === undefined || !negotiated.includes(required)) {
-      return false;
-    }
-    return true;
+    return portDispatchAllowed(op, session.negotiated_capabilities);
   }
 
   /**
@@ -1457,17 +1701,20 @@ export class ConnectResponder {
    * The armed budget is tracked so `#close` disarms it (no serve timer
    * outlives the session), and a serve dispatch that resumes after a close
    * answers nothing.
+   *
+   * `budgetMs` defaults to the configured budget; a multi-stage serve passes
+   * what remains of its ONE deadline so stages cannot each get a full budget.
    */
   async #withServeBudget<T>(
     work: () => Promise<T>,
     expiryEnvelope?: SpokeReject,
+    budgetMs: number = this.#invokeTimeoutMs,
   ): Promise<T | SpokeReject> {
-    const budgetMs = this.#invokeTimeoutMs;
     const expiryReject =
       expiryEnvelope ??
       spokeReject(
         SpokeRejectCode.INTERNAL_ERROR,
-        `serve wait exceeded the local budget of ${budgetMs}ms`,
+        `serve wait exceeded the local budget of ${this.#invokeTimeoutMs}ms`,
         { kind: "timeout" },
       );
     if (budgetMs === 0) {
@@ -1725,7 +1972,136 @@ export class ConnectResponder {
     const ports = this.#ports;
     if (ports === undefined) {
       // Absent `ports` (documented): the capability gate passes but there
-      // is no BaselinePorts to serve — answer the dispatch-deny branch.
+      // is no face to serve — answer the dispatch-deny branch.
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "op_unsupported",
+        message: `no ports face configured for port op ${doc.op}`,
+        extensions: {},
+      });
+      return;
+    }
+    // Knowledge ops (three-row catalogue): served only through the
+    // knowledge face. Absent face → CAPABILITY_PORT_MISSING (gate → probe
+    // → serve/deny); the admitted scope comes from the face's admission
+    // callback keyed by the authenticated peer id, never from the wire.
+    if (KNOWLEDGE_OPS[doc.op]) {
+      // B2: mirror Rust decode_knowledge_call — a malformed get/put payload
+      // answers INVALID_INPUT before the face probe, admission, and any
+      // store call. The list op's Scope shape validated earlier.
+      const payloadReject = validateKnowledgeOpPayload(doc.op, payload);
+      if (payloadReject !== null) {
+        await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(payloadReject));
+        return;
+      }
+      const face = ports.knowledge;
+      if (face === undefined) {
+        // B4: an absent knowledge face is the dispatch-deny branch — the
+        // same wire row as absent ports/baseline; the dialer maps it to
+        // CAPABILITY_PORT_MISSING (wire_code preserved), never an
+        // application-coded literal on the wire.
+        await this.#sendReverseErrorEnvelope(doc, {
+          code: "op_unsupported",
+          message: `no knowledge face configured for port op ${doc.op}`,
+          extensions: {},
+        });
+        return;
+      }
+      // B3: an empty authenticated peer id (session not established) refuses
+      // NOT_AUTHORIZED before admission, matching Rust's `remote_peer_id()`
+      // None arm. One refusal shape, no existence detail.
+      const peerId = this.remotePeerId;
+      if (peerId === "") {
+        await this.#sendReverseErrorEnvelope(doc, {
+          code: SpokeRejectCode.NOT_AUTHORIZED,
+          message: "knowledge scope not authorized",
+          extensions: {},
+        });
+        return;
+      }
+      // One deadline per knowledge op: admission spends part of the local
+      // budget, so the store call only gets what remains of it.
+      const deadlineMs = Date.now() + this.#invokeTimeoutMs;
+      const admitted = face.admission(peerId);
+      if (!admitted.ok) {
+        // No existence detail: the refusal names only the scope verdict.
+        await this.#sendReverseErrorEnvelope(doc, {
+          code: SpokeRejectCode.NOT_AUTHORIZED,
+          message: "knowledge scope not authorized",
+          extensions: {},
+        });
+        return;
+      }
+      const requestedScope = payload.scope as Scope | undefined;
+      if (
+        doc.op === "port.scope.list_knowledge_entries" &&
+        (requestedScope === undefined ||
+          !isJsonObject(requestedScope) ||
+          !scopeMatchesAdmission(requestedScope, admitted.value))
+      ) {
+        // List requires an exact scope match; get/put carry no wire scope.
+        await this.#sendReverseErrorEnvelope(doc, {
+          code: SpokeRejectCode.NOT_AUTHORIZED,
+          message: "knowledge scope not authorized",
+          extensions: {},
+        });
+        return;
+      }
+      // The admitted scope owns scope_id/viewpoint and bounds every other
+      // constraint; a request naming a scalar the admission does not grant
+      // refuses here, before the store.
+      let listedScope: Scope = admitted.value;
+      if (doc.op === "port.scope.list_knowledge_entries") {
+        const effective = effectiveScope(requestedScope as Scope, admitted.value);
+        if (effective === null) {
+          await this.#sendReverseErrorEnvelope(doc, {
+            code: SpokeRejectCode.NOT_AUTHORIZED,
+            message: "knowledge scope not authorized",
+            extensions: {},
+          });
+          return;
+        }
+        listedScope = effective;
+      }
+      const knowledgeResult: SpokeResult<unknown> = await this.#withServeBudget(
+        (): Promise<SpokeResult<unknown>> => {
+          switch (doc.op) {
+            case "port.knowledge.get":
+              return face.store.getScopedKnowledgeEntry(
+                admitted.value,
+                payload.entry_id as string,
+              );
+            case "port.knowledge.put":
+              // Rust decodes `Option<u64>`: a missing member is None (create),
+              // so the store must never receive `undefined` here.
+              return face.store.putScopedKnowledgeEntry(
+                admitted.value,
+                payload.entry as KnowledgeEntry,
+                (payload.expected_base_revision ?? null) as number | null,
+              );
+            default:
+              return face.store.listScopedKnowledgeEntries(listedScope);
+          }
+        },
+        undefined,
+        Math.max(0, deadlineMs - Date.now()),
+      );
+      if (this.#stateInternal === "Closed") {
+        return;
+      }
+      if (knowledgeResult.ok) {
+        await this.#sendOkResponse(
+          doc,
+          "value" in knowledgeResult ? knowledgeResult.value : {},
+        );
+      } else {
+        await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(knowledgeResult));
+      }
+      return;
+    }
+    const baselinePorts = ports.baseline;
+    if (baselinePorts === undefined) {
+      // Absent baseline face (documented dispatch-deny branch): knowledge
+      // hosts serve no baseline op — this answer precedes any probe.
       await this.#sendReverseErrorEnvelope(doc, {
         code: "op_unsupported",
         message: `no ports face configured for port op ${doc.op}`,
@@ -1737,7 +2113,7 @@ export class ConnectResponder {
     // capability gate passed, so a missing optional method means the host
     // declared a family it does not provide (misconfiguration) — answer
     // the same dispatch-deny branch as absent ports.
-    const missingMethod = probeOptionalPortMethod(ports, doc.op);
+    const missingMethod = probeOptionalPortMethod(baselinePorts, doc.op);
     if (missingMethod !== null) {
       await this.#sendReverseErrorEnvelope(doc, {
         code: "op_unsupported",
@@ -1752,7 +2128,7 @@ export class ConnectResponder {
     // calls); expiry stops awaiting it — a bounded wait, never forced
     // termination or rollback of host work.
     const result = await this.#withServeBudget(() =>
-      dispatchPortOp(doc.op, doc.payload as Record<string, unknown>, ports),
+      dispatchPortOp(doc.op, doc.payload as Record<string, unknown>, baselinePorts),
     );
     // The bounded wait is the only thing the close can interrupt: once the
     // session is Closed, neither a late provider success nor a late (or

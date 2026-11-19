@@ -12,12 +12,12 @@
 import Foundation
 
 /// Ports-carrying manifest — baseline + optional families, so the negotiated
-/// set includes l2-computable / l5-fork. Mirror of the Rust
+/// set includes spoke-knowledge / l2-computable / l5-fork. Mirror of the Rust
 /// `ports_manifest_json` test helper.
 private func portsManifestJson(hostId: String) -> String {
     """
     {"schema_version":1,"host_id":"\(hostId)","roles":["data-store","l2-computable"],
-    "capabilities":["spoke-baseline","l2-computable","l5-fork"],
+    "capabilities":["spoke-baseline","spoke-knowledge","l2-computable","l5-fork"],
     "namespaces":["toy_world"],"extensions":{}}
     """
 }
@@ -432,6 +432,29 @@ private final class SmokePortsHandler: PortsHandler {
         return String(data: data, encoding: .utf8) ?? "[]"
     }
 
+    // The scoped knowledge face over the same store: `get` / `put` carry no
+    // wire scope, so the admitted value below is the only one they are served
+    // in.
+    func servesKnowledge() -> Bool {
+        true
+    }
+
+    func knowledgeScope(peerId: String) throws -> String {
+        #"{"scope_id":"scope_swift_ports_smoke"}"#
+    }
+
+    func getScopedKnowledgeEntry(scopeJson: String, entryId: String) throws -> String {
+        try getKnowledgeEntry(entryId: entryId)
+    }
+
+    func putScopedKnowledgeEntry(scopeJson: String, entryJson: String, expectedBaseRevision: UInt64?) throws -> String {
+        try putKnowledgeEntry(entryJson: entryJson, expectedBaseRevision: expectedBaseRevision)
+    }
+
+    func listScopedKnowledgeEntries(scopeJson: String) throws -> String {
+        try listKnowledgeEntries(scopeJson: scopeJson)
+    }
+
     func listTimelineEvents(scopeJson: String) throws -> String {
         "[]"
     }
@@ -537,7 +560,7 @@ private func keManifestJson(hostId: String, capabilities: [String]) -> String {
         "schema_version": 1,
         "host_id": hostId,
         "roles": ["data-store"],
-        "capabilities": ["spoke-baseline"] + capabilities,
+        "capabilities": ["spoke-baseline", "spoke-knowledge"] + capabilities,
         "namespaces": ["toy_world"],
         "extensions": [:],
     ]
@@ -727,6 +750,28 @@ private final class KeRemotePortsHandler: PortsHandler {
 
     func putKnowledgeEntry(entryJson: String, expectedBaseRevision: UInt64?) throws -> String {
         throw unserved("put_knowledge_entry")
+    }
+
+    // The scoped knowledge face: `list` is served inside the admitted scope,
+    // `get` / `put` stay ordinary refusals in this double.
+    func servesKnowledge() -> Bool {
+        true
+    }
+
+    func knowledgeScope(peerId: String) throws -> String {
+        #"{"scope_id":"toy-scope-001","viewpoint":"kb_tw_mira"}"#
+    }
+
+    func getScopedKnowledgeEntry(scopeJson: String, entryId: String) throws -> String {
+        throw unserved("get_knowledge_entry")
+    }
+
+    func putScopedKnowledgeEntry(scopeJson: String, entryJson: String, expectedBaseRevision: UInt64?) throws -> String {
+        throw unserved("put_knowledge_entry")
+    }
+
+    func listScopedKnowledgeEntries(scopeJson: String) throws -> String {
+        try listKnowledgeEntries(scopeJson: scopeJson)
     }
 
     func getRelation(relationId: String) throws -> String {

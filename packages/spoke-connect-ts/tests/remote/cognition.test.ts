@@ -53,6 +53,8 @@ import { isValidSuccessPayload } from "../../src/remote/payload.js";
 import { connectRemoteAdapter } from "../../src/remote/remote-adapter.js";
 import {
   connectResponder,
+  type RemoteKnowledgeFace,
+  type RemoteServePorts,
   type RemoteMemoryService,
 } from "../../src/remote/responder.js";
 import {
@@ -186,6 +188,31 @@ function selectEntries(scope: Scope, calls: ProviderCalls): KnowledgeEntry[] {
         );
   calls.returnedEntries = selected;
   return selected;
+}
+
+/**
+ * Serve ports for one served case: the provider double as the baseline face
+ * plus a knowledge face admitting the case's own wire scope, so the
+ * knowledge list reaches the store with the selection intact.
+ */
+function servePortsFor(
+  testCase: ServedCase,
+  calls: ProviderCalls,
+): RemoteServePorts & Partial<RemoteMemoryService> {
+  const provider = providerPorts(calls);
+  const payloadScope = testCase.payload.scope;
+  const face: RemoteKnowledgeFace = {
+    store: {
+      getScopedKnowledgeEntry: (_scope, entryId) =>
+        provider.getKnowledgeEntry(entryId),
+      putScopedKnowledgeEntry: (_scope, entry, expectedBaseRevision) =>
+        provider.putKnowledgeEntry(entry, expectedBaseRevision),
+      listScopedKnowledgeEntries: (scope) =>
+        provider.listKnowledgeEntries(scope),
+    },
+    admission: () => spokeOk((payloadScope ?? { scope_id: "" }) as Scope),
+  };
+  return { baseline: provider, knowledge: face, invoke: provider.invoke };
 }
 
 function providerPorts(
@@ -370,7 +397,7 @@ async function serveCase(testCase: ServedCase): Promise<ServedResult> {
     manifest: manifestFor("host", FIXTURE.hosts[testCase.host]!),
     allowlist: [clientPeerId],
     peerKeys: { [clientPeerId]: clientPubkey },
-    ports: providerPorts(calls),
+    ports: servePortsFor(testCase, calls),
   });
   try {
     if (

@@ -245,8 +245,8 @@ public static class PortsLoopbackSmoke
     }
 
     /// <summary>Ports-carrying manifest — baseline + optional families, so
-    /// the negotiated set includes l2-computable / l5-fork. Mirror of the
-    /// Rust `ports_manifest_json` test helper.</summary>
+    /// the negotiated set includes spoke-knowledge / l2-computable / l5-fork.
+    /// Mirror of the Rust `ports_manifest_json` test helper.</summary>
     private static string PortsManifestJson(string hostId)
     {
         var manifest = new Dictionary<string, object?>
@@ -254,7 +254,7 @@ public static class PortsLoopbackSmoke
             ["schema_version"] = 1,
             ["host_id"] = hostId,
             ["roles"] = new[] { "data-store", "l2-computable" },
-            ["capabilities"] = new[] { "spoke-baseline", "l2-computable", "l5-fork" },
+            ["capabilities"] = new[] { "spoke-baseline", "spoke-knowledge", "l2-computable", "l5-fork" },
             ["namespaces"] = new[] { "toy_world" },
             ["extensions"] = new Dictionary<string, object?>(),
         };
@@ -407,6 +407,20 @@ public static class PortsLoopbackSmoke
             return System.Text.Encoding.UTF8.GetString(stream.ToArray());
         }
 
+        // The scoped knowledge face over the same store: `get` / `put` carry
+        // no wire scope, so the admitted value below is the only one they are
+        // served in.
+        public bool ServesKnowledge() => true;
+
+        public string KnowledgeScope(string peerId) => "{\"scope_id\":\"scope_csharp_ports_smoke\"}";
+
+        public string GetScopedKnowledgeEntry(string scopeJson, string entryId) => GetKnowledgeEntry(entryId);
+
+        public string PutScopedKnowledgeEntry(string scopeJson, string entryJson, ulong? expectedBaseRevision) =>
+            PutKnowledgeEntry(entryJson, expectedBaseRevision);
+
+        public string ListScopedKnowledgeEntries(string scopeJson) => ListKnowledgeEntries(scopeJson);
+
         public string ListTimelineEvents(string scopeJson) => "[]";
 
         public string PutFindings(string findingsJson) => "[]";
@@ -491,7 +505,7 @@ public static class PortsLoopbackSmoke
     /// are set up. Mirror of the Rust `ke_manifest_json` test helper.</summary>
     private static string KeManifestJson(string hostId, string[] capabilities)
     {
-        var all = new List<string> { "spoke-baseline" };
+        var all = new List<string> { "spoke-baseline", "spoke-knowledge" };
         all.AddRange(capabilities);
         var manifest = new Dictionary<string, object?>
         {
@@ -992,6 +1006,20 @@ public static class PortsLoopbackSmoke
                     ["visibility"] = new Dictionary<string, object?> { ["scope"] = visibility },
                 },
             };
+
+        // The scoped knowledge face: `list` is served inside the admitted
+        // scope, `get` / `put` stay ordinary refusals in this double.
+        public bool ServesKnowledge() => true;
+
+        public string KnowledgeScope(string peerId) => "{\"scope_id\":\"toy-scope-001\",\"viewpoint\":\"kb_tw_mira\"}";
+
+        public string GetScopedKnowledgeEntry(string scopeJson, string entryId) =>
+            throw Unserved("get_knowledge_entry");
+
+        public string PutScopedKnowledgeEntry(string scopeJson, string entryJson, ulong? expectedBaseRevision) =>
+            throw Unserved("put_knowledge_entry");
+
+        public string ListScopedKnowledgeEntries(string scopeJson) => ListKnowledgeEntries(scopeJson);
 
         /// <summary>Catalogue ops this double does not serve: an ordinary
         /// application reject (`wireCode` null), never containment.</summary>

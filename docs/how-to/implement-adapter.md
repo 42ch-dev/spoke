@@ -15,7 +15,8 @@ The adapter port types are sliced by capability. Pick the alias that matches the
 
 | Capability flags | Ports to implement | Composed alias |
 |------------------|--------------------|----------------|
-| `spoke-baseline` | `KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, `HostManifestPort` | `BaselineAdapter` |
+| `spoke-baseline` | `KnowledgeEntryPort`, `KnowledgeQueryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, `HostManifestPort` | `BaselineAdapter` |
+| `spoke-knowledge` | standalone `ScopedKnowledgePort` plus per-peer scope admission for connect serving | none — attach it as the responder knowledge face |
 | `spoke-baseline` + `l2-computable` | baseline + `ComputablePort` | `ComputableAdapter` |
 | `spoke-baseline` + `l5-fork` | baseline + `ForkTimelineQueryPort` | `ForkAdapter` |
 | `spoke-baseline` + `ke-extraction` | standalone `ExtractionPort` | none — the port is passed to `orchestrateExtract` directly |
@@ -31,6 +32,8 @@ import type {
   ForkAdapter,
   FullAdapter,
   KnowledgeEntryPort,
+  KnowledgeQueryPort,
+  ScopedKnowledgePort,
   RelationPort,
   ScopeQueryPort,
   FindingPort,
@@ -72,14 +75,33 @@ putRelation(
 
 Revision assignment is adapter-owned: on create (`expectedBaseRevision: null`) seed `revision = 1`; on an accepted update persist `revision = stored + 1`. The returned Relation carries the assigned revision — callers do not set it.
 
-### ScopeQueryPort — scoped reads for check/assemble
+### KnowledgeQueryPort — knowledge reads for check/assemble
 
 ```ts
 listKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>>;
+```
+
+### ScopeQueryPort — timeline reads for check/assemble
+
+```ts
 listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>>;
 ```
 
 The orchestrators load scoped data through these ports, then apply the scope-filtering helpers (`filterKnowledgeEntriesByScope`, `filterTimelineEventsByScope`) to narrow to the request's `entry_ids` / `entry_types` / `timeline_scale` refinements.
+
+### ScopedKnowledgePort — admitted connect knowledge serving
+
+```ts
+getScopedKnowledgeEntry(scope: Scope, entryId: string): Promise<SpokeResult<KnowledgeEntry>>;
+putScopedKnowledgeEntry(
+  scope: Scope,
+  entry: KnowledgeEntry,
+  expectedBaseRevision: number | null,
+): Promise<SpokeResult<KnowledgeEntry>>;
+listScopedKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>>;
+```
+
+Attach this standalone port to the responder's knowledge face with an admission callback that maps the authenticated peer id to its permitted `Scope`. The three knowledge ops require `spoke-knowledge` explicitly in `negotiated_capabilities`; `spoke-baseline` authorizes only baseline ops, so a baseline host serving knowledge adds `spoke-knowledge` and attaches this face. The responder supplies the admitted scope to every method. For lists, `scope_id` and `viewpoint` equal the admitted values. Requested `entry_ids` and `timeline_event_ids` are intersected with their admitted sets, and those intersections are passed to the store; an empty intersection returns no results. These id filters never widen admission and never refuse because an id lies outside the admitted set. Requested `entry_types` must be a subset of the admitted set. For scalar constraints (`source_id`, `timeline_scale`, `fork_id`), when the admitted scope declares one, a request that omits it uses the admitted value and a request that names a different value refuses `NOT_AUTHORIZED` before the store; when the admitted scope omits it, the request's value is used as a wildcard-narrowing filter without refusal.
 
 ### FindingPort — checker output persistence
 

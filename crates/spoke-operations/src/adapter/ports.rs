@@ -83,11 +83,42 @@ pub trait RelationPort {
     ) -> SpokeResult<Relation>;
 }
 
-/// Scope query for check / assemble — knowledge entries and timeline events.
+/// Scope query for check / assemble — timeline events.
 #[async_trait]
 pub trait ScopeQueryPort {
-    async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>>;
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>>;
+}
+
+/// Knowledge list query for check / assemble.
+#[async_trait]
+pub trait KnowledgeQueryPort: Send + Sync {
+    async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>>;
+}
+
+/// Scoped knowledge entry persistence — the connect-served knowledge face.
+///
+/// Standalone like [`ExtractionPort`]: `ScopedKnowledgePort` is NOT part of
+/// [`BaselinePorts`] / [`FullPorts`] or the adapter aliases. A host exposes it
+/// to peers only together with an admission policy for the peer's scope.
+#[async_trait]
+pub trait ScopedKnowledgePort: Send + Sync {
+    async fn get_scoped_knowledge_entry(
+        &self,
+        scope: &Scope,
+        entry_id: &str,
+    ) -> SpokeResult<KnowledgeEntry>;
+    /// Persist a scoped KnowledgeEntry with the same optimistic concurrency
+    /// contract as [`KnowledgeEntryPort::put_knowledge_entry`].
+    async fn put_scoped_knowledge_entry(
+        &self,
+        scope: &Scope,
+        entry: KnowledgeEntry,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry>;
+    async fn list_scoped_knowledge_entries(
+        &self,
+        scope: &Scope,
+    ) -> SpokeResult<Vec<KnowledgeEntry>>;
 }
 
 /// Finding persistence.
@@ -129,6 +160,7 @@ pub trait ForkTimelineQueryPort {
 /// Ports required for spoke-baseline orchestration.
 pub trait BaselinePorts:
     KnowledgeEntryPort
+    + KnowledgeQueryPort
     + RelationPort
     + ScopeQueryPort
     + FindingPort
@@ -139,6 +171,7 @@ pub trait BaselinePorts:
 
 impl<T> BaselinePorts for T where
     T: KnowledgeEntryPort
+        + KnowledgeQueryPort
         + RelationPort
         + ScopeQueryPort
         + FindingPort
@@ -560,6 +593,13 @@ mod tests {
     use serde_json::json;
     use std::collections::HashMap;
 
+    #[test]
+    fn knowledge_port_objects_are_send_sync() {
+        fn assert_send_sync<T: Send + Sync + ?Sized>() {}
+        assert_send_sync::<dyn KnowledgeQueryPort>();
+        assert_send_sync::<dyn ScopedKnowledgePort>();
+    }
+
     fn make_manifest(
         host_id: &str,
         namespaces: &[&str],
@@ -664,11 +704,14 @@ mod tests {
     }
 
     #[async_trait]
-    impl ScopeQueryPort for BaselinePortStub {
+    impl KnowledgeQueryPort for BaselinePortStub {
         async fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             spoke_ok(Vec::new())
         }
+    }
 
+    #[async_trait]
+    impl ScopeQueryPort for BaselinePortStub {
         async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             spoke_ok(Vec::new())
         }
@@ -714,7 +757,7 @@ mod tests {
     }
 
     #[test]
-    fn baseline_ports_accepts_all_six_baseline_families() {
+    fn baseline_ports_accepts_all_seven_baseline_families() {
         let ports = BaselinePortStub::new(HostManifestPortMock::new(
             make_manifest("self-host", &["self-ns"], &["data-store"]),
             Vec::new(),
@@ -722,6 +765,7 @@ mod tests {
 
         let _: &dyn BaselinePorts = &ports;
         let _: &dyn KnowledgeEntryPort = &ports;
+        let _: &dyn KnowledgeQueryPort = &ports;
         let _: &dyn RelationPort = &ports;
         let _: &dyn ScopeQueryPort = &ports;
         let _: &dyn FindingPort = &ports;

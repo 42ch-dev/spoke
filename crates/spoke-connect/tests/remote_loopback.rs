@@ -52,15 +52,16 @@ use spoke_connect::remote::{
     reset_accepted_server_hellos_for_test, ConnectResponder, ConnectResponderOptions,
     LoopbackTransport, LoopbackTransportPair, MultiPeerRouterOptions, RemoteAdapter,
     RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState, RemoteExtractService,
-    RemoteIdentity, RemoteServePorts, RemoteServePortsComposite, ToolHandler, Transport,
-    TransportError,
+    RemoteIdentity, RemoteKnowledgeFace, RemoteServePorts, RemoteServePortsComposite, ToolHandler,
+    Transport, TransportError,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
-    orchestrate_check, orchestrate_extract, orchestrate_upsert, parse_tool_capability_id, spoke_ok,
-    spoke_reject, BaselinePorts, CheckRunInput, ComputablePort, ExtractRunInput, ExtractionPort,
-    ExtractionResult, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
-    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    assert_revision_match, orchestrate_check, orchestrate_extract, orchestrate_upsert,
+    parse_tool_capability_id, spoke_ok, spoke_reject, BaselinePorts, CheckRunInput, ComputablePort,
+    ExtractRunInput, ExtractionPort, ExtractionResult, FindingPort, ForkTimelineQueryPort,
+    HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort, ScopedKnowledgePort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -1411,7 +1412,7 @@ async fn concurrent_invokes_reach_the_wire_in_allocation_order() {
             captured: Arc::clone(&captured),
         }),
         host_seed: seed_host(),
-        host_manifest: manifest("test-host", &["spoke-baseline"]),
+        host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
         allowlist: vec![peer_id_client.clone()],
         adapter: Arc::new(host_adapter),
         delay: Box::new(|_| 0),
@@ -1429,7 +1430,7 @@ async fn concurrent_invokes_reach_the_wire_in_allocation_order() {
         local_identity: RemoteIdentity {
             seed: seed_client(),
         },
-        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        local_manifest: manifest("test-client", &["spoke-baseline", "spoke-knowledge"]),
         remote_pubkey: pubkey_host(),
         allowlist: vec![peer_id_host.clone()],
         invoke_timeout_ms: Some(5000),
@@ -1591,7 +1592,9 @@ async fn dial_peer(
         local_identity: RemoteIdentity {
             seed: seed_client(),
         },
-        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        // The knowledge catalogue is served by every fixture host, so the
+        // client hello carries the flag too (negotiation is the intersection).
+        local_manifest: manifest("test-client", &["spoke-baseline", "spoke-knowledge"]),
         remote_pubkey: host_pubkey,
         allowlist: vec![peer_id_host],
         invoke_timeout_ms: None,
@@ -1605,8 +1608,11 @@ async fn dial_peer(
 #[tokio::test]
 async fn multi_peer_router_routes_upsert_and_check_to_the_capable_peer() {
     // Two peers with DISJOINT capabilities: baseline vs l2-computable.
-    let (baseline_adapter, baseline_host) =
-        dial_peer([0xa1; 32], manifest("host-baseline", &["spoke-baseline"])).await;
+    let (baseline_adapter, baseline_host) = dial_peer(
+        [0xa1; 32],
+        manifest("host-baseline", &["spoke-baseline", "spoke-knowledge"]),
+    )
+    .await;
     let (computable_adapter, computable_host) =
         dial_peer([0xb2; 32], manifest("host-computable", &["l2-computable"])).await;
 
@@ -1621,8 +1627,8 @@ async fn multi_peer_router_routes_upsert_and_check_to_the_capable_peer() {
     assert_eq!(router.list_peers(), vec![baseline_id, computable_id]);
 
     // orchestrateUpsert → port.knowledge.get + port.knowledge.put — both
-    // baseline ops → the spoke-baseline peer; the l2-computable peer is
-    // never touched.
+    // require `spoke-knowledge` → only the peer that negotiated it serves;
+    // the l2-computable peer is never touched.
     let request = upsert_request(&[fresh_entry("kb_mpr_upsert", "Multi-Peer Upsert")]);
     let upsert = orchestrate_upsert(&router, request).await;
     assert!(
@@ -1704,16 +1710,22 @@ async fn multi_peer_router_rejects_no_capable_peer_when_no_peer_has_the_capabili
 
 #[tokio::test]
 async fn multi_peer_router_breaks_ties_on_the_lowest_peer_id_across_two_baseline_peers() {
-    // Three peers: alpha (baseline-only), beta (baseline + l2-computable),
-    // gamma (l2-computable-only). A baseline op has TWO candidates (alpha +
-    // beta); the locked §4 tie-break picks the lowest peer_id in UTF-8 byte
+    // Three peers: alpha (baseline + knowledge), beta (baseline + knowledge
+    // + l2-computable), gamma (l2-computable-only). The knowledge op has TWO
+    // candidates (alpha + beta); the locked §4 tie-break picks the lowest peer_id in UTF-8 byte
     // order — the host ids derive from the seeds, so the expected recipient
     // is computed at runtime rather than hunted for.
-    let (alpha_adapter, alpha_host) =
-        dial_peer([0xc3; 32], manifest("host-alpha", &["spoke-baseline"])).await;
+    let (alpha_adapter, alpha_host) = dial_peer(
+        [0xc3; 32],
+        manifest("host-alpha", &["spoke-baseline", "spoke-knowledge"]),
+    )
+    .await;
     let (beta_adapter, beta_host) = dial_peer(
         [0xd4; 32],
-        manifest("host-beta", &["spoke-baseline", "l2-computable"]),
+        manifest(
+            "host-beta",
+            &["spoke-baseline", "spoke-knowledge", "l2-computable"],
+        ),
     )
     .await;
     let (gamma_adapter, gamma_host) =
@@ -1942,6 +1954,7 @@ fn tool_manifest(host_id: &str) -> HostCapabilityManifest {
         "roles": ["data-store"],
         "capabilities": [
             "spoke-baseline",
+            "spoke-knowledge",
             "tools.math.add",
             "tools.echo.echo",
             "tools.echo.boom",
@@ -3054,7 +3067,7 @@ async fn responder_rejects_a_non_allowlisted_peer_during_the_handshake() {
 #[tokio::test]
 async fn responder_round_trips_port_ops_into_the_injected_baseline_ports() {
     let (responder, client, _pair) = dial_with_responder(ResponderDialOptions {
-        ports: Some(Arc::new(ToyWorldAdapter::with_committed_fixtures())),
+        ports: Some(full_ports()),
         ..ResponderDialOptions::default()
     })
     .await;
@@ -3769,7 +3782,10 @@ async fn start_raw_responder() -> (
         manifest: tool_manifest("test-responder"),
         allowlist: vec![peer_id_client.clone()],
         peer_keys: HashMap::from([(peer_id_client.clone(), pubkey_client())]),
-        ports: Some(Arc::new(ToyWorldAdapter::with_committed_fixtures())),
+        ports: Some(Arc::new(baseline_serve_ports(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            default_admitted_scope(),
+        ))),
         invoke_timeout_ms: None,
     })
     .await;
@@ -3909,6 +3925,54 @@ async fn responder_answers_invalid_sequence_for_a_present_but_non_numeric_sequen
         &session_id,
         0,
         "valid-after-non-numeric",
+        "port.knowledge.get",
+        json!({ "entry_id": "kb_tw_mira" }),
+    );
+    pair.client
+        .send(&serde_json::to_vec(&valid).expect("bytes"))
+        .await
+        .expect("send");
+    let ok_response: Value =
+        serde_json::from_slice(&pair.client.recv().await.expect("recv")).expect("decode");
+    assert_eq!(ok_response["payload"]["entry_id"], "kb_tw_mira");
+    responder.close();
+}
+
+#[tokio::test]
+async fn responder_rejects_an_empty_or_non_string_entry_id_with_invalid_input() {
+    // Parity with the TS gate: `port.knowledge.get` accepts only a non-empty
+    // string `entry_id`, refused at decode before the knowledge face probe.
+    let (responder, pair, seed_client, _peer_id_client) = start_raw_responder().await;
+    let session_id = raw_handshake(&pair.client, seed_client, &tool_manifest("test-client")).await;
+
+    for (sequence, request_id, payload) in [
+        (0, "get-empty", json!({ "entry_id": "" })),
+        (1, "get-nonstring", json!({ "entry_id": 42 })),
+        (2, "get-missing", json!({})),
+    ] {
+        let request = sign_invoke_request(
+            seed_client,
+            &session_id,
+            sequence,
+            request_id,
+            "port.knowledge.get",
+            payload,
+        );
+        pair.client
+            .send(&serde_json::to_vec(&request).expect("bytes"))
+            .await
+            .expect("send");
+        let rejection: Value =
+            serde_json::from_slice(&pair.client.recv().await.expect("recv")).expect("decode");
+        assert_eq!(rejection["error"]["code"], "INVALID_INPUT", "{request_id}");
+    }
+
+    // A non-empty id still reaches the store.
+    let valid = sign_invoke_request(
+        seed_client,
+        &session_id,
+        3,
+        "get-valid",
         "port.knowledge.get",
         json!({ "entry_id": "kb_tw_mira" }),
     );
@@ -4292,10 +4356,18 @@ fn optional_tool_manifest(host_id: &str) -> HostCapabilityManifest {
     manifest
 }
 
-/// Full optional-port provider: ToyWorldAdapter is a FullAdapter (the
-/// blanket `RemoteServePorts` impl serves all families).
+/// Full optional-port provider: ToyWorldAdapter serves the baseline six,
+/// l2-computable and l5-fork, and the fixture knowledge face admits its
+/// single scope.
 fn full_ports() -> Arc<dyn RemoteServePorts + Send + Sync> {
-    Arc::new(ToyWorldAdapter::with_committed_fixtures())
+    let adapter = Arc::new(ToyWorldAdapter::with_committed_fixtures());
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = adapter.clone();
+    let computable: Arc<dyn ComputablePort + Send + Sync> = adapter.clone();
+    let fork: Arc<dyn ForkTimelineQueryPort + Send + Sync> = adapter;
+    Arc::new(
+        RemoteServePortsComposite::new(baseline.clone(), Some(computable), Some(fork))
+            .with_knowledge(knowledge_face_over(baseline, default_admitted_scope())),
+    )
 }
 
 /// Both peers declare the optional families (happy-path fixtures).
@@ -4551,11 +4623,10 @@ async fn responder_denies_all_three_optional_ops_when_the_capability_is_declared
     // injected ports face is a baseline-only composite without the optional
     // faces — the responder's probe (gate → probe → deny) answers the same
     // dispatch-deny branch as absent ports.
-    let baseline_only = RemoteServePortsComposite::new(
-        Arc::new(ToyWorldAdapter::with_committed_fixtures()),
-        None,
-        None,
-    );
+    let adapter: Arc<dyn BaselinePorts + Send + Sync> =
+        Arc::new(ToyWorldAdapter::with_committed_fixtures());
+    let baseline_only = RemoteServePortsComposite::new(Arc::clone(&adapter), None, None)
+        .with_knowledge(knowledge_face_over(adapter, default_admitted_scope()));
     let (responder, client, _pair) = dial_with_responder(ResponderDialOptions {
         ports: Some(Arc::new(baseline_only)),
         client_manifest: Some(optional_tool_manifest("test-client")),
@@ -4940,6 +5011,75 @@ fn ke_remote_manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityMan
     manifest
 }
 
+/// The scope the fixture knowledge faces admit unless a scenario names its
+/// own: the toy-world provider is single-scope.
+fn default_admitted_scope() -> Scope {
+    serde_json::from_value(json!({ "scope_id": "toy-scope-001" })).expect("valid Scope")
+}
+
+/// A no-viewpoint Scope for `scope_id`.
+fn scope_of(scope_id: &str) -> Scope {
+    serde_json::from_value(json!({ "scope_id": scope_id })).expect("valid Scope")
+}
+
+/// Baseline fixture provider adapted to the scoped knowledge face: the
+/// fixture store is single-scope, so each scoped call delegates to the
+/// matching unscoped baseline method.
+struct ScopedFixtureStore {
+    baseline: Arc<dyn BaselinePorts + Send + Sync>,
+}
+
+#[async_trait]
+impl ScopedKnowledgePort for ScopedFixtureStore {
+    async fn get_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        entry_id: &str,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.baseline.get_knowledge_entry(entry_id).await
+    }
+
+    async fn put_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        entry: KnowledgeEntry,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.baseline
+            .put_knowledge_entry(entry, expected_base_revision)
+            .await
+    }
+
+    async fn list_scoped_knowledge_entries(
+        &self,
+        scope: &Scope,
+    ) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.baseline.list_knowledge_entries(scope).await
+    }
+}
+
+/// A knowledge face over a baseline fixture that admits `admitted` for every
+/// peer and delegates the scoped store calls to it.
+fn knowledge_face_over(
+    baseline: Arc<dyn BaselinePorts + Send + Sync>,
+    admitted: Scope,
+) -> Arc<RemoteKnowledgeFace> {
+    Arc::new(RemoteKnowledgeFace {
+        store: Arc::new(ScopedFixtureStore { baseline }),
+        admission: Arc::new(move |_| spoke_ok(admitted.clone())),
+    })
+}
+
+/// Baseline serve ports with the fixture knowledge face attached: the
+/// pre-split harness default, now that the knowledge ops need their own face.
+fn baseline_serve_ports(
+    baseline: Arc<dyn BaselinePorts + Send + Sync>,
+    admitted: Scope,
+) -> RemoteServePortsComposite {
+    RemoteServePortsComposite::new(Arc::clone(&baseline), None, None)
+        .with_knowledge(knowledge_face_over(baseline, admitted))
+}
+
 /// Baseline provider that records every `Scope` it is asked to list, so the
 /// tests can assert what actually reached the provider.
 struct RecordingScopePorts {
@@ -5002,12 +5142,15 @@ impl RelationPort for RecordingScopePorts {
 }
 
 #[async_trait]
-impl ScopeQueryPort for RecordingScopePorts {
+impl KnowledgeQueryPort for RecordingScopePorts {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.record(scope);
         self.inner.list_knowledge_entries(scope).await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for RecordingScopePorts {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         self.record(scope);
         self.inner.list_timeline_events(scope).await
@@ -5114,6 +5257,9 @@ struct KeRemoteDial {
     responder_capabilities: Vec<&'static str>,
     extract: Option<CanonicalExtractHost>,
     baseline: Option<Arc<RecordingScopePorts>>,
+    /// Scope the default fixture knowledge face admits (a list request's wire
+    /// scope must match it exactly). Defaults to [`default_admitted_scope`].
+    admitted_scope: Option<Scope>,
     /// Full ports-face override for the serve-wait scenarios, which compose
     /// their own provider + optional faces.
     ports: Option<Arc<dyn RemoteServePorts + Send + Sync>>,
@@ -5147,7 +5293,11 @@ async fn ke_remote_dial(
                 Some(recording) => recording,
                 None => Arc::new(ToyWorldAdapter::with_committed_fixtures()),
             };
-            let mut ports = RemoteServePortsComposite::new(baseline, None, None);
+            let mut ports = RemoteServePortsComposite::new(baseline.clone(), None, None)
+                .with_knowledge(knowledge_face_over(
+                    baseline,
+                    options.admitted_scope.unwrap_or_else(default_admitted_scope),
+                ));
             if let Some(extract) = options.extract {
                 ports = ports.with_extract(Arc::new(extract));
             }
@@ -5631,6 +5781,7 @@ async fn ke_remote_scope_viewpoint_with_ownership_negotiated_reaches_the_provide
         client_capabilities: vec!["ke-ownership"],
         responder_capabilities: vec!["ke-ownership"],
         baseline: Some(Arc::clone(&recording)),
+        admitted_scope: Some(viewpoint_scope()),
         ..KeRemoteDial::default()
     })
     .await;
@@ -5784,8 +5935,10 @@ async fn ke_remote_scope_viewpoint_absent_keeps_baseline_serving() {
 async fn ke_remote_scope_malformed_declaration_rejects_invalid_input_before_the_provider() {
     let recording = Arc::new(RecordingScopePorts::new());
     let baseline: Arc<dyn BaselinePorts + Send + Sync> = recording.clone();
-    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
-        Arc::new(RemoteServePortsComposite::new(baseline, None, None));
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(Arc::clone(&baseline), None, None)
+            .with_knowledge(knowledge_face_over(baseline, viewpoint_scope())),
+    );
     let (responder, pair, seed) = start_raw_ke_responder(ports, &["ke-ownership"]).await;
     let session_id = raw_handshake(
         &pair.client,
@@ -6199,11 +6352,18 @@ async fn until_parked(ports: &ParkingServePorts, count: usize) {
 }
 
 /// The responder ports face for the serve-wait witnesses: the baseline,
-/// l2-computable and `extract` faces are all served by the parking provider.
-fn serve_wait_ports(ports: &Arc<ParkingServePorts>) -> Arc<dyn RemoteServePorts + Send + Sync> {
+/// l2-computable and `extract` faces are all served by the parking provider,
+/// and the knowledge face admits `admitted` so a list request can reach the
+/// parked provider.
+fn serve_wait_ports(
+    ports: &Arc<ParkingServePorts>,
+    admitted: Scope,
+) -> Arc<dyn RemoteServePorts + Send + Sync> {
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = ports.clone();
     Arc::new(
-        RemoteServePortsComposite::new(ports.clone(), Some(ports.clone()), None)
-            .with_extract(ports.clone()),
+        RemoteServePortsComposite::new(baseline.clone(), Some(ports.clone()), None)
+            .with_extract(ports.clone())
+            .with_knowledge(knowledge_face_over(baseline, admitted)),
     )
 }
 
@@ -6339,12 +6499,15 @@ impl RelationPort for ParkingServePorts {
 }
 
 #[async_trait]
-impl ScopeQueryPort for ParkingServePorts {
+impl KnowledgeQueryPort for ParkingServePorts {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.park("list_knowledge_entries").await;
         self.inner.list_knowledge_entries(scope).await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for ParkingServePorts {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         self.inner.list_timeline_events(scope).await
     }
@@ -6458,15 +6621,14 @@ async fn serve_timeout_bounds_a_parked_scope_port_and_answers_one_signed_timeout
     // the dialer's budget is far longer (2000ms), so the observed reject can
     // only come from the serve-side bound.
     let ports = Arc::new(ParkingServePorts::new());
+    let scope = scope_of("serve-timeout-scope");
     let (responder, client, sent, received) = ke_remote_dial(KeRemoteDial {
-        ports: Some(serve_wait_ports(&ports)),
+        ports: Some(serve_wait_ports(&ports, scope.clone())),
         serve_budget_ms: Some(25),
         client_timeout_ms: Some(2000),
         ..KeRemoteDial::default()
     })
     .await;
-    let scope: Scope =
-        serde_json::from_value(json!({ "scope_id": "serve-timeout-scope" })).expect("valid Scope");
 
     match client.list_knowledge_entries(&scope).await {
         SpokeResult::Ok(_) => panic!("a parked provider must hit the local serve budget"),
@@ -6541,7 +6703,7 @@ async fn serve_timeout_bounds_a_parked_optional_family_provider() {
     let (responder, client, _sent, received) = ke_remote_dial(KeRemoteDial {
         client_capabilities: vec!["l2-computable"],
         responder_capabilities: vec!["l2-computable"],
-        ports: Some(serve_wait_ports(&ports)),
+        ports: Some(serve_wait_ports(&ports, default_admitted_scope())),
         serve_budget_ms: Some(25),
         client_timeout_ms: Some(2000),
         ..KeRemoteDial::default()
@@ -6587,7 +6749,7 @@ async fn serve_timeout_bounds_a_parked_extract_service_and_discards_the_late_com
     let (responder, client, _sent, received) = ke_remote_dial(KeRemoteDial {
         client_capabilities: vec!["ke-extraction"],
         responder_capabilities: vec!["ke-extraction"],
-        ports: Some(serve_wait_ports(&ports)),
+        ports: Some(serve_wait_ports(&ports, default_admitted_scope())),
         serve_budget_ms: Some(25),
         client_timeout_ms: Some(2000),
         ..KeRemoteDial::default()
@@ -6640,15 +6802,14 @@ async fn serve_timeout_zero_budget_answers_before_any_provider_call() {
     // starting provider work, and the session is reusable for the ops that
     // do not need the bounded face.
     let ports = Arc::new(ParkingServePorts::new());
+    let scope = scope_of("serve-timeout-zero");
     let (responder, client, _sent, received) = ke_remote_dial(KeRemoteDial {
-        ports: Some(serve_wait_ports(&ports)),
+        ports: Some(serve_wait_ports(&ports, scope.clone())),
         serve_budget_ms: Some(0),
         client_timeout_ms: Some(2000),
         ..KeRemoteDial::default()
     })
     .await;
-    let scope: Scope =
-        serde_json::from_value(json!({ "scope_id": "serve-timeout-zero" })).expect("valid Scope");
 
     match client.list_knowledge_entries(&scope).await {
         SpokeResult::Ok(_) => panic!("a zero budget must answer the served timeout"),
@@ -6694,7 +6855,7 @@ async fn serve_timeout_zero_budget_keeps_gate_and_deny_precedence() {
         // capability deny, the probe deny and the ownership deny.
         client_capabilities: vec!["l5-fork"],
         responder_capabilities: vec!["l5-fork"],
-        ports: Some(serve_wait_ports(&ports)),
+        ports: Some(serve_wait_ports(&ports, default_admitted_scope())),
         serve_budget_ms: Some(0),
         client_timeout_ms: Some(2000),
         ..KeRemoteDial::default()
@@ -6759,7 +6920,8 @@ async fn serve_timeout_zero_budget_keeps_scope_validation_precedence() {
     // valid Scope on the same session answers the signed timeout.
     let ports = Arc::new(ParkingServePorts::new());
     let (responder, pair, seed) =
-        start_raw_ke_responder_with_budget(serve_wait_ports(&ports), &[], Some(0)).await;
+        start_raw_ke_responder_with_budget(serve_wait_ports(&ports, scope_of("s1")), &[], Some(0))
+            .await;
     let session_id = raw_handshake(
         &pair.client,
         seed,
@@ -6814,8 +6976,12 @@ async fn serve_timeout_zero_budget_keeps_port_payload_validation_precedence() {
     // budget, while a valid payload on the same session answers the signed
     // timeout — both with zero provider calls.
     let ports = Arc::new(ParkingServePorts::new());
-    let (responder, pair, seed) =
-        start_raw_ke_responder_with_budget(serve_wait_ports(&ports), &[], Some(0)).await;
+    let (responder, pair, seed) = start_raw_ke_responder_with_budget(
+        serve_wait_ports(&ports, default_admitted_scope()),
+        &[],
+        Some(0),
+    )
+    .await;
     let session_id = raw_handshake(
         &pair.client,
         seed,
@@ -6891,17 +7057,16 @@ async fn serve_timeout_close_aborts_a_parked_serve_dispatch_and_answers_nothing(
     // local serve timer it armed — must not outlive it, so a provider that
     // settles afterwards answers neither a late success nor a late error.
     let ports = Arc::new(ParkingServePorts::new());
+    let scope = scope_of("serve-timeout-close");
     let responder_sent: CapturedWire = Arc::new(Mutex::new(Vec::new()));
     let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
-        ports: Some(serve_wait_ports(&ports)),
+        ports: Some(serve_wait_ports(&ports, scope.clone())),
         serve_budget_ms: Some(25),
         client_timeout_ms: Some(2000),
         responder_sent: Some(Arc::clone(&responder_sent)),
         ..KeRemoteDial::default()
     })
     .await;
-    let scope: Scope =
-        serde_json::from_value(json!({ "scope_id": "serve-timeout-close" })).expect("valid Scope");
 
     // The close fails the dialer's waiter; the witness asserts the
     // responder's own send attempts instead.
@@ -6967,7 +7132,7 @@ async fn serve_timeout_close_racing_a_serve_dispatch_arms_no_wait() {
     // entered the provider and armed a 25ms serve wait the close had already
     // finished draining past.
     let ports = Arc::new(ParkingServePorts::new());
-    let dial = close_race_dial(serve_wait_ports(&ports)).await;
+    let dial = close_race_dial(serve_wait_ports(&ports, scope_of("serve-timeout-close-race"))).await;
     let session_id = raw_handshake(
         &dial.pair.client,
         dial.seed,
@@ -7035,5 +7200,1078 @@ async fn serve_timeout_does_not_affect_a_normal_serve_call() {
     }
     assert_eq!(responder.state(), RemoteAdapterState::Established);
     client.close();
+    responder.close();
+}
+
+// ── knowledge face (scoped store + per-peer admission) ────────────────────
+
+/// The `(scope_id, viewpoint)` partition of the in-memory knowledge store.
+type ScopeKey = (String, Option<String>);
+
+fn scope_key(scope: &Scope) -> ScopeKey {
+    (
+        scope.scope_id.clone(),
+        scope.viewpoint.as_ref().map(|viewpoint| String::from(viewpoint.clone())),
+    )
+}
+
+/// A scoped knowledge store double: partitions by `(scope_id, viewpoint)` and
+/// records every call (with the scope it received), so a refusal witness can
+/// prove the store was never reached and an effective-scope witness can see
+/// exactly what the responder merged.
+#[derive(Default)]
+struct ScopedKnowledgeStore {
+    entries: Mutex<Vec<(ScopeKey, KnowledgeEntry)>>,
+    calls: Mutex<Vec<(String, Option<Value>)>>,
+}
+
+impl ScopedKnowledgeStore {
+    fn seed(&self, scope: &Scope, entry: KnowledgeEntry) {
+        self.entries
+            .lock()
+            .expect("entries lock")
+            .push((scope_key(scope), entry));
+    }
+
+    fn record(&self, op: &str, scope: &Scope) {
+        self.calls.lock().expect("calls lock").push((
+            op.to_owned(),
+            Some(serde_json::to_value(scope).expect("scope serializes")),
+        ));
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls
+            .lock()
+            .expect("calls lock")
+            .iter()
+            .map(|(op, _)| op.clone())
+            .collect()
+    }
+
+    fn listed_scopes(&self) -> Vec<Value> {
+        self.calls
+            .lock()
+            .expect("calls lock")
+            .iter()
+            .filter_map(|(op, scope)| (op == "list").then(|| scope.clone()).flatten())
+            .collect()
+    }
+}
+
+#[async_trait]
+impl ScopedKnowledgePort for ScopedKnowledgeStore {
+    async fn get_scoped_knowledge_entry(
+        &self,
+        scope: &Scope,
+        entry_id: &str,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.record("get", scope);
+        let key = scope_key(scope);
+        match self
+            .entries
+            .lock()
+            .expect("entries lock")
+            .iter()
+            .find(|(entry_key, entry)| {
+                *entry_key == key && entry.entry_id.as_str() == entry_id
+            }) {
+            Some((_, entry)) => spoke_ok(entry.clone()),
+            None => spoke_reject(
+                SpokeRejectCode::KnowledgeEntryNotFound,
+                "knowledge entry not found",
+                None,
+            ),
+        }
+    }
+
+    async fn put_scoped_knowledge_entry(
+        &self,
+        scope: &Scope,
+        entry: KnowledgeEntry,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.record("put", scope);
+        let key = scope_key(scope);
+        let mut entries = self.entries.lock().expect("entries lock");
+        let position = entries.iter().position(|(entry_key, stored)| {
+            *entry_key == key && stored.entry_id.as_str() == entry.entry_id.as_str()
+        });
+        let current = position
+            .and_then(|index| entries[index].1.revision)
+            .unwrap_or(0);
+        match expected_base_revision {
+            Some(expected) => {
+                if let SpokeResult::Reject(reject) = assert_revision_match(expected, current) {
+                    return SpokeResult::Reject(reject);
+                }
+            }
+            None if position.is_some() => {
+                return spoke_reject(
+                    SpokeRejectCode::RevisionConflict,
+                    "knowledge entry already exists",
+                    None,
+                );
+            }
+            None => {}
+        }
+        let mut stored = entry;
+        stored.revision = Some(current + 1);
+        match position {
+            Some(index) => entries[index].1 = stored.clone(),
+            None => entries.push((key, stored.clone())),
+        }
+        spoke_ok(stored)
+    }
+
+    async fn list_scoped_knowledge_entries(
+        &self,
+        scope: &Scope,
+    ) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.record("list", scope);
+        let key = scope_key(scope);
+        spoke_ok(
+            self.entries
+                .lock()
+                .expect("entries lock")
+                .iter()
+                .filter(|(entry_key, entry)| {
+                    *entry_key == key
+                        && scope
+                            .entry_ids
+                            .as_ref()
+                            .is_none_or(|ids| ids.iter().any(|id| *id == entry.entry_id))
+                })
+                .map(|(_, entry)| entry.clone())
+                .collect(),
+        )
+    }
+}
+
+/// A knowledge face over the recording store with an explicit admission.
+fn knowledge_face(
+    store: Arc<ScopedKnowledgeStore>,
+    admission: impl Fn(&str) -> SpokeResult<Scope> + Send + Sync + 'static,
+) -> Arc<RemoteKnowledgeFace> {
+    Arc::new(RemoteKnowledgeFace {
+        store,
+        admission: Arc::new(admission),
+    })
+}
+
+/// A manifest declaring exactly `capabilities` — no implicit `spoke-baseline`
+/// from the tool fixture, so a knowledge-only host is genuinely knowledge-only.
+fn knowledge_only_manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
+    serde_json::from_value(json!({
+        "schema_version": 1,
+        "host_id": host_id,
+        "roles": ["data-store"],
+        "capabilities": capabilities,
+        "namespaces": ["toy_world"],
+        "extensions": {},
+    }))
+    .expect("valid manifest")
+}
+
+fn pubkey_of(seed: [u8; 32]) -> [u8; 32] {
+    SigningKey::from_bytes(&seed).verifying_key().to_bytes()
+}
+
+fn scoped_entry(entry_id: &str, summary: &str) -> KnowledgeEntry {
+    serde_json::from_value(json!({
+        "schema_version": 1,
+        "entry_id": entry_id,
+        "entry_type": "note",
+        "canonical_name": summary,
+        "status": "confirmed",
+        "body": { "summary": summary },
+        "extensions": {},
+    }))
+    .expect("valid KnowledgeEntry")
+}
+
+/// A raw knowledge-only responder: `client_seed` is the only allowlisted peer
+/// and the session declares exactly `capabilities`.
+async fn start_knowledge_peer(
+    face: Arc<RemoteKnowledgeFace>,
+    client_seed: [u8; 32],
+    capabilities: &[&str],
+) -> (Arc<ConnectResponder>, LoopbackTransportPair, String) {
+    let pair = loopback_transport_pair();
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_of(client_seed));
+    let manifest = knowledge_only_manifest("test-responder", capabilities);
+    let responder = connect_responder(ConnectResponderOptions {
+        transport: Arc::new(pair.server.clone()),
+        identity: RemoteIdentity {
+            seed: seed_host(),
+        },
+        manifest: manifest.clone(),
+        allowlist: vec![peer_id_client.clone()],
+        peer_keys: HashMap::from([(peer_id_client, pubkey_of(client_seed))]),
+        ports: Some(Arc::new(RemoteServePortsComposite::knowledge_only(face))),
+        invoke_timeout_ms: None,
+    })
+    .await;
+    let session_id = raw_handshake(&pair.client, client_seed, &manifest).await;
+    (responder, pair, session_id)
+}
+
+fn raw_knowledge_entry(entry: KnowledgeEntry) -> Value {
+    serde_json::to_value(entry).expect("entry serializes")
+}
+
+#[tokio::test]
+async fn knowledge_face_serves_get_put_and_list_on_a_knowledge_only_host() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    store.seed(&scope, scoped_entry("ke-knowledge-a", "alpha"));
+    let admitted = scope.clone();
+    let face = knowledge_face(Arc::clone(&store), move |_| spoke_ok(admitted.clone()));
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::knowledge_only(face));
+
+    let (responder, client, sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge"],
+        responder_capabilities: vec!["spoke-knowledge"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    match client.get_knowledge_entry("ke-knowledge-a").await {
+        SpokeResult::Ok(entry) => assert_eq!(entry.entry_id.as_str(), "ke-knowledge-a"),
+        SpokeResult::Reject(reject) => panic!("scoped get must serve: {reject:?}"),
+    }
+    match client
+        .put_knowledge_entry(scoped_entry("ke-new", "created"), None)
+        .await
+    {
+        SpokeResult::Ok(entry) => assert_eq!(entry.revision, Some(1)),
+        SpokeResult::Reject(reject) => panic!("scoped create must serve: {reject:?}"),
+    }
+    match client
+        .put_knowledge_entry(scoped_entry("ke-new", "updated"), Some(1))
+        .await
+    {
+        SpokeResult::Ok(entry) => {
+            assert_eq!(entry.revision, Some(2));
+            assert_eq!(entry.canonical_name.as_str(), "updated");
+        }
+        SpokeResult::Reject(reject) => panic!("scoped CAS update must serve: {reject:?}"),
+    }
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Ok(entries) => assert_eq!(entries.len(), 2),
+        SpokeResult::Reject(reject) => panic!("scoped list must serve: {reject:?}"),
+    }
+
+    // Every op went through the knowledge face — no baseline fallback exists.
+    assert_eq!(store.calls(), vec!["get", "put", "put", "list"]);
+    let wire_ops = captured_request_ops(&sent);
+    for op in [
+        "port.knowledge.get",
+        "port.knowledge.put",
+        "port.scope.list_knowledge_entries",
+    ] {
+        assert!(wire_ops.iter().any(|wire_op| wire_op == op), "{op} on the wire");
+    }
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn knowledge_face_isolates_two_peers_by_their_admitted_scope() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope_a = scope_of("scope-a");
+    let scope_b = scope_of("scope-b");
+    store.seed(&scope_a, scoped_entry("ke-shared", "alpha"));
+    store.seed(&scope_b, scoped_entry("ke-shared", "beta"));
+
+    let seed_a = seed(0x81);
+    let seed_b = seed(0x82);
+    let peer_a = derive_peer_id_from_ed25519_pubkey(&pubkey_of(seed_a));
+    let peer_b = derive_peer_id_from_ed25519_pubkey(&pubkey_of(seed_b));
+    let face = knowledge_face(Arc::clone(&store), move |peer_id| {
+        if peer_id == peer_a {
+            spoke_ok(scope_a.clone())
+        } else if peer_id == peer_b {
+            spoke_ok(scope_b.clone())
+        } else {
+            spoke_reject(
+                SpokeRejectCode::NotAuthorized,
+                "not bound to a scope",
+                None,
+            )
+        }
+    });
+
+    let (responder_a, pair_a, session_a) =
+        start_knowledge_peer(Arc::clone(&face), seed_a, &["spoke-knowledge"]).await;
+    let (responder_b, pair_b, session_b) =
+        start_knowledge_peer(Arc::clone(&face), seed_b, &["spoke-knowledge"]).await;
+
+    // The same raw entry id resolves inside each peer's own scope.
+    let shared = json!({ "entry_id": "ke-shared" });
+    let read_a = raw_invoke(
+        &pair_a.client,
+        seed_a,
+        &session_a,
+        0,
+        "peer-a-get",
+        "port.knowledge.get",
+        shared.clone(),
+    )
+    .await;
+    assert_eq!(read_a["payload"]["body"]["summary"], json!("alpha"));
+    let read_b = raw_invoke(
+        &pair_b.client,
+        seed_b,
+        &session_b,
+        0,
+        "peer-b-get",
+        "port.knowledge.get",
+        shared.clone(),
+    )
+    .await;
+    assert_eq!(read_b["payload"]["body"]["summary"], json!("beta"));
+
+    // Listing scope B from peer A refuses and never reaches the store.
+    let calls_before = store.calls().len();
+    let cross_list = raw_invoke(
+        &pair_a.client,
+        seed_a,
+        &session_a,
+        1,
+        "peer-a-cross-list",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "scope-b" } }),
+    )
+    .await;
+    assert_eq!(cross_list["error"]["code"], "NOT_AUTHORIZED");
+    assert_eq!(
+        store.calls().len(),
+        calls_before,
+        "a refused list must not reach the store"
+    );
+
+    // An update by peer A lands in scope A only; peer B still reads beta.
+    let update = raw_invoke(
+        &pair_a.client,
+        seed_a,
+        &session_a,
+        2,
+        "peer-a-put",
+        "port.knowledge.put",
+        json!({
+            "entry": raw_knowledge_entry(scoped_entry("ke-shared", "delta")),
+            "expected_base_revision": 0,
+        }),
+    )
+    .await;
+    assert_eq!(update["payload"]["body"]["summary"], json!("delta"));
+    let reread_b = raw_invoke(
+        &pair_b.client,
+        seed_b,
+        &session_b,
+        1,
+        "peer-b-reread",
+        "port.knowledge.get",
+        shared,
+    )
+    .await;
+    assert_eq!(reread_b["payload"]["body"]["summary"], json!("beta"));
+
+    responder_a.close();
+    responder_b.close();
+}
+
+#[tokio::test]
+async fn knowledge_face_refuses_an_unbound_peer_without_touching_the_store() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let face = knowledge_face(Arc::clone(&store), |_| {
+        spoke_reject(
+            SpokeRejectCode::NotAuthorized,
+            "no scope for this peer",
+            None,
+        )
+    });
+    let seed_a = seed(0x83);
+    let (responder, pair, session) =
+        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+
+    let responses = [
+        raw_invoke(
+            &pair.client,
+            seed_a,
+            &session,
+            0,
+            "unbound-get",
+            "port.knowledge.get",
+            json!({ "entry_id": "ke-shared" }),
+        )
+        .await,
+        raw_invoke(
+            &pair.client,
+            seed_a,
+            &session,
+            1,
+            "unbound-put",
+            "port.knowledge.put",
+            json!({
+                "entry": raw_knowledge_entry(scoped_entry("ke-shared", "alpha")),
+                "expected_base_revision": null,
+            }),
+        )
+        .await,
+        raw_invoke(
+            &pair.client,
+            seed_a,
+            &session,
+            2,
+            "unbound-list",
+            "port.scope.list_knowledge_entries",
+            json!({ "scope": { "scope_id": "scope-a" } }),
+        )
+        .await,
+    ];
+    for response in &responses {
+        assert_eq!(response["error"]["code"], "NOT_AUTHORIZED", "{response}");
+        assert_eq!(
+            response["error"]["message"],
+            json!("knowledge scope not authorized"),
+            "the refusal names only the scope verdict: {response}"
+        );
+        assert!(
+            response["error"].get("details").is_none(),
+            "no existence detail on a refusal: {response}"
+        );
+    }
+    assert!(
+        store.calls().is_empty(),
+        "a refusal must never reach the store: {:?}",
+        store.calls()
+    );
+
+    responder.close();
+}
+
+#[tokio::test]
+async fn knowledge_face_requires_the_list_scope_to_match_the_admission() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let admitted: Scope = serde_json::from_value(json!({
+        "scope_id": "scope-a",
+        "viewpoint": "kb_tw_mira",
+    }))
+    .expect("valid Scope");
+    store.seed(&admitted, scoped_entry("ke-a", "alpha"));
+    let face = knowledge_face(Arc::clone(&store), move |_| spoke_ok(admitted.clone()));
+    let seed_a = seed(0x84);
+    let (responder, pair, session) =
+        start_knowledge_peer(face, seed_a, &["spoke-knowledge", "ke-ownership"]).await;
+
+    let mismatches = [
+        // The admitted viewpoint the request omits.
+        json!({ "scope": { "scope_id": "scope-a" } }),
+        json!({ "scope": { "scope_id": "scope-a", "viewpoint": "someone_else" } }),
+        json!({ "scope": { "scope_id": "scope-b", "viewpoint": "kb_tw_mira" } }),
+    ];
+    for (sequence, payload) in mismatches.iter().enumerate() {
+        let response = raw_invoke(
+            &pair.client,
+            seed_a,
+            &session,
+            sequence as i64,
+            &format!("mismatch-{sequence}"),
+            "port.scope.list_knowledge_entries",
+            payload.clone(),
+        )
+        .await;
+        assert_eq!(response["error"]["code"], "NOT_AUTHORIZED", "{response}");
+    }
+    assert!(
+        store.calls().is_empty(),
+        "a mismatched list scope must not reach the store"
+    );
+
+    // An exact match serves, and the effective scope is the admitted
+    // scope_id/viewpoint plus the request's narrowing refinements.
+    let served = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        mismatches.len() as i64,
+        "matched",
+        "port.scope.list_knowledge_entries",
+        json!({
+            "scope": {
+                "scope_id": "scope-a",
+                "viewpoint": "kb_tw_mira",
+                "entry_types": ["note"],
+                "extensions": { "product": { "k": "v" } },
+            },
+        }),
+    )
+    .await;
+    assert_eq!(served["payload"].as_array().expect("entries").len(), 1);
+    let scopes = store.listed_scopes();
+    assert_eq!(scopes.len(), 1);
+    assert_eq!(scopes[0]["scope_id"], json!("scope-a"));
+    assert_eq!(scopes[0]["viewpoint"], json!("kb_tw_mira"));
+    assert_eq!(scopes[0]["entry_types"], json!(["note"]));
+    assert_eq!(scopes[0]["extensions"]["product"]["k"], json!("v"));
+
+    responder.close();
+}
+
+#[tokio::test]
+async fn knowledge_face_stale_expected_revision_rejects_without_replacement() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    let mut seeded = scoped_entry("ke-a", "alpha");
+    seeded.revision = Some(2);
+    store.seed(&scope, seeded);
+    let face = knowledge_face(Arc::clone(&store), move |_| spoke_ok(scope.clone()));
+    let seed_a = seed(0x85);
+    let (responder, pair, session) =
+        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+
+    let stale = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        0,
+        "stale-put",
+        "port.knowledge.put",
+        json!({
+            "entry": raw_knowledge_entry(scoped_entry("ke-a", "replacement")),
+            "expected_base_revision": 0,
+        }),
+    )
+    .await;
+    assert_eq!(stale["error"]["code"], "STORED_REVISION_STALE", "{stale}");
+
+    let reread = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        1,
+        "after-stale",
+        "port.knowledge.get",
+        json!({ "entry_id": "ke-a" }),
+    )
+    .await;
+    assert_eq!(reread["payload"]["body"]["summary"], json!("alpha"));
+    assert_eq!(reread["payload"]["revision"], json!(2));
+
+    responder.close();
+}
+
+#[tokio::test]
+async fn knowledge_only_host_denies_assemble_and_every_baseline_op() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let face = knowledge_face(Arc::clone(&store), |_| spoke_ok(scope_of("scope-a")));
+    let seed_a = seed(0x86);
+    let (responder, pair, session) =
+        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+
+    for (sequence, op) in ["assemble", "port.relation.get"].iter().enumerate() {
+        let response = raw_invoke(
+            &pair.client,
+            seed_a,
+            &session,
+            sequence as i64,
+            &format!("deny-{sequence}"),
+            op,
+            json!({ "relation_id": "rel-1", "scope": { "scope_id": "scope-a" } }),
+        )
+        .await;
+        assert_eq!(
+            response["error"]["code"], "op_unsupported",
+            "{op} must be denied by a knowledge-only host: {response}"
+        );
+    }
+    assert!(store.calls().is_empty());
+
+    responder.close();
+}
+
+#[tokio::test]
+async fn knowledge_face_keeps_the_ownership_and_cognition_conjuncts() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let face = knowledge_face(Arc::clone(&store), |_| spoke_ok(scope_of("scope-a")));
+    let seed_a = seed(0x87);
+    // `spoke-knowledge` alone: neither `ke-ownership` nor `spoke-cognition`
+    // was negotiated.
+    let (responder, pair, session) =
+        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+
+    let viewpoint = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        0,
+        "ownership-conjunct",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "scope-a", "viewpoint": "kb_tw_mira" } }),
+    )
+    .await;
+    assert_eq!(viewpoint["error"]["code"], "op_unsupported", "{viewpoint}");
+
+    let cognition = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        1,
+        "cognition-conjunct",
+        "port.scope.list_knowledge_entries",
+        json!({
+            "scope": {
+                "scope_id": "scope-a",
+                "cognition": { "view": "current" },
+            },
+        }),
+    )
+    .await;
+    assert_eq!(cognition["error"]["code"], "capability_missing", "{cognition}");
+    assert!(store.calls().is_empty());
+
+    responder.close();
+}
+
+// ── QC fix round: admission bound / absent face / optional-only host ──────
+
+/// An optional-family-only ports face (B5): it exposes `project` / `compute`
+/// and the fork timeline query, and no baseline face at all.
+struct OptionalOnlyPorts {
+    computable: Arc<ToyWorldAdapter>,
+    fork: Arc<ToyWorldAdapter>,
+}
+
+impl RemoteServePorts for OptionalOnlyPorts {
+    fn as_computable(&self) -> Option<&dyn ComputablePort> {
+        Some(self.computable.as_ref())
+    }
+
+    fn as_fork_timeline(&self) -> Option<&dyn ForkTimelineQueryPort> {
+        Some(self.fork.as_ref())
+    }
+}
+
+/// B5: the owning face is probed per operation, so a host that serves only the
+/// optional families must not be refused for lacking a baseline face.
+#[tokio::test]
+async fn optional_only_host_serves_compute_and_fork_without_a_baseline_face() {
+    let adapter = Arc::new(ToyWorldAdapter::with_committed_fixtures());
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(OptionalOnlyPorts {
+        computable: Arc::clone(&adapter),
+        fork: adapter,
+    });
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["l2-computable", "l5-fork"],
+        responder_capabilities: vec!["l2-computable", "l5-fork"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let request: ComputeRequest = serde_json::from_value(json!({
+        "session_id": "sess_tw_dawn_arrival",
+        "entry_id": "kb_tw_harbor",
+        "computable": { "tide_level": 2.5 },
+        "settle": true,
+    }))
+    .expect("valid ComputeRequest");
+    match client.compute(request).await {
+        SpokeResult::Reject(reject) => {
+            panic!("an optional-only host must serve compute: {reject:?}")
+        }
+        SpokeResult::Ok(_) => {}
+    }
+
+    let scope: Scope = serde_json::from_value(json!({
+        "scope_id": "pkt_tw_scope",
+        "fork_id": "fork_tw_storm_branch",
+    }))
+    .expect("valid Scope");
+    match client.list_fork_timeline_events(&scope).await {
+        SpokeResult::Ok(events) => assert_eq!(events.len(), 1, "the fork branch serves"),
+        SpokeResult::Reject(reject) => {
+            panic!("an optional-only host must serve the fork query: {reject:?}")
+        }
+    }
+
+    // A baseline op keeps the dispatch-deny row: the face really is absent.
+    match client.get_relation("rel_tw_harbor_tide").await {
+        SpokeResult::Ok(_) => panic!("an absent baseline face must deny relation reads"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(reject_wire_code(&reject), Some("op_unsupported"));
+        }
+    }
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    client.close();
+    responder.close();
+}
+
+/// B4: a negotiated knowledge op whose serving face is absent answers the
+/// dispatch-deny wire code (`op_unsupported`), not an application-coded
+/// `CAPABILITY_PORT_MISSING`.
+#[tokio::test]
+async fn absent_knowledge_face_answers_the_dispatch_deny_wire_code() {
+    let adapter = Arc::new(ToyWorldAdapter::with_committed_fixtures());
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = adapter;
+    // A baseline face with no knowledge face attached: the op clears the gate
+    // and reaches the probe.
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(baseline, None, None));
+    let (responder, pair, seed) =
+        start_raw_ke_responder(ports, &["spoke-knowledge"]).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "absent-knowledge-face",
+        "port.knowledge.get",
+        json!({ "entry_id": "kb_tw_mira" }),
+    )
+    .await;
+    assert_eq!(
+        response["error"]["code"], "op_unsupported",
+        "an absent knowledge face answers the dispatch-deny wire code: {response}"
+    );
+    assert_eq!(
+        response["error"]["message"],
+        json!("no knowledge face configured for port op port.knowledge.get"),
+        "the deny names the absent face: {response}"
+    );
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    responder.close();
+}
+
+/// B1: admission is provider work, so the serve budget bounds it. A resolver
+/// that keeps blocking past the budget yields exactly one signed timeout and
+/// the store is never reached.
+#[tokio::test]
+async fn serve_timeout_bounds_a_parked_admission_without_reaching_the_store() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let face = knowledge_face(Arc::clone(&store), |_| {
+        std::thread::sleep(Duration::from_millis(250));
+        spoke_ok(default_admitted_scope())
+    });
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::knowledge_only(face));
+    let (responder, pair, seed) =
+        start_raw_ke_responder_with_budget(ports, &["spoke-knowledge"], Some(25)).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+
+    let started = Instant::now();
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            0,
+            "parked-admission",
+            "port.knowledge.get",
+            json!({ "entry_id": "kb_tw_mira" }),
+        ),
+    )
+    .await
+    .expect("the bounded admission answers without waiting out the resolver");
+    let elapsed = started.elapsed();
+
+    assert_eq!(response["error"]["code"], "INTERNAL_ERROR", "{response}");
+    assert_eq!(response["error"]["details"]["kind"], "timeout", "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("serve wait exceeded the local budget of 25ms"),
+        "the expiry names the responder's own budget: {response}"
+    );
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "the answer must not wait for the still-blocking resolver (took {elapsed:?})"
+    );
+    assert!(
+        store.calls().is_empty(),
+        "a bounded-away admission never reaches the store: {:?}",
+        store.calls()
+    );
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    responder.close();
+}
+
+// ── Fix round: one serve deadline / admitted scope is never widened ───────
+
+/// A store double whose list never completes, so only the serve deadline can
+/// answer; this witness never reads or writes.
+struct PendingListStore {
+    calls: AtomicUsize,
+    pending: Notify,
+}
+
+#[async_trait]
+impl ScopedKnowledgePort for PendingListStore {
+    async fn get_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        _entry_id: &str,
+    ) -> SpokeResult<KnowledgeEntry> {
+        unreachable!("the pending-list witness never reads")
+    }
+
+    async fn put_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        _entry: KnowledgeEntry,
+        _expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        unreachable!("the pending-list witness never writes")
+    }
+
+    async fn list_scoped_knowledge_entries(
+        &self,
+        _scope: &Scope,
+    ) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.pending.notified().await;
+        spoke_ok(Vec::new())
+    }
+}
+
+/// Issue 1: admission and the store share ONE deadline. Admission blocks far
+/// past the budget, so whichever stage answers first the verdict is the same
+/// signed serve timeout and the store is never called: an expired admission
+/// times out on its own, and a late one leaves zero budget. No wall-clock
+/// bound is asserted — the outcome does not depend on machine timing.
+#[tokio::test]
+async fn knowledge_serve_shares_one_deadline_between_admission_and_the_store() {
+    let store = Arc::new(PendingListStore {
+        calls: AtomicUsize::new(0),
+        pending: Notify::new(),
+    });
+    let face = Arc::new(RemoteKnowledgeFace {
+        store: store.clone(),
+        admission: Arc::new(|_| {
+            std::thread::sleep(Duration::from_millis(200));
+            spoke_ok(scope_of("scope-a"))
+        }),
+    });
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::knowledge_only(face));
+    let (responder, pair, seed) =
+        start_raw_ke_responder_with_budget(ports, &["spoke-knowledge"], Some(25)).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            0,
+            "shared-deadline",
+            "port.scope.list_knowledge_entries",
+            json!({ "scope": { "scope_id": "scope-a" } }),
+        ),
+    )
+    .await
+    .expect("the shared deadline answers without waiting out the store");
+
+    assert_eq!(response["error"]["code"], "INTERNAL_ERROR", "{response}");
+    assert_eq!(response["error"]["details"]["kind"], "timeout", "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("serve wait exceeded the local budget of 25ms"),
+        "the expiry names the responder's own budget: {response}"
+    );
+    assert_eq!(
+        store.calls.load(Ordering::SeqCst),
+        0,
+        "a spent budget answers the signed timeout without reaching the store"
+    );
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    responder.close();
+}
+
+/// Issue 2: the effective list scope is admitted ∩ requested — an admitted
+/// `entry_ids`/scalar constraint is never dropped, a requested `entry_types`
+/// subset narrows (a value outside the admitted set refuses before the
+/// store), and a request naming a different scalar refuses too.
+#[tokio::test]
+async fn knowledge_face_intersects_the_list_scope_with_the_admission() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let admitted: Scope = serde_json::from_value(json!({
+        "scope_id": "scope-a",
+        "entry_ids": ["ke-a"],
+        "entry_types": ["note", "decision"],
+        "source_id": "source-a",
+        "extensions": { "product": { "limit": "admitted" } },
+    }))
+    .expect("valid Scope");
+    store.seed(&scope_of("scope-a"), scoped_entry("ke-a", "alpha"));
+    store.seed(&scope_of("scope-a"), scoped_entry("ke-b", "beta"));
+    let face = knowledge_face(Arc::clone(&store), move |_| spoke_ok(admitted.clone()));
+    let seed_a = seed(0x86);
+    let (responder, pair, session) =
+        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+
+    let entry_ids = |response: &Value| -> Vec<String> {
+        response["payload"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .map(|entry| entry["entry_id"].as_str().unwrap_or_default().to_owned())
+            .collect()
+    };
+
+    // The request omits the admitted narrowing: only the admitted ids return.
+    let listed = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        0,
+        "admitted-only",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "scope-a" } }),
+    )
+    .await;
+    assert_eq!(
+        entry_ids(&listed),
+        vec!["ke-a".to_owned()],
+        "admitted entry_ids bound the list: {listed}"
+    );
+    assert_eq!(
+        store.listed_scopes()[0]["entry_types"],
+        json!(["note", "decision"]),
+        "a request that omits entry_types keeps the admitted set"
+    );
+
+    // A request-wide id set still intersects, and the admitted scalar and
+    // extension values bound what reaches the store.
+    let narrowed = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        1,
+        "narrowed",
+        "port.scope.list_knowledge_entries",
+        json!({
+            "scope": {
+                "scope_id": "scope-a",
+                "entry_ids": ["ke-a", "ke-b"],
+                "entry_types": ["note"],
+                "extensions": {
+                    "product": { "limit": "requested" },
+                    "other": { "kept": true },
+                },
+            },
+        }),
+    )
+    .await;
+    assert_eq!(
+        entry_ids(&narrowed),
+        vec!["ke-a".to_owned()],
+        "the request only narrows the admitted ids: {narrowed}"
+    );
+    let scopes = store.listed_scopes();
+    assert_eq!(scopes[1]["entry_ids"], json!(["ke-a"]));
+    assert_eq!(
+        scopes[1]["entry_types"],
+        json!(["note"]),
+        "a requested subset of the admitted entry_types is served as given"
+    );
+    assert_eq!(scopes[1]["source_id"], json!("source-a"));
+    assert_eq!(
+        scopes[1]["extensions"]["product"],
+        json!({ "limit": "admitted" }),
+        "the admitted namespace wins on conflict"
+    );
+    assert_eq!(
+        scopes[1]["extensions"]["other"],
+        json!({ "kept": true }),
+        "the request-only namespace survives"
+    );
+
+    // A disjoint admitted id is an empty intersection: no results, no refusal.
+    let disjoint = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        2,
+        "disjoint",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "scope-a", "entry_ids": ["ke-b"] } }),
+    )
+    .await;
+    assert_eq!(disjoint["payload"], json!([]), "{disjoint}");
+
+    // A requested `entry_types` value outside the admitted set widens the
+    // query: refuse before the store.
+    let calls_before = store.calls().len();
+    let wider_types = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        3,
+        "wider-types",
+        "port.scope.list_knowledge_entries",
+        json!({
+            "scope": {
+                "scope_id": "scope-a",
+                "entry_types": ["note", "other"],
+            },
+        }),
+    )
+    .await;
+    assert_eq!(wider_types["error"]["code"], "NOT_AUTHORIZED", "{wider_types}");
+    assert_eq!(
+        store.calls().len(),
+        calls_before,
+        "an out-of-set entry_type never reaches the store"
+    );
+
+    // A scalar the admission does not grant is not a narrowing: refuse before
+    // the store.
+    let calls_before = store.calls().len();
+    let refused = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        4,
+        "wider-scalar",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "scope-a", "source_id": "source-b" } }),
+    )
+    .await;
+    assert_eq!(refused["error"]["code"], "NOT_AUTHORIZED", "{refused}");
+    assert_eq!(
+        store.calls().len(),
+        calls_before,
+        "a refused widening never reaches the store"
+    );
+
     responder.close();
 }

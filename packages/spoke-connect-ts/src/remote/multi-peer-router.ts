@@ -46,6 +46,7 @@ import {
 
 import {
   CAPABILITY_SPOKE_COGNITION,
+  capabilitySatisfies,
   cognitionRequirementPresent,
 } from "../core/dispatch.js";
 import type { RemoteAdapterState } from "./remote-adapter.js";
@@ -273,8 +274,12 @@ export function selectPeerForOp(
     // (QC2 S-1). Same terminal §5 reject shape as a no-match.
     return noCapablePeer(op, `no capability mapping for unknown op "${op}"`);
   }
+  // Hard capability filter: plain membership, no implication between
+  // families — only a peer that negotiated `spoke-knowledge` itself
+  // qualifies for the three knowledge ops, and `spoke-knowledge` alone
+  // never qualifies a peer for a baseline op.
   let survivors = candidates.filter((candidate) =>
-    candidate.manifest.capabilities.includes(required),
+    capabilitySatisfies(candidate.manifest.capabilities, required),
   );
   if (survivors.length === 0) {
     return noCapablePeer(

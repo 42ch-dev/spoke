@@ -14,6 +14,10 @@ use serde_json::Value;
 
 /// Baseline capability: required by the baseline core ops.
 pub const CAPABILITY_SPOKE_BASELINE: &str = "spoke-baseline";
+/// Optional capability: required by the three remote knowledge ops.
+/// It must be negotiated explicitly: the responder serves those ops only
+/// through its knowledge face, so no other flag implies this one.
+pub const CAPABILITY_SPOKE_KNOWLEDGE: &str = "spoke-knowledge";
 /// Optional capability: required by the compute-family core ops.
 pub const CAPABILITY_L2_COMPUTABLE: &str = "l2-computable";
 /// Optional capability: required by the `extract` core op. The serving host
@@ -163,16 +167,23 @@ pub fn required_capability(op: &str) -> Option<&str> {
     }
 }
 
+/// Whether `negotiated` satisfies `required`: plain membership. No capability
+/// implies another — in particular `spoke-baseline` never satisfies
+/// `spoke-knowledge`, because the knowledge ops are served only through the
+/// knowledge face.
+#[must_use]
+pub fn capability_satisfies(negotiated: &[String], required: &str) -> bool {
+    negotiated.iter().any(|c| c == required)
+}
+
 /// Whether `op` may be dispatched in a session with `negotiated_capabilities`.
 ///
 /// Fails closed: an unknown `op` has no core-table requirement and is not
 /// authorized by this gate (hosts answer `op_unsupported`).
 #[must_use]
 pub fn dispatch_allowed(op: &str, negotiated_capabilities: &[String]) -> bool {
-    match required_capability(op) {
-        Some(required) => negotiated_capabilities.iter().any(|c| c == required),
-        None => false,
-    }
+    required_capability(op)
+        .is_some_and(|required| capability_satisfies(negotiated_capabilities, required))
 }
 
 /// Whether a capability-token grant (validated `claims.capabilities`)
@@ -215,6 +226,42 @@ mod tests {
                 "empty negotiated set must not dispatch"
             );
         }
+    }
+
+    #[test]
+    fn capability_satisfies_is_plain_membership() {
+        assert!(capability_satisfies(
+            &caps(&["spoke-knowledge"]),
+            CAPABILITY_SPOKE_KNOWLEDGE
+        ));
+        assert!(capability_satisfies(
+            &caps(&["spoke-baseline", "spoke-knowledge"]),
+            CAPABILITY_SPOKE_KNOWLEDGE
+        ));
+        assert!(
+            !capability_satisfies(&caps(&["spoke-baseline"]), CAPABILITY_SPOKE_KNOWLEDGE),
+            "spoke-baseline must not satisfy spoke-knowledge: the knowledge ops \
+             are served only through the knowledge face"
+        );
+        assert!(!capability_satisfies(
+            &caps(&["l2-computable"]),
+            CAPABILITY_SPOKE_KNOWLEDGE
+        ));
+        assert!(!capability_satisfies(&caps(&[]), CAPABILITY_SPOKE_KNOWLEDGE));
+        assert!(!capability_satisfies(
+            &caps(&["spoke-knowledge"]),
+            CAPABILITY_SPOKE_BASELINE
+        ));
+        // No implication: neither family authorizes the other's core ops.
+        for op in ["upsert", "promote", "relate", "check", "assemble"] {
+            assert!(
+                !dispatch_allowed(op, &caps(&["spoke-knowledge"])),
+                "spoke-knowledge alone must not authorize {op}"
+            );
+        }
+        // Fails closed on an op outside the core table (`port.*`), as before.
+        assert!(!dispatch_allowed("port.knowledge.get", &caps(&["spoke-knowledge"])));
+        assert!(!dispatch_allowed("product.op.unknown", &caps(&["spoke-baseline"])));
     }
 
     #[test]

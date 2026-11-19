@@ -86,11 +86,56 @@ import { decodeJsonMessage, encodeJsonMessage } from "../../src/framing.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 import {
   connectResponder,
+  knowledgeOnlyServePorts,
+  withKnowledge,
   type ConnectResponder,
   type ConnectResponderState,
   type RemoteExtractService,
+  type RemoteKnowledgeFace,
   type RemoteMemoryService,
+  type RemoteServePorts,
 } from "@42ch/spoke-connect/remote";
+
+/**
+ * The scope the default fixture knowledge face admits; `toServePorts`
+ * forwards baseline get/put through it and matches list wire scopes.
+ */
+const ADMITTED_SCOPE: Scope = { scope_id: "toy-scope-001" };
+
+/** Build a knowledge face over a baseline fixture adapter, admitting `scope`. */
+function knowledgeFaceAdmitting(
+  ports: BaselinePorts,
+  scope: Scope = ADMITTED_SCOPE,
+): RemoteKnowledgeFace {
+  return {
+    store: {
+      getScopedKnowledgeEntry: (_scope, entryId) =>
+        ports.getKnowledgeEntry(entryId),
+      putScopedKnowledgeEntry: (_scope, entry, expectedBaseRevision) =>
+        ports.putKnowledgeEntry(entry, expectedBaseRevision),
+      listScopedKnowledgeEntries: (admitted) =>
+        ports.listKnowledgeEntries(admitted),
+    },
+    admission: () => spokeOk(scope),
+  };
+}
+
+/**
+ * Legacy fixture adapters carry the extract/memory service fields on the
+ * same object as the baseline port methods; the responder now takes a face
+ * object, so test fixtures normalize once here.
+ */
+function toServePorts(
+  ports: BaselinePorts & Partial<RemoteExtractService> & Partial<RemoteMemoryService>,
+  admitted?: Scope,
+): RemoteServePorts & Partial<RemoteExtractService> & Partial<RemoteMemoryService> {
+  return {
+    baseline: ports,
+    knowledge: knowledgeFaceAdmitting(ports, admitted ?? ADMITTED_SCOPE),
+    extract: ports.extract,
+    invoke: ports.invoke,
+  };
+}
 
 /** Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
 function seed(base: number): Uint8Array {
@@ -132,6 +177,9 @@ function toolManifest(hostId: string): HostCapabilityManifest {
     namespaces: ["toy_world", "math", "echo"],
     capabilities: [
       "spoke-baseline",
+      // These fixtures serve the knowledge face, so the session negotiates
+      // `spoke-knowledge` explicitly (no flag implies it).
+      "spoke-knowledge",
       "tools.math.add",
       "tools.echo.echo",
       "tools.echo.boom",
@@ -156,6 +204,8 @@ interface DialResponderOptions {
   ports?: BaselinePorts &
     Partial<RemoteExtractService> &
     Partial<RemoteMemoryService>;
+  /** Scope the default knowledge face admits (list wire scopes must match). */
+  admittedScope?: Scope;
   /** Bounded wait for the RESPONDER's reverse-invoke waiters, ms. */
   responderTimeoutMs?: number;
   /** Bounded wait for the CLIENT's dial + invoke waiters, ms. */
@@ -205,7 +255,7 @@ async function dialWithResponder(
     manifest: responderManifest,
     allowlist: [peerIdClient],
     peerKeys: { [peerIdClient]: pubkeyClient },
-    ports: options.ports,
+    ports: options.ports && toServePorts(options.ports, options.admittedScope),
     invokeTimeoutMs: options.responderTimeoutMs,
   });
   const client = await connectRemoteAdapter({
@@ -287,7 +337,7 @@ async function startRawResponder(options: {
     manifest: options.manifest ?? toolManifest("test-responder"),
     allowlist: [peerIdClient],
     peerKeys: { [peerIdClient]: pubkeyClient },
-    ports: options.ports ?? ToyWorldAdapter.withCommittedFixtures(),
+    ports: toServePorts(options.ports ?? ToyWorldAdapter.withCommittedFixtures()),
     invokeTimeoutMs: options.invokeTimeoutMs,
   });
   return {
@@ -401,7 +451,7 @@ describe("connectResponder handshake and session", () => {
         peerKeys: {
           [peerIdStranger]: getPublicKeyEd25519(seedStranger),
         },
-        ports: new ToyWorldAdapter(),
+        ports: { baseline: new ToyWorldAdapter() },
       });
       try {
         // The server-side allowlist rejects the hello and closes the
@@ -1549,10 +1599,11 @@ function manifestWithCaps(
   capabilities: readonly string[],
 ): HostCapabilityManifest {
   const base = schemaConformantManifest();
-  const caps = [...new Set([...base.capabilities, ...capabilities])] as [
-    string,
-    ...string[],
-  ];
+  // Every fixture host here serves the toy ports, including the knowledge
+  // face — so `spoke-knowledge` is always negotiated explicitly.
+  const caps = [
+    ...new Set([...base.capabilities, "spoke-knowledge", ...capabilities]),
+  ] as [string, ...string[]];
   return { ...base, host_id: hostId, capabilities: caps };
 }
 
@@ -1792,7 +1843,7 @@ describe("ke remote", () => {
     }
   });
 
-  it("allows listKnowledgeEntries without viewpoint when only baseline is negotiated", async () => {
+  it("allows listKnowledgeEntries without viewpoint when spoke-knowledge is negotiated", async () => {
     const scope: Scope = { scope_id: "s1" };
     const calls: Scope[] = [];
     const ports = toyBaselinePorts();
@@ -1801,7 +1852,10 @@ describe("ke remote", () => {
       calls.push(s);
       return original(s);
     };
-    const { client, responder, pair } = await dialWithResponder({ ports });
+    const { client, responder, pair } = await dialWithResponder({
+      ports,
+      admittedScope: { scope_id: "s1" },
+    });
     try {
       const result = await client.listKnowledgeEntries(scope);
       expect(result.ok).toBe(true);
@@ -1834,6 +1888,7 @@ describe("ke remote", () => {
         CAPABILITY_KE_OWNERSHIP,
       ]),
       ports,
+      admittedScope: { scope_id: "s-own", viewpoint: "holder-a" },
     });
     try {
       const result = await client.listKnowledgeEntries(scope);
@@ -1952,6 +2007,7 @@ describe("ke remote", () => {
         CAPABILITY_KE_OWNERSHIP,
       ]),
       ports,
+      admittedScope: { scope_id: "s1", viewpoint: "holder-a" },
     });
     try {
       const malformedScopes = [
@@ -2414,6 +2470,7 @@ describe("serve timeout (local serve budget)", () => {
       const frames: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
         ports: parked.ports,
+        admittedScope: { scope_id: "serve-timeout-scope" },
         responderTimeoutMs: 25,
         clientTimeoutMs: 2000,
         clientTransport: wireCapture(frames),
@@ -2465,6 +2522,7 @@ describe("serve timeout (local serve budget)", () => {
       const frames: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
         ports: parked.ports,
+        admittedScope: { scope_id: "serve-timeout-scope" },
         clientManifest: manifestWithCaps("client-serve-compute", [
           "l2-computable",
         ]),
@@ -2516,6 +2574,7 @@ describe("serve timeout (local serve budget)", () => {
       const frames: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
         ports: parked.ports,
+        admittedScope: { scope_id: "serve-timeout-scope" },
         clientManifest: manifestWithCaps("client-serve-extract", [
           CAPABILITY_KE_EXTRACTION,
         ]),
@@ -2566,13 +2625,14 @@ describe("serve timeout (local serve budget)", () => {
       const frames: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
         ports: parked.ports,
+        admittedScope: { scope_id: "serve-timeout-scope" },
         responderTimeoutMs: 0,
         clientTimeoutMs: 2000,
         clientTransport: wireCapture(frames),
       });
       try {
         const result = await client.listKnowledgeEntries({
-          scope_id: "serve-timeout-zero",
+          scope_id: "serve-timeout-scope",
         });
         expect(result.ok).toBe(false);
         if (result.ok) return;
@@ -2614,6 +2674,7 @@ describe("serve timeout (local serve budget)", () => {
       const parked = parkedProvider();
       const { responder, client, pair } = await dialWithResponder({
         ports: parked.ports,
+        admittedScope: { scope_id: "serve-timeout-scope" },
         clientManifest: manifestWithCaps("client-serve-deny", ["l5-fork"]),
         responderManifest: manifestWithCaps("responder-serve-deny", [
           "l5-fork",
@@ -2672,16 +2733,13 @@ describe("serve timeout (local serve budget)", () => {
   );
 
   it(
-    "zero budget answers the signed serve timeout for a malformed baseline port payload",
+    "zero budget answers INVALID_INPUT for a malformed knowledge payload (Rust decode_knowledge_call parity)",
     async () => {
-      // Face split (QC W-001): the Rust face decodes the D4 payload before
-      // the serve bound, so a malformed `port.*` payload keeps its
-      // `INVALID_INPUT` reject at any budget. The TS face has no D4 payload
-      // decode at all (`dispatchPortOp` is cast-based) and the helper's
-      // zero-budget early return precedes the provider thunk, so the same
-      // malformed input is answered by the signed serve timeout with zero
-      // provider calls. This witness pins the TS projection only; it does
-      // not claim TS baseline payload validation.
+      // Face split (QC W-001) closed by B2: the TS face now mirrors the Rust
+      // `decode_knowledge_call` — a malformed `port.knowledge.get` payload is
+      // decoded before the serve bound, so it keeps its `INVALID_INPUT`
+      // reject at any budget, with zero provider calls (the provider never
+      // starts).
       const baseline = asBaselineOnly(ToyWorldAdapter.withCommittedFixtures());
       const calls: string[] = [];
       const ports: BaselinePorts = {
@@ -2717,11 +2775,7 @@ describe("serve timeout (local serve budget)", () => {
             details?: Record<string, unknown>;
           };
         };
-        expect(response.error?.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
-        expect(response.error?.details?.kind).toBe("timeout");
-        expect(response.error?.message).toContain(
-          "serve wait exceeded the local budget of 0ms",
-        );
+        expect(response.error?.code).toBe(SpokeRejectCode.INVALID_INPUT);
         expect(calls).toEqual([]);
         expect(responder.state).toBe("Established");
       } finally {
@@ -2770,12 +2824,13 @@ describe("serve timeout (local serve budget)", () => {
       const sent: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
         ports: parked.ports,
+        admittedScope: { scope_id: "serve-timeout-scope" },
         responderTimeoutMs: 200,
         clientTimeoutMs: 2000,
         responderTransport: sentCapture(sent),
       });
       try {
-        const scope: Scope = { scope_id: "serve-close-settle" };
+        const scope: Scope = { scope_id: "serve-timeout-scope" };
         // The close fails the dialer's waiter (the session is gone); the
         // witness asserts the responder's own send attempts instead.
         void client.listKnowledgeEntries(scope).catch(() => undefined);
@@ -2810,12 +2865,13 @@ describe("serve timeout (local serve budget)", () => {
       const sent: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
         ports: parked.ports,
+        admittedScope: { scope_id: "serve-timeout-scope" },
         responderTimeoutMs: 25,
         clientTimeoutMs: 2000,
         responderTransport: sentCapture(sent),
       });
       try {
-        const scope: Scope = { scope_id: "serve-close-settle-race" };
+        const scope: Scope = { scope_id: "serve-timeout-scope" };
         void client.listKnowledgeEntries(scope).catch(() => undefined);
         await untilParked(parked, "listKnowledgeEntries");
         expect(testActiveServeBudgetWaits(responder)).toBe(1);
@@ -2851,12 +2907,13 @@ describe("serve timeout (local serve budget)", () => {
       const sent: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
         ports: parked.ports,
+        admittedScope: { scope_id: "serve-timeout-scope" },
         responderTimeoutMs: 25,
         clientTimeoutMs: 2000,
         responderTransport: sentCapture(sent),
       });
       try {
-        const scope: Scope = { scope_id: "serve-close-disarm" };
+        const scope: Scope = { scope_id: "serve-timeout-scope" };
         void client.listKnowledgeEntries(scope).catch(() => undefined);
         await untilParked(parked, "listKnowledgeEntries");
 

@@ -25,11 +25,17 @@ export type {
 } from "./remote-adapter.js";
 
 export { connectResponder, ConnectResponder } from "./responder.js";
+export {
+  knowledgeOnlyServePorts,
+  withKnowledge,
+} from "./responder.js";
 export type {
   ConnectResponderOptions,
   ConnectResponderState,
   RemoteExtractService,
+  RemoteKnowledgeFace,
   RemoteMemoryService,
+  RemoteServePorts,
 } from "./responder.js";
 
 export { connectMultiPeerRouter, MultiPeerRouter } from "./multi-peer-router.js";

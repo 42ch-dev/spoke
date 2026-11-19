@@ -167,8 +167,8 @@ void assert_identity_and_versions(const Golden& golden) {
     check(protocol == 1, kValuesLabel,
           "protocol_version() reported " + std::to_string(protocol) + " instead of 1");
     const uint64_t abi = unwrap(abi_version(), "abi_version");
-    check(abi == 1, kValuesLabel,
-          "abi_version() reported " + std::to_string(abi) + " instead of the ABI revision 1");
+    check(abi == 2, kValuesLabel,
+          "abi_version() reported " + std::to_string(abi) + " instead of the ABI revision 2");
 }
 
 /** A tampered hello is rejected with the hello status on the C++ error. */
@@ -396,6 +396,9 @@ const char* const kServedEntryJson =
     "\"entry_type\":\"note\",\"canonical_name\":\"C++ convenience knowledge entry\","
     "\"status\":\"confirmed\",\"body\":{\"summary\":\"served through the convenience callback "
     "bridge\"},\"extensions\":{}}";
+/** The scope the resolver admits: the knowledge ops are served inside it and
+    no scope crosses on the wire for `get` / `put`. */
+const char* const kKnowledgeScopeJson = "{\"scope_id\":\"scope_cpp_convenience\"}";
 const char* const kRefusalMessage = "the smoke's host tool handler refuses";
 const char* const kRefusalKind = "smoke_reject_kind";
 const char* const kRefusalWireCode = "smoke_reject_wire";
@@ -509,11 +512,12 @@ struct HostTool {
 };
 
 /**
- * The golden host manifest with the demo echo tool added: the fixture's own
- * manifest text is the base, so the smoke never restates the golden host
- * identity or its baseline capability. Both ends advertise the result, so
- * `tools.example.echo` is in the negotiated capability set — which is what the
- * dispatch gate requires for a tool invoke in either direction.
+ * The golden host manifest with the demo echo tool and the explicit knowledge
+ * capability added: the fixture's own manifest text is the base, so the smoke
+ * never restates the golden host identity or its baseline capability. Both
+ * ends advertise the result, so `tools.example.echo` and `spoke-knowledge` are
+ * in the negotiated capability set — which is what the dispatch gate requires
+ * for a tool invoke in either direction and for the served knowledge ops.
  */
 std::string tool_manifest(const Golden& golden) {
     std::string manifest = golden.manifest_json;
@@ -526,7 +530,7 @@ std::string tool_manifest(const Golden& golden) {
                             "empty namespace list to extend: " + manifest);
     }
     manifest.replace(manifest.find(capabilities), capabilities.size(),
-                     "\"capabilities\":[\"spoke-baseline\",\"" + tool + "\"]");
+                     "\"capabilities\":[\"spoke-baseline\",\"spoke-knowledge\",\"" + tool + "\"]");
     manifest.replace(manifest.find(namespaces), namespaces.size(),
                      "\"namespaces\":[\"example\"]");
     const std::string descriptor = "{\"capability_id\":\"" + tool +
@@ -575,14 +579,19 @@ std::unique_ptr<TransportCallbacks> make_transport(std::shared_ptr<HostTransport
     return callbacks;
 }
 
-/** Builds the served ports record: the knowledge-entry pair answers the canned
-    entry — `putKnowledgeEntry` also records the optional base revision it was
-    given — and every other slot declines. A host that does not serve a method
-    still implements it, so an explicitly refusing provider stays
-    distinguishable from an absent `ports` handler. */
+/** Builds the served ports record: a knowledge-only host — the resolver and the
+    three scoped knowledge callbacks, with no unrelated stubs. Every other
+    family stays unset, which the carrier reads as absent. The knowledge-entry
+    pair answers the canned entry (`put` also records the optional base
+    revision it was given) and the list callback declines, so an explicitly
+    refusing provider stays distinguishable from an absent family. */
 std::unique_ptr<PortsCallbacks> make_ports(std::shared_ptr<HostPorts> host) {
     auto callbacks = std::make_unique<PortsCallbacks>();
-    callbacks->get_knowledge_entry = [host](std::string_view entry_id) -> Result<std::string> {
+    callbacks->knowledge_scope = [](std::string_view) -> Result<std::string> {
+        return Result<std::string>::success(std::string(kKnowledgeScopeJson));
+    };
+    callbacks->get_scoped_knowledge_entry =
+        [host](std::string_view, std::string_view entry_id) -> Result<std::string> {
         host->counters->calls.fetch_add(1);
         {
             std::lock_guard<std::mutex> guard(host->mutex);
@@ -591,9 +600,9 @@ std::unique_ptr<PortsCallbacks> make_ports(std::shared_ptr<HostPorts> host) {
         }
         return Result<std::string>::success(std::string(kServedEntryJson));
     };
-    callbacks->put_knowledge_entry = [host](std::string_view,
-                                            std::optional<uint64_t> expected_base_revision)
-        -> Result<std::string> {
+    callbacks->put_scoped_knowledge_entry =
+        [host](std::string_view, std::string_view,
+               std::optional<uint64_t> expected_base_revision) -> Result<std::string> {
         host->counters->calls.fetch_add(1);
         {
             std::lock_guard<std::mutex> guard(host->mutex);
@@ -602,7 +611,7 @@ std::unique_ptr<PortsCallbacks> make_ports(std::shared_ptr<HostPorts> host) {
         }
         return Result<std::string>::success(std::string(kServedEntryJson));
     };
-    const auto decline = [host]() -> Result<std::string> {
+    callbacks->list_scoped_knowledge_entries = [host](std::string_view) -> Result<std::string> {
         host->counters->calls.fetch_add(1);
         Error error;
         error.status = SPOKE_CONNECT_FFI_REJECTED;
@@ -610,26 +619,6 @@ std::unique_ptr<PortsCallbacks> make_ports(std::shared_ptr<HostPorts> host) {
         error.message = "the smoke's host ports record does not serve that method";
         return Result<std::string>::failure(std::move(error));
     };
-    const auto refusal = [decline](std::string_view) -> Result<std::string> { return decline(); };
-    const auto revision_refusal = [decline](std::string_view,
-                                            std::optional<uint64_t>) -> Result<std::string> {
-        return decline();
-    };
-    callbacks->get_relation = refusal;
-    callbacks->put_relation = revision_refusal;
-    callbacks->list_knowledge_entries = refusal;
-    callbacks->list_timeline_events = refusal;
-    callbacks->put_findings = refusal;
-    callbacks->list_rules = [decline](const SpokeConnectSlice*, size_t) -> Result<std::string> {
-        return decline();
-    };
-    callbacks->list_peer_host_capability_manifests = [decline]() -> Result<std::string> {
-        return decline();
-    };
-    callbacks->project = refusal;
-    callbacks->compute = refusal;
-    callbacks->list_fork_timeline_events = refusal;
-    callbacks->extract = refusal;
     return callbacks;
 }
 
@@ -910,13 +899,21 @@ void assert_session(const Golden& golden) {
         }
         ports_observer.reset();
 
-        // A slot the host declines answers an application reject, not a silent
-        // absence.
-        Result<Buffer> declined = adapter.list_rules(nullptr, 0);
+        // A set slot the host declines answers an application reject, not a
+        // silent absence.
+        Result<Buffer> declined = adapter.list_knowledge_entries(kKnowledgeScopeJson);
         const Error& refusal = rejection(declined, kSessionLabel, "a declining ports method");
         check(refusal.status == SPOKE_CONNECT_FFI_REJECTED && refusal.code.has_value() &&
                   *refusal.code == "CAPABILITY_PORT_MISSING",
               kSessionLabel, "a declining ports method reported " + describe(refusal));
+
+        // A family the record never set is absent: the responder answers its
+        // own deny row instead of entering a phantom thunk.
+        Result<Buffer> absent = adapter.list_rules(nullptr, 0);
+        const Error& missing = rejection(absent, kSessionLabel, "an absent ports family");
+        check(missing.status == SPOKE_CONNECT_FFI_REJECTED && missing.code.has_value() &&
+                  *missing.code == "CAPABILITY_PORT_MISSING",
+              kSessionLabel, "an absent ports family reported " + describe(missing));
 
         // The dialer invokes the responder's registered tool.
         const std::string echoed =
@@ -1047,9 +1044,9 @@ void assert_session(const Golden& golden) {
     check(record_released(reverse_tool_counters, reverse_tool_released), kSessionLabel,
           "the dialer's tool record was not released exactly once (releases " +
               std::to_string(reverse_tool_counters.releases.load()) + ")");
-    // The served records saw exactly the calls the scenario made: the baseline
-    // lookup, the two `putKnowledgeEntry` calls and the declining call, and one
-    // tool call per invoke — the round trip, the two refusals, the contained
+    // The served records saw exactly the calls the scenario made: the knowledge
+    // lookup, the two `putKnowledgeEntry` calls and the declining list call, and
+    // one tool call per invoke — the round trip, the two refusals, the contained
     // failure and the recovery.
     check(ports_counters.calls.load() == 4 && served_tool_counters.calls.load() == 5,
           kSessionLabel,

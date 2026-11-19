@@ -22,9 +22,10 @@ import { connectResponder } from "@42ch/spoke-connect/remote";
 import type { EnvelopeBytes, Transport } from "@42ch/spoke-connect/remote";
 import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
 
-import { DEMO_SERVER_MANIFEST, MockAdapter } from "../adapter/mock-adapter.js";
+import { DEMO_SERVER_MANIFEST, MockAdapter, demoKnowledgeFace } from "../adapter/mock-adapter.js";
 import {
   DemoOrchestrator,
+  diceRollTriggerEntry,
   type DemoOrchestration,
 } from "../host/orchestration.js";
 import {
@@ -48,6 +49,12 @@ export interface ServeConnectDemoHandle {
    * records.
    */
   orchestrations: readonly DemoOrchestration[];
+  /**
+   * One promise per `seedTriggerEntry` connection, resolved once the seeded
+   * trigger entry has fully landed (put + recorded orchestration). The e2e
+   * awaits these before asserting on records.
+   */
+  readonly seedPromises: readonly Promise<void>[];
   /** Stop accepting connections and close every live socket. Idempotent. */
   close(): void;
 }
@@ -196,7 +203,18 @@ function waitForListening(wss: WebSocketServer): Promise<void> {
  * responder's capability gate (not the provider) is what denies.
  */
 export async function serveConnectDemo(
-  options: { port?: number; manifest?: HostCapabilityManifest } = {},
+  options: {
+    port?: number;
+    manifest?: HostCapabilityManifest;
+    /**
+     * Seed the compass trigger entry through the orchestrator on every
+     * connection (after the responder settles). Used by the negative e2e:
+     * a dialer that does not negotiate `spoke-knowledge` cannot put the
+     * trigger itself, so the host seeds it — the resulting orchestration
+     * records the reverse-invoke deny.
+     */
+    seedTriggerEntry?: boolean;
+  } = {},
 ): Promise<ServeConnectDemoHandle> {
   const port = options.port ?? DEFAULT_PORT;
   const manifest = options.manifest ?? DEMO_SERVER_MANIFEST;
@@ -215,6 +233,9 @@ export async function serveConnectDemo(
   // Every connection's orchestrator appends its runs here (shared array —
   // the handle exposes it for the e2e's discovery / deny assertions).
   const orchestrations: DemoOrchestration[] = [];
+  // Resolved when a seeded trigger entry has fully landed (put + recorded
+  // orchestration). The e2e awaits these before asserting on records.
+  const seedPromises: Promise<void>[] = [];
 
   wss.on("connection", (socket) => {
     const transport = new WsServerTransport(socket);
@@ -235,9 +256,35 @@ export async function serveConnectDemo(
       peerKeys: {
         [DEMO_CLIENT_PEER_ID]: DEMO_CLIENT_PUBKEY,
       },
-      ports: orchestrator,
+      ports: {
+        baseline: orchestrator,
+        knowledge: demoKnowledgeFace(orchestrator),
+        // ke-extraction stays a service probed on the ports object.
+        extract: (request) => orchestrator.extract(request),
+      },
     }).then((responder) => {
       orchestrator.setResponder(responder);
+      if (options.seedTriggerEntry) {
+        // Through the orchestrator (not the raw adapter) so the seeded
+        // submission itself records the orchestration (discovery → deny).
+        // The trigger put must land on an Established session, so wait for
+        // the client's dial (bounded — the e2e dials immediately).
+        void (async () => {
+          // Server lib target predates Promise.withResolvers.
+          let seedDone: () => void;
+          const seedPromise = new Promise<void>((r) => {
+            seedDone = r;
+          });
+          seedPromises.push(seedPromise);
+          for (let i = 0; i < 500 && responder.state !== "Established"; i++) {
+            await new Promise<void>((r) => setTimeout(r, 10));
+          }
+          if (responder.state === "Established") {
+            await orchestrator.putKnowledgeEntry(diceRollTriggerEntry(), null);
+          }
+          seedDone!();
+        })();
+      }
     });
   });
 
@@ -245,6 +292,7 @@ export async function serveConnectDemo(
     url,
     peerId: DEMO_SERVER_PEER_ID,
     orchestrations,
+    seedPromises,
     close(): void {
       // Close every live connection first so the server close is immediate.
       for (const transport of connections) {

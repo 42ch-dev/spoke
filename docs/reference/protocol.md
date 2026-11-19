@@ -44,6 +44,7 @@ Placement rule: a **cross-product functional dialect** uses `modules.*`; **produ
 | `narrative-modules` | the optional `modules` (`ModuleMap`) bag on KnowledgeEntry + AssemblePacket + TimelineEvent |
 | `ke-extraction` | the optional `extract` op family — provisional `KnowledgeEntry` candidates from referenced source material — plus the standalone `ExtractionPort` and the `orchestrateExtract` boundary |
 | `ke-ownership` | `KnowledgeEntry.owner` / `KnowledgeEntry.disclosure` governance fields and the shared `Scope.viewpoint` reader selector |
+| `spoke-knowledge` | the three connect knowledge port ops (`port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries`) with standalone `ScopedKnowledgePort` serving and per-peer scope admission. The flag must appear explicitly in `negotiated_capabilities`; `spoke-baseline` authorizes only baseline ops |
 | `spoke-connect` | the opt-in interaction envelope family; hosts that speak it list the flag in `HostCapabilityManifest.capabilities` |
 | `spoke-memory` | the optional per-subject memory family: thirteen models and 33 `memory.*` ops with a standalone `MemoryPort`. Two optional sub-flags — `spoke-memory-reflection` (3 reflection ops) and `spoke-memory-transfer` (5 export/import ops) — each require `spoke-memory`. See [Memory reference](/reference/memory) |
 

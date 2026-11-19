@@ -5,23 +5,23 @@
   "legacy_capability": "l5-mind",
   "hosts": {
     "ke_only_conformant": {
-      "capabilities": ["spoke-baseline", "spoke-cognition"],
+      "capabilities": ["spoke-baseline", "spoke-knowledge", "spoke-cognition"],
       "note": "KE-only host. Advertising the family is truthful because the served-request cases below exercise Scope cognition end to end; Memory ports are not served and are not required."
     },
     "ke_only_no_cognition": {
-      "capabilities": ["spoke-baseline"],
+      "capabilities": ["spoke-baseline", "spoke-knowledge"],
       "note": "KE host that did not implement the family: it must not advertise and must deny a cognition requirement."
     },
     "combined_memory_incomplete": {
-      "capabilities": ["spoke-baseline", "spoke-memory"],
+      "capabilities": ["spoke-baseline", "spoke-knowledge", "spoke-memory"],
       "note": "Combined KE+Memory host whose Memory cognition conformance has not landed. The family is intentionally absent from the manifest: the string alone is never conformance, so a cognition request is denied instead of served unfiltered."
     },
     "legacy_l5_mind": {
-      "capabilities": ["spoke-baseline", "l5-mind"],
+      "capabilities": ["spoke-baseline", "spoke-knowledge", "l5-mind"],
       "note": "Legacy flag only. Nothing implies the new family: the negotiated set is the plain both-sided intersection."
     },
     "combined_cognition_rejection_probe": {
-      "capabilities": ["spoke-baseline", "spoke-memory", "spoke-cognition"],
+      "capabilities": ["spoke-baseline", "spoke-knowledge", "spoke-memory", "spoke-cognition"],
       "note": "Vector-only §2.2 probe: it declares the family solely so the Memory cognition_filter diagnosis is exercised. Every case that carries a cognition requirement with this host expects a rejection, the remaining one carries none, so it makes no advertisement or conformance claim; combined advertisement stays blocked on the Memory track."
     }
   },

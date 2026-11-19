@@ -3,7 +3,7 @@
 Hand-written C ABI over the Rust `spoke-connect` reference, plus a C++17
 convenience layer over that ABI: `include/spoke_connect.h` is the C contract and
 `include/spoke_connect.hpp` is the header-only C++ surface, with a committed
-dynamic library per platform. The boundary reports ABI revision `1` through
+dynamic library per platform. The boundary reports ABI revision `2` through
 `spoke_connect_abi_version`.
 
 A C++17 host includes `spoke_connect.hpp` (which includes the C header) and
@@ -85,7 +85,7 @@ standard-library configuration.
 | Results | Every fallible call returns `[[nodiscard]] Result<T>` / `Result<void>`; `Error` carries the original status plus `message`, optional `code` / `kind` / `wire_code`, `expected` and `actual`. No throwing API. |
 | Handles | Move-only RAII classes: the destructor performs the release, a moved-from object is empty, and `get()` / `release()` / `adopt()` cover raw-C interop. |
 | Explicit close | Destructors free only. `RemoteAdapter::close()` and `ConnectResponder::close()` end a session; the C ABI exports no standalone transport close, so the host closes its own queue or connection. Close sessions before releasing the last host resources. |
-| Callback context | The factories take `std::unique_ptr<TransportCallbacks>&` (and the ports/tool equivalents), refuse an incomplete record with `SPOKE_CONNECT_INVALID_ARGUMENT`, and release the pointer only on C success. The carrier then owns the record and runs its `destroy` once; capture what a callback needs by value. |
+| Callback context | The factories take `std::unique_ptr<TransportCallbacks>&` (and the ports/tool equivalents), refuse a record missing its required pointers with `SPOKE_CONNECT_INVALID_ARGUMENT`, and release the pointer only on C success. For ports, only `destroy` is required; a family with no callbacks is absent and needs no stubs. The carrier then owns the record and runs its `destroy` once; capture what a callback needs by value. |
 | Exceptions | With exceptions disabled the header contains no `try` / `catch` / `throw` and a callback reports failure through its `Result`; with exceptions enabled an escaping callback exception is contained into `SPOKE_CONNECT_TRANSPORT_IO` (transport) or `SPOKE_CONNECT_FFI_REJECTED` with `code="INTERNAL_ERROR"` (ports/tool). |
 
 ## Smoke

@@ -266,7 +266,7 @@ class PortsLoopbackFfiPairTest {
      * negotiated, so the omitted side is how the deny scenarios are set up.
      * Mirror of the Rust `ke_manifest_json` test helper. */
     private fun keManifestJson(hostId: String, capabilities: List<String>): String {
-        val capabilitiesJson = JSONArray().put("spoke-baseline")
+        val capabilitiesJson = JSONArray().put("spoke-baseline").put("spoke-knowledge")
         capabilities.forEach { capabilitiesJson.put(it) }
         return JSONObject()
             .put("schema_version", 1)
@@ -673,6 +673,25 @@ class PortsLoopbackFfiPairTest {
             return served.toString()
         }
 
+        // The scoped knowledge face: `list` is served inside the admitted
+        // scope, `get` / `put` stay ordinary refusals in this double.
+        override fun servesKnowledge(): Boolean = true
+
+        override fun knowledgeScope(peerId: String): String =
+            """{"scope_id":"toy-scope-001","viewpoint":"kb_tw_mira"}"""
+
+        override fun getScopedKnowledgeEntry(scopeJson: String, entryId: String): String =
+            throw unserved("get_knowledge_entry")
+
+        override fun putScopedKnowledgeEntry(
+            scopeJson: String,
+            entryJson: String,
+            expectedBaseRevision: ULong?,
+        ): String = throw unserved("put_knowledge_entry")
+
+        override fun listScopedKnowledgeEntries(scopeJson: String): String =
+            listKnowledgeEntries(scopeJson)
+
         /** Catalogue ops this double does not serve: an ordinary application
          * reject (`wireCode` null), never containment. */
         private fun unserved(op: String): FfiException = FfiException.Rejected(
@@ -756,11 +775,11 @@ class PortsLoopbackFfiPairTest {
     }
 
     /** Ports-carrying manifest — baseline + optional families, so the
-     * negotiated set includes l2-computable / l5-fork. Mirror of the Rust
-     * `ports_manifest_json` test helper. */
+     * negotiated set includes spoke-knowledge / l2-computable / l5-fork.
+     * Mirror of the Rust `ports_manifest_json` test helper. */
     private fun portsManifestJson(hostId: String): String = """
         {"schema_version":1,"host_id":"$hostId","roles":["data-store","l2-computable"],
-        "capabilities":["spoke-baseline","l2-computable","l5-fork"],
+        "capabilities":["spoke-baseline","spoke-knowledge","l2-computable","l5-fork"],
         "namespaces":["toy_world"],"extensions":{}}
     """.trimIndent()
 
@@ -843,6 +862,26 @@ class PortsLoopbackFfiPairTest {
         )
 
         override fun listKnowledgeEntries(scopeJson: String): String = JSONArray(entries.values.toList()).toString()
+
+        /** The scoped knowledge face over the same store: `get` / `put` carry
+         * no wire scope, so the admitted value below is the only one they are
+         * served in. */
+        override fun servesKnowledge(): Boolean = true
+
+        override fun knowledgeScope(peerId: String): String =
+            """{"scope_id":"scope_kotlin_ports_smoke"}"""
+
+        override fun getScopedKnowledgeEntry(scopeJson: String, entryId: String): String =
+            getKnowledgeEntry(entryId)
+
+        override fun putScopedKnowledgeEntry(
+            scopeJson: String,
+            entryJson: String,
+            expectedBaseRevision: ULong?,
+        ): String = putKnowledgeEntry(entryJson, expectedBaseRevision)
+
+        override fun listScopedKnowledgeEntries(scopeJson: String): String =
+            listKnowledgeEntries(scopeJson)
 
         override fun listTimelineEvents(scopeJson: String): String = "[]"
 

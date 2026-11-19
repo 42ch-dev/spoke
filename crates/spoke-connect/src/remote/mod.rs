@@ -26,7 +26,10 @@ use serde_json::Value;
 use spoke_operations::{SpokeReject, SpokeRejectCode};
 use spoke_schemas::Scope;
 
-use crate::core::{CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE};
+use crate::core::{
+    capability_satisfies, dispatch_allowed, CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE,
+    CAPABILITY_SPOKE_KNOWLEDGE,
+};
 
 mod multi_peer_router;
 mod remote_adapter;
@@ -46,8 +49,8 @@ pub use responder::{
     connect_responder, ConnectResponder, ConnectResponderOptions, ConnectResponderState,
 };
 pub use serve_ports::{
-    MemoryAdmission, MemoryPortService, RemoteExtractService, RemoteMemoryService,
-    RemoteServePorts, RemoteServePortsComposite,
+    KnowledgeAdmission, MemoryAdmission, MemoryPortService, RemoteExtractService,
+    RemoteKnowledgeFace, RemoteMemoryService, RemoteServePorts, RemoteServePortsComposite,
 };
 pub use transport::{
     loopback_transport_pair, LoopbackTransport, LoopbackTransportPair, Transport, TransportError,
@@ -68,19 +71,22 @@ const CAPABILITY_L5_FORK: &str = "l5-fork";
 
 /// Required capability for a `port.*` op of the D4 catalogue (frozen
 /// contract §5.2), or `None` for an op outside it. Every baseline row
-/// requires `spoke-baseline`; the optional families require their negotiated
-/// family capability (`l2-computable` / `l5-fork`).
+/// requires `spoke-baseline`; the three knowledge ops require
+/// `spoke-knowledge` **explicitly** (the knowledge face is their only
+/// server, so no flag implies it); the optional
+/// families require their negotiated family capability (`l2-computable` /
+/// `l5-fork`).
 ///
 /// This is the requirement only — each surface keeps its own evaluation and
 /// failure shape (serve-gate deny vs. selection reject), and neither surface
 /// gains an op the other does not have.
 pub(crate) fn port_op_requirement(op: &str) -> Option<&'static str> {
     match op {
-        "port.knowledge.get" => Some(CAPABILITY_SPOKE_BASELINE),
-        "port.knowledge.put" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.knowledge.get" => Some(CAPABILITY_SPOKE_KNOWLEDGE),
+        "port.knowledge.put" => Some(CAPABILITY_SPOKE_KNOWLEDGE),
         "port.relation.get" => Some(CAPABILITY_SPOKE_BASELINE),
         "port.relation.put" => Some(CAPABILITY_SPOKE_BASELINE),
-        "port.scope.list_knowledge_entries" => Some(CAPABILITY_SPOKE_BASELINE),
+        "port.scope.list_knowledge_entries" => Some(CAPABILITY_SPOKE_KNOWLEDGE),
         "port.scope.list_timeline_events" => Some(CAPABILITY_SPOKE_BASELINE),
         "port.finding.put" => Some(CAPABILITY_SPOKE_BASELINE),
         "port.rule.list" => Some(CAPABILITY_SPOKE_BASELINE),
@@ -94,6 +100,18 @@ pub(crate) fn port_op_requirement(op: &str) -> Option<&'static str> {
         "port.fork.list_timeline_events" => Some(CAPABILITY_L5_FORK),
         _ => None,
     }
+}
+
+/// The responder's combined serve gate for one op: the core op table first
+/// (which also covers the self-describing `tools.*` family), then the product
+/// `port.*` map.
+///
+/// Named and pure so the serve decision is asserted directly from the shared
+/// capability matrix instead of only through the per-table lookups.
+pub(crate) fn port_dispatch_allowed(op: &str, negotiated: &[String]) -> bool {
+    dispatch_allowed(op, negotiated)
+        || port_op_requirement(op)
+            .is_some_and(|required| capability_satisfies(negotiated, required))
 }
 
 // ── `ke-ownership` conditional requirement (frozen F2) ─────────────────────
@@ -193,4 +211,126 @@ pub(crate) fn baseline_scope_shape(op: &str, payload: &Value) -> Result<(), Spok
     let mut baseline = scope.clone();
     baseline.remove("cognition");
     validate_scope_declaration(op, &serde_json::json!({ "scope": baseline })).map(|_| ())
+}
+
+#[cfg(test)]
+mod capability_matrix {
+    use super::{port_dispatch_allowed, port_op_requirement, select_peer_for_op, SelectablePeer};
+    use crate::core::{capability_satisfies, required_capability};
+    use serde_json::{json, Value};
+    use spoke_operations::SpokeResult;
+
+    /// A payload valid for the row's op (Scope-bearing rows declare a Scope,
+    /// no `viewpoint` — the row's capability is the only gate under test).
+    fn payload_for(op: &str) -> Value {
+        match op {
+            "port.scope.list_knowledge_entries" | "port.scope.list_timeline_events" => {
+                json!({ "scope": { "scope_id": "s" } })
+            }
+            "port.knowledge.get" => json!({ "entry_id": "e" }),
+            "port.knowledge.put" => json!({ "entry": {} }),
+            _ => json!({}),
+        }
+    }
+
+    /// One candidate whose manifest advertises exactly the row's negotiated
+    /// capabilities, so selection's answer follows from that set alone.
+    fn candidate(negotiated: &[String]) -> SelectablePeer {
+        SelectablePeer {
+            peer_id: "peer-matrix".to_string(),
+            manifest: serde_json::from_value(json!({
+                "schema_version": 1,
+                "host_id": "h-matrix",
+                "roles": ["data-store"],
+                "capabilities": negotiated,
+                "namespaces": ["ns"],
+                "extensions": {},
+            }))
+            .expect("manifest shaped with the row's negotiated capabilities"),
+        }
+    }
+
+    // The crate reads its own fixture; byte equality with the TS copy is
+    // enforced outside the crate by `tooling/connect/golden-vector-sync.mjs`,
+    // so a packaged crate never depends on a sibling package's path.
+    const FIXTURE: &str = include_str!("../../tests/fixtures/capability-matrix.json");
+
+    #[test]
+    fn the_op_tables_match_the_shared_capability_matrix() {
+        let matrix: serde_json::Value =
+            serde_json::from_str(FIXTURE).expect("capability matrix is valid JSON");
+        let cases = matrix["cases"]
+            .as_array()
+            .expect("cases is an array of matrix rows");
+        assert!(!cases.is_empty(), "the matrix must carry at least one case");
+
+        for case in cases {
+            let op = case["op"].as_str().expect("op is a string");
+            let table = case["table"].as_str().expect("table is a string");
+            let negotiated: Vec<String> = case["negotiated"]
+                .as_array()
+                .expect("negotiated is an array")
+                .iter()
+                .map(|cap| {
+                    cap.as_str()
+                        .expect("negotiated capabilities are strings")
+                        .to_owned()
+                })
+                .collect();
+            let expected_required = case["required"].as_str().expect("required is a string");
+            let expected_allowed = case["allowed"].as_bool().expect("allowed is a boolean");
+
+            let required = match table {
+                "core" => required_capability(op),
+                "product" => port_op_requirement(op),
+                other => panic!("{op}: unknown table {other}"),
+            };
+            assert_eq!(
+                required,
+                Some(expected_required),
+                "{op}: {table} table requirement drifted from the shared matrix"
+            );
+            assert_eq!(
+                capability_satisfies(&negotiated, expected_required),
+                expected_allowed,
+                "{op}: dispatch verdict drifted for negotiated {negotiated:?}"
+            );
+
+            // The responder's actual combined gate, not just the row's owning
+            // table: a core-table entry for a `port.*` op would otherwise pass
+            // both lookups above while admitting the wrong session.
+            assert_eq!(
+                port_dispatch_allowed(op, &negotiated),
+                expected_allowed,
+                "{op}: serve gate drifted for negotiated {negotiated:?}"
+            );
+            if op.starts_with("port.") {
+                assert!(
+                    required_capability(op).is_none(),
+                    "{op}: the core table must not claim a `port.*` op"
+                );
+            }
+
+            // The real selection path, not just the table lookup: one
+            // candidate carrying exactly this row's negotiated set must be
+            // selected for an allowed row and rejected for a denied one.
+            match (
+                expected_allowed,
+                select_peer_for_op(&[candidate(&negotiated)], op, &payload_for(op)),
+            ) {
+                (true, SpokeResult::Ok(peer)) => assert_eq!(
+                    peer.peer_id, "peer-matrix",
+                    "{op}: router selected an unexpected peer"
+                ),
+                (true, SpokeResult::Reject(reject)) => panic!(
+                    "{op}: router rejected an allowed row for negotiated {negotiated:?}: {reject:?}"
+                ),
+                (false, SpokeResult::Ok(peer)) => panic!(
+                    "{op}: router selected {} for a denied row with negotiated {negotiated:?}",
+                    peer.peer_id
+                ),
+                (false, SpokeResult::Reject(_)) => {}
+            }
+        }
+    }
 }

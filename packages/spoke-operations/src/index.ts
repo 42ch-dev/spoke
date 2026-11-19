@@ -159,6 +159,8 @@ export {
 
 export type {
   KnowledgeEntryPort,
+  KnowledgeQueryPort,
+  ScopedKnowledgePort,
   RelationPort,
   ScopeQueryPort,
   FindingPort,

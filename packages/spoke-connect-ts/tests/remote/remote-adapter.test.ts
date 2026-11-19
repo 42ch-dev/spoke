@@ -80,7 +80,13 @@ function seed(base: number): Uint8Array {
 
 /** Client manifest — distinct host_id so the remote-host cache is provable. */
 function clientManifest(): HostCapabilityManifest {
-  return { ...schemaConformantManifest(), host_id: "test-client" };
+  return {
+    ...schemaConformantManifest(),
+    host_id: "test-client",
+    // The toy host serves the knowledge ports; both hellos must carry the flag
+    // (the negotiated set is their intersection).
+    capabilities: ["spoke-baseline", "spoke-knowledge"],
+  };
 }
 
 /** Minimal schema-valid provisional KnowledgeEntry for the upsert parity. */

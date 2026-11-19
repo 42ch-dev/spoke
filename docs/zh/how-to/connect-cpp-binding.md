@@ -4,7 +4,7 @@ title: 从 C 与 C++ 连接
 
 # 从 C 与 C++ 连接
 
-C/C++ 渠道提供两个手写头文件与每个平台一个已提交载体。`spoke_connect.h` 是 C 契约 —— C99，包含状态值、值类型、回调表与全部导出函数，并通过 `spoke_connect_abi_version` 报告 ABI 修订号 `1`。`spoke_connect.hpp` 是覆盖该契约的 header-only C++17 便利层：命名空间 `spoke::connect`，为每个受拥有的缓冲区与句柄提供 move-only 所有权、借用文本视图与显式拷贝、单一结构化 `Result` 错误通道，以及宿主回调桥。C++17 宿主包含 `spoke_connect.hpp`（它包含 C 头文件）并链接原生载体。
+C/C++ 渠道提供两个手写头文件与每个平台一个已提交载体。`spoke_connect.h` 是 C 契约 —— C99，包含状态值、值类型、回调表与全部导出函数，并通过 `spoke_connect_abi_version` 报告 ABI 修订号 `2`。`spoke_connect.hpp` 是覆盖该契约的 header-only C++17 便利层：命名空间 `spoke::connect`，为每个受拥有的缓冲区与句柄提供 move-only 所有权、借用文本视图与显式拷贝、单一结构化 `Result` 错误通道，以及宿主回调桥。C++17 宿主包含 `spoke_connect.hpp`（它包含 C 头文件）并链接原生载体。
 
 已提交的 C/C++ 载体面向 macOS arm64（`osx-arm64`）与 Windows x64（`win-x64`）。请从同一仓库 tag `vX.Y.Z` 取得 `spoke_connect.h`、`spoke_connect.hpp` 与你的目标平台的原生文件。
 
@@ -555,8 +555,8 @@ node tooling/connect/cpp-symbol-check.mjs \
 ```
 
 ```text
-C ABI symbols: PASS (83 declarations, 83 exports, 0 missing, 0 extra)
-Record layout: 11 records, 66 assertions (sizeof/_Alignof/offsetof) match the carrier mirrors
+C ABI symbols: PASS (84 declarations, 84 exports, 0 missing, 0 extra)
+Record layout: 11 records, 70 assertions (sizeof/_Alignof/offsetof) match the carrier mirrors
 C probe (clang -std=c99 -Wall -Wextra -Werror): PASS
 C++17 inclusion (no exceptions, no RTTI; .h + .hpp): PASS
 ```

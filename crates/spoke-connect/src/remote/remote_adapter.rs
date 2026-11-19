@@ -34,8 +34,8 @@ use serde_json::{json, Map, Value};
 use spoke_operations::{
     from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
     ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
-    MemoryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode,
-    SpokeResult,
+    KnowledgeQueryPort, MemoryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject,
+    SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -1495,7 +1495,7 @@ impl RelationPort for RemoteAdapter {
 }
 
 #[async_trait]
-impl ScopeQueryPort for RemoteAdapter {
+impl KnowledgeQueryPort for RemoteAdapter {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.invoke_mapped(
             "port.scope.list_knowledge_entries",
@@ -1503,7 +1503,10 @@ impl ScopeQueryPort for RemoteAdapter {
         )
         .await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for RemoteAdapter {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         self.invoke_mapped("port.scope.list_timeline_events", json!({ "scope": scope }))
             .await
@@ -2291,7 +2294,7 @@ mod tests {
     #[tokio::test]
     async fn cognition_raw_unsupported_requirement_crosses_the_session() {
         let (adapter, host) =
-            dial_cognition_session(&["spoke-baseline", "spoke-cognition"]).await;
+            dial_cognition_session(&["spoke-baseline", "spoke-knowledge", "spoke-cognition"]).await;
         let result: SpokeResult<Value> = adapter
             .invoke_mapped(
                 "port.scope.list_knowledge_entries",
@@ -2322,7 +2325,9 @@ mod tests {
     /// the adapter maps it through the D7 row with the wire code preserved.
     #[tokio::test]
     async fn cognition_requirement_without_the_family_maps_to_port_missing() {
-        let (adapter, host) = dial_cognition_session(&["spoke-baseline"]).await;
+        // `spoke-knowledge` is negotiated (the op gate needs it) but the cognition
+        // family is not, so the requirement takes the `capability_missing` branch.
+        let (adapter, host) = dial_cognition_session(&["spoke-baseline", "spoke-knowledge"]).await;
         let result: SpokeResult<Value> = adapter
             .invoke_mapped(
                 "port.scope.list_knowledge_entries",

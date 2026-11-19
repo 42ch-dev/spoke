@@ -69,6 +69,7 @@ export const DEMO_CLIENT_MANIFEST: HostCapabilityManifest = {
   roles: ["input-source"],
   capabilities: [
     "spoke-baseline",
+    "spoke-knowledge",
     TOY_WORLD_ROLL_DICE_ID,
     TOY_WORLD_LORE_LOOKUP_ID,
     "l2-computable",
@@ -193,15 +194,16 @@ export interface DemoClientRun {
   remotePeerId: string;
   /** The tool ids this client registered on the dial (empty when not registered). */
   registeredToolIds: readonly string[];
-  /** The entry as created (revision 1). */
-  created: KnowledgeEntry;
-  /** The entry after the compare-and-swap update (revision 2). */
-  updated: KnowledgeEntry;
-  /** The entry as fetched back after the update. */
-  fetched: KnowledgeEntry;
+  /** The entry as created (revision 1). Present when the dialed manifest negotiated `spoke-knowledge`. */
+  created?: KnowledgeEntry;
+  /** The entry after the compare-and-swap update (revision 2). Present when the dialed manifest negotiated `spoke-knowledge`. */
+  updated?: KnowledgeEntry;
+  /** The entry as fetched back after the update. Present when the dialed manifest negotiated `spoke-knowledge`. */
+  fetched?: KnowledgeEntry;
   /**
    * All knowledge entries visible to the demo viewpoint after the submission
    * (`listKnowledgeEntries` with the viewpoint-bearing scope — OQ-DEMO-1).
+   * Empty when the dialed manifest did not negotiate `spoke-knowledge`.
    */
   listed: KnowledgeEntry[];
   /** The stored findings (round-tripped). */
@@ -253,8 +255,9 @@ export interface RunDemoClientOptions {
 /**
  * Execute the full third-party flow over a real WebSocket: dial (registering
  * the toy-world tool handlers on the RemoteAdapter so the host can
- * reverse-invoke them), then manifest → put (OCC create) → put (CAS update)
- * → get → list (viewpoint-bearing, the ownership witness) → findings → peer
+ * reverse-invoke them), then manifest → knowledge round-trip (put (OCC
+ * create) → put (CAS update) → get → viewpoint-bearing list, run only when
+ * the dialed manifest negotiates `spoke-knowledge`) → findings → peer
  * manifests → extract (F1) → the optional families: l2-computable
  * (project → compute settle → derived state) and l5-fork
  * (listForkTimelineEvents over the seeded storm fork). Every port call must
@@ -289,36 +292,51 @@ export async function runDemoClient(
   const serverManifest = adapter.remoteManifest;
 
   // Step 2 — put → get round-trip with OCC: create, then compare-and-swap.
-  const created = requireOk(
-    await adapter.putKnowledgeEntry(SUBMITTED_ENTRY, null),
+  // The knowledge face requires the dialer to negotiate `spoke-knowledge`
+  // explicitly; the negative dialer (e.g. the tools-less e2e manifest)
+  // skips these steps — the host records the denial on its own ops.
+  const negotiatesKnowledge = dialManifest.capabilities.includes(
+    "spoke-knowledge",
   );
-  if (created.revision === undefined) {
-    throw new Error("demo client: created entry has no revision");
-  }
-  loreStore.set(created.entry_id, created);
-  const updated = requireOk(
-    await adapter.putKnowledgeEntry(
-      { ...SUBMITTED_ENTRY, status: "confirmed" },
-      created.revision,
-    ),
-  );
-  loreStore.set(updated.entry_id, updated);
-  const fetched = requireOk(
-    await adapter.getKnowledgeEntry(SUBMITTED_ENTRY.entry_id),
-  );
+  let created: KnowledgeEntry | undefined;
+  let updated: KnowledgeEntry | undefined;
+  let fetched: KnowledgeEntry | undefined;
+  let listed: KnowledgeEntry[] = [];
+  if (negotiatesKnowledge) {
+    const createdEntry = requireOk(
+      await adapter.putKnowledgeEntry(SUBMITTED_ENTRY, null),
+    );
+    if (createdEntry.revision === undefined) {
+      throw new Error("demo client: created entry has no revision");
+    }
+    loreStore.set(createdEntry.entry_id, createdEntry);
+    const updatedEntry = requireOk(
+      await adapter.putKnowledgeEntry(
+        { ...SUBMITTED_ENTRY, status: "confirmed" },
+        createdEntry.revision,
+      ),
+    );
+    loreStore.set(updatedEntry.entry_id, updatedEntry);
+    const fetchedEntry = requireOk(
+      await adapter.getKnowledgeEntry(SUBMITTED_ENTRY.entry_id),
+    );
 
-  // Step 3 — the ownership witness (ke-ownership / OQ-DEMO-1): the scope
-  // query declares the demo viewpoint, so the host's disclosure predicate
-  // decides visibility — shared entries and the viewpoint holder's own
-  // private entries come back, a foreign holder's private entries are
-  // withheld. Entries listed here still carry the seed corpus, the submitted
-  // entry and the engine-derived artifacts.
-  const listed = requireOk(
-    await adapter.listKnowledgeEntries({
-      scope_id: DEMO_SCOPE_ID,
-      viewpoint: DEMO_VIEWPOINT_HOLDER_ID,
-    }),
-  );
+    // Step 3 — the ownership witness (ke-ownership / OQ-DEMO-1): the scope
+    // query declares the demo viewpoint, so the host's disclosure predicate
+    // decides visibility — shared entries and the viewpoint holder's own
+    // private entries come back, a foreign holder's private entries are
+    // withheld. Entries listed here still carry the seed corpus, the submitted
+    // entry and the engine-derived artifacts.
+    listed = requireOk(
+      await adapter.listKnowledgeEntries({
+        scope_id: DEMO_SCOPE_ID,
+        viewpoint: DEMO_VIEWPOINT_HOLDER_ID,
+      }),
+    );
+    created = createdEntry;
+    updated = updatedEntry;
+    fetched = fetchedEntry;
+  }
 
   // Step 4 — findings round-trip.
   const findings = requireOk(await adapter.putFindings([SUBMITTED_FINDING]));
@@ -454,13 +472,13 @@ async function main(): Promise<void> {
       `  tools registered: ${run.registeredToolIds.join(", ")} (served on reverse invoke)`,
     );
     console.log(
-      `  putKnowledgeEntry  ${run.created.entry_id} → revision ${run.created.revision}`,
+      `  putKnowledgeEntry  ${run.created?.entry_id} → revision ${run.created?.revision}`,
     );
     console.log(
-      `  putKnowledgeEntry  ${run.updated.entry_id} (CAS) → revision ${run.updated.revision}`,
+      `  putKnowledgeEntry  ${run.updated?.entry_id} (CAS) → revision ${run.updated?.revision}`,
     );
     console.log(
-      `  getKnowledgeEntry  ${run.fetched.entry_id} → status ${run.fetched.status}`,
+      `  getKnowledgeEntry  ${run.fetched?.entry_id} → status ${run.fetched?.status}`,
     );
     console.log(
       `  listKnowledgeEntries (viewpoint ${DEMO_VIEWPOINT_HOLDER_ID}) → ${run.listed.length} entries (${run.listed

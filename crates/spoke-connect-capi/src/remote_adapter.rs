@@ -1731,6 +1731,38 @@ mod tests {
         fn extract(&self, _extract_request_json: String) -> Result<String, ffi::FfiError> {
             Err(unsupported("extract"))
         }
+
+        fn serves_knowledge(&self) -> bool {
+            false
+        }
+
+        fn knowledge_scope(&self, _peer_id: String) -> Result<String, ffi::FfiError> {
+            Err(unsupported("knowledge_scope"))
+        }
+
+        fn get_scoped_knowledge_entry(
+            &self,
+            _scope_json: String,
+            _entry_id: String,
+        ) -> Result<String, ffi::FfiError> {
+            Err(unsupported("port.knowledge.get"))
+        }
+
+        fn put_scoped_knowledge_entry(
+            &self,
+            _scope_json: String,
+            _entry_json: String,
+            _expected_base_revision: Option<u64>,
+        ) -> Result<String, ffi::FfiError> {
+            Err(unsupported("port.knowledge.put"))
+        }
+
+        fn list_scoped_knowledge_entries(
+            &self,
+            _scope_json: String,
+        ) -> Result<String, ffi::FfiError> {
+            Err(unsupported("port.scope.list_knowledge_entries"))
+        }
     }
 
     /// A tool handler a peer serves under [`PICKED_TOOL_ID`].

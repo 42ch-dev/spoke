@@ -39,7 +39,8 @@ use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     parse_tool_capability_id, spoke_ok, FindingPort, HostManifestPort, KnowledgeEntryPort,
-    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    KnowledgeQueryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode,
+    SpokeResult,
 };
 use spoke_schemas::host_capability_manifest::{
     ExtensionKey, HostCapabilityManifestHostId, ToolDescriptor,
@@ -51,7 +52,8 @@ use spoke_schemas::{
 use super::remote_adapter::{RemoteAdapter, RemoteAdapterState};
 use super::{port_op_requirement, requires_ownership_capability};
 use crate::core::{
-    cognition_requirement_present, CAPABILITY_KE_OWNERSHIP, CAPABILITY_SPOKE_COGNITION,
+    capability_satisfies, cognition_requirement_present, CAPABILITY_KE_OWNERSHIP,
+    CAPABILITY_SPOKE_COGNITION,
 };
 
 /// The router's own identity when the consumer configures none (contract §8).
@@ -235,11 +237,7 @@ pub fn select_peer_for_op(
     let mut survivors: Vec<&SelectablePeer> = candidates
         .iter()
         .filter(|candidate| {
-            candidate
-                .manifest
-                .capabilities
-                .iter()
-                .any(|c| c == required_capability)
+            capability_satisfies(&candidate.manifest.capabilities, required_capability)
         })
         .collect();
     if survivors.is_empty() {
@@ -443,7 +441,7 @@ impl RoutedRemoteAdapter for RemoteAdapter {
     }
 
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-        <Self as ScopeQueryPort>::list_knowledge_entries(self, scope).await
+        <Self as KnowledgeQueryPort>::list_knowledge_entries(self, scope).await
     }
 
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
@@ -733,7 +731,7 @@ impl RelationPort for MultiPeerRouter {
 }
 
 #[async_trait]
-impl ScopeQueryPort for MultiPeerRouter {
+impl KnowledgeQueryPort for MultiPeerRouter {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         // The selection payload carries the request Scope so the §2
         // namespace / §3 authority derivations see it (the same Scope the
@@ -747,7 +745,10 @@ impl ScopeQueryPort for MultiPeerRouter {
         };
         selected.adapter.list_knowledge_entries(scope).await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for MultiPeerRouter {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         let selected = match self.select_for_op(
             "port.scope.list_timeline_events",
@@ -944,6 +945,10 @@ mod tests {
     // ── Manifest builders (schema-shaped; defaults to a baseline data-store
     //    peer — mirror of the TS `manifest` helper) ─────────────────────────
 
+    /// The fixture data-store peers serve the knowledge catalogue, so they
+    /// negotiate `spoke-knowledge` explicitly (no flag implies it).
+    const KNOWLEDGE_PEER_CAPS: &[&str] = &["spoke-baseline", "spoke-knowledge"];
+
     fn manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
         manifest_with(host_id, capabilities, &["data-store"], &["toy_world"])
     }
@@ -970,7 +975,7 @@ mod tests {
             "schema_version": 1,
             "host_id": host_id,
             "roles": ["data-store"],
-            "capabilities": ["spoke-baseline"],
+            "capabilities": ["spoke-baseline", "spoke-knowledge"],
             "namespaces": ["toy_world"],
             "authority": { "scope_key": scope_key },
             "extensions": {},
@@ -1195,7 +1200,7 @@ mod tests {
         let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
         let peer = FakePeer::new(
             "peer-a",
-            manifest("host-a", &["spoke-baseline"]),
+            manifest("host-a", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
 
@@ -1210,7 +1215,7 @@ mod tests {
         // A second adapter with the same peer_id replaces the stored one.
         let replacement = FakePeer::new(
             "peer-a",
-            manifest("host-a", &["spoke-baseline"]),
+            manifest("host-a", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         assert_eq!(
@@ -1227,7 +1232,7 @@ mod tests {
         // established session.
         let handshaking = FakePeer::new(
             "",
-            manifest("host-a", &["spoke-baseline"]),
+            manifest("host-a", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Handshaking,
         );
         assert!(matches!(
@@ -1249,7 +1254,7 @@ mod tests {
         router
             .register_peer(FakePeer::new(
                 "peer-a",
-                manifest("host-a", &["spoke-baseline"]),
+                manifest("host-a", KNOWLEDGE_PEER_CAPS),
                 RemoteAdapterState::Established,
             ))
             .expect("register");
@@ -1268,7 +1273,7 @@ mod tests {
         let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
         let baseline = FakePeer::new(
             "peer-baseline",
-            manifest("h-baseline", &["spoke-baseline"]),
+            manifest("h-baseline", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         let computable = FakePeer::new(
@@ -1342,12 +1347,12 @@ mod tests {
         let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
         let peer_b = FakePeer::new(
             "peer-bbb",
-            manifest("h-b", &["spoke-baseline"]),
+            manifest("h-b", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         let peer_a = FakePeer::new(
             "peer-aaa",
-            manifest("h-a", &["spoke-baseline"]),
+            manifest("h-a", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         router.register_peer(peer_b.clone()).expect("register b");
@@ -1365,17 +1370,17 @@ mod tests {
         let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
         let closed = FakePeer::new(
             "peer-closed",
-            manifest("h-closed", &["spoke-baseline"]),
+            manifest("h-closed", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Closed,
         );
         let handshaking = FakePeer::new(
             "peer-handshaking",
-            manifest("h-handshaking", &["spoke-baseline"]),
+            manifest("h-handshaking", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Handshaking,
         );
         let established = FakePeer::new(
             "peer-established",
-            manifest("h-established", &["spoke-baseline"]),
+            manifest("h-established", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         router
@@ -1412,7 +1417,7 @@ mod tests {
         };
         let baseline = SelectablePeer {
             peer_id: "peer-baseline".to_string(),
-            manifest: manifest("h-baseline", &["spoke-baseline"]),
+            manifest: manifest("h-baseline", KNOWLEDGE_PEER_CAPS),
         };
 
         let selection = select_peer_for_op(
@@ -1433,7 +1438,7 @@ mod tests {
     async fn rejects_with_no_capable_peer_when_no_peer_advertises_l5_fork() {
         let baseline = SelectablePeer {
             peer_id: "peer-a".to_string(),
-            manifest: manifest("h-a", &["spoke-baseline"]),
+            manifest: manifest("h-a", KNOWLEDGE_PEER_CAPS),
         };
 
         let selection = select_peer_for_op(
@@ -1521,7 +1526,7 @@ mod tests {
         // with the terminal §5 no_capable_peer shape.
         let peer = SelectablePeer {
             peer_id: "peer-a".to_string(),
-            manifest: manifest("h-a", &["spoke-baseline"]),
+            manifest: manifest("h-a", KNOWLEDGE_PEER_CAPS),
         };
 
         let selection = select_peer_for_op(&[peer], "product.op.unknown", &json!({}));
@@ -1563,12 +1568,12 @@ mod tests {
         let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
         let peer_a = FakePeer::new(
             "peer-a",
-            manifest("h-a", &["spoke-baseline"]),
+            manifest("h-a", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         let peer_b = FakePeer::new(
             "peer-b",
-            manifest("h-b", &["spoke-baseline"]),
+            manifest("h-b", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         router.register_peer(peer_b.clone()).expect("register b");
@@ -1609,12 +1614,12 @@ mod tests {
         let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
         let peer_a = FakePeer::new(
             "peer-a",
-            manifest("h-a", &["spoke-baseline"]),
+            manifest("h-a", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         let peer_b = FakePeer::new(
             "peer-b",
-            manifest("h-b", &["spoke-baseline"]),
+            manifest("h-b", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         router.register_peer(peer_b.clone()).expect("register b");
@@ -1666,7 +1671,7 @@ mod tests {
             .map(|i| {
                 FakePeer::new(
                     &format!("seed-{i:02}"),
-                    manifest(&format!("h-seed-{i:02}"), &["spoke-baseline"]),
+                    manifest(&format!("h-seed-{i:02}"), KNOWLEDGE_PEER_CAPS),
                     RemoteAdapterState::Established,
                 )
             })
@@ -1682,7 +1687,7 @@ mod tests {
             .map(|i| {
                 FakePeer::new(
                     &format!("peer-{i:02}"),
-                    manifest(&format!("h-{i:02}"), &["spoke-baseline"]),
+                    manifest(&format!("h-{i:02}"), KNOWLEDGE_PEER_CAPS),
                     RemoteAdapterState::Established,
                 )
             })
@@ -1795,11 +1800,11 @@ mod tests {
     async fn namespace_filter_excludes_peers_that_do_not_advertise_the_request_namespace() {
         let peer_alpha = SelectablePeer {
             peer_id: "peer-alpha".to_string(),
-            manifest: manifest_with("h-alpha", &["spoke-baseline"], &["data-store"], &["alpha"]),
+            manifest: manifest_with("h-alpha", KNOWLEDGE_PEER_CAPS, &["data-store"], &["alpha"]),
         };
         let peer_beta = SelectablePeer {
             peer_id: "peer-beta".to_string(),
-            manifest: manifest_with("h-beta", &["spoke-baseline"], &["data-store"], &["beta"]),
+            manifest: manifest_with("h-beta", KNOWLEDGE_PEER_CAPS, &["data-store"], &["beta"]),
         };
 
         let selection = select_peer_for_op(
@@ -1818,11 +1823,11 @@ mod tests {
     async fn namespace_filter_is_skipped_when_the_request_carries_no_namespace() {
         let peer_alpha = SelectablePeer {
             peer_id: "peer-alpha".to_string(),
-            manifest: manifest_with("h-alpha", &["spoke-baseline"], &["data-store"], &["alpha"]),
+            manifest: manifest_with("h-alpha", KNOWLEDGE_PEER_CAPS, &["data-store"], &["alpha"]),
         };
         let peer_beta = SelectablePeer {
             peer_id: "peer-beta".to_string(),
-            manifest: manifest_with("h-beta", &["spoke-baseline"], &["data-store"], &["beta"]),
+            manifest: manifest_with("h-beta", KNOWLEDGE_PEER_CAPS, &["data-store"], &["beta"]),
         };
 
         let selection = select_peer_for_op(
@@ -1849,7 +1854,7 @@ mod tests {
         // whose namespaces omit it.
         let peer_alpha = SelectablePeer {
             peer_id: "peer-alpha".to_string(),
-            manifest: manifest_with("h-alpha", &["spoke-baseline"], &["data-store"], &["alpha"]),
+            manifest: manifest_with("h-alpha", KNOWLEDGE_PEER_CAPS, &["data-store"], &["alpha"]),
         };
 
         let selection = select_peer_for_op(
@@ -1877,13 +1882,13 @@ mod tests {
     async fn role_preference_prefers_the_peer_whose_roles_include_the_preferred_role() {
         let plain = SelectablePeer {
             peer_id: "peer-a".to_string(),
-            manifest: manifest("h-a", &["spoke-baseline"]),
+            manifest: manifest("h-a", KNOWLEDGE_PEER_CAPS),
         };
         let checker = SelectablePeer {
             peer_id: "peer-z".to_string(),
             manifest: manifest_with(
                 "h-z",
-                &["spoke-baseline"],
+                KNOWLEDGE_PEER_CAPS,
                 &["data-store", "checker"],
                 &["toy_world"],
             ),
@@ -1906,13 +1911,13 @@ mod tests {
     ) {
         let plain = SelectablePeer {
             peer_id: "peer-a".to_string(),
-            manifest: manifest("h-a", &["spoke-baseline"]),
+            manifest: manifest("h-a", KNOWLEDGE_PEER_CAPS),
         };
         let checker = SelectablePeer {
             peer_id: "peer-z".to_string(),
             manifest: manifest_with(
                 "h-z",
-                &["spoke-baseline"],
+                KNOWLEDGE_PEER_CAPS,
                 &["data-store", "checker"],
                 &["toy_world"],
             ),
@@ -1928,22 +1933,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn knowledge_ops_select_only_explicitly_negotiated_knowledge_peers() {
+        let knowledge_only = SelectablePeer {
+            peer_id: "peer-k".to_string(),
+            manifest: manifest("h-k", &["spoke-knowledge"]),
+        };
+        let baseline = SelectablePeer {
+            peer_id: "peer-b".to_string(),
+            manifest: manifest("h-b", &["spoke-baseline"]),
+        };
+        let unrelated = SelectablePeer {
+            peer_id: "peer-u".to_string(),
+            manifest: manifest("h-u", &["l2-computable"]),
+        };
+
+        for op in [
+            "port.knowledge.get",
+            "port.knowledge.put",
+            "port.scope.list_knowledge_entries",
+        ] {
+            // A knowledge-only peer is the target of the three knowledge ops.
+            match select_peer_for_op(
+                &[unrelated.clone(), knowledge_only.clone()],
+                op,
+                &json!({}),
+            ) {
+                SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-k"),
+                SpokeResult::Reject(reject) => panic!("must select peer-k for {op}: {reject:?}"),
+            }
+            // `spoke-baseline` does NOT satisfy `spoke-knowledge`: a
+            // baseline-only peer is never selected for a knowledge op, even
+            // when it is the only candidate.
+            assert!(
+                matches!(
+                    select_peer_for_op(&[baseline.clone()], op, &json!({})),
+                    SpokeResult::Reject(_)
+                ),
+                "{op} must reject a baseline-only peer"
+            );
+            // Neither flag, no candidate.
+            assert!(
+                matches!(
+                    select_peer_for_op(&[unrelated.clone()], op, &json!({})),
+                    SpokeResult::Reject(_)
+                ),
+                "{op} must reject without an explicitly negotiated spoke-knowledge"
+            );
+        }
+
+        // The reverse never holds: `spoke-knowledge` alone serves no baseline
+        // `port.*` op.
+        assert!(matches!(
+            select_peer_for_op(&[knowledge_only], "port.relation.get", &json!({})),
+            SpokeResult::Reject(_)
+        ));
+    }
+
+    #[tokio::test]
     async fn no_role_preference_applies_to_port_baseline_ops() {
         let plain = SelectablePeer {
             peer_id: "peer-a".to_string(),
-            manifest: manifest("h-a", &["spoke-baseline"]),
+            manifest: manifest("h-a", KNOWLEDGE_PEER_CAPS),
         };
         let checker = SelectablePeer {
             peer_id: "peer-z".to_string(),
             manifest: manifest_with(
                 "h-z",
-                &["spoke-baseline"],
+                KNOWLEDGE_PEER_CAPS,
                 &["data-store", "checker"],
                 &["toy_world"],
             ),
         };
 
-        let selection = select_peer_for_op(&[plain, checker], "port.knowledge.put", &json!({}));
+        let selection = select_peer_for_op(&[plain, checker], "port.relation.put", &json!({}));
 
         match selection {
             SpokeResult::Ok(selected) => {
@@ -1987,7 +2049,7 @@ mod tests {
         };
         let undeclared = SelectablePeer {
             peer_id: "peer-a".to_string(),
-            manifest: manifest("h-a", &["spoke-baseline"]),
+            manifest: manifest("h-a", KNOWLEDGE_PEER_CAPS),
         };
 
         let selection = select_peer_for_op(
@@ -2038,11 +2100,11 @@ mod tests {
         // ownership-less peer (a hard filter, not a soft preference).
         let plain = SelectablePeer {
             peer_id: "peer-alpha".to_string(),
-            manifest: manifest("h-alpha", &["spoke-baseline"]),
+            manifest: manifest("h-alpha", KNOWLEDGE_PEER_CAPS),
         };
         let owned = SelectablePeer {
             peer_id: "peer-omega".to_string(),
-            manifest: manifest("h-omega", &["spoke-baseline", "ke-ownership"]),
+            manifest: manifest("h-omega", &["spoke-baseline", "spoke-knowledge", "ke-ownership"]),
         };
         let scope_op = "port.scope.list_knowledge_entries";
 
@@ -2077,11 +2139,11 @@ mod tests {
         // the family-less peer (hard filter, consumer contract §2.1).
         let plain = SelectablePeer {
             peer_id: "peer-alpha".to_string(),
-            manifest: manifest("h-alpha", &["spoke-baseline"]),
+            manifest: manifest("h-alpha", KNOWLEDGE_PEER_CAPS),
         };
         let cognition = SelectablePeer {
             peer_id: "peer-omega".to_string(),
-            manifest: manifest("h-omega", &["spoke-baseline", "spoke-cognition"]),
+            manifest: manifest("h-omega", &["spoke-baseline", "spoke-knowledge", "spoke-cognition"]),
         };
         let scope_op = "port.scope.list_knowledge_entries";
         let selection = select_peer_for_op(
@@ -2139,7 +2201,7 @@ mod tests {
         // A Memory `cognition_filter` is not a Scope-op carrier either.
         let scope_peer = SelectablePeer {
             peer_id: "peer-scope".to_string(),
-            manifest: manifest("h-scope", &["spoke-baseline"]),
+            manifest: manifest("h-scope", KNOWLEDGE_PEER_CAPS),
         };
         let routed = select_peer_for_op(
             &[scope_peer],
@@ -2159,7 +2221,7 @@ mod tests {
         // gap is `ke-ownership`.
         let cognition_only = SelectablePeer {
             peer_id: "peer-cognition".to_string(),
-            manifest: manifest("h-cognition", &["spoke-baseline", "spoke-cognition"]),
+            manifest: manifest("h-cognition", &["spoke-baseline", "spoke-knowledge", "spoke-cognition"]),
         };
         let denied = select_peer_for_op(
             &[cognition_only],
@@ -2188,7 +2250,7 @@ mod tests {
         // peer — the legacy flag is not a substitute.
         let legacy = SelectablePeer {
             peer_id: "peer-alpha".to_string(),
-            manifest: manifest("h-alpha", &["spoke-baseline", "l5-mind"]),
+            manifest: manifest("h-alpha", &["spoke-baseline", "spoke-knowledge", "l5-mind"]),
         };
         let selection = select_peer_for_op(
             &[legacy],
@@ -2267,7 +2329,7 @@ mod tests {
             peer_id: "peer-input-source".to_string(),
             manifest: manifest_with(
                 "h-input-source",
-                &["spoke-baseline"],
+                KNOWLEDGE_PEER_CAPS,
                 &["input-source"],
                 &["toy_world"],
             ),
@@ -2291,7 +2353,7 @@ mod tests {
         // No peer advertises `ke-extraction` — terminal no_capable_peer.
         let empty = SelectablePeer {
             peer_id: "peer-baseline".to_string(),
-            manifest: manifest("h-baseline", &["spoke-baseline"]),
+            manifest: manifest("h-baseline", KNOWLEDGE_PEER_CAPS),
         };
         match select_peer_for_op(&[empty], "extract", &json!({})) {
             SpokeResult::Ok(selected) => panic!("must reject, selected {}", selected.peer_id),
@@ -2318,7 +2380,7 @@ mod tests {
         // `extract` row).
         let baseline = SelectablePeer {
             peer_id: "peer-alpha".to_string(),
-            manifest: manifest("h-alpha", &["spoke-baseline"]),
+            manifest: manifest("h-alpha", KNOWLEDGE_PEER_CAPS),
         };
         let computable = SelectablePeer {
             peer_id: "peer-beta".to_string(),
@@ -2362,11 +2424,11 @@ mod tests {
         // picks U+E000 first.
         let bmp = SelectablePeer {
             peer_id: "\u{E000}".to_string(),
-            manifest: manifest("h-bmp", &["spoke-baseline"]),
+            manifest: manifest("h-bmp", KNOWLEDGE_PEER_CAPS),
         };
         let astral = SelectablePeer {
             peer_id: "\u{10000}".to_string(),
-            manifest: manifest("h-astral", &["spoke-baseline"]),
+            manifest: manifest("h-astral", KNOWLEDGE_PEER_CAPS),
         };
 
         let selection = select_peer_for_op(&[astral, bmp], "port.knowledge.get", &json!({}));
@@ -2384,12 +2446,12 @@ mod tests {
         let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
         let peer_a = FakePeer::new(
             "peer-a",
-            manifest("h-a", &["spoke-baseline"]),
+            manifest("h-a", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         let peer_b = FakePeer::new(
             "peer-b",
-            manifest("h-b", &["spoke-baseline"]),
+            manifest("h-b", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         router.register_peer(peer_b.clone()).expect("register b");
@@ -2420,7 +2482,7 @@ mod tests {
         let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
         let peer_a = FakePeer::new(
             "peer-a",
-            manifest("h-a", &["spoke-baseline"]),
+            manifest("h-a", KNOWLEDGE_PEER_CAPS),
             RemoteAdapterState::Established,
         );
         router.register_peer(peer_a.clone()).expect("register");
@@ -2484,7 +2546,7 @@ mod tests {
         router
             .register_peer(FakePeer::new(
                 "peer-a",
-                manifest_with("h-a", &["spoke-baseline"], &["data-store"], &["alpha"]),
+                manifest_with("h-a", KNOWLEDGE_PEER_CAPS, &["data-store"], &["alpha"]),
                 RemoteAdapterState::Established,
             ))
             .expect("register a");
@@ -2493,7 +2555,7 @@ mod tests {
                 "peer-b",
                 manifest_with(
                     "h-b",
-                    &["spoke-baseline", "l2-computable"],
+                    &["spoke-baseline", "spoke-knowledge", "l2-computable"],
                     &["data-store", "checker"],
                     &["alpha", "beta"],
                 ),
@@ -2509,7 +2571,10 @@ mod tests {
                 assert_eq!(composed.schema_version.get(), 1);
                 let mut capabilities = composed.capabilities.clone();
                 capabilities.sort();
-                assert_eq!(capabilities, vec!["l2-computable", "spoke-baseline"]);
+                assert_eq!(
+                    capabilities,
+                    vec!["l2-computable", "spoke-baseline", "spoke-knowledge"]
+                );
                 let mut roles = composed.roles.clone();
                 roles.sort();
                 assert_eq!(roles, vec!["checker", "data-store"]);
@@ -2543,14 +2608,14 @@ mod tests {
         router
             .register_peer(FakePeer::new(
                 "peer-b",
-                manifest_with("h-b", &["spoke-baseline"], &["data-store"], &["beta"]),
+                manifest_with("h-b", KNOWLEDGE_PEER_CAPS, &["data-store"], &["beta"]),
                 RemoteAdapterState::Established,
             ))
             .expect("register b");
         router
             .register_peer(FakePeer::new(
                 "peer-a",
-                manifest_with("h-a", &["spoke-baseline"], &["data-store"], &["alpha"]),
+                manifest_with("h-a", KNOWLEDGE_PEER_CAPS, &["data-store"], &["alpha"]),
                 RemoteAdapterState::Established,
             ))
             .expect("register a");
@@ -2625,7 +2690,7 @@ mod tests {
                 "peer-live",
                 manifest_with(
                     "h-live",
-                    &["spoke-baseline", "l2-computable"],
+                    &["spoke-baseline", "spoke-knowledge", "l2-computable"],
                     &["data-store", "checker"],
                     &["alpha", "beta"],
                 ),
@@ -2655,7 +2720,10 @@ mod tests {
                 assert_eq!(composed.host_id.as_str(), "router-only-live");
                 let mut capabilities = composed.capabilities.clone();
                 capabilities.sort();
-                assert_eq!(capabilities, vec!["l2-computable", "spoke-baseline"]);
+                assert_eq!(
+                    capabilities,
+                    vec!["l2-computable", "spoke-baseline", "spoke-knowledge"]
+                );
                 let mut roles = composed.roles.clone();
                 roles.sort();
                 assert_eq!(roles, vec!["checker", "data-store"]);

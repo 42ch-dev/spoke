@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "description": "Cross-language capability selection matrix. Each case is an op, the table that owns its requirement (core op table or the product port.* map), the negotiated capability set, the expected required capability and the expected dispatch verdict. Both language harnesses consume this same file byte-for-byte, so a table drift on either side (a knowledge op remapped to another flag, an implication between capability families, or a missing denial) fails one of the twins.",
+  "cases": [
+    {
+      "op": "port.knowledge.get",
+      "table": "product",
+      "negotiated": ["spoke-knowledge"],
+      "required": "spoke-knowledge",
+      "allowed": true
+    },
+    {
+      "op": "port.knowledge.get",
+      "table": "product",
+      "negotiated": ["spoke-baseline"],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.knowledge.get",
+      "table": "product",
+      "negotiated": ["ke-ownership"],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.knowledge.get",
+      "table": "product",
+      "negotiated": [],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.knowledge.put",
+      "table": "product",
+      "negotiated": ["spoke-knowledge"],
+      "required": "spoke-knowledge",
+      "allowed": true
+    },
+    {
+      "op": "port.knowledge.put",
+      "table": "product",
+      "negotiated": ["spoke-baseline"],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.knowledge.put",
+      "table": "product",
+      "negotiated": ["ke-ownership"],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.knowledge.put",
+      "table": "product",
+      "negotiated": [],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.scope.list_knowledge_entries",
+      "table": "product",
+      "negotiated": ["spoke-knowledge"],
+      "required": "spoke-knowledge",
+      "allowed": true
+    },
+    {
+      "op": "port.scope.list_knowledge_entries",
+      "table": "product",
+      "negotiated": ["spoke-baseline"],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.scope.list_knowledge_entries",
+      "table": "product",
+      "negotiated": ["ke-ownership"],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.scope.list_knowledge_entries",
+      "table": "product",
+      "negotiated": [],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.scope.list_timeline_events",
+      "table": "product",
+      "negotiated": ["spoke-baseline"],
+      "required": "spoke-baseline",
+      "allowed": true
+    },
+    {
+      "op": "port.scope.list_timeline_events",
+      "table": "product",
+      "negotiated": ["spoke-knowledge"],
+      "required": "spoke-baseline",
+      "allowed": false
+    },
+    {
+      "op": "assemble",
+      "table": "core",
+      "negotiated": ["spoke-baseline"],
+      "required": "spoke-baseline",
+      "allowed": true
+    },
+    {
+      "op": "assemble",
+      "table": "core",
+      "negotiated": ["spoke-knowledge"],
+      "required": "spoke-baseline",
+      "allowed": false
+    }
+  ]
+}

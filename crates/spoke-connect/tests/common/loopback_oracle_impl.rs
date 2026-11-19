@@ -12,9 +12,9 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::Serialize;
 use serde_json::{json, Value};
 use spoke_connect::core::{
-    derive_peer_id_from_ed25519_pubkey, ed25519_pubkey_from_peer_id, is_allowlisted,
-    required_capability, sign_hello_ed25519, verify_hello_ed25519, CapabilityClaims,
-    CapabilityTokenProof, CoreInvokeError, InboundSequence, NonceStore,
+    capability_satisfies, derive_peer_id_from_ed25519_pubkey, ed25519_pubkey_from_peer_id,
+    is_allowlisted, required_capability, sign_hello_ed25519, verify_hello_ed25519,
+    CapabilityClaims, CapabilityTokenProof, CoreInvokeError, InboundSequence, NonceStore,
 };
 use spoke_connect::remote::{
     connect_multi_peer_router, connect_remote_adapter, loopback_transport_pair,
@@ -25,8 +25,8 @@ use spoke_connect::remote::{
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
     orchestrate_check, orchestrate_upsert, spoke_ok, spoke_reject, BaselinePorts, CheckRunInput,
-    FindingPort, FullPorts, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
-    ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    FindingPort, FullPorts, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort,
+    RuleQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::host_capability_manifest::ExtensionKey;
@@ -82,16 +82,17 @@ pub fn check_request(scope_id: &str) -> CheckRequest {
 // ── Loopback host (test-only; mirror of TS `tests/remote/loopback-host.ts`) ─
 
 /// Default product `op_capability_requirements` map for the loopback host
-/// (frozen contract §5.1): every baseline `port.*` op requires
-/// `spoke-baseline`; the optional families require `l2-computable` /
-/// `l5-fork` (the gate denies these unless the negotiated capabilities
-/// carry the family capability — mirror of the T4 responder map).
+/// (frozen contract §5.1): the three knowledge ops require an explicitly
+/// negotiated `spoke-knowledge` (no flag implies it); every other baseline
+/// `port.*` op requires `spoke-baseline`; the optional families require
+/// `l2-computable` / `l5-fork` (the gate denies these unless the negotiated
+/// capabilities carry the family capability — mirror of the T4 responder map).
 const DEFAULT_PORT_CAPABILITY_REQUIREMENTS: &[(&str, &str)] = &[
-    ("port.knowledge.get", "spoke-baseline"),
-    ("port.knowledge.put", "spoke-baseline"),
+    ("port.knowledge.get", "spoke-knowledge"),
+    ("port.knowledge.put", "spoke-knowledge"),
     ("port.relation.get", "spoke-baseline"),
     ("port.relation.put", "spoke-baseline"),
-    ("port.scope.list_knowledge_entries", "spoke-baseline"),
+    ("port.scope.list_knowledge_entries", "spoke-knowledge"),
     ("port.scope.list_timeline_events", "spoke-baseline"),
     ("port.finding.put", "spoke-baseline"),
     ("port.rule.list", "spoke-baseline"),
@@ -479,7 +480,7 @@ impl HostInner {
             .map(|value| value.as_str())
             .or_else(|| required_capability(op));
         let allowed =
-            required.is_some_and(|requirement| negotiated.iter().any(|cap| cap == requirement));
+            required.is_some_and(|requirement| capability_satisfies(&negotiated, requirement));
         if !allowed {
             self.stats.lock().expect("stats lock").dispatch_denials += 1;
             self.send_error_response(
@@ -612,7 +613,7 @@ impl HostInner {
         match request.op.as_str() {
             "port.knowledge.get" => {
                 let entry_id = match field("entry_id") {
-                    SpokeResult::Ok(Value::String(id)) => id,
+                    SpokeResult::Ok(Value::String(id)) if !id.is_empty() => id,
                     _ => {
                         return spoke_reject(
                             SpokeRejectCode::InvalidInput,
@@ -1208,7 +1209,7 @@ pub async fn dial(
         host_seed: seed_host(),
         host_manifest: options
             .host_manifest
-            .unwrap_or_else(|| manifest("test-host", &["spoke-baseline"])),
+            .unwrap_or_else(|| manifest("test-host", &["spoke-baseline", "spoke-knowledge"])),
         allowlist: options
             .host_allowlist
             .unwrap_or_else(|| vec![peer_id_client.clone()]),
@@ -1228,7 +1229,7 @@ pub async fn dial(
         },
         local_manifest: options
             .client_manifest
-            .unwrap_or_else(|| manifest("test-client", &["spoke-baseline"])),
+            .unwrap_or_else(|| manifest("test-client", &["spoke-baseline", "spoke-knowledge"])),
         remote_pubkey: pubkey_host(),
         allowlist: options
             .allowlist

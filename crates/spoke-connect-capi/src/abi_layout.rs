@@ -46,7 +46,8 @@ use crate::remote_adapter::{
 use crate::responder::{
     SpokeConnectCallbackDestroyFn, SpokeConnectPeerKey, SpokeConnectPortsHandlerTable,
     SpokeConnectPortsListRulesFn, SpokeConnectPortsNoInputFn, SpokeConnectPortsRevisionFn,
-    SpokeConnectPortsTextFn, SpokeConnectToolHandleFn, SpokeConnectToolHandlerTable,
+    SpokeConnectPortsScopedRevisionFn, SpokeConnectPortsScopedTextFn, SpokeConnectPortsTextFn,
+    SpokeConnectToolHandleFn, SpokeConnectToolHandlerTable,
 };
 use crate::{
     SpokeConnectBuffer, SpokeConnectError, SpokeConnectForeignBuffer, SpokeConnectForeignError,
@@ -257,6 +258,22 @@ fn abi_layout_report() {
             ),
             ("extract", offset_of!(SpokeConnectPortsHandlerTable, extract)),
             ("destroy", offset_of!(SpokeConnectPortsHandlerTable, destroy)),
+            (
+                "knowledge_scope",
+                offset_of!(SpokeConnectPortsHandlerTable, knowledge_scope)
+            ),
+            (
+                "get_scoped_knowledge_entry",
+                offset_of!(SpokeConnectPortsHandlerTable, get_scoped_knowledge_entry)
+            ),
+            (
+                "put_scoped_knowledge_entry",
+                offset_of!(SpokeConnectPortsHandlerTable, put_scoped_knowledge_entry)
+            ),
+            (
+                "list_scoped_knowledge_entries",
+                offset_of!(SpokeConnectPortsHandlerTable, list_scoped_knowledge_entries)
+            ),
         ]
     );
     report!(
@@ -371,6 +388,8 @@ fn report_callbacks() {
     callback_typedef!(SpokeConnectPortsTextFn);
     callback_typedef!(SpokeConnectPortsRevisionFn);
     callback_typedef!(SpokeConnectPortsListRulesFn);
+    callback_typedef!(SpokeConnectPortsScopedTextFn);
+    callback_typedef!(SpokeConnectPortsScopedRevisionFn);
     callback_typedef!(SpokeConnectPortsNoInputFn);
     callback_typedef!(SpokeConnectToolHandleFn);
 
@@ -448,6 +467,26 @@ fn report_callbacks() {
         SpokeConnectPortsHandlerTable,
         destroy,
         SpokeConnectCallbackDestroyFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        knowledge_scope,
+        SpokeConnectPortsTextFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        get_scoped_knowledge_entry,
+        SpokeConnectPortsScopedTextFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        put_scoped_knowledge_entry,
+        SpokeConnectPortsScopedRevisionFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        list_scoped_knowledge_entries,
+        SpokeConnectPortsTextFn
     );
 
     callback_member!(SpokeConnectToolHandlerTable, handle, SpokeConnectToolHandleFn);

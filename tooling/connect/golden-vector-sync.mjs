@@ -17,6 +17,9 @@
  *   capability-token-ts-golden.json    (SSOT, TS-minted capability-token proof;
  *                                       top-level `provenance` is metadata only —
  *                                       consumers strip it before strict parse)
+ *   capability-matrix.json             (SSOT, capability selection/denial matrix
+ *                                       for the core op table + the product
+ *                                       port.* map)
  *
  * Each SSOT is validated structurally below, and every registered copy must
  * be byte-identical to its whole SSOT file.
@@ -437,6 +440,38 @@ function checkCapabilityTokenTsSsot(ssot, problems) {
   }
 }
 
+/** Structural checks on the capability-matrix SSOT; appends problems (empty = ok). */
+function checkCapabilityMatrixSsot(ssot, problems) {
+  if (ssot.schema_version !== 1) {
+    problems.push(`schema_version: expected 1, got ${JSON.stringify(ssot.schema_version)}`);
+  }
+  const cases = ssot.cases;
+  if (!Array.isArray(cases) || cases.length < 1) {
+    problems.push("cases: expected a non-empty array");
+    return;
+  }
+  for (const [i, vector] of cases.entries()) {
+    if (typeof vector?.op !== "string" || vector.op.length < 1) {
+      problems.push(`cases[${i}].op: expected a non-empty string`);
+    }
+    if (vector?.table !== "core" && vector?.table !== "product") {
+      problems.push(`cases[${i}].table: expected "core" or "product"`);
+    }
+    if (
+      !Array.isArray(vector?.negotiated) ||
+      !vector.negotiated.every((cap) => typeof cap === "string" && cap.length > 0)
+    ) {
+      problems.push(`cases[${i}].negotiated: expected an array of capability names`);
+    }
+    if (typeof vector?.required !== "string" || vector.required.length < 1) {
+      problems.push(`cases[${i}].required: expected a capability name`);
+    }
+    if (typeof vector?.allowed !== "boolean") {
+      problems.push(`cases[${i}].allowed: expected a boolean`);
+    }
+  }
+}
+
 /** One registered golden vector: SSOT path, copies, checker, optional refresh. */
 const VECTORS = [
   {
@@ -495,6 +530,17 @@ const VECTORS = [
     ].map((p) => join(REPO_ROOT, p)),
     check: checkCapabilityTokenTsSsot,
     // No derived fields — every value is pinned; --write only refreshes copies.
+    refreshSsot: null,
+  },
+  {
+    name: "capability-matrix",
+    ssotPath: join(REPO_ROOT, "crates/spoke-connect/tests/fixtures/capability-matrix.json"),
+    // TS consumer (Rust reads the SSOT directly via include_str!).
+    copies: [
+      "packages/spoke-connect-ts/tests/fixtures/capability-matrix.json",
+    ].map((p) => join(REPO_ROOT, p)),
+    check: checkCapabilityMatrixSsot,
+    // No derived fields — every row is pinned; --write only refreshes copies.
     refreshSsot: null,
   },
 ];

@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 use spoke_operations::{
     find_tool, list_tools, parse_tool_capability_id, spoke_ok, spoke_reject,
     validate_tool_arguments, ComputablePort, ComputablePorts, FindingPort, ForkPorts,
-    ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
-    ScopeQueryPort, SpokeRejectCode, SpokeResult,
+    ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort,
+    RuleQueryPort, ScopeQueryPort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::host_capability_manifest::ToolDescriptor;
 use spoke_schemas::{
@@ -135,11 +135,14 @@ impl RelationPort for ToyWorldAdapter {
 }
 
 #[async_trait]
-impl ScopeQueryPort for ToyWorldAdapter {
+impl KnowledgeQueryPort for ToyWorldAdapter {
     async fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.with_store(|store| store.list_knowledge_entries())
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for ToyWorldAdapter {
     async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         self.with_store(|store| store.list_timeline_events())
     }
@@ -404,11 +407,14 @@ impl RelationPort for BaselineOnlyAdapter {
 }
 
 #[async_trait]
-impl ScopeQueryPort for BaselineOnlyAdapter {
+impl KnowledgeQueryPort for BaselineOnlyAdapter {
     async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.inner.list_knowledge_entries(scope).await
     }
+}
 
+#[async_trait]
+impl ScopeQueryPort for BaselineOnlyAdapter {
     async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         self.inner.list_timeline_events(scope).await
     }

@@ -21,6 +21,7 @@ function runFixture({
   failures = [smoke], missing, invalidSource, invalidManifest, invalidProvenance, invalidCheckout,
   status = "completed", conclusion = "failure",
   jobStatus = "completed", jobConclusion, cancelledStep, advanceHead, allowSha, transferWithoutDelivery,
+  gateJobs = [], mergeCheckout, driftCheckout,
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "xcframework-apply-"));
   const put = (path, content, options) => {
@@ -45,7 +46,21 @@ function runFixture({
     git("init", "-q");
     git("add", ".");
     git("commit", "-qm", "fixture");
+    // A pull-request producer builds GitHub's virtual merge: a commit whose
+    // build inputs equal the declared head, which then sits on top of it.
+    const checkoutBase = git("rev-parse", "HEAD");
+    if (mergeCheckout) {
+      put("NOTES.md", "base branch note\n");
+      git("add", ".");
+      git("commit", "-qm", "declare the head above the merge checkout");
+    }
+    if (driftCheckout) {
+      put("crates/spoke-connect/src/drift.rs", "drift\n");
+      git("add", ".");
+      git("commit", "-qm", "declare the head above a drifting checkout");
+    }
     const producerSha = git("rev-parse", "HEAD");
+    const checkoutRevision = mergeCheckout || driftCheckout ? checkoutBase : producerSha;
     if (advanceHead) git("commit", "--allow-empty", "-qm", "advance the checkout past the producer");
     const head = git("rev-parse", "HEAD");
     const artifact = "artifact/spoke_connectFFI.xcframework";
@@ -68,7 +83,7 @@ function runFixture({
     put("artifact/spoke_connectFFI.xcframework.sha256", manifest);
     put("artifact/provenance.json", JSON.stringify({
       sourceHead: invalidProvenance ? "0".repeat(40) : producerSha,
-      checkoutRevision: invalidCheckout ? "1".repeat(40) : producerSha,
+      checkoutRevision: invalidCheckout ? "1".repeat(40) : checkoutRevision,
       manifest, rustcVersion: "rustc fixture",
     }));
     const steps = [...required, ...failures].filter((name) => name !== missing).map((name) => ({
@@ -76,7 +91,7 @@ function runFixture({
       status: "completed",
       conclusion: name === cancelledStep ? "cancelled" : failures.includes(name) ? "failure" : "success",
     }));
-    put("jobs.json", JSON.stringify({ jobs: [{ name: "xcframework", status: jobStatus, conclusion: jobConclusion ?? conclusion, steps }] }));
+    put("jobs.json", JSON.stringify({ jobs: [...gateJobs, { name: "xcframework", status: jobStatus, conclusion: jobConclusion ?? conclusion, steps }] }));
     put("metadata", `Xcframework|${invalidSource ? "0".repeat(40) : producerSha}|${status}|${conclusion}`);
     put("bin/gh", `#!/bin/sh\nif [ "$2" = view ]; then\n  case "$*" in *--template*) cat "$FIXTURE_ROOT/metadata" ;; *) cat "$FIXTURE_ROOT/jobs.json" ;; esac\nelif [ "$2" = download ]; then\n  dir=""\n  prev=""\n  for arg in "$@"; do\n    [ "$prev" = "--dir" ] && dir="$arg"\n    case "$arg" in --dir=*) dir="\${arg#--dir=}" ;; esac\n    prev="$arg"\n  done\n  cp -Rp "$FIXTURE_ROOT/artifact/." "$dir"\nelse exit 1; fi\n`, { mode: 0o755 });
     if (transferWithoutDelivery) {
@@ -98,6 +113,55 @@ function runFixture({
   }
 }
 
+describe("workflow gate jobs beside the producer", () => {
+  const gate = { name: "changes", status: "completed", conclusion: "success" };
+
+  it("applies a validated artifact when the changes path-filter gate also ran", () => {
+    const { result, contents, record, producerSha } = runFixture({ gateJobs: [gate] });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(contents, "new native\n");
+    assert.equal(record.xcframework.headSha, producerSha);
+  });
+
+  it("refuses a gate job that did not succeed", () => {
+    const { result, contents, record } = runFixture({ gateJobs: [{ ...gate, conclusion: "failure" }] });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+    assert.equal(record, undefined);
+  });
+
+  it("refuses a second job that is not a gate", () => {
+    const { result, contents, record } = runFixture({ gateJobs: [{ ...gate, name: "extra" }] });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+    assert.equal(record, undefined);
+  });
+});
+
+describe("pull-request merge checkout", () => {
+  it("applies an artifact whose checkout is a merge with identical build inputs", () => {
+    const { result, contents, record, producerSha } = runFixture({ mergeCheckout: true });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(contents, "new native\n");
+    assert.equal(record.xcframework.headSha, producerSha);
+    assert.notEqual(record.xcframework.producerCheckout, producerSha);
+  });
+
+  it("refuses a merge checkout that drifts in a build input", () => {
+    const { result, contents, record } = runFixture({ driftCheckout: true });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+    assert.equal(record, undefined);
+  });
+
+  it("refuses a producer checkout that is not in this checkout", () => {
+    const { result, contents, record } = runFixture({ invalidCheckout: true });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+    assert.equal(record, undefined);
+  });
+});
+
 describe("xcframework artifact application outcome gate", () => {
   for (const failures of [[smoke]]) {
     it(`applies a validated artifact after ${failures.join(" and ")}`, () => {
@@ -115,7 +179,6 @@ describe("xcframework artifact application outcome gate", () => {
     ["wrong source", { invalidSource: true }],
     ["invalid manifest", { invalidManifest: true }],
     ["invalid producer provenance", { invalidProvenance: true }],
-    ["producer checkout that is not the run head", { invalidCheckout: true }],
     ["job conclusion does not match the run", { jobConclusion: "success" }],
     ["cancelled producer step", { cancelledStep: smoke }],
     ["incomplete run", { status: "in_progress" }],

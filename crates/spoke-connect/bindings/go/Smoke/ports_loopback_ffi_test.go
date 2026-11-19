@@ -388,6 +388,26 @@ func (h *smokePortsHandler) ListKnowledgeEntries(scopeJSON string) (string, erro
 	return string(out), nil
 }
 
+// The scoped knowledge face over the same store: `get` / `put` carry no wire
+// scope, so the admitted value below is the only one they are served in.
+func (h *smokePortsHandler) ServesKnowledge() bool { return true }
+
+func (h *smokePortsHandler) KnowledgeScope(peerID string) (string, error) {
+	return `{"scope_id":"scope_go_ports_smoke"}`, nil
+}
+
+func (h *smokePortsHandler) GetScopedKnowledgeEntry(scopeJSON string, entryID string) (string, error) {
+	return h.GetKnowledgeEntry(entryID)
+}
+
+func (h *smokePortsHandler) PutScopedKnowledgeEntry(scopeJSON string, entryJSON string, expectedBaseRevision *uint64) (string, error) {
+	return h.PutKnowledgeEntry(entryJSON, expectedBaseRevision)
+}
+
+func (h *smokePortsHandler) ListScopedKnowledgeEntries(scopeJSON string) (string, error) {
+	return h.ListKnowledgeEntries(scopeJSON)
+}
+
 func (h *smokePortsHandler) ListTimelineEvents(scopeJSON string) (string, error) {
 	return "[]", nil
 }
@@ -642,6 +662,26 @@ func (h *keRemotePortsHandler) GetKnowledgeEntry(entryID string) (string, error)
 
 func (h *keRemotePortsHandler) PutKnowledgeEntry(entryJSON string, expectedBaseRevision *uint64) (string, error) {
 	return h.keUnserved("put_knowledge_entry")
+}
+
+// The scoped knowledge face: `list` is served inside the admitted scope,
+// `get` / `put` stay ordinary refusals in this double.
+func (h *keRemotePortsHandler) ServesKnowledge() bool { return true }
+
+func (h *keRemotePortsHandler) KnowledgeScope(peerID string) (string, error) {
+	return `{"scope_id":"toy-scope-001","viewpoint":"kb_tw_mira"}`, nil
+}
+
+func (h *keRemotePortsHandler) GetScopedKnowledgeEntry(scopeJSON string, entryID string) (string, error) {
+	return h.keUnserved("get_knowledge_entry")
+}
+
+func (h *keRemotePortsHandler) PutScopedKnowledgeEntry(scopeJSON string, entryJSON string, expectedBaseRevision *uint64) (string, error) {
+	return h.keUnserved("put_knowledge_entry")
+}
+
+func (h *keRemotePortsHandler) ListScopedKnowledgeEntries(scopeJSON string) (string, error) {
+	return h.ListKnowledgeEntries(scopeJSON)
 }
 
 func (h *keRemotePortsHandler) GetRelation(relationID string) (string, error) {

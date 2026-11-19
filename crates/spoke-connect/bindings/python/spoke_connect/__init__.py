@@ -1388,16 +1388,16 @@ _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD4 = ctypes.CFUNCTYP
 _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD5 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
     ctypes.POINTER(_UniffiRustCallStatus),
 )
-_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD6 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD6 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,ctypes.POINTER(ctypes.c_int8),
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD7 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
     ctypes.POINTER(_UniffiRustCallStatus),
 )
-_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD8 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,ctypes.POINTER(_UniffiRustBuffer),
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD8 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
     ctypes.POINTER(_UniffiRustCallStatus),
 )
-_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD9 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD9 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,_UniffiRustBuffer,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD10 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
@@ -1407,6 +1407,21 @@ _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD11 = ctypes.CFUNCTY
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD12 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD13 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,ctypes.POINTER(_UniffiRustBuffer),
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD14 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD15 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD16 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD17 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UNIFFI_CALLBACK_INTERFACE_CLONE_SPOKE_CONNECT_PORTS_HANDLER = ctypes.CFUNCTYPE(ctypes.c_uint64,ctypes.c_uint64,
@@ -1423,13 +1438,18 @@ class _UniffiVTableCallbackInterfaceSpokeConnectPortsHandler(ctypes.Structure):
         ("put_relation", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD3),
         ("list_knowledge_entries", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD4),
         ("list_timeline_events", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD5),
-        ("put_findings", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD6),
-        ("list_rules", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD7),
-        ("list_peer_host_capability_manifests", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD8),
-        ("project", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD9),
-        ("compute", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD10),
-        ("list_fork_timeline_events", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD11),
-        ("extract", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD12),
+        ("serves_knowledge", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD6),
+        ("knowledge_scope", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD7),
+        ("get_scoped_knowledge_entry", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD8),
+        ("put_scoped_knowledge_entry", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD9),
+        ("list_scoped_knowledge_entries", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD10),
+        ("put_findings", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD11),
+        ("list_rules", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD12),
+        ("list_peer_host_capability_manifests", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD13),
+        ("project", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD14),
+        ("compute", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD15),
+        ("list_fork_timeline_events", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD16),
+        ("extract", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD17),
     ]
 _UniffiLib.uniffi_spoke_connect_fn_init_callback_vtable_portshandler.argtypes = (
     ctypes.POINTER(_UniffiVTableCallbackInterfaceSpokeConnectPortsHandler),
@@ -3950,6 +3970,31 @@ class PortsHandler(typing.Protocol):
         raise NotImplementedError
     def list_timeline_events(self, scope_json: str) -> str:
         raise NotImplementedError
+    def serves_knowledge(self, ) -> bool:
+        """
+        Whether this handler serves the scoped knowledge face. `false`
+        means the face is absent: the responder answers the missing-face
+        deny branch and never calls the four knowledge callbacks below.
+        The C carrier derives it from a NULL `knowledge_scope` pointer.
+"""
+        raise NotImplementedError
+    def knowledge_scope(self, peer_id: str) -> str:
+        """
+        The `Scope` JSON the authenticated peer may read and write. The
+        scope never comes from the wire, and a refusal (an error return)
+        is the responder's `NOT_AUTHORIZED` row with no existence detail.
+"""
+        raise NotImplementedError
+    def get_scoped_knowledge_entry(self, scope_json: str,entry_id: str) -> str:
+        """
+        Scoped `get`/`put`/`list`: the admitted scope crosses as JSON in
+        front of the same payload the unscoped callback carries.
+"""
+        raise NotImplementedError
+    def put_scoped_knowledge_entry(self, scope_json: str,entry_json: str,expected_base_revision: typing.Optional[int]) -> str:
+        raise NotImplementedError
+    def list_scoped_knowledge_entries(self, scope_json: str) -> str:
+        raise NotImplementedError
     def put_findings(self, findings_json: str) -> str:
         raise NotImplementedError
     def list_rules(self, rule_refs: typing.List[str]) -> str:
@@ -4118,6 +4163,116 @@ class _UniffiTraitImplPortsHandlerImpl:
         )
 
     @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD6
+    def serves_knowledge(
+            uniffi_handle,
+            uniffi_out_return,
+            uniffi_call_status_ptr,
+        ):
+        uniffi_obj = _UniffiFfiConverterTypePortsHandler._handle_map.get(uniffi_handle)
+        def make_call():
+            uniffi_args = ()
+            uniffi_method = uniffi_obj.serves_knowledge
+            return uniffi_method(*uniffi_args)
+        def write_return_value(v):
+            uniffi_out_return[0] = _UniffiFfiConverterBoolean.lower(v)
+        _uniffi_trait_interface_call(
+                uniffi_call_status_ptr.contents,
+                make_call,
+                write_return_value,
+        )
+
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD7
+    def knowledge_scope(
+            uniffi_handle,
+            peer_id,
+            uniffi_out_return,
+            uniffi_call_status_ptr,
+        ):
+        uniffi_obj = _UniffiFfiConverterTypePortsHandler._handle_map.get(uniffi_handle)
+        def make_call():
+            uniffi_args = (_UniffiFfiConverterString.lift(peer_id), )
+            uniffi_method = uniffi_obj.knowledge_scope
+            return uniffi_method(*uniffi_args)
+        def write_return_value(v):
+            uniffi_out_return[0] = _UniffiFfiConverterString.lower(v)
+        _uniffi_trait_interface_call_with_error(
+                uniffi_call_status_ptr.contents,
+                make_call,
+                write_return_value,
+                FfiError,
+                _UniffiFfiConverterTypeFfiError.lower,
+        )
+
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD8
+    def get_scoped_knowledge_entry(
+            uniffi_handle,
+            scope_json,
+            entry_id,
+            uniffi_out_return,
+            uniffi_call_status_ptr,
+        ):
+        uniffi_obj = _UniffiFfiConverterTypePortsHandler._handle_map.get(uniffi_handle)
+        def make_call():
+            uniffi_args = (_UniffiFfiConverterString.lift(scope_json), _UniffiFfiConverterString.lift(entry_id), )
+            uniffi_method = uniffi_obj.get_scoped_knowledge_entry
+            return uniffi_method(*uniffi_args)
+        def write_return_value(v):
+            uniffi_out_return[0] = _UniffiFfiConverterString.lower(v)
+        _uniffi_trait_interface_call_with_error(
+                uniffi_call_status_ptr.contents,
+                make_call,
+                write_return_value,
+                FfiError,
+                _UniffiFfiConverterTypeFfiError.lower,
+        )
+
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD9
+    def put_scoped_knowledge_entry(
+            uniffi_handle,
+            scope_json,
+            entry_json,
+            expected_base_revision,
+            uniffi_out_return,
+            uniffi_call_status_ptr,
+        ):
+        uniffi_obj = _UniffiFfiConverterTypePortsHandler._handle_map.get(uniffi_handle)
+        def make_call():
+            uniffi_args = (_UniffiFfiConverterString.lift(scope_json), _UniffiFfiConverterString.lift(entry_json), _UniffiFfiConverterOptionalUInt64.lift(expected_base_revision), )
+            uniffi_method = uniffi_obj.put_scoped_knowledge_entry
+            return uniffi_method(*uniffi_args)
+        def write_return_value(v):
+            uniffi_out_return[0] = _UniffiFfiConverterString.lower(v)
+        _uniffi_trait_interface_call_with_error(
+                uniffi_call_status_ptr.contents,
+                make_call,
+                write_return_value,
+                FfiError,
+                _UniffiFfiConverterTypeFfiError.lower,
+        )
+
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD10
+    def list_scoped_knowledge_entries(
+            uniffi_handle,
+            scope_json,
+            uniffi_out_return,
+            uniffi_call_status_ptr,
+        ):
+        uniffi_obj = _UniffiFfiConverterTypePortsHandler._handle_map.get(uniffi_handle)
+        def make_call():
+            uniffi_args = (_UniffiFfiConverterString.lift(scope_json), )
+            uniffi_method = uniffi_obj.list_scoped_knowledge_entries
+            return uniffi_method(*uniffi_args)
+        def write_return_value(v):
+            uniffi_out_return[0] = _UniffiFfiConverterString.lower(v)
+        _uniffi_trait_interface_call_with_error(
+                uniffi_call_status_ptr.contents,
+                make_call,
+                write_return_value,
+                FfiError,
+                _UniffiFfiConverterTypeFfiError.lower,
+        )
+
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD11
     def put_findings(
             uniffi_handle,
             findings_json,
@@ -4139,7 +4294,7 @@ class _UniffiTraitImplPortsHandlerImpl:
                 _UniffiFfiConverterTypeFfiError.lower,
         )
 
-    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD7
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD12
     def list_rules(
             uniffi_handle,
             rule_refs,
@@ -4161,7 +4316,7 @@ class _UniffiTraitImplPortsHandlerImpl:
                 _UniffiFfiConverterTypeFfiError.lower,
         )
 
-    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD8
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD13
     def list_peer_host_capability_manifests(
             uniffi_handle,
             uniffi_out_return,
@@ -4182,7 +4337,7 @@ class _UniffiTraitImplPortsHandlerImpl:
                 _UniffiFfiConverterTypeFfiError.lower,
         )
 
-    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD9
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD14
     def project(
             uniffi_handle,
             project_request_json,
@@ -4204,7 +4359,7 @@ class _UniffiTraitImplPortsHandlerImpl:
                 _UniffiFfiConverterTypeFfiError.lower,
         )
 
-    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD10
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD15
     def compute(
             uniffi_handle,
             compute_request_json,
@@ -4226,7 +4381,7 @@ class _UniffiTraitImplPortsHandlerImpl:
                 _UniffiFfiConverterTypeFfiError.lower,
         )
 
-    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD11
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD16
     def list_fork_timeline_events(
             uniffi_handle,
             scope_json,
@@ -4248,7 +4403,7 @@ class _UniffiTraitImplPortsHandlerImpl:
                 _UniffiFfiConverterTypeFfiError.lower,
         )
 
-    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD12
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD17
     def extract(
             uniffi_handle,
             extract_request_json,
@@ -4288,6 +4443,11 @@ class _UniffiTraitImplPortsHandlerImpl:
         put_relation,
         list_knowledge_entries,
         list_timeline_events,
+        serves_knowledge,
+        knowledge_scope,
+        get_scoped_knowledge_entry,
+        put_scoped_knowledge_entry,
+        list_scoped_knowledge_entries,
         put_findings,
         list_rules,
         list_peer_host_capability_manifests,

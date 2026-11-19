@@ -987,6 +987,49 @@ describe("knowledge dispatch pre-validation and refusals", () => {
     }
   });
 
+  it("refuses a non-object list scope before admission and the store", async () => {
+    const admissionCalls: string[] = [];
+    const storeCalls: string[] = [];
+    const face = scopedStoreFace((peerId) => {
+      admissionCalls.push(peerId);
+      return spokeOk(SCOPE_A);
+    }, storeCalls);
+    const { clientEnd, sessionId, close } = await dialRawKnowledgeHost(
+      knowledgeOnlyServePorts(face),
+    );
+    try {
+      // The list scope decodes as a typed Scope (Rust parity): a scalar
+      // never reaches the list-admission guard or the store.
+      const refused = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        0,
+        "list-non-object-scope",
+        "port.scope.list_knowledge_entries",
+        { scope: "scope_a" },
+      );
+      expect(refused.error?.code).toBe("INVALID_INPUT");
+      expect(admissionCalls).toHaveLength(0);
+      expect(storeCalls).toHaveLength(0);
+
+      // A sound scope serves through the same host.
+      const served = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        1,
+        "list-object-scope",
+        "port.scope.list_knowledge_entries",
+        { scope: SCOPE_A },
+      );
+      expect(served.error).toBeUndefined();
+      expect(storeCalls).toEqual(["list"]);
+    } finally {
+      close();
+    }
+  });
+
   it("answers the dispatch-deny wire op_unsupported for absent faces (B4)", async () => {
     const admissionCalls: string[] = [];
     const face = scopedStoreFace((peerId) => {

@@ -2035,7 +2035,7 @@ export class ConnectResponder {
       if (
         doc.op === "port.scope.list_knowledge_entries" &&
         (requestedScope === undefined ||
-          !isJsonObject(payload) ||
+          !isJsonObject(requestedScope) ||
           !scopeMatchesAdmission(requestedScope, admitted.value))
       ) {
         // List requires an exact scope match; get/put carry no wire scope.

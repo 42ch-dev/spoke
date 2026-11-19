@@ -1499,7 +1499,7 @@ _UniffiLib.uniffi_spoke_connect_fn_init_callback_vtable_transport.argtypes = (
 _UniffiLib.uniffi_spoke_connect_fn_init_callback_vtable_transport.restype = None
 
 _uniffi_check_contract_api_version(_UniffiLib)
-# _uniffi_check_api_checksums(_UniffiLib)
+_uniffi_check_api_checksums(_UniffiLib)
 
 
 

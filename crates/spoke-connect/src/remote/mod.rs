@@ -198,3 +198,66 @@ pub(crate) fn baseline_scope_shape(op: &str, payload: &Value) -> Result<(), Spok
     baseline.remove("cognition");
     validate_scope_declaration(op, &serde_json::json!({ "scope": baseline })).map(|_| ())
 }
+
+#[cfg(test)]
+mod capability_matrix {
+    use super::port_op_requirement;
+    use crate::core::{capability_satisfies, required_capability};
+
+    // Shared SSOT (Rust fixture) + the TS copy the other harness reads; the
+    // byte-equality assertion keeps the two languages on one matrix.
+    const FIXTURE: &str = include_str!("../../tests/fixtures/capability-matrix.json");
+    const TS_FIXTURE: &str =
+        include_str!("../../../../packages/spoke-connect-ts/tests/fixtures/capability-matrix.json");
+
+    #[test]
+    fn the_matrix_is_shared_with_the_typescript_harness() {
+        assert_eq!(
+            FIXTURE, TS_FIXTURE,
+            "the Rust and TS harnesses must consume the same capability matrix byte-for-byte"
+        );
+    }
+
+    #[test]
+    fn the_op_tables_match_the_shared_capability_matrix() {
+        let matrix: serde_json::Value =
+            serde_json::from_str(FIXTURE).expect("capability matrix is valid JSON");
+        let cases = matrix["cases"]
+            .as_array()
+            .expect("cases is an array of matrix rows");
+        assert!(!cases.is_empty(), "the matrix must carry at least one case");
+
+        for case in cases {
+            let op = case["op"].as_str().expect("op is a string");
+            let table = case["table"].as_str().expect("table is a string");
+            let negotiated: Vec<String> = case["negotiated"]
+                .as_array()
+                .expect("negotiated is an array")
+                .iter()
+                .map(|cap| {
+                    cap.as_str()
+                        .expect("negotiated capabilities are strings")
+                        .to_owned()
+                })
+                .collect();
+            let expected_required = case["required"].as_str().expect("required is a string");
+            let expected_allowed = case["allowed"].as_bool().expect("allowed is a boolean");
+
+            let required = match table {
+                "core" => required_capability(op),
+                "product" => port_op_requirement(op),
+                other => panic!("{op}: unknown table {other}"),
+            };
+            assert_eq!(
+                required,
+                Some(expected_required),
+                "{op}: {table} table requirement drifted from the shared matrix"
+            );
+            assert_eq!(
+                capability_satisfies(&negotiated, expected_required),
+                expected_allowed,
+                "{op}: dispatch verdict drifted for negotiated {negotiated:?}"
+            );
+        }
+    }
+}

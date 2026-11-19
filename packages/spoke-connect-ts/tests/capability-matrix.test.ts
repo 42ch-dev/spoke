@@ -1,0 +1,53 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+import { capabilitySatisfies, requiredCapability } from "../src/core/dispatch.js";
+import { PORT_OP_CAPABILITY_REQUIREMENTS } from "../src/remote/responder.js";
+
+/**
+ * Capability selection matrix parity. The fixture is a byte-identical
+ * registered copy of the SSOT under
+ * `crates/spoke-connect/tests/fixtures/capability-matrix.json` (sync gate:
+ * `tooling/connect/golden-vector-sync.mjs`); the Rust twin iterates the same
+ * rows against its own tables, so a requirement or verdict drift on either
+ * side fails here or there.
+ */
+interface CapabilityCase {
+  op: string;
+  table: "core" | "product";
+  negotiated: string[];
+  required: string;
+  allowed: boolean;
+}
+
+const MATRIX = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./fixtures/capability-matrix.json", import.meta.url)), "utf8"),
+) as { schema_version: number; cases: CapabilityCase[] };
+
+/** The requirement the row's owning table reports for its op. */
+function tableRequirement(row: CapabilityCase): string | undefined {
+  return row.table === "core"
+    ? requiredCapability(row.op)
+    : PORT_OP_CAPABILITY_REQUIREMENTS[row.op];
+}
+
+describe("shared capability matrix", () => {
+  it("carries schema_version 1 rows", () => {
+    expect(MATRIX.schema_version).toBe(1);
+    expect(MATRIX.cases.length).toBeGreaterThan(0);
+  });
+
+  it("matches the core and product tables row by row", () => {
+    for (const row of MATRIX.cases) {
+      expect(tableRequirement(row), `${row.op}: ${row.table} table requirement`).toBe(
+        row.required,
+      );
+      expect(
+        capabilitySatisfies(row.negotiated, row.required),
+        `${row.op}: verdict for negotiated [${row.negotiated.join(", ")}]`,
+      ).toBe(row.allowed);
+    }
+  });
+});

@@ -144,9 +144,12 @@ pub type SpokeConnectToolHandleFn = unsafe extern "C" fn(
 /// then stays with the caller and `destroy` is not called.
 ///
 /// The four trailing knowledge pointers are appended after `destroy` so every
-/// pre-existing offset keeps its value: a NULL `knowledge_scope` means the
-/// handler serves no scoped knowledge face, and the three scoped callbacks are
-/// then never called.
+/// pre-existing offset keeps its value, and they are all-or-nothing: all four
+/// present serves the scoped knowledge face, all four NULL leaves it absent,
+/// and a partial block is refused at construction. The revision-1 constructor
+/// reads only the fields up to `destroy`, so an older host's smaller table is
+/// never read past its end; the sized constructor takes the caller's declared
+/// table size for the same reason.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SpokeConnectPortsHandlerTable {
@@ -735,12 +738,59 @@ unsafe fn peer_key_map(
     Ok(keys)
 }
 
-/// Creates a ports-handler handle from a callback table. On success ownership
-/// of `user_data` transfers to the handle; on failure nothing is transferred
-/// and `destroy` is not called.
+/// The size of a revision-1 table: it ends where the appended knowledge block
+/// starts.
+const PORTS_TABLE_REVISION_1_SIZE: usize =
+    std::mem::offset_of!(SpokeConnectPortsHandlerTable, knowledge_scope);
+
+/// Creates a ports-handler handle from a revision-1 callback table. On success
+/// ownership of `user_data` transfers to the handle; on failure nothing is
+/// transferred and `destroy` is not called.
+///
+/// Only the fields up to and including `destroy` are read, so a host that
+/// allocated the smaller revision-1 table is never read past its end; the
+/// knowledge block is unused and the handler serves no scoped knowledge face.
+/// Use [`spoke_connect_ports_handler_new_v2`] to publish that face.
 #[no_mangle]
 pub unsafe extern "C" fn spoke_connect_ports_handler_new(
     table: *const SpokeConnectPortsHandlerTable,
+    user_data: *mut c_void,
+    out_handler: *mut *mut SpokeConnectPortsHandler,
+    out_error: *mut SpokeConnectError,
+) -> i32 {
+    unsafe {
+        ports_handler_new_sized(
+            table,
+            PORTS_TABLE_REVISION_1_SIZE,
+            user_data,
+            out_handler,
+            out_error,
+        )
+    }
+}
+
+/// Creates a ports-handler handle from a callback table whose allocation is
+/// `table_size` bytes — `sizeof(SpokeConnectPortsHandlerTable)` on the header
+/// the caller compiled against. On success ownership of `user_data` transfers
+/// to the handle; on failure nothing is transferred and `destroy` is not
+/// called.
+#[no_mangle]
+pub unsafe extern "C" fn spoke_connect_ports_handler_new_v2(
+    table: *const SpokeConnectPortsHandlerTable,
+    table_size: usize,
+    user_data: *mut c_void,
+    out_handler: *mut *mut SpokeConnectPortsHandler,
+    out_error: *mut SpokeConnectError,
+) -> i32 {
+    unsafe { ports_handler_new_sized(table, table_size, user_data, out_handler, out_error) }
+}
+
+/// The shared sized constructor: reads only the fields `table_size` covers and
+/// refuses a table shorter than revision 1, so no caller's allocation is read
+/// past its end.
+unsafe fn ports_handler_new_sized(
+    table: *const SpokeConnectPortsHandlerTable,
+    table_size: usize,
     user_data: *mut c_void,
     out_handler: *mut *mut SpokeConnectPortsHandler,
     out_error: *mut SpokeConnectError,
@@ -752,15 +802,47 @@ pub unsafe extern "C" fn spoke_connect_ports_handler_new(
             if table.is_null() {
                 return Err(AbiFailure::invalid("table is NULL"));
             }
-            let table = *table;
+            if table_size < PORTS_TABLE_REVISION_1_SIZE {
+                return Err(AbiFailure::invalid(format!(
+                    "ports handler table size {table_size} is below the revision-1 size \
+                     {PORTS_TABLE_REVISION_1_SIZE}"
+                )));
+            }
+            // SAFETY: every member is an optional function pointer, whose zero
+            // bit pattern is `None`.
+            let mut record: SpokeConnectPortsHandlerTable = std::mem::zeroed();
+            let covered = table_size.min(std::mem::size_of::<SpokeConnectPortsHandlerTable>());
+            // SAFETY: `table` is a valid `covered`-byte read and `record` has
+            // room for it; the knowledge block beyond `covered` stays `None`.
+            ptr::copy_nonoverlapping(
+                table as *const u8,
+                &mut record as *mut SpokeConnectPortsHandlerTable as *mut u8,
+                covered,
+            );
             // Only `destroy` is required: every op pointer is optional, and a
             // family with no callbacks at all is genuinely absent (B6).
-            if table.destroy.is_none() {
+            if record.destroy.is_none() {
                 return Err(AbiFailure::invalid(
                     "ports handler table must carry destroy",
                 ));
             }
-            let handler = Arc::new(ForeignPortsHandler::new(table, user_data));
+            // The scoped knowledge face is all-or-nothing: a resolver alone
+            // would publish a face whose callbacks are missing.
+            let knowledge = [
+                record.knowledge_scope.is_some(),
+                record.get_scoped_knowledge_entry.is_some(),
+                record.put_scoped_knowledge_entry.is_some(),
+                record.list_scoped_knowledge_entries.is_some(),
+            ]
+            .iter()
+            .filter(|present| **present)
+            .count();
+            if knowledge != 0 && knowledge != 4 {
+                return Err(AbiFailure::invalid(
+                    "ports handler knowledge face needs all four scoped callbacks or none",
+                ));
+            }
+            let handler = Arc::new(ForeignPortsHandler::new(record, user_data));
             out_handler.write(Box::into_raw(Box::new(handler)) as *mut SpokeConnectPortsHandler);
             Ok(())
         })
@@ -2033,8 +2115,9 @@ mod tests {
         let mut handler: *mut SpokeConnectPortsHandler = ptr::null_mut();
         let mut error = empty_record();
         let status = unsafe {
-            spoke_connect_ports_handler_new(
+            spoke_connect_ports_handler_new_v2(
                 &table,
+                std::mem::size_of::<SpokeConnectPortsHandlerTable>(),
                 Arc::into_raw(host) as *mut c_void,
                 &mut handler,
                 &mut error,
@@ -2640,6 +2723,122 @@ mod tests {
 
         unsafe { crate::remote_adapter::spoke_connect_transport_free(transport) };
         drop(unsafe { Arc::from_raw(context as *const HostState) });
+    }
+
+    /// A context destroy for the constructor-shape battery: nothing is owned.
+    unsafe extern "C" fn no_op_destroy(_user_data: *mut c_void) {}
+
+    /// The two constructors separate table size from table content: the
+    /// revision-1 entry reads only its own prefix, the sized entry refuses a
+    /// short table before copying, and the knowledge block is all-or-nothing.
+    #[test]
+    fn ports_handler_constructor_reads_only_the_declared_table_size() {
+        let mut table = knowledge_host_table();
+        table.destroy = Some(no_op_destroy);
+        let mut handler: *mut SpokeConnectPortsHandler = ptr::null_mut();
+        let mut error = empty_record();
+
+        // The revision-1 entry stops at `destroy`, so a fully wired knowledge
+        // block is ignored and the face stays unpublished.
+        assert_eq!(
+            unsafe {
+                spoke_connect_ports_handler_new(&table, ptr::null_mut(), &mut handler, &mut error)
+            },
+            SPOKE_CONNECT_OK
+        );
+        let Ok(created) = (unsafe { ports_handler_handle(handler) }) else {
+            panic!("the revision-1 table creates a handle");
+        };
+        assert!(
+            !created.serves_knowledge(),
+            "revision 1 serves no knowledge"
+        );
+        unsafe { spoke_connect_ports_handler_free(handler) };
+
+        // A table shorter than revision 1 is refused before any copy.
+        handler = ptr::null_mut();
+        assert_eq!(
+            unsafe {
+                spoke_connect_ports_handler_new_v2(
+                    &table,
+                    PORTS_TABLE_REVISION_1_SIZE - 1,
+                    ptr::null_mut(),
+                    &mut handler,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_INVALID_ARGUMENT
+        );
+        assert!(handler.is_null(), "a rejected creation leaves no handle");
+        let fields = unsafe { error_fields(&mut error) };
+        assert!(
+            fields.message.contains("below the revision-1 size"),
+            "{}",
+            fields.message
+        );
+
+        // The declared size, not the content, bounds what is read: the same
+        // fully wired table read as revision 1 carries no knowledge block.
+        assert_eq!(
+            unsafe {
+                spoke_connect_ports_handler_new_v2(
+                    &table,
+                    PORTS_TABLE_REVISION_1_SIZE,
+                    ptr::null_mut(),
+                    &mut handler,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_OK
+        );
+        let Ok(created) = (unsafe { ports_handler_handle(handler) }) else {
+            panic!("a revision-1-sized table creates a handle");
+        };
+        assert!(!created.serves_knowledge());
+        unsafe { spoke_connect_ports_handler_free(handler) };
+
+        // A partial knowledge block is refused at construction.
+        table.list_scoped_knowledge_entries = None;
+        handler = ptr::null_mut();
+        assert_eq!(
+            unsafe {
+                spoke_connect_ports_handler_new_v2(
+                    &table,
+                    std::mem::size_of::<SpokeConnectPortsHandlerTable>(),
+                    ptr::null_mut(),
+                    &mut handler,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_INVALID_ARGUMENT
+        );
+        assert!(handler.is_null());
+        let fields = unsafe { error_fields(&mut error) };
+        assert!(
+            fields.message.contains("knowledge face needs all four"),
+            "{}",
+            fields.message
+        );
+
+        // All four present publishes the face.
+        table.list_scoped_knowledge_entries = Some(host_scoped_list);
+        assert_eq!(
+            unsafe {
+                spoke_connect_ports_handler_new_v2(
+                    &table,
+                    std::mem::size_of::<SpokeConnectPortsHandlerTable>(),
+                    ptr::null_mut(),
+                    &mut handler,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_OK
+        );
+        let Ok(created) = (unsafe { ports_handler_handle(handler) }) else {
+            panic!("the complete knowledge table creates a handle");
+        };
+        assert!(created.serves_knowledge());
+        unsafe { spoke_connect_ports_handler_free(handler) };
     }
 
     /// A ports round trip: the C dialer's call reaches the host callback

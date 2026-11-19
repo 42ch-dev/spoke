@@ -699,8 +699,9 @@ void assert_host_queue_loopback_ports(const Golden& golden) {
 
     HostPorts* ports_host = new HostPorts{&ports_state, &ports_counters};
     SpokeConnectPortsHandler* ports_handler = nullptr;
-    require_ok(spoke_connect_ports_handler_new(&ports, ports_host, &ports_handler, &error),
-               &error, kLoopbackLabel, "spoke_connect_ports_handler_new");
+    require_ok(spoke_connect_ports_handler_new_v2(&ports, sizeof(ports), ports_host,
+                                                 &ports_handler, &error),
+               &error, kLoopbackLabel, "spoke_connect_ports_handler_new_v2");
 
     const SpokeConnectSlice seed = slice_of(golden.seed);
     const SpokeConnectSlice manifest = slice_of(golden.manifest_json);

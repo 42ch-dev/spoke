@@ -2062,6 +2062,20 @@ export class ConnectResponder {
         }
         listedScope = effective;
       }
+      // Only a put mutates: an expiry after the store was invoked may have
+      // applied it, so that expiry reports an unknown outcome (matching
+      // Rust's `knowledge_uncertain_reject`). Reads have no store effect to
+      // be uncertain about and keep the plain timeout; a budget spent by
+      // admission answers the plain timeout without reaching the store.
+      const remainingMs = Math.max(0, deadlineMs - Date.now());
+      const knowledgeUncertainOnExpiry =
+        doc.op === "port.knowledge.put" && remainingMs > 0
+          ? spokeReject(
+              SpokeRejectCode.OUTCOME_UNCERTAIN,
+              `knowledge serve wait exceeded the local budget of ${this.#invokeTimeoutMs}ms; the outcome is unknown — re-read the entry to observe the committed revision before replaying the same request`,
+              { retry_class: "uncertain", kind: "timeout" },
+            )
+          : undefined;
       const knowledgeResult: SpokeResult<unknown> = await this.#withServeBudget(
         (): Promise<SpokeResult<unknown>> => {
           switch (doc.op) {
@@ -2082,8 +2096,8 @@ export class ConnectResponder {
               return face.store.listScopedKnowledgeEntries(listedScope);
           }
         },
-        undefined,
-        Math.max(0, deadlineMs - Date.now()),
+        knowledgeUncertainOnExpiry,
+        remainingMs,
       );
       if (this.#stateInternal === "Closed") {
         return;

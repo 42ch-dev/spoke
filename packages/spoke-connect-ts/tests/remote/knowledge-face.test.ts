@@ -132,7 +132,7 @@ describe("selectPeerForOp knowledge rows", () => {
 function scopedStoreFace(
   admission: (peerId: string) => SpokeResult<Scope>,
   storeCalls: string[] = [],
-  listGate?: Promise<void>,
+  storeGate?: Promise<void>,
 ): RemoteKnowledgeFace {
   const entries = new Map<string, Map<string, KnowledgeEntry>>();
   const bucket = (scopeId: string): Map<string, KnowledgeEntry> => {
@@ -147,6 +147,9 @@ function scopedStoreFace(
     store: {
       async getScopedKnowledgeEntry(scope, entryId) {
         storeCalls.push("get");
+        if (storeGate !== undefined) {
+          await storeGate;
+        }
         const found = bucket(scope.scope_id).get(entryId);
         return found === undefined
           ? spokeReject("KNOWLEDGE_ENTRY_NOT_FOUND", "no such entry")
@@ -154,6 +157,9 @@ function scopedStoreFace(
       },
       async putScopedKnowledgeEntry(scope, entry, expectedBaseRevision) {
         storeCalls.push("put");
+        if (storeGate !== undefined) {
+          await storeGate;
+        }
         const store = bucket(scope.scope_id);
         const stored = store.get(entry.entry_id);
         if (expectedBaseRevision === null) {
@@ -173,8 +179,8 @@ function scopedStoreFace(
         storeCalls.push("list");
         // A pending gate keeps the store call outstanding, so only the serve
         // deadline can answer.
-        if (listGate !== undefined) {
-          await listGate;
+        if (storeGate !== undefined) {
+          await storeGate;
         }
         const all = [...bucket(scope.scope_id).values()].filter(
           (candidate) =>
@@ -205,7 +211,7 @@ async function dialKnowledgeOnlyHost(options: {
   clientSeed: Uint8Array;
   clientCapabilities: string[];
   storeCalls?: string[];
-  listGate?: Promise<void>;
+  storeGate?: Promise<void>;
   invokeTimeoutMs?: number;
 }): Promise<DialedKnowledgeHost> {
   const hostSeed = seed(0xa0);
@@ -221,7 +227,7 @@ async function dialKnowledgeOnlyHost(options: {
     allowlist: [clientPeerId],
     peerKeys: { [clientPeerId]: clientPubkey },
     ports: knowledgeOnlyServePorts(
-      scopedStoreFace(options.admission, options.storeCalls, options.listGate),
+      scopedStoreFace(options.admission, options.storeCalls, options.storeGate),
     ),
     invokeTimeoutMs: options.invokeTimeoutMs,
   });
@@ -517,8 +523,7 @@ describe("knowledge-only responder", () => {
     const storeCalls: string[] = [];
     // Executor form: `Promise.withResolvers` needs the ES2024 lib. The store
     // call stays outstanding, so only the serve deadline can answer.
-    const listGate = new Promise<void>(() => {
-      /* never settles */
+    const storeGate = new Promise<void>(() => {
     });
     // Only `Date` is faked: admission advances the responder's clock past the
     // budget instead of sleeping, so no wall-clock bound is asserted and the
@@ -534,7 +539,7 @@ describe("knowledge-only responder", () => {
       clientSeed: seed(0x13),
       clientCapabilities: ["spoke-knowledge"],
       storeCalls,
-      listGate,
+      storeGate,
       invokeTimeoutMs: 100,
     });
     try {
@@ -566,6 +571,64 @@ describe("knowledge-only responder", () => {
       const listed = await client.listKnowledgeEntries(SCOPE_A);
       expect(listed.ok).toBe(true);
       expect(storeCalls).toEqual(["list"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("answers OUTCOME_UNCERTAIN when the put store call outlives the budget", async () => {
+    const storeCalls: string[] = [];
+    // Executor form: `Promise.withResolvers` needs the ES2024 lib. The gate
+    // never settles, so the put is invoked (recorded in `storeCalls`) and the
+    // serve deadline answers while it may have applied — §14.3 uncertain,
+    // not a clean timeout.
+    const storeGate = new Promise<void>(() => {});
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(SCOPE_A),
+      clientSeed: seed(0x16),
+      clientCapabilities: ["spoke-knowledge"],
+      storeCalls,
+      storeGate,
+      invokeTimeoutMs: 60,
+    });
+    try {
+      const put = await client.putKnowledgeEntry(entry("kb_unc"), null);
+      expect(put.ok).toBe(false);
+      if (!put.ok) {
+        expect(put.code).toBe("OUTCOME_UNCERTAIN");
+        expect(put.details?.kind).toBe("timeout");
+        expect(put.details?.retry_class).toBe("uncertain");
+        expect(put.message).toContain("outcome is unknown");
+      }
+      // The store was invoked before the budget answered.
+      expect(storeCalls).toEqual(["put"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("keeps the plain serve timeout when the get store call outlives the budget", async () => {
+    const storeCalls: string[] = [];
+    // Same never-settling gate: a read has no store effect to be uncertain
+    // about, so the expiry keeps the plain serve timeout.
+    const storeGate = new Promise<void>(() => {});
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(SCOPE_A),
+      clientSeed: seed(0x17),
+      clientCapabilities: ["spoke-knowledge"],
+      storeCalls,
+      storeGate,
+      invokeTimeoutMs: 60,
+    });
+    try {
+      const got = await client.getKnowledgeEntry("kb_plain");
+      expect(got.ok).toBe(false);
+      if (!got.ok) {
+        expect(got.code).toBe("INTERNAL_ERROR");
+        expect(got.details?.kind).toBe("timeout");
+        expect(got.details?.retry_class).toBeUndefined();
+      }
+      expect(storeCalls).toEqual(["get"]);
     } finally {
       close();
     }

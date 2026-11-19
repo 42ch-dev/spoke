@@ -446,6 +446,7 @@ pub use foreign_tool_handler::ToolHandler;
 // one blocking-pool thread per in-flight callback.
 #[cfg(feature = "remote-adapter")]
 mod foreign_ports_handler {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::Arc;
 
     use async_trait::async_trait;
@@ -468,6 +469,7 @@ mod foreign_ports_handler {
 
     use super::ffi_runtime;
     use super::foreign_tool_handler::{containment_reject, rehang_details};
+    use super::panic_payload_message;
     use super::remote_adapter_ffi::FfiError;
 
     /// Foreign-callback responder ports face (D16): the native binding
@@ -601,6 +603,40 @@ mod foreign_ports_handler {
         map_handled(what, handled)
     }
 
+    /// Run the synchronous `knowledge_scope` resolver from the responder's
+    /// async task.
+    ///
+    /// The admission seam is a plain `Fn(&str)` the responder calls
+    /// synchronously, so it cannot `.await` the blocking-pool handoff the way
+    /// [`call_ports`] does. `block_in_place` first releases the worker thread
+    /// — the runtime puts a replacement on the pool, so a blocking resolver
+    /// starves nothing — then the call itself runs on the blocking pool, and
+    /// a foreign panic is contained to an error instead of unwinding the
+    /// responder task and leaving the request unanswered.
+    fn resolve_scope(handler: Arc<dyn PortsHandler>, peer_id: String) -> Result<String, FfiError> {
+        let handled = catch_unwind(AssertUnwindSafe(|| {
+            tokio::task::block_in_place(|| {
+                ffi_runtime().block_on(
+                    ffi_runtime().spawn_blocking(move || handler.knowledge_scope(peer_id)),
+                )
+            })
+        }));
+        match handled {
+            Ok(Ok(result)) => result,
+            Ok(Err(join)) => Err(FfiError::Dial {
+                kind: "task".into(),
+                message: format!("knowledge_scope task failed: {join}"),
+            }),
+            Err(payload) => Err(FfiError::Dial {
+                kind: "panic".into(),
+                message: format!(
+                    "knowledge_scope panicked: {}",
+                    panic_payload_message(payload)
+                ),
+            }),
+        }
+    }
+
     /// Bridge a foreign-callback [`PortsHandler`] into the library
     /// [`crate::remote::RemoteServePorts`] type (D16 threading model).
     ///
@@ -649,7 +685,7 @@ mod foreign_ports_handler {
                     details: None,
                 })
             };
-            match admission_handler.knowledge_scope(peer_id.to_owned()) {
+            match resolve_scope(Arc::clone(&admission_handler), peer_id.to_owned()) {
                 Ok(scope_json) => match serde_json::from_str(&scope_json) {
                     Ok(scope) => SpokeResult::Ok(scope),
                     Err(_) => refused(),

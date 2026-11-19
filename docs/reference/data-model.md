@@ -111,6 +111,8 @@ Host self-description for in-process collaboration. Required: `schema_version`, 
 | `authority` | `{ scope_key }`, optional | Explicit single-writer authority scope; when absent with `data-store` in roles, implicit authority is this manifest's `host_id` |
 | `extensions` | ExtensionMap, required | Deployment metadata — distinct surface from KnowledgeEntry `extensions` |
 
+The three remote knowledge ops require `spoke-knowledge` explicitly in the session's `negotiated_capabilities`; `spoke-baseline` authorizes only baseline ops. A baseline host that serves remote knowledge also declares `spoke-knowledge` and attaches the scoped knowledge face. Capability-token grants use the same exact-membership rule.
+
 ## ToolDescriptor
 
 Closed descriptor of one remote-invokable tool, declared in `HostCapabilityManifest.tools[]`. Required: `schema_version`, `capability_id`, `op`, `description`, `input`, `output`. The descriptor has no `extensions` bag.

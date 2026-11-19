@@ -660,7 +660,7 @@ All port methods resolve to `SpokeResult<T>` as the application outcome. Adapter
 | Capability | Required interface families | Orchestration enabled |
 |---|---|---|
 | `spoke-baseline` | `KnowledgeEntryPort`, `KnowledgeQueryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, **`HostManifestPort`** | `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble` |
-| `spoke-knowledge` | `ScopedKnowledgePort` (standalone connect-serving face; also satisfied by `spoke-baseline` at remote dispatch and routing) | Remote `port.knowledge.get`, `port.knowledge.put`, and `port.scope.list_knowledge_entries` serving |
+| `spoke-knowledge` | `ScopedKnowledgePort` (standalone connect-serving face; required explicitly in `negotiated_capabilities`, never satisfied by `spoke-baseline`) | Remote `port.knowledge.get`, `port.knowledge.put`, and `port.scope.list_knowledge_entries` serving |
 | `l2-computable` | `ComputablePort` (plus baseline) | `orchestrateProject`, `orchestrateCompute` |
 | `l5-fork` | `ForkTimelineQueryPort` (plus baseline) | `orchestrateForkCheck`, `orchestrateForkAssemble` |
 | `ke-extraction` | `ExtractionPort` (standalone — not composed into `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`; no baseline requirement) | `orchestrateExtract` |

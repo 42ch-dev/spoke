@@ -171,7 +171,7 @@ RemoteAdapter（TypeScript `./remote` 子路径、Rust `remote-adapter` feature�
 | 操作 | 所需能力 |
 |------|----------|
 | `upsert`、`promote`、`relate`、`check`、`assemble`（以及 `port.*` 基线操作） | `spoke-baseline` |
-| `port.knowledge.get`、`port.knowledge.put`、`port.scope.list_knowledge_entries` | `spoke-knowledge`；`spoke-baseline` 同样满足该要求 |
+| `port.knowledge.get`、`port.knowledge.put`、`port.scope.list_knowledge_entries` | 显式要求 `spoke-knowledge`；`spoke-baseline` 不满足该要求 |
 | `extract` | `ke-extraction` |
 | `project`、`compute`（以及 `port.computable.*`） | `l2-computable` |
 | `listForkTimelineEvents`（以及 `port.fork.*`） | `l5-fork` |
@@ -180,7 +180,7 @@ RemoteAdapter（TypeScript `./remote` 子路径、Rust `remote-adapter` feature�
 
 `assemble` 被 capability gate 分类为 `spoke-baseline`，但响应方没有 `assemble` 服务分支。组装由本地 `orchestrateAssemble` 执行；基线分类用于能力检查，不代表远程 op 服务。
 
-能力令牌授权为其 `capabilities[]` 覆盖的 ops 授权会话成员资格，但并不取代 `negotiated_capabilities` —— 令牌门禁生效时，令牌授权与协商集都必须允许该 op。令牌匹配必须精确命名所需标志：覆盖三个知识操作的授权须包含 `spoke-knowledge`。会话分派与路由施加有向的 `spoke-baseline` ⇒ `spoke-knowledge` 规则；仅 `spoke-knowledge` 不授权基线操作。
+能力令牌授权为其 `capabilities[]` 覆盖的 ops 授权会话成员资格，但并不取代 `negotiated_capabilities` —— 令牌门禁生效时，令牌授权与协商集都必须允许该 op。令牌匹配必须精确命名所需标志：覆盖三个知识操作的授权须包含 `spoke-knowledge`。会话分派与路由同样采用精确成员规则；`spoke-baseline` 只授权基线操作，绝不能替代 `spoke-knowledge`。提供知识服务的基线主机必须声明 `spoke-knowledge` 并挂载作用域知识面。
 
 ## Port-method ops（RemoteAdapter）
 
@@ -252,7 +252,7 @@ Provider 面是 operations crate 的契约（`@42ch/spoke-operations`）；组�
 
 `RemoteKnowledgeFace` 由 `ScopedKnowledgePort` 存储与 `admission(peerId)`（Rust：`KnowledgeAdmission`）组成。响应方依次检查分派能力、Scope 归属/认知要求与声明，解码请求，探测知识面，然后准入已认证对等节点。准入拒绝与列表作用域不匹配返回 `NOT_AUTHORIZED`，且不透露条目是否存在。
 
-知识列表时，请求的 `scope_id` 与 `viewpoint` 等于准入值。存储接收这些准入值，外加请求的条目、来源、时间线、fork、扩展与认知细化条件。知识 get 与 put 直接接收准入的 Scope。基线 manifest 主机挂载知识面以服务这些操作；仅知识主机声明 `spoke-knowledge` 并只挂载该面。
+知识列表时，请求的 `scope_id` 与 `viewpoint` 等于准入值。请求的 `entry_ids`、`timeline_event_ids` 与 `entry_types` 可以是准入集合的子集，并会传给存储；任一请求值超出对应准入集合时，在访问存储前拒绝 `NOT_AUTHORIZED`。知识 get 与 put 直接接收准入的 Scope。提供这些操作的基线主机必须显式声明 `spoke-knowledge` 并挂载知识面；仅知识主机只声明其实际服务的能力，并只挂载该面。
 
 ### 驱动（adapter）
 

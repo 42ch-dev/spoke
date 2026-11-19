@@ -388,7 +388,7 @@ Unknown `op` values are valid on the wire; receivers return `ErrorEnvelope` with
 
 ### Op dispatch gate
 
-Before executing or forwarding a `ConnectInvokeRequest`, a host that performs op dispatch MUST ensure the session’s `negotiated_capabilities` satisfy the capability required by `op`. Direct membership satisfies every requirement; `spoke-baseline` also satisfies `spoke-knowledge`, while `spoke-knowledge` does not satisfy `spoke-baseline`. If the required capability is not satisfied, the host MUST NOT run the op handler and MUST answer with a `ConnectInvokeResponse` error branch (`ErrorEnvelope`, e.g. code `op_unsupported` or `capability_missing`) — no side effects.
+Before executing or forwarding a `ConnectInvokeRequest`, a host that performs op dispatch MUST ensure the session’s `negotiated_capabilities` contain the capability required by `op`. Satisfaction is exact membership for every requirement: the three knowledge ops require `spoke-knowledge` explicitly, and `spoke-baseline` authorizes only its own ops. A host that previously relied on its baseline declaration for remote knowledge MUST add `spoke-knowledge` and attach the scoped knowledge face. If the required capability is absent, the host MUST NOT run the op handler and MUST answer with a `ConnectInvokeResponse` error branch (`ErrorEnvelope`, e.g. code `op_unsupported` or `capability_missing`) — no side effects.
 
 Required capabilities (core table):
 
@@ -404,7 +404,7 @@ Product capability mapping (`port.*`):
 
 | Product `op` | Required capability |
 |--------------|---------------------|
-| `port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries` | `spoke-knowledge`; a negotiated `spoke-baseline` satisfies this requirement |
+| `port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries` | `spoke-knowledge` explicitly; `spoke-baseline` does not satisfy this requirement |
 
 `tools.*` is a **core gate rule**: `tools.<ns>.<tool_id>` ops are self-describing, so the required capability is the op string itself — no registry, no umbrella flag. This is the core-table counterpart of `port.*` being product-map territory: a `tools.*` op never consults a product capability map. A tool id enters `negotiated_capabilities` only when both hellos list that exact string (the agreed-subset rule of §[Session-core state machine](#session-core-state-machine)); the gate then evaluates that exact string as for every op.
 
@@ -431,7 +431,7 @@ The gate applies **identically in both directions**: a reverse `ConnectInvokeReq
 3. **Sequence peek** (non-mutating): a `sequence` not equal to `next_expected_inbound` answers the error branch with `invalid_sequence`; the inbound counter is NOT advanced.
 4. **Envelope-auth verify**: verify per [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2); failure answers `auth_failed` and does NOT advance session state (auth-before-advance — that section's Verify rules).
 5. **Advance** the inbound counter.
-6. **Dispatch gate**: `negotiated_capabilities` MUST satisfy the required capability for `op` (this table), including the directed `spoke-baseline` ⇒ `spoke-knowledge` rule, together with the conditional `ke-ownership` conjunct when the declared Scope carries a viewpoint. The optional capability-token gate, when policy requires one, runs within this step (per [§Method — capability-token](#method--capability-token)).
+6. **Dispatch gate**: `negotiated_capabilities` MUST contain the required capability for `op` (this table), including explicit `spoke-knowledge` membership for the three knowledge ops, together with the conditional `ke-ownership` conjunct when the declared Scope carries a viewpoint. The optional capability-token gate, when policy requires one, runs within this step (per [§Method — capability-token](#method--capability-token)); token grants also require exact capability membership.
 7. **Handler or deny**, then a signed `ConnectInvokeResponse` echoing `session_id` / `sequence` / `request_id`.
 
 Steps 3–5 MUST be serialized per session — they read and mutate the same inbound counter, so a concurrent request must not observe a pre-advance counter; dispatch (steps 6–7) may interleave.

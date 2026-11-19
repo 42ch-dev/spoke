@@ -4,7 +4,7 @@ title: Connect from C and C++
 
 # Connect from C and C++
 
-The C/C++ channel ships two hand-written headers and one committed carrier per platform. `spoke_connect.h` is the C contract — C99, with status values, value types, callback tables and every exported function, and ABI revision `1` reported through `spoke_connect_abi_version`. `spoke_connect.hpp` is a header-only C++17 convenience layer over that contract: namespace `spoke::connect`, move-only ownership for every owned buffer and handle, borrowed text views with explicit copies, one structured `Result` error channel, and host callback bridges. A C++17 host includes `spoke_connect.hpp` — which includes the C header — and links the native carrier.
+The C/C++ channel ships two hand-written headers and one committed carrier per platform. `spoke_connect.h` is the C contract — C99, with status values, value types, callback tables and every exported function, and ABI revision `2` reported through `spoke_connect_abi_version`. `spoke_connect.hpp` is a header-only C++17 convenience layer over that contract: namespace `spoke::connect`, move-only ownership for every owned buffer and handle, borrowed text views with explicit copies, one structured `Result` error channel, and host callback bridges. A C++17 host includes `spoke_connect.hpp` — which includes the C header — and links the native carrier.
 
 The committed C/C++ carriers target macOS arm64 (`osx-arm64`) and Windows x64 (`win-x64`). Take `spoke_connect.h`, `spoke_connect.hpp`, and the native files for your target from the same repository tag `vX.Y.Z`.
 
@@ -555,8 +555,8 @@ node tooling/connect/cpp-symbol-check.mjs \
 ```
 
 ```text
-C ABI symbols: PASS (83 declarations, 83 exports, 0 missing, 0 extra)
-Record layout: 11 records, 66 assertions (sizeof/_Alignof/offsetof) match the carrier mirrors
+C ABI symbols: PASS (84 declarations, 84 exports, 0 missing, 0 extra)
+Record layout: 11 records, 70 assertions (sizeof/_Alignof/offsetof) match the carrier mirrors
 C probe (clang -std=c99 -Wall -Wextra -Werror): PASS
 C++17 inclusion (no exceptions, no RTTI; .h + .hpp): PASS
 ```

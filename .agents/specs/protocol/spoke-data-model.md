@@ -93,8 +93,8 @@ Only **data-store** commits settled KnowledgeEntry state. Checker, assembler, an
 
 | Flag | Normative pairing |
 |------|-------------------|
-| `spoke-baseline` | MUST appear when manifest describes a baseline-compliant adapter; satisfies `spoke-knowledge` for remote dispatch and routing |
-| `spoke-knowledge` | Declares the three connect knowledge port ops served through standalone `ScopedKnowledgePort` plus per-peer admission; does not satisfy `spoke-baseline` |
+| `spoke-baseline` | MUST appear when manifest describes a baseline-compliant adapter; authorizes only baseline ops and never satisfies `spoke-knowledge` |
+| `spoke-knowledge` | MUST appear explicitly in `negotiated_capabilities` for the three connect knowledge port ops served through standalone `ScopedKnowledgePort` plus per-peer admission; does not satisfy `spoke-baseline`. A baseline host serving those ops also declares `spoke-knowledge` and attaches the scoped face |
 | `l2-computable` | MUST appear when `computable-engine` ∈ `roles` |
 | `l5-fork` | SHOULD appear when fork-aware timeline query is advertised |
 | `ke-ownership` | MUST appear when the host exchanges `KnowledgeEntry.owner` / `disclosure` or honors `Scope.viewpoint` semantics — see §Ownership governance (`ke-ownership` optional) |

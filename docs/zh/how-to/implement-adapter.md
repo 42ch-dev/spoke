@@ -101,7 +101,7 @@ putScopedKnowledgeEntry(
 listScopedKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>>;
 ```
 
-把该独立 port 挂到响应方的知识面，并配一个把已认证 peer id 映射到其允许 `Scope` 的准入回调。响应方把该准入作用域供给每个方法；列表请求携带收窄细化条件，而 `scope_id` 与 `viewpoint` 来自准入。
+把该独立 port 挂到响应方的知识面，并配一个把已认证 peer id 映射到其允许 `Scope` 的准入回调。三个知识操作都要求 `negotiated_capabilities` 显式包含 `spoke-knowledge`；`spoke-baseline` 只授权基线操作，因此提供知识服务的基线主机还要声明 `spoke-knowledge` 并挂载该面。响应方把准入作用域供给每个方法。列表请求的 `scope_id` 与 `viewpoint` 必须等于准入值；请求的 `entry_ids`、`timeline_event_ids` 与 `entry_types` 可以是准入集合的子集，并会传给存储。任一请求值超出对应准入集合时，在访问存储前拒绝 `NOT_AUTHORIZED`。
 
 ### FindingPort —— 检查器输出持久化
 

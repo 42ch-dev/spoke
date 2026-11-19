@@ -1057,9 +1057,12 @@ SPOKE_CONNECT_API int32_t SPOKE_CONNECT_CALL spoke_connect_ports_handler_new(
  * argument before any copy.
  *
  * The four knowledge pointers are all-or-nothing: all four present serves the
- * scoped knowledge face, all four NULL leaves it absent, and a partial block is
- * rejected as invalid argument. Ownership and `destroy` follow
- * `spoke_connect_ports_handler_new`.
+ * scoped knowledge face, all four NULL removes `port.knowledge.get`,
+ * `port.knowledge.put` and `port.scope.list_knowledge_entries` from what the
+ * handler serves (runtime `op_unsupported`, surfaced by the dialer as
+ * `CAPABILITY_PORT_MISSING`), and the three scoped callbacks are never called.
+ * A partial block is rejected as invalid argument. Ownership and `destroy`
+ * follow `spoke_connect_ports_handler_new`.
  */
 SPOKE_CONNECT_API int32_t SPOKE_CONNECT_CALL spoke_connect_ports_handler_new_v2(
     const SpokeConnectPortsHandlerTable *table,

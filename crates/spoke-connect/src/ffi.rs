@@ -7076,7 +7076,8 @@ mod ke_remote_ffi_tests {
     /// has parked, then waits until the test releases it — the test drives
     /// the same session in between, and neither side guesses with a sleep.
     struct ScopeGate {
-        entered: Mutex<bool>,
+        /// How many resolvers are parked at once.
+        entered: Mutex<usize>,
         entered_cv: Condvar,
         released: Mutex<bool>,
         released_cv: Condvar,
@@ -7085,7 +7086,7 @@ mod ke_remote_ffi_tests {
     impl ScopeGate {
         fn new() -> Self {
             Self {
-                entered: Mutex::new(false),
+                entered: Mutex::new(0),
                 entered_cv: Condvar::new(),
                 released: Mutex::new(false),
                 released_cv: Condvar::new(),
@@ -7094,7 +7095,7 @@ mod ke_remote_ffi_tests {
 
         /// Resolver side: announce the park, then block until released.
         fn block_until_released(&self) {
-            *self.entered.lock().expect("entered lock") = true;
+            *self.entered.lock().expect("entered lock") += 1;
             self.entered_cv.notify_all();
             let mut released = self.released.lock().expect("released lock");
             while !*released {
@@ -7102,21 +7103,31 @@ mod ke_remote_ffi_tests {
             }
         }
 
-        /// Test side: bounded wait for the resolver to park (a hang fails by
-        /// deadline rather than blocking the suite).
-        fn wait_entered(&self, timeout: Duration) {
+        /// Test side: bounded wait for `wanted` resolvers to be parked at the
+        /// same time; `false` when the deadline passes with fewer. A hang
+        /// fails the assertion instead of blocking the suite.
+        fn wait_for_entered(&self, wanted: usize, timeout: Duration) -> bool {
             let deadline = Instant::now() + timeout;
             let mut entered = self.entered.lock().expect("entered lock");
-            while !*entered {
-                let remaining = deadline
-                    .checked_duration_since(Instant::now())
-                    .expect("the resolver must park before the timeout");
+            while *entered < wanted {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    return false;
+                };
                 let (guard, _) = self
                     .entered_cv
                     .wait_timeout(entered, remaining)
                     .expect("entered wait");
                 entered = guard;
             }
+            true
+        }
+
+        /// Test side: bounded wait for one resolver to park.
+        fn wait_entered(&self, timeout: Duration) {
+            assert!(
+                self.wait_for_entered(1, timeout),
+                "the resolver must park before the timeout"
+            );
         }
 
         /// Test side: let the parked resolver return.
@@ -7126,9 +7137,36 @@ mod ke_remote_ffi_tests {
         }
     }
 
+    /// Releases the gate when the test leaves by panic: the FFI runtime is
+    /// process-wide, so a stranded park would hang the rest of the suite.
+    struct ReleaseOnDrop(Arc<ScopeGate>);
+
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            self.0.release();
+        }
+    }
+
     /// How long the test waits for the resolver to park: far under the 5 s
     /// invoke timeout, so a stranded op fails the assertion, not the suite.
     const SCOPE_RESOLVER_PARK_TIMEOUT: Duration = Duration::from_secs(5);
+
+    /// How long the baseline op may take while every worker is parked: same
+    /// bound, so a stranded round trip fails the assertion, not the suite.
+    const SCOPE_BASELINE_TIMEOUT: Duration = Duration::from_secs(5);
+
+    /// Worker threads the shared FFI runtime runs with — the runtime's own
+    /// rule (`TOKIO_WORKER_THREADS` override, else available parallelism).
+    /// The runtime is a process-wide `OnceLock`, so its count cannot be
+    /// configured for the test; derive the same number instead.
+    fn ffi_worker_threads() -> usize {
+        std::env::var("TOKIO_WORKER_THREADS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism().map_or(1, |count| count.get())
+            })
+    }
 
     /// How the foreign handler answers an `extract` call.
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -7733,6 +7771,116 @@ mod ke_remote_ffi_tests {
 
         dialer.close();
         responder.close();
+    }
+
+    /// More concurrent parks than runtime workers: `N + 2` knowledge ops
+    /// (N = worker threads) each park inside the resolver at once, and a
+    /// baseline op on a separate, already-established session still answers
+    /// before any resolver is released.
+    ///
+    /// A regression that runs the resolver synchronously on an async worker
+    /// parks at most N resolvers — the bounded wait below fails — and leaves
+    /// no worker to answer the baseline op.
+    #[test]
+    fn ke_remote_resolver_park_exhausts_the_workers_and_still_serves() {
+        let workers = ffi_worker_threads().max(4);
+        let parked_ops = workers + 2;
+        let gate = Arc::new(ScopeGate::new());
+        let entries = vec![served_entry("kb_ffi_ke_exhaustion", "FFI KE Exhaustion")];
+
+        // Every session is established before any resolver parks: a handshake
+        // needs a worker, so a mid-test dial would hang instead of failing on
+        // a deadline.
+        let (baseline_handler, _extract_requests, _baseline_scope_calls) =
+            ke_ports_handler(ExtractAnswer::Batch, Vec::new());
+        let (baseline_responder, baseline_dialer) =
+            dial_ke_remote(&[], &[], Some(baseline_handler));
+
+        let mut sessions = Vec::new();
+        for _ in 0..parked_ops {
+            let (handler, _extract_requests, scope_calls) =
+                ke_ports_handler(ExtractAnswer::Batch, entries.clone());
+            let (responder, dialer) =
+                dial_ke_remote(&[], &[], Some(handler.with_gated_scope(Arc::clone(&gate))));
+            sessions.push((responder, dialer, scope_calls));
+        }
+
+        // A failed assertion must still unpark the resolvers: the runtime is
+        // process-wide, so stranded parks would hang the rest of the suite.
+        let _release_on_drop = ReleaseOnDrop(Arc::clone(&gate));
+
+        let knowledge_ops: Vec<_> = sessions
+            .iter()
+            .map(|(_, dialer, _)| {
+                let op_dialer = Arc::clone(dialer);
+                std::thread::spawn(move || {
+                    op_dialer
+                        .list_knowledge_entries(json!({ "scope_id": "toy-scope-001" }).to_string())
+                })
+            })
+            .collect();
+
+        // One park per worker plus two: the extra resolvers only fit because
+        // every parked resolver handed its worker back to the pool.
+        assert!(
+            gate.wait_for_entered(parked_ops, SCOPE_RESOLVER_PARK_TIMEOUT),
+            "all {parked_ops} resolvers must park at once on {workers} worker threads"
+        );
+        assert!(
+            sessions.iter().all(|(_, _, scope_calls)| scope_calls
+                .lock()
+                .expect("scope calls lock")
+                .is_empty()),
+            "no store is reached while its resolver is parked"
+        );
+
+        // Every worker is parked in a resolver; the baseline op on its own
+        // session still completes its round trip (the double refuses
+        // get_relation, so that refusal is the answer).
+        let (baseline_tx, baseline_rx) = std::sync::mpsc::channel();
+        let baseline_op_dialer = Arc::clone(&baseline_dialer);
+        std::thread::spawn(move || {
+            let _ = baseline_tx.send(
+                baseline_op_dialer.get_relation("rel_ffi_ke_exhaustion".to_string()),
+            );
+        });
+        let baseline_answer = baseline_rx
+            .recv_timeout(SCOPE_BASELINE_TIMEOUT)
+            .expect("the baseline op must answer while every worker is parked");
+        let error = baseline_answer.expect_err("the double does not serve get_relation");
+        assert_rejected(&error, "INVALID_INPUT", None, None);
+        assert!(
+            sessions.iter().all(|(_, _, scope_calls)| scope_calls
+                .lock()
+                .expect("scope calls lock")
+                .is_empty()),
+            "the baseline answer did not release the parked resolvers"
+        );
+
+        gate.release();
+
+        for op in knowledge_ops {
+            let served_json = op
+                .join()
+                .expect("the knowledge op thread joins")
+                .expect("every parked knowledge op is served after release");
+            let served: Value = serde_json::from_str(&served_json).expect("served entries json");
+            assert_eq!(served[0]["entry_id"], "kb_ffi_ke_exhaustion");
+        }
+        for (_responder, _dialer, scope_calls) in &sessions {
+            assert_eq!(
+                scope_calls.lock().expect("scope calls lock").len(),
+                1,
+                "each parked op reached its store once, after the resolver returned"
+            );
+        }
+
+        for (responder, dialer, _scope_calls) in sessions {
+            dialer.close();
+            responder.close();
+        }
+        baseline_dialer.close();
+        baseline_responder.close();
     }
 
     /// A panicking resolver is contained into the one refusal shape

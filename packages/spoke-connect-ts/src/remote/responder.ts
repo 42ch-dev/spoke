@@ -2109,12 +2109,12 @@ export class ConnectResponder {
         if (doc.op !== "port.knowledge.put") {
           throw error;
         }
+        // The store error stays local: its text may describe entry existence,
+        // so the wire answer is fixed and carries only what the caller can act on.
         knowledgeResult = spokeReject(
           SpokeRejectCode.OUTCOME_UNCERTAIN,
-          `knowledge store failed after invocation: ${
-            error instanceof Error ? error.message : String(error)
-          }; the outcome is unknown — re-read the entry to observe the committed revision before replaying the same request`,
-          { retry_class: "uncertain", kind: "provider_error" },
+          "knowledge store failed after invocation; the outcome is unknown — re-read the entry to observe the committed revision before replaying the same request",
+          { retry_class: "uncertain", kind: "timeout" },
         );
       }
       if (this.#stateInternal === "Closed") {

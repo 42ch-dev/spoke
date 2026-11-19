@@ -634,8 +634,10 @@ describe("knowledge-only responder", () => {
       expect(put.ok).toBe(false);
       if (!put.ok) {
         expect(put.code).toBe("OUTCOME_UNCERTAIN");
-        expect(put.details?.kind).toBe("provider_error");
+        expect(put.details?.kind).toBe("timeout");
         expect(put.details?.retry_class).toBe("uncertain");
+        // The store's own error text stays off the wire.
+        expect(put.message).not.toContain("exploded");
         expect(put.message).toContain("outcome is unknown");
       }
       expect(storeCalls).toEqual(["put"]);

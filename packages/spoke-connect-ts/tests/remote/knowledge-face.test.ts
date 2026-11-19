@@ -654,6 +654,46 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(badRevision.error?.code).toBe("INVALID_INPUT");
 
+      // A malformed `entry` object (a required KnowledgeEntry member missing)
+      // is refused like Rust's typed decode, before admission and the store.
+      const missingName = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        2,
+        "put-missing-canonical-name",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_put"), canonical_name: undefined },
+          expected_base_revision: null,
+        },
+      );
+      expect(missingName.error?.code).toBe("INVALID_INPUT");
+
+      // OCC revisions mirror Rust's `Option<u64>`: negative and fractional
+      // values are invalid, not merely non-numeric ones.
+      const negativeRevision = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        3,
+        "put-negative-revision",
+        "port.knowledge.put",
+        { entry: entry("kb_put"), expected_base_revision: -1 },
+      );
+      expect(negativeRevision.error?.code).toBe("INVALID_INPUT");
+
+      const fractionalRevision = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        4,
+        "put-fractional-revision",
+        "port.knowledge.put",
+        { entry: entry("kb_put"), expected_base_revision: 1.5 },
+      );
+      expect(fractionalRevision.error?.code).toBe("INVALID_INPUT");
+
       expect(admissionCalls).toHaveLength(0);
       expect(storeCalls).toHaveLength(0);
 
@@ -662,7 +702,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
         clientEnd,
         seed(0x10),
         sessionId,
-        2,
+        5,
         "put-valid",
         "port.knowledge.put",
         { entry: entry("kb_put"), expected_base_revision: null },

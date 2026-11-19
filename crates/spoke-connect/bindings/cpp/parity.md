@@ -209,10 +209,11 @@ explicit session end.
 ## Callback families
 
 Each facade callback trait is mirrored by a C table with one pointer per trait
-method plus the context destructor. Every pointer on a present table is
-required, and a provider declines a single unsupported method by returning
-`SPOKE_CONNECT_FFI_REJECTED` — the distinction between absent ports and an
-explicitly refusing callback is preserved.
+method plus the context destructor. Only the destructor is required on the ports
+table: a pointer left NULL leaves that family absent, and a provider declines a
+single unsupported method by returning `SPOKE_CONNECT_FFI_REJECTED` from a slot
+it did set — the distinction between an absent family and an explicitly
+refusing callback is preserved.
 
 | Facade trait method (`ffi.rs`) | C callback slot | C++ counterpart |
 |---|---|---|
@@ -245,10 +246,10 @@ Table construction and handle release:
 | callback `PortsHandler` accepted by `connect_responder_ffi` (wrapped by `into_remote_serve_ports`) | `spoke_connect_ports_handler_new` / `spoke_connect_ports_handler_free` | `PortsHandler::create(std::unique_ptr<PortsCallbacks>&)` plus `PortsHandler`'s destructor |
 | callback `ToolHandler` accepted by `register_tool_handler` on both faces (wrapped by `into_remote_handler`) | `spoke_connect_tool_handler_new` / `spoke_connect_tool_handler_free` | `ToolHandler::create(std::unique_ptr<ToolCallbacks>&)` plus `ToolHandler`'s destructor |
 
-The `extract` slot is part of the complete ports callback: a provider that
-does not serve it returns a reject rather than leaving the pointer NULL, which
-is why the slot is required and why "absent ports" (NULL handler at
-construction) stays distinguishable.
+The `extract` slot is one optional family like any other: a provider that serves
+it returns its result, one that declines returns a reject, and one that leaves
+the pointer NULL advertises no `extract` family — "absent ports" (NULL handler
+at construction) stays distinguishable from both.
 
 ## Loopback helpers
 
@@ -334,7 +335,7 @@ parity gaps.
 | `MultiPeerRouterFFI` (constructor + 14 methods) | 15 | 16 (15 + release) | `MultiPeerRouter`: `create` + 14 methods (business API) + its destructor (RAII) |
 | `ConnectResponderFFI` (constructor + 7 methods) | 8 | 9 (8 + release) | `ConnectResponder`: `serve` + 7 methods (business API) + its destructor (RAII) |
 | `Transport` callbacks + table seam | 3 | 2 (`transport_new` / `transport_free`; the callbacks are table slots) | `TransportCallbacks` (3 `std::function` members) + `Transport::create` + `Transport`'s destructor |
-| `PortsHandler` callbacks + table seam | 13 | 2 (`ports_handler_new` / `ports_handler_free`) | `PortsCallbacks` (13 members, each required) + `PortsHandler::create` + its destructor |
+| `PortsHandler` callbacks + table seam | 13 | 2 (`ports_handler_new` / `ports_handler_free`) | `PortsCallbacks` (13 optional members, unset = absent family) + `PortsHandler::create` + its destructor |
 | `ToolHandler` callback + table seam | 1 | 2 (`tool_handler_new` / `tool_handler_free`) | `ToolCallbacks` (1 member) + `ToolHandler::create` + its destructor |
 | Loopback helpers | 6 | 8 (6 + pair/end releases) | `LoopbackTransportPair::create` / `client` / `server`, `LoopbackTransport::send` / `recv` / `close`, and both destructors |
 | Error enumerations | 15 variants | mapped to statuses 100–107 / 200–202 / 300 / 301 / 400 / 401 | `Error` — `status` uses the existing constants, plus `message` / `code` / `kind` / `wire_code` / `expected` / `actual` inside `Result<…>` |

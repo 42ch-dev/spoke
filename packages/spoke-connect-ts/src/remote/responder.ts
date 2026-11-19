@@ -518,6 +518,33 @@ export function validateScopeOpPayload(
 }
 
 /**
+ * Required `KnowledgeEntry` members of a `port.knowledge.put` payload. Rust
+ * decodes the typed struct, so a missing or mistyped member is `INVALID_INPUT`
+ * before admission; these are the members that decode enforces.
+ */
+function validateKnowledgeEntryFields(
+  entry: Record<string, unknown>,
+): string | null {
+  for (const name of ["entry_id", "canonical_name"]) {
+    const value = entry[name];
+    if (typeof value !== "string" || value.length === 0) {
+      return `entry.${name} must be a non-empty string`;
+    }
+  }
+  for (const name of ["entry_type", "status"]) {
+    if (typeof entry[name] !== "string") {
+      return `entry.${name} must be a string`;
+    }
+  }
+  for (const name of ["body", "extensions"]) {
+    if (!isJsonObject(entry[name])) {
+      return `entry.${name} must be an object`;
+    }
+  }
+  return null;
+}
+
+/**
  * Payload pre-validation for the three knowledge ops, mirroring Rust
  * `decode_knowledge_call`: malformed get/put payloads answer `INVALID_INPUT`
  * before the face probe, admission, and any store call. The list op keeps
@@ -542,15 +569,23 @@ export function validateKnowledgeOpPayload(
     if (!isJsonObject(payload.entry)) {
       return scopePayloadReject(op, "entry must be an object");
     }
+    const entryError = validateKnowledgeEntryFields(payload.entry);
+    if (entryError !== null) {
+      return scopePayloadReject(op, entryError);
+    }
     const expected = payload.expected_base_revision;
     if (
       expected !== undefined &&
       expected !== null &&
-      typeof expected !== "number"
+      !(
+        typeof expected === "number" &&
+        Number.isInteger(expected) &&
+        expected >= 0
+      )
     ) {
       return scopePayloadReject(
         op,
-        "expected_base_revision must be a number or null",
+        "expected_base_revision must be a non-negative integer or null",
       );
     }
   }

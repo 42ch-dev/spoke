@@ -21,7 +21,7 @@
         "rustFlags": []
       },
       "headerSha256": "e29c00bd5b3b2dbc7dd384652470df7392ac3de12209ad8d5c04d3860ebb25c4",
-      "hppSha256": "6d6f5f482f296b0a4bbb85e84d5c5593c8d17cfa2bf70999a7b75048a970c5c3",
+      "hppSha256": "366dc4c6c8e0ee1c4ba10bd8d3f404cc543a5138d45c0f9dc4197e39aab9684d",
       "artifacts": [
         {
           "path": "libspoke_connect_capi.dylib",

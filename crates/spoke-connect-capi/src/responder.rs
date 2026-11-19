@@ -132,14 +132,21 @@ pub type SpokeConnectToolHandleFn = unsafe extern "C" fn(
 ) -> i32;
 
 /// Ports callback table: one pointer per [`ffi::PortsHandler`] method plus the
-/// mandatory `destroy`. Every baseline and optional-op pointer is required; a
-/// table missing one is rejected as invalid argument, ownership of `user_data`
-/// stays with the caller and `destroy` is not called.
+/// mandatory `destroy`.
 ///
-/// The four trailing knowledge pointers are optional and appended after
-/// `destroy` so every pre-existing offset keeps its value: a NULL
-/// `knowledge_scope` means the handler serves no scoped knowledge face, and
-/// the three scoped callbacks are then never called.
+/// Every op pointer is optional, and a family is present exactly when the host
+/// fills in at least one of its callbacks: a table with every baseline slot
+/// NULL exposes no baseline face at all (the responder answers the
+/// dispatch-deny branch), so a scoped-knowledge-only host supplies no baseline
+/// stubs. An op whose family is present but whose own pointer is NULL is
+/// contained as an internal error when it is called. `destroy` stays required,
+/// and a NULL table is rejected as invalid argument — ownership of `user_data`
+/// then stays with the caller and `destroy` is not called.
+///
+/// The four trailing knowledge pointers are appended after `destroy` so every
+/// pre-existing offset keeps its value: a NULL `knowledge_scope` means the
+/// handler serves no scoped knowledge face, and the three scoped callbacks are
+/// then never called.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SpokeConnectPortsHandlerTable {
@@ -234,6 +241,27 @@ impl Drop for ForeignPortsHandler {
 impl ForeignPortsHandler {
     fn new(table: SpokeConnectPortsHandlerTable, user_data: *mut c_void) -> Self {
         Self { table, user_data }
+    }
+
+    /// Which responder faces this table actually fills in (B6): a family with
+    /// no callback at all is absent, so the responder answers the dispatch-deny
+    /// branch instead of serving a stub.
+    fn served_faces(&self) -> ffi::ServedFaces {
+        let table = &self.table;
+        ffi::ServedFaces {
+            baseline: table.get_knowledge_entry.is_some()
+                || table.put_knowledge_entry.is_some()
+                || table.get_relation.is_some()
+                || table.put_relation.is_some()
+                || table.list_knowledge_entries.is_some()
+                || table.list_timeline_events.is_some()
+                || table.put_findings.is_some()
+                || table.list_rules.is_some()
+                || table.list_peer_host_capability_manifests.is_some(),
+            computable: table.project.is_some() || table.compute.is_some(),
+            fork: table.list_fork_timeline_events.is_some(),
+            extract: table.extract.is_some(),
+        }
     }
 
     /// Runs one text-in / JSON-out ports callback.
@@ -725,23 +753,11 @@ pub unsafe extern "C" fn spoke_connect_ports_handler_new(
                 return Err(AbiFailure::invalid("table is NULL"));
             }
             let table = *table;
-            if table.get_knowledge_entry.is_none()
-                || table.put_knowledge_entry.is_none()
-                || table.get_relation.is_none()
-                || table.put_relation.is_none()
-                || table.list_knowledge_entries.is_none()
-                || table.list_timeline_events.is_none()
-                || table.put_findings.is_none()
-                || table.list_rules.is_none()
-                || table.list_peer_host_capability_manifests.is_none()
-                || table.project.is_none()
-                || table.compute.is_none()
-                || table.list_fork_timeline_events.is_none()
-                || table.extract.is_none()
-                || table.destroy.is_none()
-            {
+            // Only `destroy` is required: every op pointer is optional, and a
+            // family with no callbacks at all is genuinely absent (B6).
+            if table.destroy.is_none() {
                 return Err(AbiFailure::invalid(
-                    "ports handler table must carry all thirteen callbacks and destroy",
+                    "ports handler table must carry destroy",
                 ));
             }
             let handler = Arc::new(ForeignPortsHandler::new(table, user_data));
@@ -832,21 +848,25 @@ pub unsafe extern "C" fn spoke_connect_responder_new(
                 borrowed_text(local_manifest_json, "local_manifest_json")?.to_owned();
             let allowlist = borrowed_strings(allowlist, allowlist_count, "allowlist")?;
             let peer_keys = peer_key_map(peer_keys, peer_key_count)?;
+            // The table itself says which families the host filled in; an
+            // absent `ports` handle serves none of them.
+            let mut faces = ffi::ServedFaces::all();
             let ports: Option<Box<dyn ffi::PortsHandler>> = if ports.is_null() {
                 None
             } else {
-                Some(Box::new(SharedForeignPortsHandler(Arc::clone(
-                    ports_handler_handle(ports)?,
-                ))))
+                let handler = Arc::clone(ports_handler_handle(ports)?);
+                faces = handler.served_faces();
+                Some(Box::new(SharedForeignPortsHandler(handler)))
             };
             let invoke_timeout_ms = optional_u64(invoke_timeout_ms, "invoke_timeout_ms")?;
-            let responder = ffi::connect_responder_ffi(
+            let responder = ffi::connect_responder_ffi_with_faces(
                 Box::new(SharedForeignTransport::new(Arc::clone(transport))),
                 local_seed,
                 local_manifest_json,
                 allowlist,
                 peer_keys,
                 ports,
+                faces,
                 invoke_timeout_ms,
             )
             .map_err(AbiFailure::from)?;
@@ -1797,6 +1817,19 @@ mod tests {
         r#""capabilities":["spoke-knowledge"],"namespaces":["toy_world"],"extensions":{}}"#,
     );
 
+    /// The same host, additionally declaring `spoke-baseline`: a baseline op
+    /// then clears the dispatch gate, so the *face probe* — not the gate —
+    /// decides its answer.
+    const KNOWLEDGE_AND_BASELINE_HOST_MANIFEST: &str = concat!(
+        r#"{"schema_version":1,"host_id":"host-knowledge","roles":["data-store"],"#,
+        r#""capabilities":["spoke-baseline","spoke-knowledge"],"namespaces":["toy_world"],"extensions":{}}"#,
+    );
+
+    const KNOWLEDGE_AND_BASELINE_DIALER_MANIFEST: &str = concat!(
+        r#"{"schema_version":1,"host_id":"dialer-knowledge","roles":["editor"],"#,
+        r#""capabilities":["spoke-baseline","spoke-knowledge"],"namespaces":["toy_world"],"extensions":{}}"#,
+    );
+
     /// Copies one borrowed callback argument out as UTF-8 text.
     fn callback_text(text: SpokeConnectSlice) -> String {
         if text.data.is_null() || text.len == 0 {
@@ -1944,9 +1977,50 @@ mod tests {
         }
     }
 
+    /// The same knowledge face with no baseline stubs at all: every baseline
+    /// and optional slot stays NULL, so the bridge exposes no such face (B6).
+    fn knowledge_only_table() -> SpokeConnectPortsHandlerTable {
+        SpokeConnectPortsHandlerTable {
+            get_knowledge_entry: None,
+            put_knowledge_entry: None,
+            get_relation: None,
+            put_relation: None,
+            list_knowledge_entries: None,
+            list_timeline_events: None,
+            put_findings: None,
+            list_rules: None,
+            list_peer_host_capability_manifests: None,
+            project: None,
+            compute: None,
+            list_fork_timeline_events: None,
+            extract: None,
+            destroy: Some(host_ports_destroy),
+            knowledge_scope: Some(host_knowledge_scope),
+            get_scoped_knowledge_entry: Some(host_scoped_get),
+            put_scoped_knowledge_entry: Some(host_scoped_put),
+            list_scoped_knowledge_entries: Some(host_scoped_list),
+        }
+    }
+
     /// Creates a knowledge-only ports handler: the resolver and the three
     /// scoped callbacks, with nothing served through the baseline catalogue.
     unsafe fn new_knowledge_host(
+        scope_json: &str,
+    ) -> (*mut SpokeConnectPortsHandler, Arc<HostState>) {
+        unsafe { new_scoped_host(knowledge_host_table(), scope_json) }
+    }
+
+    /// Creates a handler over [`knowledge_only_table`] — no baseline stub.
+    unsafe fn new_knowledge_only_host(
+        scope_json: &str,
+    ) -> (*mut SpokeConnectPortsHandler, Arc<HostState>) {
+        unsafe { new_scoped_host(knowledge_only_table(), scope_json) }
+    }
+
+    /// Creates a scoped-knowledge host over `table` and returns the shared
+    /// state the assertions read.
+    unsafe fn new_scoped_host(
+        table: SpokeConnectPortsHandlerTable,
         scope_json: &str,
     ) -> (*mut SpokeConnectPortsHandler, Arc<HostState>) {
         let host = Arc::new(HostPorts {
@@ -1960,7 +2034,7 @@ mod tests {
         let mut error = empty_record();
         let status = unsafe {
             spoke_connect_ports_handler_new(
-                &knowledge_host_table(),
+                &table,
                 Arc::into_raw(host) as *mut c_void,
                 &mut handler,
                 &mut error,
@@ -2400,8 +2474,10 @@ mod tests {
             "a rejected creation transfers nothing"
         );
 
+        // `destroy` is the one required pointer: every op slot may be NULL, so
+        // a knowledge-only host needs no baseline stubs (B6).
         let incomplete = SpokeConnectPortsHandlerTable {
-            extract: None,
+            destroy: None,
             ..host_ports_table()
         };
         let status = unsafe {
@@ -2411,10 +2487,11 @@ mod tests {
         assert!(handler.is_null());
         let fields = unsafe { error_fields(&mut error) };
         assert!(
-            fields.message.contains("thirteen callbacks"),
+            fields.message.contains("must carry destroy"),
             "{}",
             fields.message
         );
+        assert_eq!(state.destroy.load(Ordering::SeqCst), 0);
 
         let tool_state = Arc::new(HostState::default());
         let tool_context = Arc::into_raw(Arc::clone(&tool_state)) as *mut c_void;
@@ -2788,6 +2865,121 @@ mod tests {
             state.baseline_calls.load(Ordering::SeqCst),
             0,
             "no baseline or optional-op callback is reached"
+        );
+
+        setup.shutdown();
+    }
+
+    /// B6: a table with every baseline slot NULL exposes no baseline face. The
+    /// scoped knowledge ops still serve, and a baseline op is answered by the
+    /// dispatch-deny branch — not by a phantom face, which would surface the
+    /// missing callback as an internal error.
+    #[test]
+    fn responder_knowledge_only_table_serves_scoped_ops_without_a_baseline_face() {
+        let scope_json = r#"{"scope_id":"scope_tw_knowledge_only"}"#;
+        let (ports, state) = unsafe { new_knowledge_only_host(scope_json) };
+        let setup = serve_and_dial(
+            KNOWLEDGE_AND_BASELINE_HOST_MANIFEST,
+            KNOWLEDGE_AND_BASELINE_DIALER_MANIFEST,
+            ports,
+            Some(INVOKE_TIMEOUT_MS),
+        );
+        let mut error = empty_record();
+
+        // Put / get / list all serve through the scoped callbacks.
+        let entry_json = serde_json::to_string(&serde_json::json!({
+            "schema_version": 1,
+            "entry_id": "kb_tw_no_baseline",
+            "entry_type": "knowledge",
+            "canonical_name": "No Baseline",
+            "status": "active",
+            "body": { "summary": "served with every baseline slot NULL" },
+            "extensions": {},
+        }))
+        .expect("entry JSON");
+        let mut put = SpokeConnectBuffer::empty();
+        assert_eq!(
+            unsafe {
+                spoke_connect_remote_adapter_put_knowledge_entry(
+                    setup.adapter,
+                    slice_of(entry_json.as_bytes()),
+                    optional_scalar(None),
+                    &mut put,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_OK,
+            "scoped put: {}",
+            unsafe { error_fields(&mut error) }.message
+        );
+        unsafe { take_text(&mut put) };
+
+        let mut got = SpokeConnectBuffer::empty();
+        assert_eq!(
+            unsafe {
+                spoke_connect_remote_adapter_get_knowledge_entry(
+                    setup.adapter,
+                    slice_of(b"kb_tw_no_baseline"),
+                    &mut got,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_OK,
+            "scoped get: {}",
+            unsafe { error_fields(&mut error) }.message
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&unsafe { take_text(&mut got) })
+                .expect("entry JSON")["canonical_name"],
+            "No Baseline"
+        );
+
+        let mut listed = SpokeConnectBuffer::empty();
+        assert_eq!(
+            unsafe {
+                spoke_connect_remote_adapter_list_knowledge_entries(
+                    setup.adapter,
+                    slice_of(scope_json.as_bytes()),
+                    &mut listed,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_OK,
+            "scoped list: {}",
+            unsafe { error_fields(&mut error) }.message
+        );
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&unsafe { take_text(&mut listed) }).expect("entry list JSON");
+        assert_eq!(entries.len(), 1, "the scoped put is what the list serves");
+
+        // `spoke-baseline` IS negotiated here, so the op clears the gate and
+        // only the probe can stop it: op_unsupported → the D7 row.
+        let mut relation = SpokeConnectBuffer::empty();
+        assert_ne!(
+            unsafe {
+                spoke_connect_remote_adapter_get_relation(
+                    setup.adapter,
+                    slice_of(b"rel_tw_absent"),
+                    &mut relation,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_OK
+        );
+        assert_eq!(
+            unsafe { error_fields(&mut error) }.code,
+            "CAPABILITY_PORT_MISSING",
+            "an absent baseline face answers the dispatch-deny branch"
+        );
+        assert_eq!(
+            state.baseline_calls.load(Ordering::SeqCst),
+            0,
+            "no baseline callback exists to enter"
+        );
+        assert_eq!(
+            lock(&state.knowledge_scope_calls).len(),
+            3,
+            "one admission per served knowledge op"
         );
 
         setup.shutdown();

@@ -42,8 +42,11 @@
 //!   budget (`invoke_timeout_ms`, default 5000): expiry answers exactly one signed
 //!   `INTERNAL_ERROR` with `details.kind = "timeout"` and leaves the session
 //!   Established (bounded wait, not forced host-work termination). The bound
-//!   starts after the payload validation, and a close aborts the in-flight
-//!   serve dispatches so no serve wait or its timer outlives the session. A
+//!   starts after the payload validation, covers the knowledge face's
+//!   per-peer admission (run on the blocking pool — a blocking resolver
+//!   cannot be cancelled, so the bound, not a forced stop, is what the
+//!   caller is guaranteed), and a close aborts the in-flight serve
+//!   dispatches so no serve wait or its timer outlives the session. A
 //!   failed envelope-auth verify
 //!   produces no handler side effect and no session-state mutation
 //!   (auth-before-advance, spec §Verify rules). An unparseable inbound
@@ -145,6 +148,17 @@ fn missing_optional_serve_face(
             Some("list_fork_timeline_events")
         }
         _ => None,
+    }
+}
+
+/// Safety net for a baseline arm reached with a `None` baseline: the
+/// responder probes the owning face per op before the bound, so this only
+/// fires for a caller that bypassed that probe.
+fn missing_baseline_face() -> SpokeReject {
+    SpokeReject {
+        code: SpokeRejectCode::CapabilityPortMissing,
+        message: "no baseline face configured".to_owned(),
+        details: None,
     }
 }
 
@@ -447,28 +461,41 @@ fn decode_port_call<'a>(
     }
 }
 
-/// Dispatch one decoded [`PortCall`] to the injected ports face — the
+/// Dispatch one decoded [`PortCall`] to the owning injected face — the
 /// provider work the serve bound covers, because the bound starts here, after
-/// validation and probing (B1). The optional-family lookups are the
-/// unreachable safety net for a probe that did not run.
+/// validation and probing (B1). The optional families own their ops and never
+/// look at the baseline face (B5); a `None` baseline on a baseline arm is the
+/// unreachable safety net for the responder's per-op probe.
 async fn call_port_op(
     call: PortCall<'_>,
-    baseline: &(dyn BaselinePorts + Send + Sync),
+    baseline: Option<&(dyn BaselinePorts + Send + Sync)>,
     ports: &(dyn RemoteServePorts + Send + Sync),
 ) -> SpokeResult<Value> {
     match call {
-        PortCall::GetRelation(relation_id) => map_result(baseline.get_relation(&relation_id).await),
-        PortCall::PutRelation(relation, expected) => {
-            map_result(baseline.put_relation(relation, expected).await)
-        }
-        PortCall::ListTimelineEvents(scope) => {
-            map_result(baseline.list_timeline_events(scope).await)
-        }
-        PortCall::PutFindings(findings) => map_result(baseline.put_findings(findings).await),
-        PortCall::ListRules(rule_refs) => map_result(baseline.list_rules(&rule_refs).await),
-        PortCall::ListPeerManifests => {
-            map_result(baseline.list_peer_host_capability_manifests().await)
-        }
+        PortCall::GetRelation(relation_id) => match baseline {
+            Some(baseline) => map_result(baseline.get_relation(&relation_id).await),
+            None => SpokeResult::Reject(missing_baseline_face()),
+        },
+        PortCall::PutRelation(relation, expected) => match baseline {
+            Some(baseline) => map_result(baseline.put_relation(relation, expected).await),
+            None => SpokeResult::Reject(missing_baseline_face()),
+        },
+        PortCall::ListTimelineEvents(scope) => match baseline {
+            Some(baseline) => map_result(baseline.list_timeline_events(scope).await),
+            None => SpokeResult::Reject(missing_baseline_face()),
+        },
+        PortCall::PutFindings(findings) => match baseline {
+            Some(baseline) => map_result(baseline.put_findings(findings).await),
+            None => SpokeResult::Reject(missing_baseline_face()),
+        },
+        PortCall::ListRules(rule_refs) => match baseline {
+            Some(baseline) => map_result(baseline.list_rules(&rule_refs).await),
+            None => SpokeResult::Reject(missing_baseline_face()),
+        },
+        PortCall::ListPeerManifests => match baseline {
+            Some(baseline) => map_result(baseline.list_peer_host_capability_manifests().await),
+            None => SpokeResult::Reject(missing_baseline_face()),
+        },
         PortCall::Project(request) => match ports.as_computable() {
             Some(computable) => map_result(computable.project(request).await),
             None => SpokeResult::Reject(SpokeReject {
@@ -1652,10 +1679,10 @@ impl ConnectResponder {
     /// Serve one of the three knowledge ops through the knowledge face.
     ///
     /// Gate order: decode → face probe → admission (exactly once, keyed by
-    /// the authenticated peer) → list scope equality → store call. `Ok(None)`
-    /// means a refusal envelope was already sent and the store was never
-    /// called — a refusal discloses nothing, not even whether the entry
-    /// exists.
+    /// the authenticated peer, inside the serve bound) → list scope equality
+    /// → store call (inside the same bound). `Ok(None)` means a refusal
+    /// envelope was already sent and the store was never called — a refusal
+    /// discloses nothing, not even whether the entry exists.
     async fn serve_knowledge_op(
         &self,
         doc: &Value,
@@ -1678,12 +1705,12 @@ impl ConnectResponder {
             }
         };
         // Gate → probe → serve/deny: a declared `spoke-knowledge` without the
-        // serving face is the same missing-capability branch, never a
-        // baseline fallback.
+        // serving face is the same dispatch-deny branch as an absent
+        // baseline face, never a baseline fallback (D7 wire code).
         let Some(face) = ports.as_knowledge() else {
             self.send_reverse_error_envelope(
                 doc,
-                SpokeRejectCode::CapabilityPortMissing.as_str(),
+                "op_unsupported",
                 &format!("no knowledge face configured for port op {op}"),
                 None,
             )
@@ -1693,28 +1720,45 @@ impl ConnectResponder {
         // The admitted scope derives from the authenticated session peer,
         // never from the payload. One refusal shape for an unbound peer and
         // for a rejecting admission: no existence detail.
-        let admitted = match self.remote_peer_id() {
-            Some(peer_id) => match (face.admission)(&peer_id) {
-                SpokeResult::Ok(scope) => scope,
-                SpokeResult::Reject(_) => {
-                    self.send_reverse_error_envelope(
-                        doc,
-                        SpokeRejectCode::NotAuthorized.as_str(),
-                        KNOWLEDGE_SCOPE_NOT_AUTHORIZED,
-                        None,
-                    )
-                    .await?;
-                    return Ok(None);
-                }
-            },
-            None => {
+        let Some(peer_id) = self.remote_peer_id() else {
+            self.deny_knowledge_scope(doc).await?;
+            return Ok(None);
+        };
+        // Admission is provider work too, so the same serve budget bounds it
+        // (B1). It cannot be interrupted — it runs on the blocking pool — so
+        // the responder's wait, not a forced stop, is the guarantee; a zero
+        // budget therefore answers the signed timeout without admitting.
+        if self.invoke_timeout.is_zero() {
+            self.deny_knowledge_serve_timeout(doc).await?;
+            return Ok(None);
+        }
+        let admission = Arc::clone(&face.admission);
+        let admitted = match tokio::time::timeout(
+            self.invoke_timeout,
+            tokio::task::spawn_blocking(move || admission(&peer_id)),
+        )
+        .await
+        {
+            Ok(Ok(SpokeResult::Ok(scope))) => scope,
+            Ok(Ok(SpokeResult::Reject(_))) => {
+                self.deny_knowledge_scope(doc).await?;
+                return Ok(None);
+            }
+            // A panicking admission is contained, exactly like a foreign
+            // resolver panic: nothing reached the store, so this is a clean
+            // internal error, not an uncertain outcome.
+            Ok(Err(join)) => {
                 self.send_reverse_error_envelope(
                     doc,
-                    SpokeRejectCode::NotAuthorized.as_str(),
-                    KNOWLEDGE_SCOPE_NOT_AUTHORIZED,
+                    SpokeRejectCode::InternalError.as_str(),
+                    &format!("knowledge admission failed for port op {op}: {join}"),
                     None,
                 )
                 .await?;
+                return Ok(None);
+            }
+            Err(_) => {
+                self.deny_knowledge_serve_timeout(doc).await?;
                 return Ok(None);
             }
         };
@@ -1722,32 +1766,45 @@ impl ConnectResponder {
         // before the store call so it cannot widen the query.
         if let KnowledgeCall::ListKnowledgeEntries(requested) = &call {
             if !scope_matches_admission(requested, &admitted) {
-                self.send_reverse_error_envelope(
-                    doc,
-                    SpokeRejectCode::NotAuthorized.as_str(),
-                    KNOWLEDGE_SCOPE_NOT_AUTHORIZED,
-                    None,
-                )
-                .await?;
+                self.deny_knowledge_scope(doc).await?;
                 return Ok(None);
             }
         }
-        // Same serve bound as the baseline path: only the store call is
-        // bounded; admission and the scope check already ran.
-        let result = if self.invoke_timeout.is_zero() {
-            SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout))
-        } else {
-            match tokio::time::timeout(
-                self.invoke_timeout,
-                call_knowledge_op(call, face.as_ref(), &admitted),
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(_) => SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout)),
-            }
+        // Same serve bound as the baseline path, covering the store call.
+        let result = match tokio::time::timeout(
+            self.invoke_timeout,
+            call_knowledge_op(call, face.as_ref(), &admitted),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout)),
         };
         Ok(Some(result))
+    }
+
+    /// Answer the one knowledge-scope refusal shape: no existence detail,
+    /// whatever the admission said.
+    async fn deny_knowledge_scope(&self, doc: &Value) -> Result<(), ResponderError> {
+        self.send_reverse_error_envelope(
+            doc,
+            SpokeRejectCode::NotAuthorized.as_str(),
+            KNOWLEDGE_SCOPE_NOT_AUTHORIZED,
+            None,
+        )
+        .await
+    }
+
+    /// Answer the signed serve-budget expiry for a knowledge op.
+    async fn deny_knowledge_serve_timeout(&self, doc: &Value) -> Result<(), ResponderError> {
+        let reject = serve_timeout_reject(self.invoke_timeout);
+        self.send_reverse_error_envelope(
+            doc,
+            reject.code.as_str(),
+            &reject.message,
+            reject.details.as_ref(),
+        )
+        .await
     }
 
     /// Serve a `port.*` invoke through the D4 catalogue (or dispatch-deny).
@@ -1867,23 +1924,11 @@ impl ConnectResponder {
                 None => return Ok(()),
             }
         } else {
-            // Baseline ops are served through the baseline face; a missing
-            // one is the documented dispatch-deny branch, exactly like an
-            // absent optional family below.
-            let Some(baseline) = ports.as_baseline() else {
-                self.send_reverse_error_envelope(
-                    doc,
-                    "op_unsupported",
-                    &format!("no baseline face configured for port op {op}"),
-                    None,
-                )
-                .await?;
-                return Ok(());
-            };
             // Optional-family probe (gate → probe → serve/deny): the
             // capability gate passed, so a missing optional face means the
             // host declared a family it does not provide (misconfiguration)
-            // — answer the same dispatch-deny branch as absent ports.
+            // — answer the same dispatch-deny branch as absent ports. The
+            // probe precedes the payload decode, exactly as before.
             if let Some(missing) = missing_optional_serve_face(op, ports.as_ref()) {
                 self.send_reverse_error_envelope(
                     doc,
@@ -1915,6 +1960,28 @@ impl ConnectResponder {
                     .await?;
                     return Ok(());
                 }
+            };
+            // B5: each op is served by the face that owns it, so the baseline
+            // probe applies only to the baseline ops — an optional-only host
+            // (computable / fork timeline) is not refused for lacking a
+            // baseline face.
+            let baseline = match &call {
+                PortCall::Project(_) | PortCall::Compute(_) | PortCall::ForkTimelineEvents(_) => {
+                    None
+                }
+                _ => match ports.as_baseline() {
+                    Some(baseline) => Some(baseline),
+                    None => {
+                        self.send_reverse_error_envelope(
+                            doc,
+                            "op_unsupported",
+                            &format!("no baseline face configured for port op {op}"),
+                            None,
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                },
             };
             if self.invoke_timeout.is_zero() {
                 SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout))

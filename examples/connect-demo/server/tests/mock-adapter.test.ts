@@ -35,6 +35,7 @@ import {
   DEMO_SERVER_MANIFEST,
   MockAdapter,
   demoExtractCandidateEntryId,
+  demoKnowledgeFace,
 } from "../src/adapter/mock-adapter.js";
 import { MockEngine } from "../src/engine/mock-engine.js";
 import {
@@ -720,6 +721,60 @@ describe("ownership-aware scope query", () => {
       expect(ids).toContain(DEMO_SHARED_ENTRY_ID);
       expect(ids).not.toContain(DEMO_OWN_PRIVATE_ENTRY_ID);
       expect(ids).not.toContain(DEMO_FOREIGN_PRIVATE_ENTRY_ID);
+    }
+  });
+});
+
+describe("scoped knowledge face", () => {
+  // The admitted scope carries the demo holder's viewpoint; get/put serve
+  // inside it without a wire scope, so the store itself enforces the same
+  // ownership predicate the list path applies.
+  const admittedScope = { scope_id: DEMO_SCOPE_ID, viewpoint: DEMO_HOLDER_ENTRY_ID };
+
+  it("answers not-found for a foreign owner-private get and keeps the demo entries servable", async () => {
+    const adapter = new MockAdapter();
+    const face = demoKnowledgeFace(adapter);
+
+    const hidden = await face.store.getScopedKnowledgeEntry(
+      admittedScope,
+      DEMO_FOREIGN_PRIVATE_ENTRY_ID,
+    );
+    expectRejected(hidden, "KNOWLEDGE_ENTRY_NOT_FOUND");
+
+    const shared = await face.store.getScopedKnowledgeEntry(
+      admittedScope,
+      DEMO_SHARED_ENTRY_ID,
+    );
+    expect(shared.ok).toBe(true);
+    const ownPrivate = await face.store.getScopedKnowledgeEntry(
+      admittedScope,
+      DEMO_OWN_PRIVATE_ENTRY_ID,
+    );
+    expect(ownPrivate.ok).toBe(true);
+  });
+
+  it("refuses a scoped put to a foreign owner-private entry without mutating the store", async () => {
+    const adapter = new MockAdapter();
+    const face = demoKnowledgeFace(adapter);
+
+    const forged: KnowledgeEntry = {
+      schema_version: 1,
+      entry_id: DEMO_FOREIGN_PRIVATE_ENTRY_ID,
+      entry_type: "note",
+      canonical_name: "Overwritten rival log",
+      status: "confirmed",
+      body: { summary: "A peer must not reach this row." },
+      revision: 1,
+      extensions: {},
+    };
+    const put = await face.store.putScopedKnowledgeEntry(admittedScope, forged, 1);
+    expectRejected(put, "KNOWLEDGE_ENTRY_NOT_FOUND");
+
+    const after = await adapter.getKnowledgeEntry(DEMO_FOREIGN_PRIVATE_ENTRY_ID);
+    expect(after.ok).toBe(true);
+    if (after.ok) {
+      expect(after.value.canonical_name).toBe("Rival's private log");
+      expect(after.value.revision).toBe(1);
     }
   });
 });

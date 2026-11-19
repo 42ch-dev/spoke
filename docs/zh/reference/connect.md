@@ -178,6 +178,8 @@ RemoteAdapter（TypeScript `./remote` 子路径、Rust `remote-adapter` feature�
 | 携带非空 `scope.viewpoint` 的 `port.scope.list_knowledge_entries`、`port.scope.list_timeline_events`、`port.fork.list_timeline_events` | 该行能力**外加** `ke-ownership` |
 | 产品自定义操作 | 产品文档化的能力 |
 
+`assemble` 被 capability gate 分类为 `spoke-baseline`，但响应方没有 `assemble` 服务分支。组装由本地 `orchestrateAssemble` 执行；基线分类用于能力检查，不代表远程 op 服务。
+
 能力令牌授权为其 `capabilities[]` 覆盖的 ops 授权会话成员资格，但并不取代 `negotiated_capabilities` —— 令牌门禁生效时，令牌授权与协商集都必须允许该 op。令牌匹配必须精确命名所需标志：覆盖三个知识操作的授权须包含 `spoke-knowledge`。会话分派与路由施加有向的 `spoke-baseline` ⇒ `spoke-knowledge` 规则；仅 `spoke-knowledge` 不授权基线操作。
 
 ## Port-method ops（RemoteAdapter）

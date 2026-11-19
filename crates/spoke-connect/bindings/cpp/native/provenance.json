@@ -31,7 +31,7 @@
     },
     "win-x64": {
       "target": "x86_64-pc-windows-msvc",
-      "sourceRevision": "66dd21adb1a2b46bfb3e37f682554e2656516679",
+      "sourceRevision": "23f16e1d9453053641de220e71be0040aa467b59",
       "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
       "compilerVersion": "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36260 for x64",
       "buildFlags": {
@@ -51,12 +51,12 @@
           "target-feature=-crt-static"
         ]
       },
-      "headerSha256": "e29c00bd5b3b2dbc7dd384652470df7392ac3de12209ad8d5c04d3860ebb25c4",
+      "headerSha256": "12a671f732d445841d66591d8ecbd02672600c0f68bfebdb45192403d1c28ec2",
       "hppSha256": "366dc4c6c8e0ee1c4ba10bd8d3f404cc543a5138d45c0f9dc4197e39aab9684d",
       "artifacts": [
         {
           "path": "spoke_connect_capi.dll",
-          "sha256": "96908ba2e0dc8bb485d6f0cc46c3195db60cf4d509ecbd277d51361f4e88318b"
+          "sha256": "dc9f2a4a6d28b3445a8692ac9cabd2e205902bd0e3789c984e7cd4ec56ec0a08"
         },
         {
           "path": "spoke_connect_capi.dll.lib",

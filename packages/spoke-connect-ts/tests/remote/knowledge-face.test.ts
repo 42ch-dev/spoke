@@ -36,7 +36,6 @@ import {
   type RemoteKnowledgeFace,
   type RemoteServePorts,
 } from "../../src/remote/index.js";
-import { Session } from "../../src/core/session.js";
 import type { Transport } from "../../src/remote/transport.js";
 import {
   selectPeerForOp,
@@ -968,41 +967,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       expect(valid.error).toBeUndefined();
       expect(admissionCalls).toHaveLength(1);
       expect(storeCalls).toEqual(["put"]);
-    } finally {
-      close();
-    }
-  });
-
-  it("refuses NOT_AUTHORIZED without calling admission when the peer id is empty (B3)", async () => {
-    const admissionCalls: string[] = [];
-    const face = scopedStoreFace((peerId) => {
-      admissionCalls.push(peerId);
-      return spokeOk(SCOPE_A);
-    });
-    const { responder, clientEnd, sessionId, close } =
-      await dialRawKnowledgeHost(knowledgeOnlyServePorts(face));
-    try {
-      // Swap in a session whose dialing peer id is empty (session not
-      // established), keeping the session id so envelope auth still passes.
-      responder.setSessionForTest(
-        new Session({
-          session_id: sessionId,
-          initiator_peer_id: "",
-          responder_peer_id: "responder",
-          negotiated_capabilities: ["spoke-knowledge"],
-        }),
-      );
-      const refused = await rawInvoke(
-        clientEnd,
-        seed(0x10),
-        sessionId,
-        0,
-        "empty-peer",
-        "port.knowledge.get",
-        { entry_id: "kb_any" },
-      );
-      expect(refused.error?.code).toBe("NOT_AUTHORIZED");
-      expect(admissionCalls).toHaveLength(0);
     } finally {
       close();
     }

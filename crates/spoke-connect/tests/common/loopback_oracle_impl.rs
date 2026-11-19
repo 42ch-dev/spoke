@@ -613,7 +613,7 @@ impl HostInner {
         match request.op.as_str() {
             "port.knowledge.get" => {
                 let entry_id = match field("entry_id") {
-                    SpokeResult::Ok(Value::String(id)) => id,
+                    SpokeResult::Ok(Value::String(id)) if !id.is_empty() => id,
                     _ => {
                         return spoke_reject(
                             SpokeRejectCode::InvalidInput,

@@ -21,7 +21,7 @@ function runFixture({
   failures = [smoke], missing, invalidSource, invalidManifest, invalidProvenance, invalidCheckout,
   status = "completed", conclusion = "failure",
   jobStatus = "completed", jobConclusion, cancelledStep, advanceHead, allowSha, transferWithoutDelivery,
-  gateJobs = [], mergeCheckout, driftCheckout,
+  gateJobs = [], mergeCheckout, driftCheckout, siblingDrift,
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "xcframework-apply-"));
   const put = (path, content, options) => {
@@ -59,8 +59,13 @@ function runFixture({
       git("add", ".");
       git("commit", "-qm", "declare the head above a drifting checkout");
     }
+    if (siblingDrift) {
+      put(siblingDrift, "drift\n");
+      git("add", ".");
+      git("commit", "-qm", "declare the head above a drifting sibling crate");
+    }
     const producerSha = git("rev-parse", "HEAD");
-    const checkoutRevision = mergeCheckout || driftCheckout ? checkoutBase : producerSha;
+    const checkoutRevision = mergeCheckout || driftCheckout || siblingDrift ? checkoutBase : producerSha;
     if (advanceHead) git("commit", "--allow-empty", "-qm", "advance the checkout past the producer");
     const head = git("rev-parse", "HEAD");
     const artifact = "artifact/spoke_connectFFI.xcframework";
@@ -153,6 +158,17 @@ describe("pull-request merge checkout", () => {
     assert.equal(contents, "old native\n");
     assert.equal(record, undefined);
   });
+
+  // spoke-connect path-depends on both sibling crates, so a build input that
+  // differs only there still changes the linked artifact.
+  for (const path of ["crates/spoke-schemas/src/drift.rs", "crates/spoke-operations/src/drift.rs"]) {
+    it(`refuses a merge checkout that drifts only in ${path.split("/").slice(0, 2).join("/")}`, () => {
+      const { result, contents, record } = runFixture({ siblingDrift: path });
+      assert.notEqual(result.status, 0, result.stdout);
+      assert.equal(contents, "old native\n");
+      assert.equal(record, undefined);
+    });
+  }
 
   it("refuses a producer checkout that is not in this checkout", () => {
     const { result, contents, record } = runFixture({ invalidCheckout: true });

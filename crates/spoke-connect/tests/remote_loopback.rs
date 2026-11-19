@@ -3939,6 +3939,54 @@ async fn responder_answers_invalid_sequence_for_a_present_but_non_numeric_sequen
 }
 
 #[tokio::test]
+async fn responder_rejects_an_empty_or_non_string_entry_id_with_invalid_input() {
+    // Parity with the TS gate: `port.knowledge.get` accepts only a non-empty
+    // string `entry_id`, refused at decode before the knowledge face probe.
+    let (responder, pair, seed_client, _peer_id_client) = start_raw_responder().await;
+    let session_id = raw_handshake(&pair.client, seed_client, &tool_manifest("test-client")).await;
+
+    for (sequence, request_id, payload) in [
+        (0, "get-empty", json!({ "entry_id": "" })),
+        (1, "get-nonstring", json!({ "entry_id": 42 })),
+        (2, "get-missing", json!({})),
+    ] {
+        let request = sign_invoke_request(
+            seed_client,
+            &session_id,
+            sequence,
+            request_id,
+            "port.knowledge.get",
+            payload,
+        );
+        pair.client
+            .send(&serde_json::to_vec(&request).expect("bytes"))
+            .await
+            .expect("send");
+        let rejection: Value =
+            serde_json::from_slice(&pair.client.recv().await.expect("recv")).expect("decode");
+        assert_eq!(rejection["error"]["code"], "INVALID_INPUT", "{request_id}");
+    }
+
+    // A non-empty id still reaches the store.
+    let valid = sign_invoke_request(
+        seed_client,
+        &session_id,
+        3,
+        "get-valid",
+        "port.knowledge.get",
+        json!({ "entry_id": "kb_tw_mira" }),
+    );
+    pair.client
+        .send(&serde_json::to_vec(&valid).expect("bytes"))
+        .await
+        .expect("send");
+    let ok_response: Value =
+        serde_json::from_slice(&pair.client.recv().await.expect("recv")).expect("decode");
+    assert_eq!(ok_response["payload"]["entry_id"], "kb_tw_mira");
+    responder.close();
+}
+
+#[tokio::test]
 async fn responder_rejects_a_tampered_invoke_with_auth_failed_and_no_advance() {
     let (responder, pair, seed_client, _peer_id_client) = start_raw_responder().await;
     let session_id = raw_handshake(&pair.client, seed_client, &tool_manifest("test-client")).await;

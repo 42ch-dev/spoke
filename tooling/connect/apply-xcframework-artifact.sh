@@ -277,6 +277,8 @@ PY
 # to the declared run head; the object must be local (never assumed).
 BUILD_INPUT_PATHS=(
   crates/spoke-connect
+  crates/spoke-schemas
+  crates/spoke-operations
   Cargo.toml
   Cargo.lock
   Package.swift

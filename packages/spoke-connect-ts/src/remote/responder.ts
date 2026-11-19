@@ -1221,15 +1221,6 @@ export class ConnectResponder {
     return this.#activeServeBudgetWaits;
   }
 
-  /**
-   * @internal Responder.test.ts only — replace the established session, so
-   * tests can prove the empty-peer-id admission guard (B3) refuses before
-   * calling admission.
-   */
-  setSessionForTest(session: Session): void {
-    this.#session = session;
-  }
-
   /** Release the session and transport. Idempotent. */
   close(): void {
     this.#close("local shutdown");

@@ -301,8 +301,13 @@ fn decode_knowledge_call<'a>(
     declared_scope: Option<&'a Scope>,
 ) -> SpokeResult<KnowledgeCall<'a>> {
     match op {
+        // TS twin (`validateKnowledgeOpPayload`) rejects a non-string or empty
+        // `entry_id` with INVALID_INPUT before admission; the store never sees
+        // an empty id.
         "port.knowledge.get" => match payload_field::<Value>(payload, "entry_id", op) {
-            SpokeResult::Ok(Value::String(id)) => spoke_ok(KnowledgeCall::GetKnowledgeEntry(id)),
+            SpokeResult::Ok(Value::String(id)) if !id.is_empty() => {
+                spoke_ok(KnowledgeCall::GetKnowledgeEntry(id))
+            }
             _ => spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 "invalid port.knowledge.get payload",

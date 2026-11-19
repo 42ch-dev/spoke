@@ -14,10 +14,9 @@ use serde_json::Value;
 
 /// Baseline capability: required by the baseline core ops.
 pub const CAPABILITY_SPOKE_BASELINE: &str = "spoke-baseline";
-/// Optional capability: required by the three remote knowledge ops. A
-/// `spoke-baseline` host serves them through its baseline face, so the
-/// baseline flag satisfies this one ([`capability_satisfies`]); the reverse
-/// never holds.
+/// Optional capability: required by the three remote knowledge ops.
+/// It must be negotiated explicitly: the responder serves those ops only
+/// through its knowledge face, so no other flag implies this one.
 pub const CAPABILITY_SPOKE_KNOWLEDGE: &str = "spoke-knowledge";
 /// Optional capability: required by the compute-family core ops.
 pub const CAPABILITY_L2_COMPUTABLE: &str = "l2-computable";
@@ -168,15 +167,13 @@ pub fn required_capability(op: &str) -> Option<&str> {
     }
 }
 
-/// Whether `negotiated` satisfies `required`: plain membership, plus the one
-/// directed implication `spoke-baseline ⇒ spoke-knowledge` (a baseline host
-/// serves the knowledge ops through its baseline face). No other implication
-/// exists — `spoke-knowledge` alone satisfies no baseline requirement.
+/// Whether `negotiated` satisfies `required`: plain membership. No capability
+/// implies another — in particular `spoke-baseline` never satisfies
+/// `spoke-knowledge`, because the knowledge ops are served only through the
+/// knowledge face.
 #[must_use]
 pub fn capability_satisfies(negotiated: &[String], required: &str) -> bool {
     negotiated.iter().any(|c| c == required)
-        || (required == CAPABILITY_SPOKE_KNOWLEDGE
-            && negotiated.iter().any(|c| c == CAPABILITY_SPOKE_BASELINE))
 }
 
 /// Whether `op` may be dispatched in a session with `negotiated_capabilities`.
@@ -232,19 +229,20 @@ mod tests {
     }
 
     #[test]
-    fn spoke_baseline_satisfies_spoke_knowledge_but_never_the_reverse() {
+    fn capability_satisfies_is_plain_membership() {
         assert!(capability_satisfies(
             &caps(&["spoke-knowledge"]),
-            CAPABILITY_SPOKE_KNOWLEDGE
-        ));
-        assert!(capability_satisfies(
-            &caps(&["spoke-baseline"]),
             CAPABILITY_SPOKE_KNOWLEDGE
         ));
         assert!(capability_satisfies(
             &caps(&["spoke-baseline", "spoke-knowledge"]),
             CAPABILITY_SPOKE_KNOWLEDGE
         ));
+        assert!(
+            !capability_satisfies(&caps(&["spoke-baseline"]), CAPABILITY_SPOKE_KNOWLEDGE),
+            "spoke-baseline must not satisfy spoke-knowledge: the knowledge ops \
+             are served only through the knowledge face"
+        );
         assert!(!capability_satisfies(
             &caps(&["l2-computable"]),
             CAPABILITY_SPOKE_KNOWLEDGE
@@ -254,7 +252,7 @@ mod tests {
             &caps(&["spoke-knowledge"]),
             CAPABILITY_SPOKE_BASELINE
         ));
-        // The one implication is directed: no baseline core op gains access.
+        // No implication: neither family authorizes the other's core ops.
         for op in ["upsert", "promote", "relate", "check", "assemble"] {
             assert!(
                 !dispatch_allowed(op, &caps(&["spoke-knowledge"])),

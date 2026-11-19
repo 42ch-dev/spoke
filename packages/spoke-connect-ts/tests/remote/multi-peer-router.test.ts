@@ -178,7 +178,9 @@ function manifest(
   return {
     schema_version: 1,
     roles: ["data-store"],
-    capabilities: ["spoke-baseline"],
+    // The fixture data-store peers serve the knowledge catalogue, so the
+    // session negotiates `spoke-knowledge` explicitly (no flag implies it).
+    capabilities: ["spoke-baseline", "spoke-knowledge"],
     namespaces: ["toy_world"],
     extensions: {},
     ...overrides,
@@ -1298,7 +1300,7 @@ describe("ke remote", () => {
       manifest: {
         ...schemaConformantManifest(),
         host_id: "peer-a",
-        capabilities: ["spoke-baseline", "ke-ownership"],
+        capabilities: ["spoke-baseline", "spoke-knowledge", "ke-ownership"],
       },
     };
     const withoutOwnership: SelectablePeer = {
@@ -1306,7 +1308,7 @@ describe("ke remote", () => {
       manifest: {
         ...schemaConformantManifest(),
         host_id: "peer-b",
-        capabilities: ["spoke-baseline"],
+        capabilities: ["spoke-baseline", "spoke-knowledge"],
       },
     };
     const selected = selectPeerForOp(
@@ -1335,7 +1337,7 @@ describe("ke remote", () => {
       manifest: {
         ...schemaConformantManifest(),
         host_id: "peer-plain",
-        capabilities: ["spoke-baseline"],
+        capabilities: ["spoke-baseline", "spoke-knowledge"],
       },
     };
     const cognitionPeer: SelectablePeer = {
@@ -1343,7 +1345,7 @@ describe("ke remote", () => {
       manifest: {
         ...schemaConformantManifest(),
         host_id: "peer-cognition",
-        capabilities: ["spoke-baseline", "spoke-cognition"],
+        capabilities: ["spoke-baseline", "spoke-knowledge", "spoke-cognition"],
       },
     };
     const selection = {

@@ -2166,9 +2166,9 @@ mod tests {
     }
 
     /// The product-map fallback (`op_capability_requirements`) through the
-    /// real node dispatch boundary: a knowledge op is served for a
-    /// `spoke-knowledge` or `spoke-baseline` session and denied — with zero
-    /// handler calls — for an unrelated capability set, while a
+    /// real node dispatch boundary: a knowledge op is served for an explicitly
+    /// negotiated `spoke-knowledge` session and denied — with zero handler
+    /// calls — for a baseline-only or unrelated capability set, while a
     /// knowledge-only session never reaches a baseline op's handler.
     #[tokio::test]
     async fn product_map_gates_knowledge_ops_at_the_node_boundary() {
@@ -2178,7 +2178,7 @@ mod tests {
         let knowledge_op = "port.scope.list_knowledge_entries";
         for allowed in [
             caps(&[CAPABILITY_SPOKE_KNOWLEDGE]),
-            caps(&[CAPABILITY_SPOKE_BASELINE]),
+            caps(&[CAPABILITY_SPOKE_BASELINE, CAPABILITY_SPOKE_KNOWLEDGE]),
         ] {
             let (response, calls) = dispatch_cognition_op_request(
                 allowed.clone(),
@@ -2191,7 +2191,13 @@ mod tests {
             );
             assert_eq!(calls, 1, "{allowed:?}: the handler runs once");
         }
-        for denied in [caps(&["ke-ownership"]), caps(&[])] {
+        // `spoke-baseline` no longer implies `spoke-knowledge`: a baseline-only
+        // session cannot serve a knowledge op (zero handler calls).
+        for denied in [
+            caps(&[CAPABILITY_SPOKE_BASELINE]),
+            caps(&["ke-ownership"]),
+            caps(&[]),
+        ] {
             let (response, calls) =
                 dispatch_cognition_op_request(denied.clone(), knowledge_op, serde_json::json!({}));
             let ConnectInvokeResponse::Variant1 { error, .. } = response else {
@@ -2200,8 +2206,7 @@ mod tests {
             assert_eq!(error.code, "op_unsupported", "{error:?}");
             assert_eq!(calls, 0, "{denied:?}: the handler must not run");
         }
-        // The implication is directed: the knowledge flag alone never
-        // authorizes a baseline op.
+        // Neither family authorizes the other's ops.
         let (response, calls) = dispatch_cognition_op_request(
             caps(&[CAPABILITY_SPOKE_KNOWLEDGE]),
             "port.scope.list_timeline_events",

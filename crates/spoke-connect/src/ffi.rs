@@ -1917,7 +1917,7 @@ mod loopback_smoke_host {
         start_loopback_smoke_host_inner(
             server,
             seed_host(),
-            manifest("test-host", &["spoke-baseline"]),
+            manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
             Arc::new(SmokeBaselineAdapter::default()),
         )
         .unwrap_or_else(|error| panic!("loopback smoke host start: {error}"))
@@ -2746,7 +2746,7 @@ mod remote_adapter_ffi_tests {
     }
 
     fn client_manifest_json() -> String {
-        serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest")
+        serde_json::to_string(&manifest("test-client", &["spoke-baseline", "spoke-knowledge"])).expect("manifest")
     }
 
     /// Callback transport that signals once after the first post-dial `send` succeeds
@@ -2922,7 +2922,7 @@ mod remote_adapter_ffi_tests {
                 crate::test_support::loopback_oracle::LoopbackHostOptions {
                     transport: Arc::new(pair.server),
                     host_seed: seed_host(),
-                    host_manifest: manifest("test-host", &["spoke-baseline"]),
+                    host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                     allowlist: vec![derive_peer_id_from_ed25519_pubkey(
                         &crate::test_support::loopback_oracle::pubkey_client(),
                     )],
@@ -2984,7 +2984,7 @@ mod remote_adapter_ffi_tests {
             start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
                 adapter: Arc::new(host_adapter),
                 delay: Box::new(|_| 0),
@@ -3313,7 +3313,7 @@ mod remote_adapter_ffi_tests {
             let host = start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: options
                     .host_allowlist
                     .clone()
@@ -3336,7 +3336,7 @@ mod remote_adapter_ffi_tests {
         let manifest_json = serde_json::to_string(
             &options
                 .client_manifest
-                .unwrap_or_else(|| manifest("test-client", &["spoke-baseline"])),
+                .unwrap_or_else(|| manifest("test-client", &["spoke-baseline", "spoke-knowledge"])),
         )
         .expect("manifest");
         let ffi = connect_remote_adapter_ffi(
@@ -3669,7 +3669,7 @@ mod remote_adapter_ffi_tests {
             let host = start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: vec![other_peer.clone()],
                 adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(|_| 0),
@@ -3682,7 +3682,7 @@ mod remote_adapter_ffi_tests {
                 local_identity: RemoteIdentity {
                     seed: seed_client(),
                 },
-                local_manifest: manifest("test-client", &["spoke-baseline"]),
+                local_manifest: manifest("test-client", &["spoke-baseline", "spoke-knowledge"]),
                 remote_pubkey: pubkey_host(),
                 allowlist: vec![peer_id_host.clone()],
                 invoke_timeout_ms: Some(2000),
@@ -3701,7 +3701,7 @@ mod remote_adapter_ffi_tests {
             start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: vec![other_peer],
                 adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(|_| 0),
@@ -3715,7 +3715,7 @@ mod remote_adapter_ffi_tests {
                 inner: pair.client,
             }),
             seed_client().to_vec(),
-            serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest"),
+            serde_json::to_string(&manifest("test-client", &["spoke-baseline", "spoke-knowledge"])).expect("manifest"),
             pubkey_host().to_vec(),
             vec![peer_id_host],
             Some(2000),
@@ -3742,7 +3742,7 @@ mod remote_adapter_ffi_tests {
             start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
                 adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(|_| 0),
@@ -3781,7 +3781,7 @@ mod remote_adapter_ffi_tests {
                 local_identity: RemoteIdentity {
                     seed: seed_client(),
                 },
-                local_manifest: manifest("test-client", &["spoke-baseline"]),
+                local_manifest: manifest("test-client", &["spoke-baseline", "spoke-knowledge"]),
                 remote_pubkey: pubkey_host(),
                 allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
                 invoke_timeout_ms: Some(50),
@@ -3797,7 +3797,7 @@ mod remote_adapter_ffi_tests {
         let ffi_err = match connect_remote_adapter_ffi(
             Box::new(HangingRecvTransportHolder(Arc::clone(&hanging))),
             seed_client().to_vec(),
-            serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest"),
+            serde_json::to_string(&manifest("test-client", &["spoke-baseline", "spoke-knowledge"])).expect("manifest"),
             pubkey_host().to_vec(),
             vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
             Some(50),
@@ -3861,7 +3861,7 @@ mod remote_adapter_ffi_tests {
             start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
                 host_seed: seed_host(),
-                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
                 allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
                 adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(move |_| {
@@ -3956,7 +3956,7 @@ mod remote_adapter_ffi_tests {
                 crate::test_support::loopback_oracle::LoopbackHostOptions {
                     transport: Arc::new(pair.server),
                     host_seed: golden_seed(),
-                    host_manifest: manifest("golden-host", &["spoke-baseline"]),
+                    host_manifest: manifest("golden-host", &["spoke-baseline", "spoke-knowledge"]),
                     allowlist: vec![derive_peer_id_from_ed25519_pubkey(&golden_pubkey())],
                     adapter: Arc::new(host_adapter),
                     delay: Box::new(|_| 0),
@@ -3971,7 +3971,7 @@ mod remote_adapter_ffi_tests {
         let ffi = connect_remote_adapter_ffi(
             Box::new(LoopbackCallback { inner: client }),
             golden_seed().to_vec(),
-            serde_json::to_string(&manifest("golden-client", &["spoke-baseline"]))
+            serde_json::to_string(&manifest("golden-client", &["spoke-baseline", "spoke-knowledge"]))
                 .expect("manifest"),
             golden_pubkey().to_vec(),
             vec![golden().peer_id.clone()],
@@ -5699,7 +5699,12 @@ mod connect_responder_ffi_tests {
                 "schema_version": 1,
                 "host_id": host_id,
                 "roles": ["data-store", "l2-computable"],
-                "capabilities": ["spoke-baseline", "l2-computable", "l5-fork"],
+                "capabilities": [
+                    "spoke-baseline",
+                    "spoke-knowledge",
+                    "l2-computable",
+                    "l5-fork",
+                ],
                 "namespaces": ["toy_world"],
                 "extensions": {},
             }))
@@ -6242,7 +6247,7 @@ mod multi_peer_router_ffi_tests {
             local_identity: RemoteIdentity {
                 seed: seed_client(),
             },
-            local_manifest: manifest("test-client", &["spoke-baseline"]),
+            local_manifest: manifest("test-client", &["spoke-baseline", "spoke-knowledge"]),
             remote_pubkey: host_pubkey,
             allowlist: vec![peer_id_host],
             invoke_timeout_ms: None,
@@ -6292,7 +6297,7 @@ mod multi_peer_router_ffi_tests {
     #[test]
     fn multi_peer_router_ffi_routes_orchestrate_upsert_equivalent_to_capable_peer() {
         let (baseline_adapter, baseline_host) = ffi_runtime().block_on(async {
-            dial_peer([0xa1; 32], manifest("host-baseline", &["spoke-baseline"])).await
+            dial_peer([0xa1; 32], manifest("host-baseline", &["spoke-baseline", "spoke-knowledge"])).await
         });
         let (computable_adapter, computable_host) = ffi_runtime().block_on(async {
             dial_peer([0xb2; 32], manifest("host-computable", &["l2-computable"])).await
@@ -6360,7 +6365,7 @@ mod multi_peer_router_ffi_tests {
     #[test]
     fn multi_peer_router_ffi_breaks_ties_on_lowest_peer_id() {
         let (alpha_adapter, alpha_host) = ffi_runtime().block_on(async {
-            dial_peer([0xc3; 32], manifest("host-alpha", &["spoke-baseline"])).await
+            dial_peer([0xc3; 32], manifest("host-alpha", &["spoke-baseline", "spoke-knowledge"])).await
         });
         let (beta_adapter, beta_host) = ffi_runtime().block_on(async {
             dial_peer(
@@ -6417,7 +6422,7 @@ mod multi_peer_router_ffi_tests {
                 [0xa1; 32],
                 manifest_with(
                     "host-alpha",
-                    &["spoke-baseline"],
+                    &["spoke-baseline", "spoke-knowledge"],
                     &["data-store"],
                     &["alpha"],
                 ),
@@ -6458,7 +6463,10 @@ mod multi_peer_router_ffi_tests {
         assert_eq!(composed.host_id.as_str(), "multi-peer-router");
         let mut capabilities = composed.capabilities.clone();
         capabilities.sort();
-        assert_eq!(capabilities, vec!["l2-computable", "spoke-baseline"]);
+        assert_eq!(
+            capabilities,
+            vec!["l2-computable", "spoke-baseline", "spoke-knowledge"]
+        );
         let mut roles = composed.roles.clone();
         roles.sort();
         assert_eq!(roles, vec!["checker", "data-store"]);
@@ -6492,7 +6500,7 @@ mod multi_peer_router_ffi_tests {
         let (alpha_adapter, alpha_host) = ffi_runtime().block_on(async {
             dial_peer(
                 [0xa1; 32],
-                manifest_with("host-alpha", &["spoke-baseline"], &["data-store"], &["alpha"]),
+                manifest_with("host-alpha", &["spoke-baseline", "spoke-knowledge"], &["data-store"], &["alpha"]),
             )
             .await
         });
@@ -6563,7 +6571,7 @@ mod multi_peer_router_ffi_tests {
     #[test]
     fn multi_peer_router_ffi_unregister_leaves_adapter_usable() {
         let (adapter, host) = ffi_runtime().block_on(async {
-            dial_peer([0xc3; 32], manifest("host-unreg", &["spoke-baseline"])).await
+            dial_peer([0xc3; 32], manifest("host-unreg", &["spoke-baseline", "spoke-knowledge"])).await
         });
         let ffi_adapter = RemoteAdapterFFI::from_adapter(adapter.clone());
         let peer_id = adapter.remote_peer_id().expect("peer id");
@@ -7031,7 +7039,7 @@ mod ke_remote_ffi_tests {
     /// scenario negotiates — a capability must appear in *both* hellos to be
     /// negotiated, so the omitted side is how the deny scenarios are set up.
     fn ke_manifest_json(host_id: &str, capabilities: &[&str]) -> String {
-        let mut all = vec!["spoke-baseline"];
+        let mut all = vec!["spoke-baseline", "spoke-knowledge"];
         all.extend_from_slice(capabilities);
         serde_json::to_string(&json!({
             "schema_version": 1,

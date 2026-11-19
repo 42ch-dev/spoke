@@ -177,6 +177,9 @@ function toolManifest(hostId: string): HostCapabilityManifest {
     namespaces: ["toy_world", "math", "echo"],
     capabilities: [
       "spoke-baseline",
+      // These fixtures serve the knowledge face, so the session negotiates
+      // `spoke-knowledge` explicitly (no flag implies it).
+      "spoke-knowledge",
       "tools.math.add",
       "tools.echo.echo",
       "tools.echo.boom",
@@ -1596,10 +1599,11 @@ function manifestWithCaps(
   capabilities: readonly string[],
 ): HostCapabilityManifest {
   const base = schemaConformantManifest();
-  const caps = [...new Set([...base.capabilities, ...capabilities])] as [
-    string,
-    ...string[],
-  ];
+  // Every fixture host here serves the toy ports, including the knowledge
+  // face — so `spoke-knowledge` is always negotiated explicitly.
+  const caps = [
+    ...new Set([...base.capabilities, "spoke-knowledge", ...capabilities]),
+  ] as [string, ...string[]];
   return { ...base, host_id: hostId, capabilities: caps };
 }
 
@@ -1839,7 +1843,7 @@ describe("ke remote", () => {
     }
   });
 
-  it("allows listKnowledgeEntries without viewpoint when only baseline is negotiated", async () => {
+  it("allows listKnowledgeEntries without viewpoint when spoke-knowledge is negotiated", async () => {
     const scope: Scope = { scope_id: "s1" };
     const calls: Scope[] = [];
     const ports = toyBaselinePorts();

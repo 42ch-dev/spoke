@@ -72,7 +72,8 @@ const CAPABILITY_L5_FORK: &str = "l5-fork";
 /// Required capability for a `port.*` op of the D4 catalogue (frozen
 /// contract §5.2), or `None` for an op outside it. Every baseline row
 /// requires `spoke-baseline`; the three knowledge ops require
-/// `spoke-knowledge`, which `spoke-baseline` satisfies; the optional
+/// `spoke-knowledge` **explicitly** (the knowledge face is their only
+/// server, so no flag implies it); the optional
 /// families require their negotiated family capability (`l2-computable` /
 /// `l5-fork`).
 ///

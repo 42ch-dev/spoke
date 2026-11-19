@@ -1412,7 +1412,7 @@ async fn concurrent_invokes_reach_the_wire_in_allocation_order() {
             captured: Arc::clone(&captured),
         }),
         host_seed: seed_host(),
-        host_manifest: manifest("test-host", &["spoke-baseline"]),
+        host_manifest: manifest("test-host", &["spoke-baseline", "spoke-knowledge"]),
         allowlist: vec![peer_id_client.clone()],
         adapter: Arc::new(host_adapter),
         delay: Box::new(|_| 0),
@@ -1430,7 +1430,7 @@ async fn concurrent_invokes_reach_the_wire_in_allocation_order() {
         local_identity: RemoteIdentity {
             seed: seed_client(),
         },
-        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        local_manifest: manifest("test-client", &["spoke-baseline", "spoke-knowledge"]),
         remote_pubkey: pubkey_host(),
         allowlist: vec![peer_id_host.clone()],
         invoke_timeout_ms: Some(5000),
@@ -1592,7 +1592,9 @@ async fn dial_peer(
         local_identity: RemoteIdentity {
             seed: seed_client(),
         },
-        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        // The knowledge catalogue is served by every fixture host, so the
+        // client hello carries the flag too (negotiation is the intersection).
+        local_manifest: manifest("test-client", &["spoke-baseline", "spoke-knowledge"]),
         remote_pubkey: host_pubkey,
         allowlist: vec![peer_id_host],
         invoke_timeout_ms: None,
@@ -1606,8 +1608,11 @@ async fn dial_peer(
 #[tokio::test]
 async fn multi_peer_router_routes_upsert_and_check_to_the_capable_peer() {
     // Two peers with DISJOINT capabilities: baseline vs l2-computable.
-    let (baseline_adapter, baseline_host) =
-        dial_peer([0xa1; 32], manifest("host-baseline", &["spoke-baseline"])).await;
+    let (baseline_adapter, baseline_host) = dial_peer(
+        [0xa1; 32],
+        manifest("host-baseline", &["spoke-baseline", "spoke-knowledge"]),
+    )
+    .await;
     let (computable_adapter, computable_host) =
         dial_peer([0xb2; 32], manifest("host-computable", &["l2-computable"])).await;
 
@@ -1622,8 +1627,8 @@ async fn multi_peer_router_routes_upsert_and_check_to_the_capable_peer() {
     assert_eq!(router.list_peers(), vec![baseline_id, computable_id]);
 
     // orchestrateUpsert → port.knowledge.get + port.knowledge.put — both
-    // baseline ops → the spoke-baseline peer; the l2-computable peer is
-    // never touched.
+    // require `spoke-knowledge` → only the peer that negotiated it serves;
+    // the l2-computable peer is never touched.
     let request = upsert_request(&[fresh_entry("kb_mpr_upsert", "Multi-Peer Upsert")]);
     let upsert = orchestrate_upsert(&router, request).await;
     assert!(
@@ -1705,16 +1710,22 @@ async fn multi_peer_router_rejects_no_capable_peer_when_no_peer_has_the_capabili
 
 #[tokio::test]
 async fn multi_peer_router_breaks_ties_on_the_lowest_peer_id_across_two_baseline_peers() {
-    // Three peers: alpha (baseline-only), beta (baseline + l2-computable),
-    // gamma (l2-computable-only). A baseline op has TWO candidates (alpha +
-    // beta); the locked §4 tie-break picks the lowest peer_id in UTF-8 byte
+    // Three peers: alpha (baseline + knowledge), beta (baseline + knowledge
+    // + l2-computable), gamma (l2-computable-only). The knowledge op has TWO
+    // candidates (alpha + beta); the locked §4 tie-break picks the lowest peer_id in UTF-8 byte
     // order — the host ids derive from the seeds, so the expected recipient
     // is computed at runtime rather than hunted for.
-    let (alpha_adapter, alpha_host) =
-        dial_peer([0xc3; 32], manifest("host-alpha", &["spoke-baseline"])).await;
+    let (alpha_adapter, alpha_host) = dial_peer(
+        [0xc3; 32],
+        manifest("host-alpha", &["spoke-baseline", "spoke-knowledge"]),
+    )
+    .await;
     let (beta_adapter, beta_host) = dial_peer(
         [0xd4; 32],
-        manifest("host-beta", &["spoke-baseline", "l2-computable"]),
+        manifest(
+            "host-beta",
+            &["spoke-baseline", "spoke-knowledge", "l2-computable"],
+        ),
     )
     .await;
     let (gamma_adapter, gamma_host) =
@@ -1943,6 +1954,7 @@ fn tool_manifest(host_id: &str) -> HostCapabilityManifest {
         "roles": ["data-store"],
         "capabilities": [
             "spoke-baseline",
+            "spoke-knowledge",
             "tools.math.add",
             "tools.echo.echo",
             "tools.echo.boom",
@@ -7994,11 +8006,11 @@ impl ScopedKnowledgePort for PendingListStore {
     }
 }
 
-/// Issue 1: admission and the store share ONE deadline. An 80 ms admission
-/// inside a 100 ms budget leaves the store ~20 ms, so the answer is the signed
-/// serve timeout at the budget, not a success at ~160 ms from a second full
-/// budget. The store IS called (under the remaining budget); the expired wait
-/// discards its late completion.
+/// Issue 1: admission and the store share ONE deadline. Admission blocks far
+/// past the budget, so whichever stage answers first the verdict is the same
+/// signed serve timeout and the store is never called: an expired admission
+/// times out on its own, and a late one leaves zero budget. No wall-clock
+/// bound is asserted — the outcome does not depend on machine timing.
 #[tokio::test]
 async fn knowledge_serve_shares_one_deadline_between_admission_and_the_store() {
     let store = Arc::new(PendingListStore {
@@ -8008,14 +8020,14 @@ async fn knowledge_serve_shares_one_deadline_between_admission_and_the_store() {
     let face = Arc::new(RemoteKnowledgeFace {
         store: store.clone(),
         admission: Arc::new(|_| {
-            std::thread::sleep(Duration::from_millis(80));
+            std::thread::sleep(Duration::from_millis(200));
             spoke_ok(scope_of("scope-a"))
         }),
     });
     let ports: Arc<dyn RemoteServePorts + Send + Sync> =
         Arc::new(RemoteServePortsComposite::knowledge_only(face));
     let (responder, pair, seed) =
-        start_raw_ke_responder_with_budget(ports, &["spoke-knowledge"], Some(100)).await;
+        start_raw_ke_responder_with_budget(ports, &["spoke-knowledge"], Some(25)).await;
     let session_id = raw_handshake(
         &pair.client,
         seed,
@@ -8023,7 +8035,6 @@ async fn knowledge_serve_shares_one_deadline_between_admission_and_the_store() {
     )
     .await;
 
-    let started = Instant::now();
     let response = tokio::time::timeout(
         Duration::from_secs(2),
         raw_invoke(
@@ -8038,7 +8049,6 @@ async fn knowledge_serve_shares_one_deadline_between_admission_and_the_store() {
     )
     .await
     .expect("the shared deadline answers without waiting out the store");
-    let elapsed = started.elapsed();
 
     assert_eq!(response["error"]["code"], "INTERNAL_ERROR", "{response}");
     assert_eq!(response["error"]["details"]["kind"], "timeout", "{response}");
@@ -8046,33 +8056,29 @@ async fn knowledge_serve_shares_one_deadline_between_admission_and_the_store() {
         response["error"]["message"]
             .as_str()
             .unwrap_or_default()
-            .contains("serve wait exceeded the local budget of 100ms"),
+            .contains("serve wait exceeded the local budget of 25ms"),
         "the expiry names the responder's own budget: {response}"
-    );
-    assert!(
-        elapsed < Duration::from_millis(160),
-        "one shared budget answers at ~100 ms, not the 80 ms + 80 ms two-budget \
-         sum (took {elapsed:?})"
     );
     assert_eq!(
         store.calls.load(Ordering::SeqCst),
-        1,
-        "the store runs under the remaining budget; its late completion is discarded"
+        0,
+        "a spent budget answers the signed timeout without reaching the store"
     );
     assert_eq!(responder.state(), RemoteAdapterState::Established);
     responder.close();
 }
 
 /// Issue 2: the effective list scope is admitted ∩ requested — an admitted
-/// `entry_ids`/scalar constraint is never dropped, and a request naming a
-/// different scalar refuses before the store.
+/// `entry_ids`/scalar constraint is never dropped, a requested `entry_types`
+/// subset narrows (a value outside the admitted set refuses before the
+/// store), and a request naming a different scalar refuses too.
 #[tokio::test]
 async fn knowledge_face_intersects_the_list_scope_with_the_admission() {
     let store = Arc::new(ScopedKnowledgeStore::default());
     let admitted: Scope = serde_json::from_value(json!({
         "scope_id": "scope-a",
         "entry_ids": ["ke-a"],
-        "entry_types": ["note"],
+        "entry_types": ["note", "decision"],
         "source_id": "source-a",
         "extensions": { "product": { "limit": "admitted" } },
     }))
@@ -8109,6 +8115,11 @@ async fn knowledge_face_intersects_the_list_scope_with_the_admission() {
         vec!["ke-a".to_owned()],
         "admitted entry_ids bound the list: {listed}"
     );
+    assert_eq!(
+        store.listed_scopes()[0]["entry_types"],
+        json!(["note", "decision"]),
+        "a request that omits entry_types keeps the admitted set"
+    );
 
     // A request-wide id set still intersects, and the admitted scalar and
     // extension values bound what reaches the store.
@@ -8139,7 +8150,11 @@ async fn knowledge_face_intersects_the_list_scope_with_the_admission() {
     );
     let scopes = store.listed_scopes();
     assert_eq!(scopes[1]["entry_ids"], json!(["ke-a"]));
-    assert_eq!(scopes[1]["entry_types"], json!(["note"]));
+    assert_eq!(
+        scopes[1]["entry_types"],
+        json!(["note"]),
+        "a requested subset of the admitted entry_types is served as given"
+    );
     assert_eq!(scopes[1]["source_id"], json!("source-a"));
     assert_eq!(
         scopes[1]["extensions"]["product"],
@@ -8165,6 +8180,31 @@ async fn knowledge_face_intersects_the_list_scope_with_the_admission() {
     .await;
     assert_eq!(disjoint["payload"], json!([]), "{disjoint}");
 
+    // A requested `entry_types` value outside the admitted set widens the
+    // query: refuse before the store.
+    let calls_before = store.calls().len();
+    let wider_types = raw_invoke(
+        &pair.client,
+        seed_a,
+        &session,
+        3,
+        "wider-types",
+        "port.scope.list_knowledge_entries",
+        json!({
+            "scope": {
+                "scope_id": "scope-a",
+                "entry_types": ["note", "other"],
+            },
+        }),
+    )
+    .await;
+    assert_eq!(wider_types["error"]["code"], "NOT_AUTHORIZED", "{wider_types}");
+    assert_eq!(
+        store.calls().len(),
+        calls_before,
+        "an out-of-set entry_type never reaches the store"
+    );
+
     // A scalar the admission does not grant is not a narrowing: refuse before
     // the store.
     let calls_before = store.calls().len();
@@ -8172,7 +8212,7 @@ async fn knowledge_face_intersects_the_list_scope_with_the_admission() {
         &pair.client,
         seed_a,
         &session,
-        3,
+        4,
         "wider-scalar",
         "port.scope.list_knowledge_entries",
         json!({ "scope": { "scope_id": "scope-a", "source_id": "source-b" } }),

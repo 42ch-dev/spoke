@@ -822,6 +822,24 @@ function adoptedConstraint<T>(
   return WIDENING;
 }
 
+/**
+ * Adopt an admitted set-valued constraint: a requested set that is a subset of
+ * the admitted one narrows the query and is used as given; a requested set
+ * naming any value outside the admitted one is a widening (`WIDENING`).
+ */
+function adoptedSetConstraint(
+  admitted: string[] | undefined,
+  requested: string[] | undefined,
+): string[] | undefined | typeof WIDENING {
+  if (admitted === undefined) {
+    return requested;
+  }
+  if (requested === undefined) {
+    return admitted;
+  }
+  return requested.every((value) => admitted.includes(value)) ? requested : WIDENING;
+}
+
 /** Admitted ∩ requested ids: an empty intersection stays an empty filter. */
 function intersectedIds(
   admitted: string[] | undefined,
@@ -844,10 +862,9 @@ function intersectedIds(
  * win on conflict; the request's cognition selection is untouched.
  */
 function effectiveScope(requested: Scope, admitted: Scope): Scope | null {
-  const entryTypes = adoptedConstraint(
+  const entryTypes = adoptedSetConstraint(
     admitted.entry_types,
     requested.entry_types,
-    (a, b) => a.length === b.length && a.every((value) => b.includes(value)),
   );
   const sourceId = adoptedConstraint(admitted.source_id, requested.source_id);
   const timelineScale = adoptedConstraint(

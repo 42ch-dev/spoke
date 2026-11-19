@@ -66,8 +66,9 @@ const SESSION_ID = "test-session-loopback-0001";
 
 /**
  * Default product `op_capability_requirements` map for the loopback host
- * (frozen contract §5.1): every baseline `port.*` op requires
- * `spoke-baseline`.
+ * (frozen contract §5.1): the three knowledge ops require an explicitly
+ * negotiated `spoke-knowledge` (no flag implies it); every other baseline
+ * `port.*` op requires `spoke-baseline`.
  */
 const DEFAULT_PORT_CAPABILITY_REQUIREMENTS: Record<string, string> = {
   "port.knowledge.get": "spoke-knowledge",
@@ -215,7 +216,12 @@ export async function startLoopbackHost(
   const hostPeerId = derivePeerIdFromEd25519Pubkey(
     getPublicKeyEd25519(seed),
   );
-  const hostManifest = options.hostManifest ?? schemaConformantManifest();
+  // This fixture host serves the knowledge ports through `DEFAULT_PORT_CAPABILITY_REQUIREMENTS`,
+  // so it negotiates `spoke-knowledge` explicitly (no flag implies it).
+  const hostManifest = options.hostManifest ?? {
+    ...schemaConformantManifest(),
+    capabilities: ["spoke-baseline", "spoke-knowledge"],
+  };
   const nonceStore = new NonceStore();
   const requirements = {
     ...DEFAULT_PORT_CAPABILITY_REQUIREMENTS,

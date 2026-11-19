@@ -19,9 +19,9 @@ export const CAPABILITY_SPOKE_BASELINE = "spoke-baseline";
 /**
  * Optional capability: required by the three remote knowledge ops
  * (`port.knowledge.get` / `port.knowledge.put` /
- * `port.scope.list_knowledge_entries`). A peer negotiating
- * `spoke-baseline` satisfies this requirement; the reverse never holds —
- * `spoke-knowledge` alone authorizes no core op.
+ * `port.scope.list_knowledge_entries`). It must be negotiated explicitly: the
+ * responder serves those ops only through the knowledge face, so no other
+ * flag implies this one.
  */
 export const CAPABILITY_SPOKE_KNOWLEDGE = "spoke-knowledge";
 
@@ -137,21 +137,16 @@ export function requiredCapability(op: string): string | undefined {
 }
 
 /**
- * Whether `negotiated` satisfies `required` (port capability gate):
- * direct membership, OR a negotiated `spoke-baseline` satisfying a
- * `spoke-knowledge` requirement. Fails closed for everything else —
- * `spoke-knowledge` never satisfies `spoke-baseline`, and no other
- * capability implies another.
+ * Whether `negotiated` satisfies `required` (port capability gate): plain
+ * membership. No capability implies another — in particular `spoke-baseline`
+ * never satisfies `spoke-knowledge`, because the knowledge ops are served
+ * only through the knowledge face.
  */
 export function capabilitySatisfies(
   negotiated: readonly string[],
   required: string,
 ): boolean {
-  return (
-    negotiated.includes(required) ||
-    (required === CAPABILITY_SPOKE_KNOWLEDGE &&
-      negotiated.includes(CAPABILITY_SPOKE_BASELINE))
-  );
+  return negotiated.includes(required);
 }
 
 /**

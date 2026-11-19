@@ -82,8 +82,8 @@ pub fn check_request(scope_id: &str) -> CheckRequest {
 // ── Loopback host (test-only; mirror of TS `tests/remote/loopback-host.ts`) ─
 
 /// Default product `op_capability_requirements` map for the loopback host
-/// (frozen contract §5.1): the three knowledge ops require
-/// `spoke-knowledge` (satisfied by `spoke-baseline`); every other baseline
+/// (frozen contract §5.1): the three knowledge ops require an explicitly
+/// negotiated `spoke-knowledge` (no flag implies it); every other baseline
 /// `port.*` op requires `spoke-baseline`; the optional families require
 /// `l2-computable` / `l5-fork` (the gate denies these unless the negotiated
 /// capabilities carry the family capability — mirror of the T4 responder map).
@@ -1209,7 +1209,7 @@ pub async fn dial(
         host_seed: seed_host(),
         host_manifest: options
             .host_manifest
-            .unwrap_or_else(|| manifest("test-host", &["spoke-baseline"])),
+            .unwrap_or_else(|| manifest("test-host", &["spoke-baseline", "spoke-knowledge"])),
         allowlist: options
             .host_allowlist
             .unwrap_or_else(|| vec![peer_id_client.clone()]),
@@ -1229,7 +1229,7 @@ pub async fn dial(
         },
         local_manifest: options
             .client_manifest
-            .unwrap_or_else(|| manifest("test-client", &["spoke-baseline"])),
+            .unwrap_or_else(|| manifest("test-client", &["spoke-baseline", "spoke-knowledge"])),
         remote_pubkey: pubkey_host(),
         allowlist: options
             .allowlist

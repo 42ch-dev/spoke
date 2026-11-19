@@ -2294,7 +2294,7 @@ mod tests {
     #[tokio::test]
     async fn cognition_raw_unsupported_requirement_crosses_the_session() {
         let (adapter, host) =
-            dial_cognition_session(&["spoke-baseline", "spoke-cognition"]).await;
+            dial_cognition_session(&["spoke-baseline", "spoke-knowledge", "spoke-cognition"]).await;
         let result: SpokeResult<Value> = adapter
             .invoke_mapped(
                 "port.scope.list_knowledge_entries",
@@ -2325,7 +2325,9 @@ mod tests {
     /// the adapter maps it through the D7 row with the wire code preserved.
     #[tokio::test]
     async fn cognition_requirement_without_the_family_maps_to_port_missing() {
-        let (adapter, host) = dial_cognition_session(&["spoke-baseline"]).await;
+        // `spoke-knowledge` is negotiated (the op gate needs it) but the cognition
+        // family is not, so the requirement takes the `capability_missing` branch.
+        let (adapter, host) = dial_cognition_session(&["spoke-baseline", "spoke-knowledge"]).await;
         let result: SpokeResult<Value> = adapter
             .invoke_mapped(
                 "port.scope.list_knowledge_entries",

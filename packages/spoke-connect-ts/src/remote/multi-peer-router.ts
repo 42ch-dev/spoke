@@ -274,10 +274,10 @@ export function selectPeerForOp(
     // (QC2 S-1). Same terminal §5 reject shape as a no-match.
     return noCapablePeer(op, `no capability mapping for unknown op "${op}"`);
   }
-  // Hard capability filter: `spoke-baseline` satisfies a
-  // `spoke-knowledge` requirement, never the reverse — knowledge-only
-  // peers qualify for the three knowledge ops while baseline hosts keep
-  // qualifying for them too.
+  // Hard capability filter: plain membership, no implication between
+  // families — only a peer that negotiated `spoke-knowledge` itself
+  // qualifies for the three knowledge ops, and `spoke-knowledge` alone
+  // never qualifies a peer for a baseline op.
   let survivors = candidates.filter((candidate) =>
     capabilitySatisfies(candidate.manifest.capabilities, required),
   );

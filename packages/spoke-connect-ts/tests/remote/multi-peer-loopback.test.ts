@@ -140,7 +140,9 @@ async function dialPeer(
     localManifest: {
       ...schemaConformantManifest(),
       host_id: "test-client",
-      capabilities: ["spoke-baseline", "l2-computable"],
+      // The toy host serves the knowledge ports, so both hellos carry
+      // `spoke-knowledge` (the negotiated set is their intersection).
+      capabilities: ["spoke-baseline", "l2-computable", "spoke-knowledge"],
     },
     remotePubkey: pubkeyHost,
     allowlist: [peerIdHost],
@@ -184,13 +186,18 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
   it(
     "routes orchestrateUpsert and orchestrateCheck to the peer with the required capability (disjoint capabilities; the consumer never names a peer)",
     async () => {
-      // Disjoint capabilities: peer A serves baseline ops, peer B only
-      // computable ops. Both orchestrated families require spoke-baseline
-      // (contract §2), so every port call must land on A and none on B.
+      // Disjoint capabilities: peer A serves the baseline + knowledge ops
+      // (contract §2: the knowledge ports require `spoke-knowledge`), peer B
+      // only computable ops, so every port call must land on A and none on B.
       const peerA = await dialPeer(
         seed(0xa0),
         seed(0x10),
-        peerManifest("peer-a", ["spoke-baseline"], ["toy_world"], ["data-store"]),
+        peerManifest(
+          "peer-a",
+          ["spoke-baseline", "spoke-knowledge"],
+          ["toy_world"],
+          ["data-store"],
+        ),
       );
       const peerB = await dialPeer(
         seed(0xb0),
@@ -311,17 +318,32 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
         await dialPeer(
           seed(0xa1),
           seed(0x11),
-          peerManifest("peer-a", ["spoke-baseline"], ["toy_world"], ["data-store"]),
+          peerManifest(
+          "peer-a",
+          ["spoke-baseline", "spoke-knowledge"],
+          ["toy_world"],
+          ["data-store"],
+        ),
         ),
         await dialPeer(
           seed(0xb1),
           seed(0x21),
-          peerManifest("peer-b", ["spoke-baseline"], ["toy_world"], ["data-store"]),
+          peerManifest(
+          "peer-b",
+          ["spoke-baseline", "spoke-knowledge"],
+          ["toy_world"],
+          ["data-store"],
+        ),
         ),
         await dialPeer(
           seed(0xc1),
           seed(0x31),
-          peerManifest("peer-c", ["spoke-baseline"], ["toy_world"], ["data-store"]),
+          peerManifest(
+          "peer-c",
+          ["spoke-baseline", "spoke-knowledge"],
+          ["toy_world"],
+          ["data-store"],
+        ),
         ),
       ];
       try {

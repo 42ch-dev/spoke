@@ -1,8 +1,8 @@
 /**
  * Knowledge capability split (design §4/§5 acceptance):
  *
- * 1. `capabilitySatisfies` — `spoke-baseline` satisfies `spoke-knowledge`,
- *    never the reverse.
+ * 1. `capabilitySatisfies` — plain membership: `spoke-baseline` never
+ *    satisfies `spoke-knowledge` (the knowledge face serves those ops).
  * 2. Knowledge-only serve ports (`knowledgeOnlyServePorts`) serve the three
  *    knowledge ops without a baseline face; `assemble` stays denied.
  * 3. Per-peer admission: two callers admitted to different scopes cannot
@@ -14,7 +14,7 @@
  *    baseline ops.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { spokeOk, spokeReject, type SpokeResult } from "@42ch/spoke-operations";
 
@@ -70,16 +70,16 @@ function manifest(hostId: string, capabilities: string[]): HostCapabilityManifes
 // ── capabilitySatisfies (design §1) ───────────────────────────────────────
 
 describe("capabilitySatisfies", () => {
-  it("lets spoke-baseline satisfy spoke-knowledge, never the reverse", () => {
+  it("is plain membership: no capability satisfies another", () => {
     const baseline = [CAPABILITY_SPOKE_BASELINE];
     const knowledge = [CAPABILITY_SPOKE_KNOWLEDGE];
     const both = [CAPABILITY_SPOKE_KNOWLEDGE, CAPABILITY_SPOKE_BASELINE];
 
     expect(capabilitySatisfies(knowledge, CAPABILITY_SPOKE_KNOWLEDGE)).toBe(true);
-    expect(capabilitySatisfies(baseline, CAPABILITY_SPOKE_KNOWLEDGE)).toBe(true);
-    expect(capabilitySatisfies(both, CAPABILITY_SPOKE_BASELINE)).toBe(true);
-    // Reverse never holds.
+    expect(capabilitySatisfies(both, CAPABILITY_SPOKE_KNOWLEDGE)).toBe(true);
     expect(capabilitySatisfies(knowledge, CAPABILITY_SPOKE_BASELINE)).toBe(false);
+    // `spoke-knowledge` must be negotiated explicitly.
+    expect(capabilitySatisfies(baseline, CAPABILITY_SPOKE_KNOWLEDGE)).toBe(false);
     expect(capabilitySatisfies([], CAPABILITY_SPOKE_KNOWLEDGE)).toBe(false);
   });
 });
@@ -107,9 +107,15 @@ describe("selectPeerForOp knowledge rows", () => {
     }
   });
 
-  it("keeps a baseline-only peer eligible for the knowledge ops", () => {
-    const selected = selectPeerForOp([baselinePeer], "port.knowledge.get", {});
-    expect(selected.ok).toBe(true);
+  it("never selects a baseline-only peer for a knowledge op", () => {
+    for (const op of [
+      "port.knowledge.get",
+      "port.knowledge.put",
+      "port.scope.list_knowledge_entries",
+    ]) {
+      const selected = selectPeerForOp([baselinePeer], op, {});
+      expect(selected.ok, op).toBe(false);
+    }
   });
 
   it("never selects a knowledge-only peer for a core baseline op", () => {
@@ -171,7 +177,11 @@ function scopedStoreFace(
         if (listGate !== undefined) {
           await listGate;
         }
-        const all = [...bucket(scope.scope_id).values()];
+        const all = [...bucket(scope.scope_id).values()].filter(
+          (candidate) =>
+            scope.entry_types === undefined ||
+            scope.entry_types.includes(candidate.entry_type),
+        );
         return spokeOk(
           scope.entry_ids === undefined
             ? all
@@ -511,14 +521,15 @@ describe("knowledge-only responder", () => {
     const listGate = new Promise<void>(() => {
       /* never settles */
     });
+    // Only `Date` is faked: admission advances the responder's clock past the
+    // budget instead of sleeping, so no wall-clock bound is asserted and the
+    // outcome does not depend on machine timing.
+    vi.useFakeTimers({ toFake: ["Date"] });
     const { client, close } = await dialKnowledgeOnlyHost({
       // Admission is synchronous producer work, so it spends the budget in
       // place (the Rust path parks it on the blocking pool).
       admission: () => {
-        const until = Date.now() + 80;
-        while (Date.now() < until) {
-          /* spend the serve budget */
-        }
+        vi.setSystemTime(Date.now() + 500);
         return spokeOk(SCOPE_A);
       },
       clientSeed: seed(0x13),
@@ -528,18 +539,34 @@ describe("knowledge-only responder", () => {
       invokeTimeoutMs: 100,
     });
     try {
-      const started = Date.now();
       const listed = await client.listKnowledgeEntries(SCOPE_A);
-      const elapsed = Date.now() - started;
       expect(listed.ok).toBe(false);
       if (!listed.ok) {
         expect(listed.code).toBe("INTERNAL_ERROR");
         expect(listed.details?.kind).toBe("timeout");
       }
+      // The whole budget went to admission, so the store gets none of it and
+      // is never called — a second full budget would have called it.
+      expect(storeCalls).toEqual([]);
+    } finally {
+      close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("serves the list once when admission leaves the budget", async () => {
+    const storeCalls: string[] = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(SCOPE_A),
+      clientSeed: seed(0x13),
+      clientCapabilities: ["spoke-knowledge"],
+      storeCalls,
+      invokeTimeoutMs: 100,
+    });
+    try {
+      const listed = await client.listKnowledgeEntries(SCOPE_A);
+      expect(listed.ok).toBe(true);
       expect(storeCalls).toEqual(["list"]);
-      // 80 ms admission + 80 ms of store would answer at ~160 ms with two
-      // budgets; the one shared deadline answers at the 100 ms budget.
-      expect(elapsed).toBeLessThan(150);
     } finally {
       close();
     }
@@ -612,6 +639,60 @@ describe("knowledge-only responder", () => {
       expect(refused.ok).toBe(false);
       if (!refused.ok) {
         expect(refused.code).toBe("NOT_AUTHORIZED");
+      }
+      expect(storeCalls).toHaveLength(callsBefore);
+    } finally {
+      close();
+    }
+  });
+
+  it("serves a requested entry_types subset and refuses values outside it", async () => {
+    const admitted: Scope = {
+      scope_id: "scope_a",
+      entry_types: ["note", "decision"],
+    };
+    const storeCalls: string[] = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(admitted),
+      clientSeed: seed(0x15),
+      clientCapabilities: ["spoke-knowledge"],
+      storeCalls,
+    });
+    try {
+      expect((await client.putKnowledgeEntry(entry("kb_note"), null)).ok).toBe(
+        true,
+      );
+      expect(
+        (
+          await client.putKnowledgeEntry(
+            { ...entry("kb_decision"), entry_type: "decision" },
+            null,
+          )
+        ).ok,
+      ).toBe(true);
+
+      // A subset of the admitted entry_types narrows: only notes are served.
+      const narrowed = await client.listKnowledgeEntries({
+        scope_id: "scope_a",
+        entry_types: ["note"],
+      });
+      expect(narrowed.ok).toBe(true);
+      if (narrowed.ok) {
+        expect(narrowed.value.map((listed) => listed.entry_id)).toEqual([
+          "kb_note",
+        ]);
+      }
+
+      // A value outside the admitted set is a widening: refuse before the
+      // store.
+      const callsBefore = storeCalls.length;
+      const widened = await client.listKnowledgeEntries({
+        scope_id: "scope_a",
+        entry_types: ["note", "other"],
+      });
+      expect(widened.ok).toBe(false);
+      if (!widened.ok) {
+        expect(widened.code).toBe("NOT_AUTHORIZED");
       }
       expect(storeCalls).toHaveLength(callsBefore);
     } finally {

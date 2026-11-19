@@ -88,9 +88,12 @@ const OTHER_SPACE: &str = "spc_other";
 const CONTEXT: &str = "bnd_mira_harbor_run_7";
 const OTHER_CONTEXT: &str = "bnd_bo_market_run_2";
 
-/// Memory capabilities negotiated by both ends of the loopback session.
-const MEMORY_CAPABILITIES: [&str; 4] = [
+/// Memory capabilities negotiated by both ends of the loopback session. The
+/// host also serves the knowledge catalogue, so `spoke-knowledge` is
+/// negotiated explicitly (no flag implies it).
+const MEMORY_CAPABILITIES: [&str; 5] = [
     "spoke-baseline",
+    "spoke-knowledge",
     "spoke-memory",
     "spoke-memory-reflection",
     "spoke-memory-transfer",

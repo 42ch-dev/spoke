@@ -381,13 +381,14 @@ fn intersected_ids(
 /// win on conflict; the request's cognition selection is untouched.
 fn effective_scope(requested: &Scope, admitted: &Scope) -> Option<Scope> {
     let entry_types = match (&admitted.entry_types, &requested.entry_types) {
+        // The request narrows the admitted set: any value outside it would
+        // widen the query, so only a subset is served (as the request's set).
         (Some(admitted), Some(requested))
-            if admitted.len() != requested.len()
-                || !admitted.iter().all(|entry_type| requested.contains(entry_type)) =>
+            if !requested.iter().all(|entry_type| admitted.contains(entry_type)) =>
         {
             return None;
         }
-        (admitted, requested) => admitted.clone().or_else(|| requested.clone()),
+        (admitted, requested) => requested.clone().or_else(|| admitted.clone()),
     };
     let source_id = adopted_scalar(&admitted.source_id, &requested.source_id)?;
     let timeline_scale = adopted_scalar(&admitted.timeline_scale, &requested.timeline_scale)?;
@@ -2667,10 +2668,10 @@ mod tests {
         assert!(negotiated_cases >= 5, "negotiation vectors present");
     }
 
-    /// `gate_allows` (the serve gate) for the product-map knowledge ops: the
-    /// `spoke-knowledge` flag or the `spoke-baseline` flag that satisfies it
-    /// admits them; an unrelated set does not; a knowledge-only session is
-    /// still refused a baseline op.
+    /// `gate_allows` (the serve gate) for the product-map knowledge ops: only
+    /// an explicitly negotiated `spoke-knowledge` admits them — a baseline-only
+    /// set does not — and a knowledge-only session is still refused a baseline
+    /// op.
     #[tokio::test]
     async fn gate_allows_requires_knowledge_capability_for_the_knowledge_ops() {
         let pair = loopback_transport_pair();
@@ -2688,7 +2689,14 @@ mod tests {
         };
         for op in ["port.knowledge.get", "port.scope.list_knowledge_entries"] {
             assert!(responder.gate_allows(op, &caps(&["spoke-knowledge"])), "{op}");
-            assert!(responder.gate_allows(op, &caps(&["spoke-baseline"])), "{op}");
+            assert!(
+                responder.gate_allows(op, &caps(&["spoke-baseline", "spoke-knowledge"])),
+                "{op}"
+            );
+            assert!(
+                !responder.gate_allows(op, &caps(&["spoke-baseline"])),
+                "{op}: spoke-baseline must not satisfy spoke-knowledge"
+            );
             assert!(!responder.gate_allows(op, &caps(&["ke-ownership"])), "{op}");
             assert!(!responder.gate_allows(op, &caps(&[])), "{op}");
         }

@@ -267,7 +267,7 @@ while responder.state() != "Established":
 | `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
 | `extract(extract_request_json)` | `ke-extraction` | `extract` |
 
-`get_host_capability_manifest` 不在目录中 —— 它是会话缓存，绝不经过 ports handler 服务。三个知识操作都要求 `negotiated_capabilities` 显式包含 `spoke-knowledge`；`spoke-baseline` 只授权基线操作，因此提供知识服务的基线主机还要声明 `spoke-knowledge`。对这些操作，`knowledge_scope(peer_id)` 把已认证对等节点映射到准入 Scope，作用域回调接收该 Scope。列表请求的 `scope_id` 与 `viewpoint` 必须等于准入值；请求的 `entry_ids`、`timeline_event_ids` 与 `entry_types` 可以是准入集合的子集，并用于查询。任一请求值超出对应准入集合时，在访问存储前拒绝 `NOT_AUTHORIZED`。准入拒绝与作用域不匹配都拒绝 `NOT_AUTHORIZED`，且不透露条目是否存在。方法可以抛出 `FfiError.Rejected` 拒绝它不服务的 op；该拒绝原样穿透给调用方作为应用拒绝 —— 抽取回调正是以此拒绝抽取。可选族仅在双方协商了该族（双方 manifest 都声明）时才被服务 —— 能力门禁先于回调运行，声明了某族却不提供其方法的主机应答与缺席 `ports` 相同的拒绝分支。
+`get_host_capability_manifest` 不在目录中 —— 它是会话缓存，绝不经过 ports handler 服务。三个知识操作都要求 `negotiated_capabilities` 显式包含 `spoke-knowledge`；`spoke-baseline` 只授权基线操作，因此提供知识服务的基线主机还要声明 `spoke-knowledge`。对这些操作，`knowledge_scope(peer_id)` 把已认证对等节点映射到准入 Scope，作用域回调接收该 Scope。列表请求的 `scope_id` 与 `viewpoint` 必须等于准入值。请求的 `entry_ids` 与 `timeline_event_ids` 会与对应准入集合求交集，交集用于查询；交集为空时不返回结果。这些 id 过滤器绝不会扩大准入范围，也不会因 id 不在准入集合中而拒绝。请求的 `entry_types` 可以是准入集合的子集；标量约束（`source_id`、`timeline_scale`、`fork_id`）存在时必须等于准入值。只有这些约束中出现准入集合外的值时，才在访问存储前拒绝 `NOT_AUTHORIZED`。准入拒绝与作用域不匹配都拒绝 `NOT_AUTHORIZED`，且不透露条目是否存在。方法可以抛出 `FfiError.Rejected` 拒绝它不服务的 op；该拒绝原样穿透给调用方作为应用拒绝 —— 抽取回调正是以此拒绝抽取。可选族仅在双方协商了该族（双方 manifest 都声明）时才被服务 —— 能力门禁先于回调运行，声明了某族却不提供其方法的主机应答与缺席 `ports` 相同的拒绝分支。
 
 参考形状随 Python 回环 smoke 交付（`bindings/python/Smoke/test_ports_loopback.py`）；可选方法展示 JSON 契约：
 

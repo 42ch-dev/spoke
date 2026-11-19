@@ -967,6 +967,21 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       expect(valid.error).toBeUndefined();
       expect(admissionCalls).toHaveLength(1);
       expect(storeCalls).toEqual(["put"]);
+
+      // Rust's `Option<u64>` decodes a missing member as None: a put without
+      // `expected_base_revision` is a create, and the store sees `null`
+      // (an `undefined` would take the stale-revision branch instead).
+      const missingRevision = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        9,
+        "put-missing-revision",
+        "port.knowledge.put",
+        { entry: entry("kb_put_no_revision") },
+      );
+      expect(missingRevision.error).toBeUndefined();
+      expect(storeCalls).toEqual(["put", "put"]);
     } finally {
       close();
     }

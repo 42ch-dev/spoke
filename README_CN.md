@@ -120,6 +120,7 @@ if (result.ok) {
 | `ke-extraction` | 从引用源材料抽取 `extract` 候选 |
 | `ke-ownership` | owner 与 disclosure 字段，以及 `Scope.viewpoint` |
 | `spoke-connect` | 签名 hello、会话、invoke 与认证信封 |
+| `spoke-knowledge` | 在 connect 服务面上提供受作用域约束的 KnowledgeEntry get/put/list |
 | `spoke-memory` | 13 个记忆模型与 33 个 `memory.*` ops，含 reflection 与 transfer 子标志 |
 
 能力参考：[协议](https://spoke.42ch.dev/zh/reference/protocol)、[核心概念](https://spoke.42ch.dev/zh/explanation/concepts)。

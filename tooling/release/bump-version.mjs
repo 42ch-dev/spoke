@@ -39,6 +39,10 @@ const ASSERT_SCRIPT = join(
   dirname(fileURLToPath(import.meta.url)),
   "assert-lockstep-version.mjs",
 );
+const ASSERT_BREAKING_SCRIPT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "assert-breaking-section.mjs",
+);
 
 /**
  * @param {string} relativePath
@@ -330,6 +334,24 @@ function updateChangelog(version) {
 /**
  * @param {string} version
  */
+function runBreakingAssert(version) {
+  const result = spawnSync(process.execPath, [ASSERT_BREAKING_SCRIPT, version], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, SPOKE_REPO_ROOT: REPO_ROOT },
+    stdio: "inherit",
+  });
+
+  if (result.status !== 0) {
+    console.error(
+      `bump-version: ${version} has breaking commits but no "### Breaking" section in ${CHANGELOG_PATH}; fix cliff.toml or the commit messages and re-run.`,
+    );
+    process.exit(result.status ?? 1);
+  }
+}
+
+/**
+ * @param {string} version
+ */
 function runAssert(version) {
   const result = spawnSync(process.execPath, [ASSERT_SCRIPT], {
     cwd: REPO_ROOT,
@@ -433,6 +455,7 @@ writeRepoFile(
 );
 
 updateChangelog(targetVersion);
+runBreakingAssert(targetVersion);
 runAssert(targetVersion);
 
 console.log(`Bumped lockstep version ${currentVersion} → ${targetVersion}.`);

@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import {
+  checkBreakingSection,
   findBreakingCommits,
   sectionHasBreakingHeading,
 } from "./assert-breaking-section.mjs";
@@ -88,6 +89,64 @@ describe("assert-breaking-section.mjs", () => {
     ]);
     assert.equal(breaking.length, 2);
   });
+
+  it("ignores commits cliff.toml skips", () => {
+    assert.deepEqual(
+      findBreakingCommits([
+        { subject: "chore(deps)!: bump" },
+        { subject: "chore(release)!: cut" },
+        { subject: "chore(plan)!: merge" },
+        { subject: "chore(protocol)!: drop" },
+        { subject: "Merge branch 'x'", body: "BREAKING CHANGE: y" },
+      ]),
+      [],
+    );
+    // A headingless section is fine once no generator-visible commit is breaking.
+    assert.equal(sectionHasBreakingHeading("### Added\n\n- New.\n"), false);
+  });
+
+  it(
+    "evaluates the upcoming section with injected text",
+    { skip: !GIT_AVAILABLE && "git is unavailable" },
+    () => {
+      const repo = mkdtempSync(join(tmpdir(), "spoke-breaking-check-"));
+      try {
+        git(repo, "init", "-q");
+        git(repo, "config", "user.email", "release-test@example.com");
+        git(repo, "config", "user.name", "Release Test");
+        git(repo, "commit", "--allow-empty", "-q", "-m", "chore: init");
+        const init = git(repo, "rev-parse", "HEAD");
+        git(repo, "commit", "--allow-empty", "-q", "-m", "feat(core)!: drop x");
+        const breakingRange = `${init}..HEAD`;
+
+        const headingless = checkBreakingSection("0.17.1", {
+          repoRoot: repo,
+          range: breakingRange,
+          section: "### Added\n\n- New.\n",
+        });
+        assert.equal(headingless.ok, false);
+        assert.equal(headingless.breaking.length, 1);
+
+        const headed = checkBreakingSection("0.17.1", {
+          repoRoot: repo,
+          range: breakingRange,
+          section: "### Breaking\n\n- **core:** Drop x\n",
+        });
+        assert.equal(headed.ok, true);
+
+        git(repo, "commit", "--allow-empty", "-q", "-m", "feat(core): add y");
+        const noBreaking = checkBreakingSection("0.17.1", {
+          repoRoot: repo,
+          range: "HEAD~1..HEAD",
+          section: "### Added\n\n- New.\n",
+        });
+        assert.equal(noBreaking.ok, true);
+        assert.deepEqual(noBreaking.breaking, []);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    },
+  );
 
   it(
     "CLI fails on missing or headingless sections and passes with the heading",

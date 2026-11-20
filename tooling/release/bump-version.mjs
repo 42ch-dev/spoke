@@ -30,10 +30,9 @@ import {
 } from "./lockstep-surfaces.mjs";
 import { runGitCliff, resolveGitCliffInvocation } from "./run-git-cliff.mjs";
 import { SEMVER_PATTERN, isSemVerGreater } from "./semver.mjs";
-import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 import {
-  findBreakingCommits,
-  parseCommitLog,
+  checkBreakingSection,
+  latestReleaseTag,
   sectionHasBreakingHeading,
 } from "./assert-breaking-section.mjs";
 
@@ -163,25 +162,6 @@ X.Y.Z must be strictly greater than the current version.`);
 }
 
 /**
- * @returns {string | null} Latest annotated/lightweight tag matching v*, or null.
- */
-function latestReleaseTag() {
-  const result = spawnSync(
-    "git",
-    ["describe", "--tags", "--match", "v*", "--abbrev=0"],
-    {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-    },
-  );
-  if (result.status !== 0) {
-    return null;
-  }
-  const tag = result.stdout.trim();
-  return tag.length > 0 ? tag : null;
-}
-
-/**
  * @returns {string | null} Tip commit that last modified CHANGELOG.md, or null.
  */
 function lastChangelogCommit() {
@@ -274,65 +254,89 @@ function promoteExistingChangelogSection(version) {
 }
 
 /**
+ * Rev range git-cliff includes for the next release, mirroring `updateChangelog`.
+ *
+ * @returns {string}
+ */
+function releaseCommitRange() {
+  const tag = latestReleaseTag(REPO_ROOT);
+  if (tag) {
+    return `${tag}..HEAD`;
+  }
+  if (existsSync(repoPath(CHANGELOG_PATH))) {
+    const since = lastChangelogCommit();
+    if (since) {
+      return `${since}..HEAD`;
+    }
+  }
+  return "HEAD";
+}
+
+/**
  * Refuse before writing any surface when breaking commits would land in a
  * changelog section without `### Breaking`.
  *
  * @param {string} version
  */
 function assertUpcomingBreakingSection(version) {
-  const base = latestReleaseTag();
-  const range = base ? `${base}..HEAD` : "HEAD";
-  const log = spawnSync(
-    "git",
-    ["log", range, "--no-merges", "--format=%s%x1f%b%x1e"],
-    { cwd: REPO_ROOT, encoding: "utf8" },
-  );
-  if (log.status !== 0) {
-    console.error(
-      `bump-version: git log ${range} failed: ${log.stderr.trim()}`,
-    );
+  const range = releaseCommitRange();
+  let draft;
+  try {
+    draft = checkBreakingSection(version, {
+      repoRoot: REPO_ROOT,
+      range,
+    });
+  } catch (error) {
+    console.error(`bump-version: ${error.message}`);
     process.exit(1);
   }
 
-  const breaking = findBreakingCommits(parseCommitLog(log.stdout));
-  if (breaking.length === 0) {
+  if (draft.breaking.length === 0) {
     return;
   }
 
-  let section = null;
-  if (existsSync(repoPath(CHANGELOG_PATH))) {
-    section = extractChangelogSection(readRepoFile(CHANGELOG_PATH), version);
-  }
-  if (section === null) {
-    const { command, prefixArgs } = resolveGitCliffInvocation();
-    const dryRun = spawnSync(
-      command,
-      [...prefixArgs, "--unreleased", "--tag", `v${version}`, "-o", "-"],
-      { cwd: REPO_ROOT, encoding: "utf8" },
-    );
-    if (dryRun.status !== 0) {
-      console.error(
-        `bump-version: git-cliff dry run failed: ${dryRun.stderr.trim()}`,
-      );
-      process.exit(dryRun.status ?? 1);
-    }
-    section = dryRun.stdout;
-  }
-
-  if (sectionHasBreakingHeading(section)) {
+  const section =
+    draft.section === null
+      ? previewChangelogSection(version, range)
+      : draft.section;
+  if (section !== null && sectionHasBreakingHeading(section)) {
     return;
   }
 
   console.error(
-    `bump-version: ${breaking.length} breaking commit(s) would land in ${CHANGELOG_PATH} without "### Breaking"; nothing written:`,
+    `bump-version: ${draft.breaking.length} breaking commit(s) would land in ${CHANGELOG_PATH} without "### Breaking"; nothing written:`,
   );
-  for (const commit of breaking) {
+  for (const commit of draft.breaking) {
     console.error(`  - ${commit.subject}`);
   }
   console.error(
     "Fix cliff.toml's Breaking commit parser or the commit messages, then re-run.",
   );
   process.exit(1);
+}
+
+/**
+ * Render the upcoming section with git-cliff without touching the worktree.
+ *
+ * @param {string} version
+ * @param {string} range Commit range the generator will use; `HEAD` means full history.
+ * @returns {string}
+ */
+function previewChangelogSection(version, range) {
+  const { command, prefixArgs } = resolveGitCliffInvocation();
+  const rangeArgs = range === "HEAD" ? ["--unreleased"] : [range];
+  const dryRun = spawnSync(
+    command,
+    [...prefixArgs, ...rangeArgs, "--tag", `v${version}`, "-o", "-"],
+    { cwd: REPO_ROOT, encoding: "utf8" },
+  );
+  if (dryRun.status !== 0) {
+    console.error(
+      `bump-version: git-cliff dry run failed: ${dryRun.stderr.trim()}`,
+    );
+    process.exit(dryRun.status ?? 1);
+  }
+  return dryRun.stdout;
 }
 
 /**
@@ -353,7 +357,7 @@ function updateChangelog(version) {
   //   3) first CHANGELOG creation: full --unreleased history
   /** @type {string[]} */
   const cliffArgs = [];
-  const releaseTag = latestReleaseTag();
+  const releaseTag = latestReleaseTag(REPO_ROOT);
   if (releaseTag) {
     cliffArgs.push("--unreleased");
   } else if (changelogExists) {

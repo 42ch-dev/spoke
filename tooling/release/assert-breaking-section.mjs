@@ -29,16 +29,34 @@ const BREAKING_HEADER_PATTERN = /^[a-z]+(?:\([^)]*\))?!:/;
 const BREAKING_FOOTER_PATTERN = /^BREAKING CHANGE:/m;
 const BREAKING_HEADING_PATTERN = /^### Breaking\s*$/m;
 
+// Subjects cliff.toml drops before grouping; a `!` on them never reaches the changelog.
+const CLIFF_SKIP_PATTERNS = [
+  /v0-iter/i,
+  /iteration\/v0-iter/i,
+  /merge\(plan\)/i,
+  /^chore\(release\)/,
+  /^chore\(plan\)/,
+  /^chore\(protocol\)/,
+  /^chore\(deps/,
+  /^chore: add Greptile/,
+  /^merge:/,
+  /^[Mm]erge /,
+];
+
 /**
  * @param {{ subject: string; body?: string }[]} commits
  * @returns {{ subject: string; body?: string }[]}
  */
 export function findBreakingCommits(commits) {
-  return commits.filter(
-    ({ subject, body = "" }) =>
+  return commits.filter(({ subject, body = "" }) => {
+    if (CLIFF_SKIP_PATTERNS.some((pattern) => pattern.test(subject))) {
+      return false;
+    }
+    return (
       BREAKING_HEADER_PATTERN.test(subject) ||
-      BREAKING_FOOTER_PATTERN.test(body),
-  );
+      BREAKING_FOOTER_PATTERN.test(body)
+    );
+  });
 }
 
 /**
@@ -64,19 +82,61 @@ export function parseCommitLog(raw) {
 }
 
 /**
+ * @param {string} [repoRoot]
  * @returns {string | null}
  */
-function latestReleaseTag() {
+export function latestReleaseTag(repoRoot = REPO_ROOT) {
   const result = spawnSync(
     "git",
     ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", "HEAD"],
-    { cwd: REPO_ROOT, encoding: "utf8" },
+    { cwd: repoRoot, encoding: "utf8" },
   );
   if (result.status !== 0) {
     return null;
   }
   const tag = result.stdout.trim();
   return tag.length > 0 ? tag : null;
+}
+
+/**
+ * Read commits for `range` and evaluate the upcoming `version` section.
+ *
+ * @param {string} version
+ * @param {{ repoRoot?: string; range?: string; section?: string | null }} [options]
+ * @returns {{ breaking: { subject: string; body?: string }[]; section: string | null; ok: boolean }}
+ */
+export function checkBreakingSection(version, options = {}) {
+  const repoRoot = options.repoRoot ?? REPO_ROOT;
+  const base = latestReleaseTag(repoRoot);
+  const range = options.range ?? (base ? `${base}..HEAD` : "HEAD");
+  const log = spawnSync(
+    "git",
+    ["log", range, "--no-merges", "--format=%s%x1f%b%x1e"],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  if (log.status !== 0) {
+    throw new Error(`git log ${range} failed: ${log.stderr.trim()}`);
+  }
+
+  const breaking = findBreakingCommits(parseCommitLog(log.stdout));
+  let section;
+  if (options.section !== undefined) {
+    section = options.section;
+  } else {
+    let changelog = null;
+    try {
+      changelog = readFileSync(join(repoRoot, "CHANGELOG.md"), "utf8");
+    } catch {
+      // Missing changelog with breaking commits is reported by `ok`.
+    }
+    section =
+      changelog === null ? null : extractChangelogSection(changelog, version);
+  }
+
+  const ok =
+    breaking.length === 0 ||
+    (section !== null && sectionHasBreakingHeading(section));
+  return { breaking, section, ok };
 }
 
 /**

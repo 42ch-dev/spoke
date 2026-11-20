@@ -33,6 +33,7 @@ SPOKE 以**线上术语**定义词汇 —— 下面的每个概念都是协议�
 - **`narrative-modules`** —— 面向跨产品功能方言的可选 `modules` 字段袋。
 - **`ke-extraction`** —— 可选 `extract` 操作：被引用的源材料进、`provisional` 候选 KnowledgeEntry 出。
 - **`ke-ownership`** —— KnowledgeEntry 信封上的归属与披露，以及 `Scope.viewpoint` 读取方选择器。
+- **`spoke-knowledge`** —— 三个 connect 知识 port 操作（`port.knowledge.get`、`port.knowledge.put`、`port.scope.list_knowledge_entries`），位于独立 `ScopedKnowledgePort` 与逐对等节点作用域准入之后，并在 `negotiated_capabilities` 中显式声明 —— 见 [Connect 参考](/zh/reference/connect)。
 - **`spoke-connect`** —— 可选跨进程交互信封族。
 - **`spoke-memory`** —— 按主体记忆：十三个模型与 33 个 `memory.*` 操作，位于独立 `MemoryPort` 之后，另有可选的 `spoke-memory-reflection` 与 `spoke-memory-transfer` 子标志 —— 见 [记忆参考](/zh/reference/memory)。
 

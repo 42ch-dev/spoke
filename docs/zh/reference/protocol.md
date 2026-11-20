@@ -44,6 +44,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 | `narrative-modules` | KnowledgeEntry + AssemblePacket + TimelineEvent 上的可选 `modules`（`ModuleMap`）字段袋 |
 | `ke-extraction` | 可选 `extract` 操作族 —— 从被引用的源材料提议 `provisional` 候选 KnowledgeEntry —— 外加独立 `ExtractionPort` 与 `orchestrateExtract` 边界 |
 | `ke-ownership` | `KnowledgeEntry.owner` / `KnowledgeEntry.disclosure` 治理字段与共享 `Scope.viewpoint` 读取方选择器 |
+| `spoke-knowledge` | 三个 connect 知识 port 操作（`port.knowledge.get`、`port.knowledge.put`、`port.scope.list_knowledge_entries`），经独立 `ScopedKnowledgePort` 服务并带逐对等节点作用域准入。该标志必须在 `negotiated_capabilities` 中显式出现；`spoke-baseline` 只授权基线操作 |
 | `spoke-connect` | 可选交互信封族；讲该协议的主机在 `HostCapabilityManifest.capabilities` 中列出该标志 |
 | `spoke-memory` | 可选按主体记忆族：十三个模型与 33 个 `memory.*` 操作，外加独立 `MemoryPort`。两个可选的子标志 —— `spoke-memory-reflection`（3 个反思操作）与 `spoke-memory-transfer`（5 个导出/导入操作）—— 均要求 `spoke-memory`。见 [记忆参考](/zh/reference/memory) |
 

@@ -120,6 +120,7 @@ All published packages share one lockstep SemVer.
 | `ke-extraction` | `extract` candidates from referenced source material |
 | `ke-ownership` | owner and disclosure fields plus `Scope.viewpoint` |
 | `spoke-connect` | signed hello, session, invoke and auth envelopes |
+| `spoke-knowledge` | scoped KnowledgeEntry get/put/list serving on the connect face |
 | `spoke-memory` | 13 memory models and 33 `memory.*` ops, with reflection and transfer sub-flags |
 
 Capability reference: [Protocol](https://spoke.42ch.dev/reference/protocol), [Concepts](https://spoke.42ch.dev/explanation/concepts).

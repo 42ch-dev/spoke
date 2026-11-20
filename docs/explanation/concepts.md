@@ -33,6 +33,7 @@ A product claims compliance at a declared capability level. **`spoke-baseline`**
 - **`narrative-modules`** — the optional `modules` bag for cross-product functional dialects.
 - **`ke-extraction`** — the optional `extract` op: referenced source material in, provisional KnowledgeEntry candidates out.
 - **`ke-ownership`** — ownership and disclosure on the KnowledgeEntry envelope, with the `Scope.viewpoint` reader selector.
+- **`spoke-knowledge`** — the three connect knowledge port ops (`port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries`) behind a standalone `ScopedKnowledgePort` and per-peer scope admission, declared explicitly in `negotiated_capabilities` — see the [Connect reference](/reference/connect).
 - **`spoke-connect`** — the opt-in cross-process interaction envelope family.
 - **`spoke-memory`** — per-subject memory: thirteen models and 33 `memory.*` ops behind the standalone `MemoryPort`, with optional `spoke-memory-reflection` and `spoke-memory-transfer` sub-flags — see the [Memory reference](/reference/memory).
 

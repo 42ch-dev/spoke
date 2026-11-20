@@ -252,6 +252,28 @@ describe("bump-version.mjs", () => {
     const notes = extractChangelogSection(readFileSync(join(repoRoot, "CHANGELOG.md"), "utf8"), target);
     assert.match(notes ?? "", /preserve fixture release notes/i);
   });
+
+  it("files a footer-only breaking commit under Breaking", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+    cpSync(join(REPO_ROOT, "cliff.toml"), join(repoRoot, "cliff.toml"));
+    const current = readCanonicalVersion(repoRoot);
+    const target = nextPatchRelease(current);
+    writeFileSync(join(repoRoot, "CHANGELOG.md"), `# Changelog\n\n## [${current}]\n\nOld notes.\n`);
+    initGitRepo(repoRoot);
+    writeFileSync(join(repoRoot, "fixture.txt"), "fixture\n");
+    git(repoRoot, "add", "fixture.txt");
+    git(
+      repoRoot,
+      "commit",
+      "-m",
+      "feat: remove the fixture helper\n\nBREAKING CHANGE: the fixture helper is gone.",
+    );
+    const result = runReleaseScript("bump-version.mjs", [target], repoRoot);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const notes = extractChangelogSection(readFileSync(join(repoRoot, "CHANGELOG.md"), "utf8"), target);
+    assert.match(notes ?? "", /### Breaking/);
+  });
 });
 
 /**

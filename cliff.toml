@@ -22,7 +22,7 @@ body = """
 ### {{ group | striptags | trim }}
 {% for commit in commits %}
 - {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
-{% if commit.breaking %}**BREAKING:** {% endif %}\
+{% if commit.breaking and group != "Breaking" %}**BREAKING:** {% endif %}\
 {{ commit.message | upper_first }}\
 {% if commit.links %} ({% for link in commit.links %}[{{ link.text }}]({{ link.href }}){% if not loop.last %}, {% endif %}{% endfor %}){% endif %}
 {% endfor %}
@@ -49,6 +49,15 @@ commit_parsers = [
   { message = "(?i)iteration/v0-iter", skip = true },
   # Plan merge-only integration lines (no product delta)
   { message = "(?i)merge\\(plan\\)", skip = true },
+  { footer = "BREAKING[ -]CHANGE:", group = "Breaking" },
+  { message = "^[A-Za-z0-9_-]+(\\([^)]*\\))?!:", group = "Breaking" },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^chore\\(plan\\)", skip = true },
+  { message = "^chore\\(protocol\\)", skip = true },
+  { message = "^chore\\(deps", skip = true },
+  { message = "^chore: add Greptile", skip = true },
+  { message = "^merge:", skip = true },
+  { message = "^[Mm]erge ", skip = true },
   { message = "^feat", group = "Added" },
   { message = "^fix", group = "Fixed" },
   { message = "^docs?", group = "Documentation" },
@@ -57,13 +66,6 @@ commit_parsers = [
   { message = "^style", group = "Changed" },
   { message = "^test", group = "Changed" },
   { message = "^revert", group = "Changed" },
-  { message = "^chore\\(release\\)", skip = true },
-  { message = "^chore\\(plan\\)", skip = true },
-  { message = "^chore\\(protocol\\)", skip = true },
-  { message = "^chore\\(deps", skip = true },
-  { message = "^chore: add Greptile", skip = true },
-  { message = "^merge:", skip = true },
-  { message = "^[Mm]erge ", skip = true },
   { message = "^ci", group = "Internal" },
   { message = "^chore", group = "Internal" },
 ]

@@ -28,8 +28,10 @@ import {
   replacePyprojectVersion,
   resolveCargoLockPackageNames,
 } from "./lockstep-surfaces.mjs";
-import { runGitCliff } from "./run-git-cliff.mjs";
+import { runGitCliff, resolveGitCliffInvocation } from "./run-git-cliff.mjs";
 import { SEMVER_PATTERN, isSemVerGreater } from "./semver.mjs";
+import { checkBreakingSection } from "./assert-breaking-section.mjs";
+import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 
 const REPO_ROOT = process.env.SPOKE_REPO_ROOT
   ? join(process.env.SPOKE_REPO_ROOT)
@@ -38,6 +40,10 @@ const CHANGELOG_PATH = "CHANGELOG.md";
 const ASSERT_SCRIPT = join(
   dirname(fileURLToPath(import.meta.url)),
   "assert-lockstep-version.mjs",
+);
+const ASSERT_BREAKING_SCRIPT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "assert-breaking-section.mjs",
 );
 
 /**
@@ -264,6 +270,116 @@ function promoteExistingChangelogSection(version) {
 }
 
 /**
+ * Refuse before writing any surface when the upcoming version section renders a
+ * `**BREAKING:**` marker.
+ *
+ * @param {string} version
+ */
+function assertUpcomingBreakingSection(version) {
+  const changelog = existsSync(repoPath(CHANGELOG_PATH))
+    ? readRepoFile(CHANGELOG_PATH)
+    : null;
+  // The promote path keeps an existing section verbatim, so judge that text.
+  const existing =
+    changelog === null
+      ? null
+      : findChangelogSectionRange(changelog, version);
+
+  let section;
+  if (existing === null) {
+    section = previewChangelogSection(version);
+  } else {
+    if (extractChangelogSection(existing.full, version) === null) {
+      console.error(
+        `bump-version: ${CHANGELOG_PATH} has an empty section for ${version}; the bump would promote it verbatim. Fill or remove it, then re-run.`,
+      );
+      process.exit(1);
+    }
+    section = existing.full;
+  }
+
+  const { ok, markers } = checkBreakingSection(version, {
+    repoRoot: REPO_ROOT,
+    section,
+  });
+  if (ok) {
+    return;
+  }
+
+  console.error(
+    `bump-version: the ${version} section of ${CHANGELOG_PATH} would render ${markers} "**BREAKING:**" marker(s); a marker anywhere in the version section fails. Nothing written.`,
+  );
+  if (existing === null) {
+    console.error(
+      "Fix cliff.toml's Breaking commit parsers so breaking commits group under \"### Breaking\", then re-run.",
+    );
+  } else {
+    console.error(
+      `Remove the inline marker from the existing ${version} section (regenerating cannot clear committed text), then re-run.`,
+    );
+  }
+  process.exit(1);
+}
+
+/**
+ * Commit-range arguments git-cliff renders for the next release.
+ *
+ * 1) commits since latest v* tag (`--unreleased`)
+ * 2) no tags but CHANGELOG exists: commits since its last update
+ * 3) no tags and no CHANGELOG: full `--unreleased` history
+ *
+ * @param {boolean} changelogExists
+ * @returns {string[]}
+ */
+function cliffRangeArgs(changelogExists) {
+  if (latestReleaseTag()) {
+    return ["--unreleased"];
+  }
+  if (changelogExists) {
+    const since = lastChangelogCommit();
+    if (since) {
+      return [`${since}..HEAD`];
+    }
+  }
+  return ["--unreleased"];
+}
+
+/**
+ * Render the upcoming section with git-cliff without touching the worktree.
+ *
+ * @param {string} version
+ * @returns {string}
+ */
+function previewChangelogSection(version) {
+  const { command, prefixArgs } = resolveGitCliffInvocation();
+  const dryRun = spawnSync(
+    command,
+    [
+      ...prefixArgs,
+      ...cliffRangeArgs(existsSync(repoPath(CHANGELOG_PATH))),
+      "--tag",
+      `v${version}`,
+      "-o",
+      "-",
+    ],
+    { cwd: REPO_ROOT, encoding: "utf8" },
+  );
+  if (dryRun.error) {
+    console.error(
+      `bump-version: git-cliff dry run failed: ${dryRun.error.message}`,
+    );
+    process.exit(1);
+  }
+  if (dryRun.status !== 0) {
+    console.error(
+      `bump-version: git-cliff dry run failed: ${(dryRun.stderr ?? "").trim()}`,
+    );
+    process.exit(dryRun.status ?? 1);
+  }
+  return dryRun.stdout;
+}
+
+/**
  * @param {string} version
  */
 function updateChangelog(version) {
@@ -273,27 +389,7 @@ function updateChangelog(version) {
 
   const tag = `v${version}`;
   const changelogExists = existsSync(repoPath(CHANGELOG_PATH));
-  // git-cliff requires -u/--unreleased or -l/--latest OR an explicit commit range
-  // with --prepend / -o. Prefer:
-  //   1) commits since latest v* tag (--unreleased)
-  //   2) when no tags yet but CHANGELOG already exists: commits since last
-  //      CHANGELOG.md update (avoids replaying history already under older sections)
-  //   3) first CHANGELOG creation: full --unreleased history
-  /** @type {string[]} */
-  const cliffArgs = [];
-  const releaseTag = latestReleaseTag();
-  if (releaseTag) {
-    cliffArgs.push("--unreleased");
-  } else if (changelogExists) {
-    const since = lastChangelogCommit();
-    if (since) {
-      cliffArgs.push(`${since}..HEAD`);
-    } else {
-      cliffArgs.push("--unreleased");
-    }
-  } else {
-    cliffArgs.push("--unreleased");
-  }
+  const cliffArgs = cliffRangeArgs(changelogExists);
 
   cliffArgs.push("--tag", tag);
   if (changelogExists) {
@@ -330,6 +426,24 @@ function updateChangelog(version) {
 /**
  * @param {string} version
  */
+function runBreakingAssert(version) {
+  const result = spawnSync(process.execPath, [ASSERT_BREAKING_SCRIPT, version], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, SPOKE_REPO_ROOT: REPO_ROOT },
+    stdio: "inherit",
+  });
+
+  if (result.status !== 0) {
+    console.error(
+      `bump-version: ${version} renders "**BREAKING:**" markers in ${CHANGELOG_PATH}; a marker anywhere in the version section fails. Edit the section or regenerate it with the Breaking parsers, then re-run.`,
+    );
+    process.exit(result.status ?? 1);
+  }
+}
+
+/**
+ * @param {string} version
+ */
 function runAssert(version) {
   const result = spawnSync(process.execPath, [ASSERT_SCRIPT], {
     cwd: REPO_ROOT,
@@ -359,6 +473,7 @@ if (!isSemVerGreater(targetVersion, currentVersion)) {
   );
   process.exit(1);
 }
+assertUpcomingBreakingSection(targetVersion);
 const cargoWorkspaceMembers = readCargoWorkspaceMembers();
 
 writeJsonVersion(CANONICAL_PATH, targetVersion);
@@ -433,6 +548,7 @@ writeRepoFile(
 );
 
 updateChangelog(targetVersion);
+runBreakingAssert(targetVersion);
 runAssert(targetVersion);
 
 console.log(`Bumped lockstep version ${currentVersion} → ${targetVersion}.`);

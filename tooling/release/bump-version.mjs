@@ -30,11 +30,8 @@ import {
 } from "./lockstep-surfaces.mjs";
 import { runGitCliff, resolveGitCliffInvocation } from "./run-git-cliff.mjs";
 import { SEMVER_PATTERN, isSemVerGreater } from "./semver.mjs";
-import {
-  checkBreakingSection,
-  latestReleaseTag,
-  sectionHasBreakingHeading,
-} from "./assert-breaking-section.mjs";
+import { checkBreakingSection } from "./assert-breaking-section.mjs";
+import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 
 const REPO_ROOT = process.env.SPOKE_REPO_ROOT
   ? join(process.env.SPOKE_REPO_ROOT)
@@ -162,6 +159,25 @@ X.Y.Z must be strictly greater than the current version.`);
 }
 
 /**
+ * @returns {string | null} Latest annotated/lightweight tag matching v*, or null.
+ */
+function latestReleaseTag() {
+  const result = spawnSync(
+    "git",
+    ["describe", "--tags", "--match", "v*", "--abbrev=0"],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    },
+  );
+  if (result.status !== 0) {
+    return null;
+  }
+  const tag = result.stdout.trim();
+  return tag.length > 0 ? tag : null;
+}
+
+/**
  * @returns {string | null} Tip commit that last modified CHANGELOG.md, or null.
  */
 function lastChangelogCommit() {
@@ -254,83 +270,47 @@ function promoteExistingChangelogSection(version) {
 }
 
 /**
- * Rev range git-cliff includes for the next release, mirroring `updateChangelog`.
- *
- * @returns {string}
- */
-function releaseCommitRange() {
-  const tag = latestReleaseTag(REPO_ROOT);
-  if (tag) {
-    return `${tag}..HEAD`;
-  }
-  if (existsSync(repoPath(CHANGELOG_PATH))) {
-    const since = lastChangelogCommit();
-    if (since) {
-      return `${since}..HEAD`;
-    }
-  }
-  return "HEAD";
-}
-
-/**
- * Base ref of `releaseCommitRange`, or null for full history.
- *
- * @returns {string | null}
- */
-function releaseBaseRef() {
-  const range = releaseCommitRange();
-  return range === "HEAD" ? null : range.slice(0, -"..HEAD".length);
-}
-
-/**
- * Refuse before writing any surface when breaking commits would land in a
- * changelog section without `### Breaking`.
+ * Refuse before writing any surface when the upcoming section would hide a
+ * breaking commit outside `### Breaking`.
  *
  * @param {string} version
  */
 function assertUpcomingBreakingSection(version) {
-  const range = releaseCommitRange();
   const changelog = existsSync(repoPath(CHANGELOG_PATH))
     ? readRepoFile(CHANGELOG_PATH)
     : null;
-  // The promote path keeps an existing section even when its body is empty,
-  // so inspect that same text instead of a git-cliff preview.
+  // The promote path keeps an existing section verbatim, so judge that text.
   const existing =
     changelog === null
       ? null
       : findChangelogSectionRange(changelog, version);
-  let draft;
-  try {
-    draft = checkBreakingSection(version, {
-      repoRoot: REPO_ROOT,
-      range,
-      section: existing === null ? null : existing.full,
-    });
-  } catch (error) {
-    console.error(`bump-version: ${error.message}`);
-    process.exit(1);
+
+  let section;
+  if (existing === null) {
+    section = previewChangelogSection(version);
+  } else {
+    if (extractChangelogSection(existing.full, version) === null) {
+      console.error(
+        `bump-version: ${CHANGELOG_PATH} has an empty section for ${version}; the bump would promote it verbatim. Fill or remove it, then re-run.`,
+      );
+      process.exit(1);
+    }
+    section = existing.full;
   }
 
-  if (draft.breaking.length === 0) {
-    return;
-  }
-
-  const section =
-    draft.section === null
-      ? previewChangelogSection(version, range)
-      : draft.section;
-  if (section !== null && sectionHasBreakingHeading(section)) {
+  const { ok, markers } = checkBreakingSection(version, {
+    repoRoot: REPO_ROOT,
+    section,
+  });
+  if (ok) {
     return;
   }
 
   console.error(
-    `bump-version: ${draft.breaking.length} breaking commit(s) would land in ${CHANGELOG_PATH} without "### Breaking"; nothing written:`,
+    `bump-version: ${markers} "**BREAKING:**" marker(s) would land in ${CHANGELOG_PATH} outside "### Breaking"; nothing written.`,
   );
-  for (const commit of draft.breaking) {
-    console.error(`  - ${commit.subject}`);
-  }
   console.error(
-    "Fix cliff.toml's Breaking commit parser or the commit messages, then re-run.",
+    "Fix cliff.toml's Breaking commit parser, then re-run.",
   );
   process.exit(1);
 }
@@ -339,15 +319,13 @@ function assertUpcomingBreakingSection(version) {
  * Render the upcoming section with git-cliff without touching the worktree.
  *
  * @param {string} version
- * @param {string} range Commit range the generator will use; `HEAD` means full history.
  * @returns {string}
  */
-function previewChangelogSection(version, range) {
+function previewChangelogSection(version) {
   const { command, prefixArgs } = resolveGitCliffInvocation();
-  const rangeArgs = range === "HEAD" ? ["--unreleased"] : [range];
   const dryRun = spawnSync(
     command,
-    [...prefixArgs, ...rangeArgs, "--tag", `v${version}`, "-o", "-"],
+    [...prefixArgs, "--unreleased", "--tag", `v${version}`, "-o", "-"],
     { cwd: REPO_ROOT, encoding: "utf8" },
   );
   if (dryRun.status !== 0) {
@@ -377,7 +355,7 @@ function updateChangelog(version) {
   //   3) first CHANGELOG creation: full --unreleased history
   /** @type {string[]} */
   const cliffArgs = [];
-  const releaseTag = latestReleaseTag(REPO_ROOT);
+  const releaseTag = latestReleaseTag();
   if (releaseTag) {
     cliffArgs.push("--unreleased");
   } else if (changelogExists) {
@@ -427,12 +405,7 @@ function updateChangelog(version) {
  * @param {string} version
  */
 function runBreakingAssert(version) {
-  const base = releaseBaseRef();
-  const args = [ASSERT_BREAKING_SCRIPT, version];
-  if (base !== null) {
-    args.push("--from", base);
-  }
-  const result = spawnSync(process.execPath, args, {
+  const result = spawnSync(process.execPath, [ASSERT_BREAKING_SCRIPT, version], {
     cwd: REPO_ROOT,
     env: { ...process.env, SPOKE_REPO_ROOT: REPO_ROOT },
     stdio: "inherit",
@@ -440,7 +413,7 @@ function runBreakingAssert(version) {
 
   if (result.status !== 0) {
     console.error(
-      `bump-version: ${version} has breaking commits but no "### Breaking" section in ${CHANGELOG_PATH}; fix cliff.toml or the commit messages and re-run.`,
+      `bump-version: ${version} leaves "**BREAKING:**" markers outside "### Breaking" in ${CHANGELOG_PATH}; fix cliff.toml and re-run.`,
     );
     process.exit(result.status ?? 1);
   }

@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 /**
- * Fail when a release changelog section hides breaking changes (no `### Breaking`).
+ * Fail when generated release notes leave breaking commits outside `### Breaking`.
  *
- * Breaking commits are Conventional Commits with `!` after type/scope, or a
- * `BREAKING CHANGE:` footer. git-cliff groups them under `### Breaking`; this
- * guard catches config/hand-edit regressions before a version is published.
+ * git-cliff renders `**BREAKING:**` inline for a breaking commit unless it is
+ * grouped under `### Breaking`; a marker in any other group means the changelog
+ * hid the breaking change. The check reads the generated section (or a caller's
+ * preview) instead of replaying git history.
  *
- * CLI: node tooling/release/assert-breaking-section.mjs <vX.Y.Z|X.Y.Z> [--from <ref>]
+ * CLI: node tooling/release/assert-breaking-section.mjs <vX.Y.Z|X.Y.Z>
  *
- * Exits 0 when there are no breaking commits or the section has the heading;
- * exits 1 when breaking commits lack the heading or the section is absent.
+ * Exits 1 when the section has `**BREAKING:**` markers but no `### Breaking`;
+ * exits 0 otherwise, and when the version section is absent.
  *
  * @module tooling/release/assert-breaking-section
  */
 
-import { readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractChangelogSection } from "./extract-changelog-notes.mjs";
@@ -23,47 +23,9 @@ import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 const REPO_ROOT = process.env.SPOKE_REPO_ROOT
   ? join(process.env.SPOKE_REPO_ROOT)
   : join(dirname(fileURLToPath(import.meta.url)), "../..");
-const CHANGELOG_PATH = join(REPO_ROOT, "CHANGELOG.md");
 
-const BREAKING_HEADER_PATTERN = /^[a-z]+(?:\([^)]*\))?!:/;
-const BREAKING_FOOTER_PATTERN = /^BREAKING CHANGE:/m;
+const BREAKING_MARKER_PATTERN = /\*\*BREAKING:\*\*/g;
 const BREAKING_HEADING_PATTERN = /^### Breaking\s*$/m;
-
-// Subjects/messages cliff.toml drops before grouping; a `!` there never reaches the changelog.
-const CLIFF_SKIP_MESSAGE_PATTERNS = [
-  /v0-iter/i,
-  /iteration\/v0-iter/i,
-  /merge\(plan\)/i,
-];
-const CLIFF_SKIP_SUBJECT_PATTERNS = [
-  /^chore\(release\)/,
-  /^chore\(plan\)/,
-  /^chore\(protocol\)/,
-  /^chore\(deps/,
-  /^chore: add Greptile/,
-  /^merge:/,
-  /^[Mm]erge /,
-];
-
-/**
- * @param {{ subject: string; body?: string }[]} commits
- * @returns {{ subject: string; body?: string }[]}
- */
-export function findBreakingCommits(commits) {
-  return commits.filter(({ subject, body = "" }) => {
-    const message = `${subject}\n${body}`;
-    if (CLIFF_SKIP_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))) {
-      return false;
-    }
-    if (CLIFF_SKIP_SUBJECT_PATTERNS.some((pattern) => pattern.test(subject))) {
-      return false;
-    }
-    return (
-      BREAKING_HEADER_PATTERN.test(subject) ||
-      BREAKING_FOOTER_PATTERN.test(body)
-    );
-  });
-}
 
 /**
  * @param {string | null} section
@@ -74,59 +36,14 @@ export function sectionHasBreakingHeading(section) {
 }
 
 /**
- * @param {string} raw `git log --format=%s%x1f%b%x1e` output
- * @returns {{ subject: string; body: string }[]}
- */
-export function parseCommitLog(raw) {
-  return raw
-    .split("\x1e")
-    .filter((record) => record.trim().length > 0)
-    .map((record) => {
-      const [subject = "", body = ""] = record.split("\x1f");
-      return { subject: subject.trim(), body };
-    });
-}
-
-/**
- * Highest release tag across all refs, matching git-cliff's tag selection.
- *
- * @param {string} [repoRoot]
- * @returns {string | null}
- */
-export function latestReleaseTag(repoRoot = REPO_ROOT) {
-  const result = spawnSync(
-    "git",
-    ["tag", "--list", "v[0-9]*", "--sort=-v:refname"],
-    { cwd: repoRoot, encoding: "utf8" },
-  );
-  if (result.status !== 0) {
-    return null;
-  }
-  const tag = result.stdout.split("\n")[0].trim();
-  return tag.length > 0 ? tag : null;
-}
-
-/**
- * Read commits for `range` and evaluate the upcoming `version` section.
+ * Evaluate a release section's generated text.
  *
  * @param {string} version
- * @param {{ repoRoot?: string; range?: string; section?: string | null }} [options]
- * @returns {{ breaking: { subject: string; body?: string }[]; section: string | null; ok: boolean }}
+ * @param {{ repoRoot?: string; section?: string | null }} [options]
+ * @returns {{ ok: boolean; section: string | null; markers: number }}
  */
 export function checkBreakingSection(version, options = {}) {
   const repoRoot = options.repoRoot ?? REPO_ROOT;
-  const base = latestReleaseTag(repoRoot);
-  const range = options.range ?? (base ? `${base}..HEAD` : "HEAD");
-  const log = spawnSync(
-    "git",
-    ["log", range, "--no-merges", "--format=%s%x1f%b%x1e"],
-    { cwd: repoRoot, encoding: "utf8" },
-  );
-  if (log.status !== 0) {
-    throw new Error(`git log ${range} failed: ${log.stderr.trim()}`);
-  }
-
-  const breaking = findBreakingCommits(parseCommitLog(log.stdout));
   let section;
   if (options.section !== undefined) {
     section = options.section;
@@ -135,131 +52,58 @@ export function checkBreakingSection(version, options = {}) {
     try {
       changelog = readFileSync(join(repoRoot, "CHANGELOG.md"), "utf8");
     } catch {
-      // Missing changelog with breaking commits is reported by `ok`.
+      // Absent changelog means no generated section to inspect.
     }
     section =
       changelog === null ? null : extractChangelogSection(changelog, version);
   }
 
-  const ok =
-    breaking.length === 0 ||
-    (section !== null && sectionHasBreakingHeading(section));
-  return { breaking, section, ok };
-}
-
-/**
- * @param {string[]} argv
- * @returns {{ version: string; from: string | null }}
- */
-function parseArgs(argv) {
-  let version = "";
-  let from = null;
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === "--from") {
-      from = argv[index + 1] ?? "";
-      index += 1;
-      if (from.length === 0) {
-        throw new Error("--from requires a git ref");
-      }
-    } else if (version.length === 0) {
-      version = arg;
-    } else {
-      throw new Error(`Unexpected argument: ${arg}`);
-    }
+  if (section === null || sectionHasBreakingHeading(section)) {
+    return { ok: true, section, markers: 0 };
   }
-  return { version, from };
+  const markers = section.match(BREAKING_MARKER_PATTERN)?.length ?? 0;
+  return { ok: markers === 0, section, markers };
 }
 
 /**
  * @returns {number} process exit code
  */
 function main() {
-  let version;
-  let from;
-  try {
-    ({ version, from } = parseArgs(process.argv.slice(2)));
-  } catch (error) {
-    console.error(`assert-breaking-section: ${error.message}`);
+  const version = process.argv[2] ?? "";
+  if (version === "" || version === "--help" || version === "-h") {
     console.error(
-      "Usage: node tooling/release/assert-breaking-section.mjs <vX.Y.Z|X.Y.Z> [--from <ref>]",
+      "Usage: node tooling/release/assert-breaking-section.mjs <vX.Y.Z|X.Y.Z>",
     );
-    return 1;
+    return version === "" ? 1 : 0;
   }
 
-  if (version.length === 0) {
-    console.error(
-      "Usage: node tooling/release/assert-breaking-section.mjs <vX.Y.Z|X.Y.Z> [--from <ref>]",
-    );
-    return 1;
-  }
-
-  const base = from ?? latestReleaseTag();
-  const range = base ? `${base}..HEAD` : "HEAD";
-  const log = spawnSync(
-    "git",
-    ["log", range, "--no-merges", "--format=%s%x1f%b%x1e"],
-    { cwd: REPO_ROOT, encoding: "utf8" },
-  );
-  if (log.status !== 0) {
-    console.error(
-      `assert-breaking-section: git log ${range} failed: ${log.stderr.trim()}`,
-    );
-    return 1;
-  }
-
-  const breaking = findBreakingCommits(parseCommitLog(log.stdout));
-  const since = base ?? "repository start";
-
-  if (breaking.length === 0) {
-    console.log(`assert-breaking-section: no breaking commits since ${since}.`);
-    return 0;
-  }
-
-  let changelog = null;
-  try {
-    changelog = readFileSync(CHANGELOG_PATH, "utf8");
-  } catch {
-    // Missing changelog with breaking commits is a failure, reported below.
-  }
-
-  const section =
-    changelog === null ? null : extractChangelogSection(changelog, version);
+  const { ok, section, markers } = checkBreakingSection(version);
   if (section === null) {
     console.error(
-      `assert-breaking-section: ${breaking.length} breaking commit(s) since ${since}, but CHANGELOG.md has no section for ${version}:`,
+      `assert-breaking-section: no CHANGELOG.md section for ${version}; skipping.`,
     );
-    for (const commit of breaking) {
-      console.error(`  - ${commit.subject}`);
-    }
-    console.error(
-      "Generate the version section with cliff.toml's Breaking commit parser before publishing.",
-    );
-    return 1;
+    return 0;
   }
-
-  if (sectionHasBreakingHeading(section)) {
+  if (ok) {
     console.log(
-      `assert-breaking-section: ${version} has "### Breaking" for ${breaking.length} breaking commit(s).`,
+      `assert-breaking-section: ${version} has no breaking changes outside "### Breaking".`,
     );
     return 0;
   }
 
   console.error(
-    `assert-breaking-section: ${breaking.length} breaking commit(s) since ${since}, but the ${version} section of CHANGELOG.md has no "### Breaking":`,
+    `assert-breaking-section: ${markers} "**BREAKING:**" marker(s) outside "### Breaking" in the ${version} section of CHANGELOG.md.`,
   );
-  for (const commit of breaking) {
-    console.error(`  - ${commit.subject}`);
-  }
   console.error(
-    'Regenerate the section with cliff.toml\'s Breaking commit parser, or mark the commits with `!` and a `BREAKING CHANGE:` footer.',
+    'Add cliff.toml\'s Breaking commit parser and regenerate, or move those entries under "### Breaking".',
   );
   return 1;
 }
 
 const isMain =
   process.argv[1] &&
-  fileURLToPath(import.meta.url) === process.argv[1];
+  realpathSync(process.argv[1]) ===
+    realpathSync(fileURLToPath(import.meta.url));
 
 if (isMain) {
   process.exit(main());

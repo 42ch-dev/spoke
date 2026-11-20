@@ -28,8 +28,14 @@ import {
   replacePyprojectVersion,
   resolveCargoLockPackageNames,
 } from "./lockstep-surfaces.mjs";
-import { runGitCliff } from "./run-git-cliff.mjs";
+import { runGitCliff, resolveGitCliffInvocation } from "./run-git-cliff.mjs";
 import { SEMVER_PATTERN, isSemVerGreater } from "./semver.mjs";
+import { extractChangelogSection } from "./extract-changelog-notes.mjs";
+import {
+  findBreakingCommits,
+  parseCommitLog,
+  sectionHasBreakingHeading,
+} from "./assert-breaking-section.mjs";
 
 const REPO_ROOT = process.env.SPOKE_REPO_ROOT
   ? join(process.env.SPOKE_REPO_ROOT)
@@ -268,6 +274,68 @@ function promoteExistingChangelogSection(version) {
 }
 
 /**
+ * Refuse before writing any surface when breaking commits would land in a
+ * changelog section without `### Breaking`.
+ *
+ * @param {string} version
+ */
+function assertUpcomingBreakingSection(version) {
+  const base = latestReleaseTag();
+  const range = base ? `${base}..HEAD` : "HEAD";
+  const log = spawnSync(
+    "git",
+    ["log", range, "--no-merges", "--format=%s%x1f%b%x1e"],
+    { cwd: REPO_ROOT, encoding: "utf8" },
+  );
+  if (log.status !== 0) {
+    console.error(
+      `bump-version: git log ${range} failed: ${log.stderr.trim()}`,
+    );
+    process.exit(1);
+  }
+
+  const breaking = findBreakingCommits(parseCommitLog(log.stdout));
+  if (breaking.length === 0) {
+    return;
+  }
+
+  let section = null;
+  if (existsSync(repoPath(CHANGELOG_PATH))) {
+    section = extractChangelogSection(readRepoFile(CHANGELOG_PATH), version);
+  }
+  if (section === null) {
+    const { command, prefixArgs } = resolveGitCliffInvocation();
+    const dryRun = spawnSync(
+      command,
+      [...prefixArgs, "--unreleased", "--tag", `v${version}`, "-o", "-"],
+      { cwd: REPO_ROOT, encoding: "utf8" },
+    );
+    if (dryRun.status !== 0) {
+      console.error(
+        `bump-version: git-cliff dry run failed: ${dryRun.stderr.trim()}`,
+      );
+      process.exit(dryRun.status ?? 1);
+    }
+    section = dryRun.stdout;
+  }
+
+  if (sectionHasBreakingHeading(section)) {
+    return;
+  }
+
+  console.error(
+    `bump-version: ${breaking.length} breaking commit(s) would land in ${CHANGELOG_PATH} without "### Breaking"; nothing written:`,
+  );
+  for (const commit of breaking) {
+    console.error(`  - ${commit.subject}`);
+  }
+  console.error(
+    "Fix cliff.toml's Breaking commit parser or the commit messages, then re-run.",
+  );
+  process.exit(1);
+}
+
+/**
  * @param {string} version
  */
 function updateChangelog(version) {
@@ -381,6 +449,7 @@ if (!isSemVerGreater(targetVersion, currentVersion)) {
   );
   process.exit(1);
 }
+assertUpcomingBreakingSection(targetVersion);
 const cargoWorkspaceMembers = readCargoWorkspaceMembers();
 
 writeJsonVersion(CANONICAL_PATH, targetVersion);

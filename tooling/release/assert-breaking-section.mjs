@@ -8,8 +8,8 @@
  *
  * CLI: node tooling/release/assert-breaking-section.mjs <vX.Y.Z|X.Y.Z> [--from <ref>]
  *
- * Exits 0 when the section has the heading, has no breaking commits, or the
- * version section is absent; exits 1 when breaking commits lack the heading.
+ * Exits 0 when there are no breaking commits or the section has the heading;
+ * exits 1 when breaking commits lack the heading or the section is absent.
  *
  * @module tooling/release/assert-breaking-section
  */
@@ -53,7 +53,7 @@ export function sectionHasBreakingHeading(section) {
  * @param {string} raw `git log --format=%s%x1f%b%x1e` output
  * @returns {{ subject: string; body: string }[]}
  */
-function parseCommitLog(raw) {
+export function parseCommitLog(raw) {
   return raw
     .split("\x1e")
     .filter((record) => record.trim().length > 0)
@@ -130,7 +130,7 @@ function main() {
   const range = base ? `${base}..HEAD` : "HEAD";
   const log = spawnSync(
     "git",
-    ["log", range, "--format=%s%x1f%b%x1e"],
+    ["log", range, "--no-merges", "--format=%s%x1f%b%x1e"],
     { cwd: REPO_ROOT, encoding: "utf8" },
   );
   if (log.status !== 0) {
@@ -140,30 +140,34 @@ function main() {
     return 1;
   }
 
-  let changelog;
+  const breaking = findBreakingCommits(parseCommitLog(log.stdout));
+  const since = base ?? "repository start";
+
+  if (breaking.length === 0) {
+    console.log(`assert-breaking-section: no breaking commits since ${since}.`);
+    return 0;
+  }
+
+  let changelog = null;
   try {
     changelog = readFileSync(CHANGELOG_PATH, "utf8");
   } catch {
-    console.error(
-      `assert-breaking-section: ${CHANGELOG_PATH} is missing; skipping.`,
-    );
-    return 0;
+    // Missing changelog with breaking commits is a failure, reported below.
   }
 
-  const section = extractChangelogSection(changelog, version);
+  const section =
+    changelog === null ? null : extractChangelogSection(changelog, version);
   if (section === null) {
     console.error(
-      `assert-breaking-section: no CHANGELOG.md section for ${version}; skipping.`,
+      `assert-breaking-section: ${breaking.length} breaking commit(s) since ${since}, but CHANGELOG.md has no section for ${version}:`,
     );
-    return 0;
-  }
-
-  const breaking = findBreakingCommits(parseCommitLog(log.stdout));
-  if (breaking.length === 0) {
-    console.log(
-      `assert-breaking-section: no breaking commits since ${base ?? "repository start"}.`,
+    for (const commit of breaking) {
+      console.error(`  - ${commit.subject}`);
+    }
+    console.error(
+      "Generate the version section with cliff.toml's Breaking commit parser before publishing.",
     );
-    return 0;
+    return 1;
   }
 
   if (sectionHasBreakingHeading(section)) {
@@ -174,7 +178,7 @@ function main() {
   }
 
   console.error(
-    `assert-breaking-section: ${breaking.length} breaking commit(s) since ${base ?? "repository start"}, but the ${version} section of CHANGELOG.md has no "### Breaking":`,
+    `assert-breaking-section: ${breaking.length} breaking commit(s) since ${since}, but the ${version} section of CHANGELOG.md has no "### Breaking":`,
   );
   for (const commit of breaking) {
     console.error(`  - ${commit.subject}`);

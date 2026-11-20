@@ -9,6 +9,13 @@ Release notes for GitHub Releases are extracted from the matching version sectio
 ## [0.17.0] - 2026-11-20
 
 
+### Breaking
+
+- **connect:** Knowledge serving is its own capability. `port.knowledge.get`, `port.knowledge.put` and `port.scope.list_knowledge_entries` now require `spoke-knowledge` explicitly in both peers' `negotiated_capabilities`; `spoke-baseline` no longer authorizes them, so a baseline-only session answers `op_unsupported` and a capability-token grant must name `spoke-knowledge` too. Migration: (1) add `spoke-knowledge` to both `HostCapabilityManifest.capabilities` lists (and to any covering token grant); (2) attach a scoped knowledge face — a `ScopedKnowledgePort` store plus per-peer admission (`RemoteKnowledgeFace` with `withKnowledge` in TypeScript, `RemoteServePortsComposite::with_knowledge` in Rust), or the knowledge-only composition (`knowledgeOnlyServePorts` / `RemoteServePortsComposite::knowledge_only`) when no baseline face is served.
+- **operations:** `ScopeQueryPort` keeps `list_timeline_events` only. Knowledge listing moved to `KnowledgeQueryPort`, which composes into `BaselinePorts`; the connect serving port is the standalone `ScopedKnowledgePort`. Migration: (1) move an adapter's `listKnowledgeEntries` / `list_knowledge_entries` into a `KnowledgeQueryPort` object (the `BaselineAdapter` shape gains one member); (2) implement `ScopedKnowledgePort` (`getScopedKnowledgeEntry`, `putScopedKnowledgeEntry`, `listScopedKnowledgeEntries`) only on hosts that serve remote knowledge.
+- **connect-cabi:** The carrier ABI revision is `2`. Construct the ports handler with `spoke_connect_ports_handler_new_v2(table, table_size, ...)`; `spoke_connect_ports_handler_new` reads the revision-1 table only and serves no knowledge face. Migration: (1) pass `sizeof(SpokeConnectPortsHandlerTable)` to the sized constructor; (2) fill the four appended slots (`knowledge_scope` plus the three scoped callbacks) all-or-nothing, or leave all four NULL when the host serves no knowledge face.
+
+
 ### Added
 
 - **connect:** Add spoke-knowledge for scoped KnowledgeEntry storage (#180)

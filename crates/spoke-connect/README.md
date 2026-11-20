@@ -494,7 +494,7 @@ uniffi surface above stays the contract for the generated bindings.
 
 The C contract — status values, value types, callback tables and every exported
 function — is [`bindings/cpp/include/spoke_connect.h`](bindings/cpp/include/spoke_connect.h)
-(ABI revision `1` through `spoke_connect_abi_version`), with committed carriers
+(ABI revision `2` through `spoke_connect_abi_version`), with committed carriers
 under `bindings/cpp/native/osx-arm64/` and `bindings/cpp/native/win-x64/`.
 [`bindings/cpp/include/spoke_connect.hpp`](bindings/cpp/include/spoke_connect.hpp)
 is the header-only C++17 convenience layer over that contract: move-only

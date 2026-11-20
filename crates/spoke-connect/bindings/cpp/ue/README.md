@@ -15,7 +15,7 @@ of this file.
 | Path | Contents |
 |------|----------|
 | `ue/SpokeConnect.Build.cs` | The module template: include path, link wiring, native staging, platform/architecture acceptance |
-| `../include/spoke_connect.h` | The C contract the module puts on the include path (C99 language floor, ABI revision 1) |
+| `../include/spoke_connect.h` | The C contract the module puts on the include path (C99 language floor, ABI revision 2) |
 | `../include/spoke_connect.hpp` | The C++17 header-only convenience layer over that contract, on the same include path: move-only ownership, borrowed views, structured `Result` values and the callback bridges |
 | `../native/osx-arm64/libspoke_connect_capi.dylib` | macOS arm64 carrier, install name `@rpath/libspoke_connect_capi.dylib` |
 | `../native/win-x64/` | Windows x64 carrier: `spoke_connect_capi.dll` and the Rust-produced `spoke_connect_capi.dll.lib` import library |

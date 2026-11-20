@@ -8,7 +8,7 @@
 // this reference into a project.
 //
 // The carrier is a dynamic library with a hand-written C ABI
-// (`include/spoke_connect.h`, ABI revision 1). It links the Rust dynamic CRT,
+// (`include/spoke_connect.h`, ABI revision 2). It links the Rust dynamic CRT,
 // so the consuming Windows target uses the release C++ CRT (`/MD`). Carrier
 // calls block the calling OS thread and execute their callbacks on the
 // carrier's blocking pool; hosts call the ABI from worker threads and hand

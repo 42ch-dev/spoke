@@ -358,9 +358,15 @@ function previewChangelogSection(version) {
     ],
     { cwd: REPO_ROOT, encoding: "utf8" },
   );
+  if (dryRun.error) {
+    console.error(
+      `bump-version: git-cliff dry run failed: ${dryRun.error.message}`,
+    );
+    process.exit(1);
+  }
   if (dryRun.status !== 0) {
     console.error(
-      `bump-version: git-cliff dry run failed: ${dryRun.stderr.trim()}`,
+      `bump-version: git-cliff dry run failed: ${(dryRun.stderr ?? "").trim()}`,
     );
     process.exit(dryRun.status ?? 1);
   }

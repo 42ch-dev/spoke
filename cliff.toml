@@ -49,6 +49,8 @@ commit_parsers = [
   { message = "(?i)iteration/v0-iter", skip = true },
   # Plan merge-only integration lines (no product delta)
   { message = "(?i)merge\\(plan\\)", skip = true },
+  { footer = "BREAKING[ -]CHANGE:", group = "Breaking" },
+  { message = "^[A-Za-z0-9_-]+(\\([^)]*\\))?!:", group = "Breaking" },
   { message = "^chore\\(release\\)", skip = true },
   { message = "^chore\\(plan\\)", skip = true },
   { message = "^chore\\(protocol\\)", skip = true },
@@ -56,8 +58,6 @@ commit_parsers = [
   { message = "^chore: add Greptile", skip = true },
   { message = "^merge:", skip = true },
   { message = "^[Mm]erge ", skip = true },
-  { footer = "BREAKING[ -]CHANGE:", group = "Breaking" },
-  { message = "^[a-z]+(\\([^)]*\\))?!:", group = "Breaking" },
   { message = "^feat", group = "Added" },
   { message = "^fix", group = "Fixed" },
   { message = "^docs?", group = "Documentation" },

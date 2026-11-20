@@ -56,6 +56,7 @@ commit_parsers = [
   { message = "^chore: add Greptile", skip = true },
   { message = "^merge:", skip = true },
   { message = "^[Mm]erge ", skip = true },
+  { footer = "BREAKING[ -]CHANGE:", group = "Breaking" },
   { message = "^[a-z]+(\\([^)]*\\))?!:", group = "Breaking" },
   { message = "^feat", group = "Added" },
   { message = "^fix", group = "Fixed" },

@@ -88,19 +88,21 @@ export function parseCommitLog(raw) {
 }
 
 /**
+ * Highest release tag across all refs, matching git-cliff's tag selection.
+ *
  * @param {string} [repoRoot]
  * @returns {string | null}
  */
 export function latestReleaseTag(repoRoot = REPO_ROOT) {
   const result = spawnSync(
     "git",
-    ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", "HEAD"],
+    ["tag", "--list", "v[0-9]*", "--sort=-v:refname"],
     { cwd: repoRoot, encoding: "utf8" },
   );
   if (result.status !== 0) {
     return null;
   }
-  const tag = result.stdout.trim();
+  const tag = result.stdout.split("\n")[0].trim();
   return tag.length > 0 ? tag : null;
 }
 

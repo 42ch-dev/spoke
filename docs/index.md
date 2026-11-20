@@ -27,7 +27,7 @@ SPOKE is a protocol of JSON Schema wire contracts for narrative knowledge: indep
 
 - **One wire dialect** — eleven data objects and five baseline ops (plus the optional `project` / `compute`, `extract`, and 33-op `spoke-memory` families)
 - **Domain Profiles over open strings** — ontology vocabulary publishes over open strings and optional `modules.*` bags
-- **Capability flags** — claim `spoke-baseline`, or declare `l2-computable`, `l5-fork`, `spoke-cognition`, `narrative-modules`, `ke-extraction`, `ke-ownership`, `spoke-connect`, `spoke-memory` explicitly
+- **Capability flags** — claim `spoke-baseline`, or declare `l2-computable`, `l5-fork`, `spoke-cognition`, `narrative-modules`, `ke-extraction`, `ke-ownership`, `spoke-knowledge`, `spoke-connect`, `spoke-memory` explicitly
 - **Language parity** — one lockstep SemVer across npm and crates.io
 - **Opt-in connect** — signed cross-process interaction envelopes with per-session ordering and extensible auth
 

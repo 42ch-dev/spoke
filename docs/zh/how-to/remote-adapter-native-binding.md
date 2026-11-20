@@ -312,6 +312,10 @@ while responder.state() != "Established":
 
 与工具处理器相同的重入规则适用：绝不要在 ports 回调内部回调 FFI 面 —— 把工作交给你自己的异步机制然后返回。
 
+#### 作用域知识服务（`spoke-knowledge`）
+
+追加的四个槽位在 `spoke-knowledge` 标志下服务三个 connect 知识操作：`knowledge_scope(peer_id)` 返回为已认证对等节点准入的 Scope，`get_scoped_knowledge_entry`、`put_scoped_knowledge_entry` 与 `list_scoped_knowledge_entries` 接收该 Scope。该块是全有或全无的 —— 四个回调齐备即提供作用域面，四个全为 NULL 则移除这三个操作（运行时 `op_unsupported`），部分填充按无效参数拒绝。用带尺寸的构造函数 `spoke_connect_ports_handler_new_v2(table, table_size, ...)` 创建 handler；生成绑定通过 `serves_knowledge` 报告该面是否存在，`spoke_connect_ports_handler_new` 只读取 revision-1 表，不提供任何知识面。不提供该能力的主机把该块留为 NULL。准入与拒绝语义见 [Connect 参考](/zh/reference/connect)。
+
 ### 端到端回环对
 
 双向 smoke 把两端都作为 FFI 对象驱动 —— 响应方服务带外 `ToolHandler`，拨号方服务反向调用，未注册工具被拒绝，处理器抛出的拒绝原样穿透：

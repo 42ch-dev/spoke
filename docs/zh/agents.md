@@ -56,6 +56,7 @@ title: 面向 Agent
 | `narrative-modules` | KnowledgeEntry、AssemblePacket 与 TimelineEvent 上的 `modules` 字段袋 |
 | `ke-extraction` | `extract` op 族与 `ExtractionPort` |
 | `ke-ownership` | `KnowledgeEntry.owner` / `disclosure`、`Scope.viewpoint` |
+| `spoke-knowledge` | 独立 `ScopedKnowledgePort` 与逐对等节点作用域准入之后的三个 connect 知识 port 操作 |
 | `spoke-connect` | 六个 connect 信封 |
 | `spoke-memory` | 13 个 memory 模型与 33 个 `memory.*` ops；`spoke-memory-reflection` 与 `spoke-memory-transfer` 为子标志 |
 

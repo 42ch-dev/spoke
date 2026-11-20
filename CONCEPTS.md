@@ -130,6 +130,10 @@ Optional `ModuleMap` on KnowledgeEntry + AssemblePacket + TimelineEvent (event o
 
 `modules.*` carries **cross-product functional** dialects (for example activation, placement, and activation_trace metadata), distinct from product-owned `extensions.<namespace>`. Absent and empty `modules` are valid; baseline hosts need not emit or parse the bag unless they declare `narrative-modules`. Shared functional dialects use `modules.*`; product bags stay in `extensions.<namespace>`. Knowledge Pack **catalog** metadata (`title` / `version` / `creator`) lives on the product transport envelope — not under `modules.*`.
 
+### spoke-knowledge
+
+Optional connect capability flag covering `port.knowledge.get`, `port.knowledge.put`, and `port.scope.list_knowledge_entries`. A declaring host serves these ops through a standalone [`ScopedKnowledgePort`](.agents/specs/protocol/spoke-operations.md) with a per-peer admission policy that maps each authenticated peer to exactly one `Scope`; the request's scope is a declaration to check, not authority. The flag must appear explicitly in `negotiated_capabilities` — `spoke-baseline` alone authorizes only baseline ops and never satisfies it — and capability-token grants for these ops require the same exact membership. Dispatch gate, admission and refusal semantics: [`spoke-connect.md`](.agents/specs/connect/spoke-connect.md) §Op dispatch gate; serving rows: [`spoke-operations.md`](.agents/specs/protocol/spoke-operations.md).
+
 ### spoke-connect
 
 Optional capability flag: a product declaring it implements the connect envelope family (`schemas/connect/`), per-session ordering, and the `noise-peerid` auth model documented in [`spoke-connect.md`](.agents/specs/connect/spoke-connect.md). Not part of `spoke-baseline`. Hosts that speak connect SHOULD list `spoke-connect` in `HostCapabilityManifest.capabilities`.

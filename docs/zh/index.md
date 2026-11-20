@@ -27,7 +27,7 @@ SPOKE 是一套面向叙事知识的 JSON Schema 线上契约协议：各独立�
 
 - **单一线上方言** —— 十一个数据对象与五个基线 ops（另含可选 `project` / `compute`、`extract`，以及 33 个操作的 `spoke-memory` 族）
 - **基于开放字符串的 Domain Profile** —— 本体词汇经开放字符串发布，并经可选 `modules.*` 字段袋承载跨产品方言
-- **能力标志** —— 声明 `spoke-baseline`，或显式声明 `l2-computable`、`l5-fork`、`spoke-cognition`、`narrative-modules`、`ke-extraction`、`ke-ownership`、`spoke-connect`、`spoke-memory`
+- **能力标志** —— 声明 `spoke-baseline`，或显式声明 `l2-computable`、`l5-fork`、`spoke-cognition`、`narrative-modules`、`ke-extraction`、`ke-ownership`、`spoke-knowledge`、`spoke-connect`、`spoke-memory`
 - **语言对齐** —— npm 与 crates.io 共用一套锁步 SemVer
 - **可选 connect** —— 已签名的跨进程交互信封，带按会话排序与可扩展鉴权
 

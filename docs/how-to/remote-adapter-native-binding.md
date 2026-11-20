@@ -312,6 +312,10 @@ The reference shape ships in the Python loopback smoke (`bindings/python/Smoke/t
 
 The same re-entrancy rule as tool handlers applies: never call back into the FFI surface from inside a ports callback — hand the work off to your own async machinery and return.
 
+#### Serving scoped knowledge (`spoke-knowledge`)
+
+The four appended slots serve the three connect knowledge ops under the `spoke-knowledge` flag: `knowledge_scope(peer_id)` returns the Scope admitted for the authenticated peer, and `get_scoped_knowledge_entry`, `put_scoped_knowledge_entry` and `list_scoped_knowledge_entries` receive it. The block is all-or-nothing — all four callbacks present serves the scoped face, all four NULL removes the three ops (`op_unsupported` at runtime), and a partial block is rejected as an invalid argument. Create the handler with the sized constructor `spoke_connect_ports_handler_new_v2(table, table_size, ...)`; generated bindings report presence through `serves_knowledge`, and `spoke_connect_ports_handler_new` reads the revision-1 table only and serves no knowledge face. A host that serves none leaves the block NULL. Admission and refusal semantics: [Connect reference](/reference/connect).
+
 ### The loopback pair end to end
 
 The bidirectional smoke drives both ends as FFI objects — the responder serves a foreign `ToolHandler`, the dialer serves reverse invokes, unregistered tools deny, and a handler-thrown reject passes through:

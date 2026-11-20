@@ -56,6 +56,7 @@ A docs page that contradicts `schemas/` is a docs bug. Do not generate code from
 | `narrative-modules` | the `modules` bag on KnowledgeEntry, AssemblePacket and TimelineEvent |
 | `ke-extraction` | the `extract` op family and `ExtractionPort` |
 | `ke-ownership` | `KnowledgeEntry.owner` / `disclosure`, `Scope.viewpoint` |
+| `spoke-knowledge` | the three connect knowledge port ops behind a standalone `ScopedKnowledgePort` with per-peer scope admission |
 | `spoke-connect` | the six connect envelopes |
 | `spoke-memory` | 13 memory models and 33 `memory.*` ops; `spoke-memory-reflection` and `spoke-memory-transfer` are sub-flags |
 

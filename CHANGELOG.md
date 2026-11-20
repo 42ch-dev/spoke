@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.17.0] - 2026-11-20
+
+
+### Added
+
+- **connect:** Add spoke-knowledge for scoped KnowledgeEntry storage (#180)
+
+
+### Changed
+
+- **connect-demo:** Expect the precise cognition rejection path (#181)
+
+
+### Documentation
+
+- Surface the spoke-knowledge capability flag (#184)
+
+
+### Fixed
+
+- **connect:** Enforce the demo knowledge scope and classify timed-out knowledge puts (#182)
+
 ## [0.16.1] - 2026-11-16
 
 

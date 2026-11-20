@@ -316,6 +316,29 @@ function assertUpcomingBreakingSection(version) {
 }
 
 /**
+ * Commit-range arguments git-cliff renders for the next release.
+ *
+ * 1) commits since latest v* tag (`--unreleased`)
+ * 2) no tags but CHANGELOG exists: commits since its last update
+ * 3) no tags and no CHANGELOG: full `--unreleased` history
+ *
+ * @param {boolean} changelogExists
+ * @returns {string[]}
+ */
+function cliffRangeArgs(changelogExists) {
+  if (latestReleaseTag()) {
+    return ["--unreleased"];
+  }
+  if (changelogExists) {
+    const since = lastChangelogCommit();
+    if (since) {
+      return [`${since}..HEAD`];
+    }
+  }
+  return ["--unreleased"];
+}
+
+/**
  * Render the upcoming section with git-cliff without touching the worktree.
  *
  * @param {string} version
@@ -325,7 +348,14 @@ function previewChangelogSection(version) {
   const { command, prefixArgs } = resolveGitCliffInvocation();
   const dryRun = spawnSync(
     command,
-    [...prefixArgs, "--unreleased", "--tag", `v${version}`, "-o", "-"],
+    [
+      ...prefixArgs,
+      ...cliffRangeArgs(existsSync(repoPath(CHANGELOG_PATH))),
+      "--tag",
+      `v${version}`,
+      "-o",
+      "-",
+    ],
     { cwd: REPO_ROOT, encoding: "utf8" },
   );
   if (dryRun.status !== 0) {
@@ -347,27 +377,7 @@ function updateChangelog(version) {
 
   const tag = `v${version}`;
   const changelogExists = existsSync(repoPath(CHANGELOG_PATH));
-  // git-cliff requires -u/--unreleased or -l/--latest OR an explicit commit range
-  // with --prepend / -o. Prefer:
-  //   1) commits since latest v* tag (--unreleased)
-  //   2) when no tags yet but CHANGELOG already exists: commits since last
-  //      CHANGELOG.md update (avoids replaying history already under older sections)
-  //   3) first CHANGELOG creation: full --unreleased history
-  /** @type {string[]} */
-  const cliffArgs = [];
-  const releaseTag = latestReleaseTag();
-  if (releaseTag) {
-    cliffArgs.push("--unreleased");
-  } else if (changelogExists) {
-    const since = lastChangelogCommit();
-    if (since) {
-      cliffArgs.push(`${since}..HEAD`);
-    } else {
-      cliffArgs.push("--unreleased");
-    }
-  } else {
-    cliffArgs.push("--unreleased");
-  }
+  const cliffArgs = cliffRangeArgs(changelogExists);
 
   cliffArgs.push("--tag", tag);
   if (changelogExists) {

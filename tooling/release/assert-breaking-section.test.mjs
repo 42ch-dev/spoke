@@ -93,7 +93,7 @@ describe("assert-breaking-section.mjs", () => {
     withTempRepo((repo) => {
       const missing = runCli(repo);
       assert.equal(missing.status, 0, missing.stderr);
-      assert.match(missing.stderr, /version section is absent/);
+      assert.match(missing.stderr, /CHANGELOG\.md not found; skipping/);
 
       writeFileSync(
         join(repo, "CHANGELOG.md"),

@@ -270,8 +270,8 @@ function promoteExistingChangelogSection(version) {
 }
 
 /**
- * Refuse before writing any surface when the upcoming section would hide a
- * breaking commit outside `### Breaking`.
+ * Refuse before writing any surface when the upcoming version section renders a
+ * `**BREAKING:**` marker.
  *
  * @param {string} version
  */
@@ -307,11 +307,17 @@ function assertUpcomingBreakingSection(version) {
   }
 
   console.error(
-    `bump-version: ${markers} "**BREAKING:**" marker(s) would land in ${CHANGELOG_PATH} outside "### Breaking"; nothing written.`,
+    `bump-version: the ${version} section of ${CHANGELOG_PATH} would render ${markers} "**BREAKING:**" marker(s); a marker anywhere in the version section fails. Nothing written.`,
   );
-  console.error(
-    "Fix cliff.toml's Breaking commit parser, then re-run.",
-  );
+  if (existing === null) {
+    console.error(
+      "Fix cliff.toml's Breaking commit parsers so breaking commits group under \"### Breaking\", then re-run.",
+    );
+  } else {
+    console.error(
+      `Remove the inline marker from the existing ${version} section (regenerating cannot clear committed text), then re-run.`,
+    );
+  }
   process.exit(1);
 }
 
@@ -429,7 +435,7 @@ function runBreakingAssert(version) {
 
   if (result.status !== 0) {
     console.error(
-      `bump-version: ${version} leaves "**BREAKING:**" markers outside "### Breaking" in ${CHANGELOG_PATH}; fix cliff.toml and re-run.`,
+      `bump-version: ${version} renders "**BREAKING:**" markers in ${CHANGELOG_PATH}; a marker anywhere in the version section fails. Edit the section or regenerate it with the Breaking parsers, then re-run.`,
     );
     process.exit(result.status ?? 1);
   }

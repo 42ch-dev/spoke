@@ -273,6 +273,16 @@ function releaseCommitRange() {
 }
 
 /**
+ * Base ref of `releaseCommitRange`, or null for full history.
+ *
+ * @returns {string | null}
+ */
+function releaseBaseRef() {
+  const range = releaseCommitRange();
+  return range === "HEAD" ? null : range.slice(0, -"..HEAD".length);
+}
+
+/**
  * Refuse before writing any surface when breaking commits would land in a
  * changelog section without `### Breaking`.
  *
@@ -280,11 +290,21 @@ function releaseCommitRange() {
  */
 function assertUpcomingBreakingSection(version) {
   const range = releaseCommitRange();
+  const changelog = existsSync(repoPath(CHANGELOG_PATH))
+    ? readRepoFile(CHANGELOG_PATH)
+    : null;
+  // The promote path keeps an existing section even when its body is empty,
+  // so inspect that same text instead of a git-cliff preview.
+  const existing =
+    changelog === null
+      ? null
+      : findChangelogSectionRange(changelog, version);
   let draft;
   try {
     draft = checkBreakingSection(version, {
       repoRoot: REPO_ROOT,
       range,
+      section: existing === null ? null : existing.full,
     });
   } catch (error) {
     console.error(`bump-version: ${error.message}`);
@@ -407,7 +427,12 @@ function updateChangelog(version) {
  * @param {string} version
  */
 function runBreakingAssert(version) {
-  const result = spawnSync(process.execPath, [ASSERT_BREAKING_SCRIPT, version], {
+  const base = releaseBaseRef();
+  const args = [ASSERT_BREAKING_SCRIPT, version];
+  if (base !== null) {
+    args.push("--from", base);
+  }
+  const result = spawnSync(process.execPath, args, {
     cwd: REPO_ROOT,
     env: { ...process.env, SPOKE_REPO_ROOT: REPO_ROOT },
     stdio: "inherit",

@@ -105,6 +105,15 @@ describe("assert-breaking-section.mjs", () => {
     assert.equal(sectionHasBreakingHeading("### Added\n\n- New.\n"), false);
   });
 
+  it("ignores message-level cliff skips in the body", () => {
+    assert.deepEqual(
+      findBreakingCommits([
+        { subject: "feat(core)!: drop x", body: "Cleanup after merge(plan)." },
+      ]),
+      [],
+    );
+  });
+
   it(
     "evaluates the upcoming section with injected text",
     { skip: !GIT_AVAILABLE && "git is unavailable" },
@@ -133,6 +142,15 @@ describe("assert-breaking-section.mjs", () => {
           section: "### Breaking\n\n- **core:** Drop x\n",
         });
         assert.equal(headed.ok, true);
+
+        // Empty sections still have a generator range, so they must not fall
+        // back to a git-cliff preview that would contain the heading.
+        const empty = checkBreakingSection("0.17.1", {
+          repoRoot: repo,
+          range: breakingRange,
+          section: "## [0.17.1]\n\n",
+        });
+        assert.equal(empty.ok, false);
 
         git(repo, "commit", "--allow-empty", "-q", "-m", "feat(core): add y");
         const noBreaking = checkBreakingSection("0.17.1", {

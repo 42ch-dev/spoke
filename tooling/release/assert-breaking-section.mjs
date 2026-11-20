@@ -29,11 +29,13 @@ const BREAKING_HEADER_PATTERN = /^[a-z]+(?:\([^)]*\))?!:/;
 const BREAKING_FOOTER_PATTERN = /^BREAKING CHANGE:/m;
 const BREAKING_HEADING_PATTERN = /^### Breaking\s*$/m;
 
-// Subjects cliff.toml drops before grouping; a `!` on them never reaches the changelog.
-const CLIFF_SKIP_PATTERNS = [
+// Subjects/messages cliff.toml drops before grouping; a `!` there never reaches the changelog.
+const CLIFF_SKIP_MESSAGE_PATTERNS = [
   /v0-iter/i,
   /iteration\/v0-iter/i,
   /merge\(plan\)/i,
+];
+const CLIFF_SKIP_SUBJECT_PATTERNS = [
   /^chore\(release\)/,
   /^chore\(plan\)/,
   /^chore\(protocol\)/,
@@ -49,7 +51,11 @@ const CLIFF_SKIP_PATTERNS = [
  */
 export function findBreakingCommits(commits) {
   return commits.filter(({ subject, body = "" }) => {
-    if (CLIFF_SKIP_PATTERNS.some((pattern) => pattern.test(subject))) {
+    const message = `${subject}\n${body}`;
+    if (CLIFF_SKIP_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))) {
+      return false;
+    }
+    if (CLIFF_SKIP_SUBJECT_PATTERNS.some((pattern) => pattern.test(subject))) {
       return false;
     }
     return (

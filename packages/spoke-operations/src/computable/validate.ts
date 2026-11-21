@@ -6,6 +6,7 @@ import type {
   ProjectRequest,
 } from "@42ch/spoke-schemas";
 
+import { isParseableDateTime } from "../timestamp.js";
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";
 
@@ -30,10 +31,6 @@ function validateExtensionMap(
   }
 
   return spokeOk();
-}
-
-function isParseableDateTime(value: string): boolean {
-  return !Number.isNaN(Date.parse(value));
 }
 
 /**

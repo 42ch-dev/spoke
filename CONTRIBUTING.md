@@ -24,9 +24,10 @@ Useful scripts (repo root):
 | Script | Purpose |
 |--------|---------|
 | `pnpm run codegen` | Regenerate TypeScript and Rust types from `schemas/` |
-| `pnpm run verify-codegen` | Schema-count assert + opaque-JSON type contract + typecheck and compile of the committed generated trees |
+| `pnpm run verify-codegen` | `test:codegen` plus typecheck and compile of the committed generated trees |
+| `pnpm run test:codegen` | Codegen-only checks: schema-count assert, opaque-JSON type contract, and the deep-ref hoist test |
 | `pnpm run typecheck` | Typecheck all workspace TS packages (`@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-connect`, `@42ch/spoke-demo-server`, `@42ch/spoke-demo-client`) — warm-tree helper; the cold-clone gate is `ci:typescript` |
-| `pnpm run ci:typescript` | Cold-clone gate mirroring the ci.yml `typescript` job stage chain in dependency order, then the demo typechecks + `test:demo` |
+| `pnpm run ci:typescript` | The gate the ci.yml `typescript` job runs: full stage chain in dependency order, including the demo typechecks + `test:demo` |
 | `pnpm run build:schema` / `build:operations` | Build published npm packages |
 | `pnpm run test` / `test:fixtures` | Operations unit tests / toy-world fixture harness |
 | `pnpm run verify:version` | Lockstep SemVer assert across publish surfaces |
@@ -95,7 +96,7 @@ These stay private to the monorepo (not published to registries):
 
 ## Pull requests and CI
 
-Every pull request must pass the required checks bound to the `main` ruleset: the PR validation contexts produced by [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (`verify-codegen`, `typescript`, `rust`, `verify-version`, `connect-identity`, `golden-vector-sync`, `csharp-connect`, `kotlin-connect-smoke`), `windows-smoke` and `macos-smoke` ([`cpp-connect.yml`](.github/workflows/cpp-connect.yml)), `xcframework` ([`xcframework.yml`](.github/workflows/xcframework.yml)), `Build docs site` ([`docs.yml`](.github/workflows/docs.yml)), the managed `Analyze (…)` / `CodeQL` analysis, and the Cursor Approval Agent and Greptile review checks. The pull-request triggers of those workflows are deliberately unfiltered — a path filter would leave a required context unscheduled, and an unscheduled required check can never be satisfied.
+Every pull request must pass the required checks bound to the `main` ruleset: the PR validation contexts produced by [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (`verify-codegen`, `typescript`, `rust`, `verify-version`, `golden-vector-sync`, `csharp-connect`, `kotlin-connect-smoke`), `windows-smoke` and `macos-smoke` ([`cpp-connect.yml`](.github/workflows/cpp-connect.yml)), `xcframework` ([`xcframework.yml`](.github/workflows/xcframework.yml)), `Build docs site` ([`docs.yml`](.github/workflows/docs.yml)), the managed `Analyze (…)` / `CodeQL` analysis, and the Cursor Approval Agent and Greptile review checks. The pull-request triggers of those workflows are deliberately unfiltered — a path filter would leave a required context unscheduled, and an unscheduled required check can never be satisfied.
 
 Two maintenance rules follow. When a new PR validation check is added, register it in the `main` ruleset required checks in the same round; an unregistered check gates nothing. And a PR is ready only once every required check has finished successfully — a pending CodeQL or Greptile run is not a pass, and "no review comments" is not the same as a green review.
 

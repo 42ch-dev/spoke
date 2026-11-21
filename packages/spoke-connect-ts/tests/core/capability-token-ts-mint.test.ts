@@ -8,7 +8,7 @@ import {
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { GOLDEN_PEER_ID, GOLDEN_SEED } from "../../src/golden.js";
+import { GOLDEN_PEER_ID, GOLDEN_SEED } from "../fixtures/golden.js";
 import {
   issueCapabilityToken,
   verifyCapabilityToken,
@@ -20,7 +20,7 @@ import type {
 
 /**
  * TS-minted capability-token golden vector: deterministic proof from the
- * identity golden seed (`tooling/connect-identity-proof/`, bytes 1..=32),
+ * identity golden seed (`tests/fixtures/golden.ts`, bytes 1..=32),
  * checked in as `tests/fixtures/capability-token-ts-golden.json` (byte-identical
  * registered copy of the SSOT under `crates/spoke-connect/tests/fixtures/`; sync
  * gate: `tooling/connect/golden-vector-sync.mjs`).

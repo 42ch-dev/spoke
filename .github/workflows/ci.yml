@@ -3,9 +3,8 @@ name: CI
 on:
   # Unfiltered on pull requests: every required context must always be reported.
   # A docs-only diff short-circuits each heavy job's run steps through the
-  # `changes` job instead of skipping the check; `connect-identity` stays
-  # ungated by design (a green no-op would prove nothing). The push side keeps
-  # the paths-ignore filter below.
+  # `changes` job instead of skipping the check. The push side keeps the
+  # paths-ignore filter below.
   pull_request:
   push:
     branches:
@@ -66,27 +65,11 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - name: Setup Rust toolchain
-        # dtolnay/rust-toolchain@stable (2026-07-16)
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
-        with:
-          # verify-codegen runs `rustfmt` on the generated memory types.
-          components: rustfmt
-
-      - name: Cache Rust dependencies
-        # Swatinem/rust-cache@v2.9.1
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
-        with:
-          shared-key: spoke-rust
-          workspaces: .
-
-      - name: Install dependencies
-        if: needs.changes.outputs.code == 'true'
-        run: pnpm install --frozen-lockfile
-
       - name: Verify codegen output
         if: needs.changes.outputs.code == 'true'
-        run: pnpm run verify-codegen
+        # Node-only checks over committed files; the typescript/rust jobs cover
+        # the typecheck and compile halves of the local `verify-codegen` script.
+        run: pnpm run test:codegen
 
   typescript:
     needs: changes
@@ -110,78 +93,9 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
-      # Mirrored by the root `ci:typescript` script (package.json) — update in lockstep.
-      - name: Typecheck @42ch/spoke-schemas
+      - name: Cold-clone gate
         if: needs.changes.outputs.code == 'true'
-        run: pnpm -F @42ch/spoke-schemas typecheck
-
-      - name: Build @42ch/spoke-schemas
-        if: needs.changes.outputs.code == 'true'
-        run: pnpm -F @42ch/spoke-schemas build
-
-      - name: Typecheck @42ch/spoke-operations
-        if: needs.changes.outputs.code == 'true'
-        run: pnpm -F @42ch/spoke-operations typecheck
-
-      - name: Test @42ch/spoke-operations
-        if: needs.changes.outputs.code == 'true'
-        run: pnpm -F @42ch/spoke-operations test
-
-      - name: Build @42ch/spoke-operations
-        if: needs.changes.outputs.code == 'true'
-        # Must precede the spoke-connect build + dist smoke: the ./remote
-        # subpath (RemoteAdapter) imports @42ch/spoke-operations, so its
-        # dist/ must exist before test:dist resolves the exports map.
-        run: pnpm -F @42ch/spoke-operations build
-
-      - name: Test release scripts
-        if: needs.changes.outputs.code == 'true'
-        run: pnpm run test:release
-
-      - name: Test toy-world fixtures
-        if: needs.changes.outputs.code == 'true'
-        run: pnpm run test:fixtures
-
-      - name: Typecheck @42ch/spoke-connect
-        if: needs.changes.outputs.code == 'true'
-        run: pnpm -F @42ch/spoke-connect typecheck
-
-      - name: Test @42ch/spoke-connect
-        if: needs.changes.outputs.code == 'true'
-        run: pnpm run test:connect-ts
-
-      - name: Build @42ch/spoke-connect
-        if: needs.changes.outputs.code == 'true'
-        run: pnpm -F @42ch/spoke-connect build
-
-      - name: Smoke @42ch/spoke-connect published shape (dist)
-        if: needs.changes.outputs.code == 'true'
-        # Published-shape gate: resolves the package exports map against the
-        # built dist/ (ESM + CJS) — not the vitest source aliases. Fails if a
-        # require/import condition or a dist file is dropped.
-        run: pnpm -F @42ch/spoke-connect test:dist
-
-  connect-identity:
-    needs: changes
-    name: connect-identity
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        # actions/checkout@v4.2.2
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-      - name: Setup Node.js
-        # actions/setup-node@v4.4.0 — Node 24 matches the release.yml npm publish surface
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24
-
-      - name: Run connect identity proof
-        # A required PR check runs on every pull request: a changed-path gate
-        # would report this context green without proving anything, and an
-        # unscheduled-proof pass is indistinguishable from a real one. The
-        # proof is zero-dependency, so the minute it costs is the honest price.
-        run: node tooling/connect-identity-proof/proof.mjs
+        run: pnpm run ci:typescript
 
   rust:
     needs: changes
@@ -206,6 +120,11 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: cargo check -p spoke-schemas
 
+      - name: Check spoke-connect-capi crate
+        if: needs.changes.outputs.code == 'true'
+        # Excluded from default-members; the carrier lanes are not host-agnostic.
+        run: cargo check -p spoke-connect-capi
+
       - name: Test spoke-operations crate
         if: needs.changes.outputs.code == 'true'
         run: cargo test -p spoke-operations
@@ -222,23 +141,20 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: cargo test -p spoke-connect
 
-      - name: Test spoke-connect crate (remote-adapter feature)
+      - name: Check spoke-connect crate (remote-adapter feature)
         if: needs.changes.outputs.code == 'true'
         run: |
           # remote-adapter must stay non-default (it pulls in spoke-operations
           # for the BaselinePorts surface); assert the Cargo.toml default here
-          # so a future default-feature change trips CI, then run the
-          # feature-gated suite (loopback interop + adapter unit tests).
+          # so a future default-feature change trips CI. Feature isolation is
+          # proven by `cargo check`; the combined ffi,remote-adapter run below
+          # still executes the feature-gated suites.
           grep -q '^default = \[\]$' crates/spoke-connect/Cargo.toml
-          cargo test -p spoke-connect --features remote-adapter
+          cargo check -p spoke-connect --features remote-adapter
 
-      - name: Build spoke-connect FFI facade (ffi feature)
+      - name: Check spoke-connect FFI facade (ffi feature)
         if: needs.changes.outputs.code == 'true'
-        run: cargo build -p spoke-connect --features ffi
-
-      - name: Test spoke-connect FFI facade (ffi feature)
-        if: needs.changes.outputs.code == 'true'
-        run: cargo test -p spoke-connect --features ffi
+        run: cargo check -p spoke-connect --features ffi
 
       - name: Build and test spoke-connect (ffi + remote-adapter production surface)
         if: needs.changes.outputs.code == 'true'

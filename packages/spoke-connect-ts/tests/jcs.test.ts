@@ -8,7 +8,7 @@ import {
   GOLDEN_NONCE,
   GOLDEN_PEER_ID,
   goldenManifest,
-} from "../src/golden.js";
+} from "./fixtures/golden.js";
 import { fromHex, toHex } from "./hex.js";
 
 describe("canonicalHelloBytes (RFC 8785 JCS)", () => {

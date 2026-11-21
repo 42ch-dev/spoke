@@ -14,9 +14,10 @@
  *
  * Uses the pinned `canonicalize` npm package (RFC 8785). Golden byte parity
  * is pinned in `tests/golden.test.ts` (AD-P0-2 evidence gate): if a
- * dependency update ever diverges from `GOLDEN_JCS_HEX`, port the hand-rolled
- * JCS subset from tooling/connect-identity-proof/proof.mjs into this module
- * (AD-P0-2 fallback) instead of weakening the golden vector.
+ * dependency update ever diverges from `GOLDEN_JCS_HEX`, port the
+ * canonicalization rules from `.agents/specs/connect/spoke-connect.md`
+ * §Signature canonicalization into this module (AD-P0-2 fallback) instead of
+ * weakening the golden vector.
  *
  * Absent optional manifest members (e.g. `host.authority`) must be omitted,
  * never emitted as `null` — `canonicalize` omits `undefined` members, which

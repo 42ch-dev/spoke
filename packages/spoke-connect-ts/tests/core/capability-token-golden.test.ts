@@ -16,7 +16,7 @@ import {
 import {
   GOLDEN_PEER_ID,
   GOLDEN_SEED,
-} from "../../src/golden.js";
+} from "../fixtures/golden.js";
 import {
   TOKEN_VERSION,
   verifyCapabilityToken,
@@ -26,7 +26,7 @@ import type { CapabilityTokenProof } from "../../src/core/capability-token.js";
 /**
  * Cross-language golden vector: a capability token minted by the **Rust**
  * reference (`crates/spoke-connect`) from the identity golden seed
- * (`tooling/connect-identity-proof/`, bytes 1..=32), checked in as
+ * (`tests/fixtures/golden.ts`, bytes 1..=32), checked in as
  * `tests/fixtures/capability-token-golden.json`.
  *
  * Verifying the Rust-produced proof end-to-end on TS pins the JCS bytes TS

@@ -81,7 +81,7 @@ import {
 import { verifyHelloEd25519 } from "../../src/core/hello.js";
 import { generateNonce } from "../../src/core/nonce.js";
 import { signHelloEd25519 } from "../../src/core/hello.js";
-import { schemaConformantManifest } from "../../src/golden.js";
+import { schemaConformantManifest } from "../fixtures/golden.js";
 import { decodeJsonMessage, encodeJsonMessage } from "../../src/framing.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 import {

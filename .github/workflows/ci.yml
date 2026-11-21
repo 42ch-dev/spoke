@@ -86,7 +86,13 @@ jobs:
 
       - name: Verify codegen output
         if: needs.changes.outputs.code == 'true'
-        run: pnpm run verify-codegen
+        # The pnpm `verify-codegen` script also runs workspace typecheck and a
+        # full `cargo check`; CI keeps the codegen-specific half here and lets
+        # the typescript/rust jobs cover the rest.
+        run: |
+          node tooling/codegen/assert-schema-count.mjs
+          node tooling/codegen/assert-opaque-json-types.mjs
+          node --test tooling/codegen/test/deep-ref-hoist.test.mjs
 
   typescript:
     needs: changes
@@ -175,23 +181,20 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: cargo test -p spoke-connect
 
-      - name: Test spoke-connect crate (remote-adapter feature)
+      - name: Check spoke-connect crate (remote-adapter feature)
         if: needs.changes.outputs.code == 'true'
         run: |
           # remote-adapter must stay non-default (it pulls in spoke-operations
           # for the BaselinePorts surface); assert the Cargo.toml default here
-          # so a future default-feature change trips CI, then run the
-          # feature-gated suite (loopback interop + adapter unit tests).
+          # so a future default-feature change trips CI. Feature isolation is
+          # proven by `cargo check`; the combined ffi,remote-adapter run below
+          # still executes the feature-gated suites.
           grep -q '^default = \[\]$' crates/spoke-connect/Cargo.toml
-          cargo test -p spoke-connect --features remote-adapter
+          cargo check -p spoke-connect --features remote-adapter
 
-      - name: Build spoke-connect FFI facade (ffi feature)
+      - name: Check spoke-connect FFI facade (ffi feature)
         if: needs.changes.outputs.code == 'true'
-        run: cargo build -p spoke-connect --features ffi
-
-      - name: Test spoke-connect FFI facade (ffi feature)
-        if: needs.changes.outputs.code == 'true'
-        run: cargo test -p spoke-connect --features ffi
+        run: cargo check -p spoke-connect --features ffi
 
       - name: Build and test spoke-connect (ffi + remote-adapter production surface)
         if: needs.changes.outputs.code == 'true'

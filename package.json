@@ -9,7 +9,7 @@
     "pnpm": ">=11.21.0"
   },
   "packageManager": "pnpm@11.21.0",
-  "//": "Cold-clone gate is `ci:typescript` (inlined superset of the ci.yml `typescript` job: `build:operations` precedes every typecheck that resolves @42ch/spoke-operations from dist/, then the demo typechecks + `test:demo`). The composite `typecheck` script is a warm-tree helper only.",
+  "//": "Cold-clone gate is `ci:typescript`; ci.yml's `typescript` job runs the same composite script (`build:operations` precedes every typecheck that resolves @42ch/spoke-operations from dist/, then the demo typechecks + `test:demo`). The composite `typecheck` script is a warm-tree helper only.",
   "scripts": {
     "codegen": "pnpm -F @42ch/spoke-codegen codegen",
     "verify-codegen": "node tooling/codegen/assert-schema-count.mjs && node tooling/codegen/assert-opaque-json-types.mjs && node --test tooling/codegen/test/deep-ref-hoist.test.mjs && pnpm -F @42ch/spoke-schemas typecheck && cargo check --workspace",

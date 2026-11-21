@@ -98,6 +98,13 @@ jobs:
           toolchain: 1.98.1
           targets: x86_64-pc-windows-msvc
 
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust-cpp-win
+          workspaces: .
+
       - name: Check Rust flag precedence
         if: needs.changes.outputs.code == 'true'
         shell: pwsh
@@ -205,6 +212,13 @@ jobs:
         with:
           toolchain: 1.98.1
           targets: aarch64-apple-darwin
+
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust-cpp-macos
+          workspaces: .
 
       - name: Check Rust flag precedence
         if: needs.changes.outputs.code == 'true'

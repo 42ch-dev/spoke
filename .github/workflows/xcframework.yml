@@ -72,6 +72,13 @@ jobs:
           toolchain: 1.98.1
           targets: aarch64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
 
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust-xcframework
+          workspaces: .
+
       - name: Run committed Swift consumer smoke
         if: needs.changes.outputs.code == 'true'
         id: committed_smoke

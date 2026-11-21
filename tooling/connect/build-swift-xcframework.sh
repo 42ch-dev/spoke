@@ -69,6 +69,10 @@ CARGO_VERSION_BACKUP=""
 # target/ is already gitignored, so the lock does not dirty the checkout.
 XCFRAMEWORK_VERSION_LOCK="${REPO_ROOT}/target/.xcframework-version.lock"
 XCFRAMEWORK_VERSION_LOCK_HELD=0
+# Slice process-group PIDs (0 marks an already-reaped slot) and a one-shot
+# guard so cleanup can terminate them without re-running the reap.
+IOS_SLICE_PIDS=()
+IOS_SLICE_PIDS_REAPED=0
 create_xcframework_version_lock() {
   (set -C; printf '%s\n' "$$" > "${XCFRAMEWORK_VERSION_LOCK}") 2>/dev/null
 }
@@ -228,10 +232,33 @@ restore_cargo_versions() {
   fi
   return "${status}"
 }
+# Signal and reap every still-running slice process group. Runs before the
+# Cargo manifests are restored so an interrupted build cannot leave cargo/rustc
+# rewriting sources after the checkout is back to normal.
+reap_ios_slice_groups() {
+  local pid
+  if [[ "${IOS_SLICE_PIDS_REAPED}" -eq 1 ]]; then
+    return 0
+  fi
+  IOS_SLICE_PIDS_REAPED=1
+  for pid in ${IOS_SLICE_PIDS[@]+"${IOS_SLICE_PIDS[@]}"}; do
+    # pid 0 marks an already-reaped slot; never signal our own group.
+    if [[ "${pid}" -gt 1 && "${pid}" != "$$" ]]; then
+      kill -TERM -- "-${pid}" 2>/dev/null || true
+    fi
+  done
+  for pid in ${IOS_SLICE_PIDS[@]+"${IOS_SLICE_PIDS[@]}"}; do
+    if [[ "${pid}" -gt 1 ]]; then
+      wait "${pid}" 2>/dev/null || true
+    fi
+  done
+  IOS_SLICE_PIDS=()
+}
 cleanup() {
   local status=$?
   trap - EXIT
   trap '' INT TERM
+  reap_ios_slice_groups
   if ! restore_cargo_versions; then
     status=1
   fi
@@ -328,6 +355,9 @@ mkdir -p "${STAGE}/logs"
 IOS_SLICE_IDS=()
 IOS_SLICE_TRIPLES=()
 IOS_SLICE_PIDS=()
+# Job control gives each background slice its own process group, so cleanup can
+# signal the whole cargo/rustc tree instead of only the subshell's leader.
+set -m
 for entry in "${SLICES[@]}"; do
   slice="${entry%%|*}"
   triple="${entry#*|}"
@@ -343,22 +373,33 @@ for entry in "${SLICES[@]}"; do
   IOS_SLICE_PIDS+=("$!")
 done
 
-# Wait on every PID (bash 3.2 has no `wait -n`); report the first failing
-# slice's log tail, then fail before assembly.
-slice_failed=0
-i=0
-while [[ "${i}" -lt "${#IOS_SLICE_PIDS[@]}" ]]; do
-  slice="${IOS_SLICE_IDS[${i}]}"
-  if ! wait "${IOS_SLICE_PIDS[${i}]}"; then
-    echo "error: staticlib slice ${slice} failed; log tail:" >&2
-    tail -n 40 "${STAGE}/logs/${slice}.log" >&2 || true
-    slice_failed=1
+# Poll liveness and reap exited slices (bash 3.2 has no `wait -n`). The first
+# non-zero exit prints its log tail and aborts at once; cleanup then terminates
+# and reaps the remaining groups instead of waiting for them.
+while :; do
+  remaining=0
+  i=0
+  while [[ "${i}" -lt "${#IOS_SLICE_PIDS[@]}" ]]; do
+    pid="${IOS_SLICE_PIDS[${i}]}"
+    if [[ "${pid}" -ne 0 ]]; then
+      if kill -0 "${pid}" 2>/dev/null; then
+        remaining=$((remaining + 1))
+      else
+        IOS_SLICE_PIDS[${i}]=0
+        if ! wait "${pid}"; then
+          echo "error: staticlib slice ${IOS_SLICE_IDS[${i}]} failed; log tail:" >&2
+          tail -n 40 "${STAGE}/logs/${IOS_SLICE_IDS[${i}]}.log" >&2 || true
+          exit 1
+        fi
+      fi
+    fi
+    i=$((i + 1))
+  done
+  if [[ "${remaining}" -eq 0 ]]; then
+    break
   fi
-  i=$((i + 1))
+  sleep 1
 done
-if [[ "${slice_failed}" -ne 0 ]]; then
-  exit 1
-fi
 
 i=0
 while [[ "${i}" -lt "${#IOS_SLICE_PIDS[@]}" ]]; do

@@ -6,7 +6,7 @@ import type {
   ProjectRequest,
 } from "@42ch/spoke-schemas";
 
-import { isParseableDateTime } from "../mind-state/validate.js";
+import { isParseableDateTime } from "../timestamp.js";
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";
 

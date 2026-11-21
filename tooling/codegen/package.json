@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@apidevtools/json-schema-ref-parser": "^16.0.8",
-    "glob": "^14.0.4",
+    "glob": "^14.0.6",
     "json-schema-to-typescript": "^16.0.0"
   }
 }

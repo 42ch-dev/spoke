@@ -19,19 +19,13 @@
  */
 
 import type {
-  ComputeRequest,
-  ComputeResponse,
   ConnectInvokeRequest,
   ErrorEnvelope,
   Finding,
-  ForkId,
   HostCapabilityManifest,
   KnowledgeEntry,
-  ProjectRequest,
-  ProjectResponse,
   Relation,
   Scope,
-  TimelineEvent,
 } from "@42ch/spoke-schemas";
 import {
   SpokeRejectCode,
@@ -80,27 +74,7 @@ const DEFAULT_PORT_CAPABILITY_REQUIREMENTS: Record<string, string> = {
   "port.finding.put": "spoke-baseline",
   "port.rule.list": "spoke-baseline",
   "port.host.list_peer_manifests": "spoke-baseline",
-  // Optional families (product `op_capability_requirements`, frozen
-  // contract §5.1): the gate denies these unless the negotiated
-  // capabilities carry the family capability.
-  "port.computable.project": "l2-computable",
-  "port.computable.compute": "l2-computable",
-  "port.fork.list_timeline_events": "l5-fork",
 };
-
-/**
- * The optional-port serving face a loopback fixture adapter MAY implement
- * (ToyWorldAdapter is a FullAdapter). The dispatch gate has already
- * verified the negotiated capabilities authorize the op before these are
- * called — mirror of the responder's gate→probe serving order.
- */
-interface OptionalPortFace {
-  project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>>;
-  compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>>;
-  listForkTimelineEvents(
-    scope: Scope & { fork_id: ForkId },
-  ): Promise<SpokeResult<TimelineEvent[]>>;
-}
 
 export interface LoopbackHostOptions {
   /** The server end of a loopback transport pair (the end the client dials). */
@@ -413,11 +387,6 @@ type GateResult =
     // Unchecked cast is deliberate: `payload` is any-JSON on the wire, so a
     // null / malformed value keeps the pre-existing property-access outcome.
     const payload = doc.payload as Record<string, unknown>;
-    // Optional-port serving face: the loopback fixtures serve a
-    // `FullAdapter` (ToyWorldAdapter), and the capability gate above has
-    // already verified the negotiated set authorizes the op — a
-    // baseline-only fixture never reaches these cases.
-    const optional = adapter as BaselinePorts & OptionalPortFace;
     switch (doc.op) {
       case "port.knowledge.get":
         return adapter.getKnowledgeEntry(payload.entry_id as string);
@@ -443,14 +412,6 @@ type GateResult =
         return adapter.listRules(payload.rule_refs as string[]);
       case "port.host.list_peer_manifests":
         return adapter.listPeerHostCapabilityManifests();
-      case "port.computable.project":
-        return optional.project(payload as unknown as ProjectRequest);
-      case "port.computable.compute":
-        return optional.compute(payload as unknown as ComputeRequest);
-      case "port.fork.list_timeline_events":
-        return optional.listForkTimelineEvents(
-          payload.scope as unknown as Scope & { fork_id: ForkId },
-        );
       default:
         // Unreachable: the dispatch gate denies unknown ops first. Kept as
         // a safety net for host misconfiguration.

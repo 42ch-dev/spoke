@@ -48,6 +48,7 @@ import {
   CAPABILITY_SPOKE_COGNITION,
   capabilitySatisfies,
   cognitionRequirementPresent,
+  requiredCapability as coreRequiredCapability,
 } from "../core/dispatch.js";
 import type { RemoteAdapterState } from "./remote-adapter.js";
 import {
@@ -62,25 +63,27 @@ const DEFAULT_ROUTER_HOST_ID = "multi-peer-router";
 // ── Locked op → selection-input tables (contract §2 / §3) ────────────────
 
 /**
- * Required capability per orchestrated op family (contract §2 — locked).
- * The `port.*` rows are deliberately not repeated here: selection reads the
- * responder's product catalogue (`PORT_OP_CAPABILITY_REQUIREMENTS`), so
- * routing and serving share one map instead of drifting. Product-defined ops
- * are product-documented and have no row; selection REJECTS ops outside both
- * tables (`no_capable_peer`) — an op with no gate must not fall through
- * ungated (QC2 S-1).
+ * The eight orchestrated op names (contract §2 — locked). Selection resolves
+ * each through the shared core `requiredCapability` table; `port.*` rows are
+ * deliberately not repeated here: selection reads the responder's product
+ * catalogue (`PORT_OP_CAPABILITY_REQUIREMENTS`), so routing and serving
+ * share one map instead of drifting. Product-defined ops are
+ * product-documented and in neither table; selection REJECTS ops outside
+ * both (`no_capable_peer`) — an op with no gate must not fall through
+ * ungated (QC2 S-1). Memory-family ops stay rejected the same way: the core
+ * table resolves them, but they are not orchestrated, so the Set membership
+ * check in `requiredCapability` below rejects them exactly as before.
  */
-const REQUIRED_CAPABILITY: Readonly<Record<string, string>> = {
-  // Orchestrated op families.
-  upsert: "spoke-baseline",
-  promote: "spoke-baseline",
-  relate: "spoke-baseline",
-  check: "spoke-baseline",
-  assemble: "spoke-baseline",
-  project: "l2-computable",
-  compute: "l2-computable",
-  extract: "ke-extraction",
-};
+const ORCHESTRATED_OPS: ReadonlySet<string> = new Set([
+  "upsert",
+  "promote",
+  "relate",
+  "check",
+  "assemble",
+  "project",
+  "compute",
+  "extract",
+]);
 
 /**
  * Preferred role per op (contract §3 — locked, SOFT preference only: it
@@ -96,20 +99,20 @@ const PREFERRED_ROLE: Readonly<Record<string, string>> = {
 };
 
 /**
- * Required capability for an op (contract §2 + frozen §6 `tools.` prefix
- * rule — the selection table gains the same widening as core dispatch):
- * a `tools.<ns>.<tool_id>` op is self-describing — the required capability
- * IS the op string itself (no registry, no umbrella flag); every other op
- * resolves through the orchestrated families above, then the D4 `port.*`
- * catalogue the responder's serve gate reads. Ops outside both resolve to
- * `undefined` and are rejected outright by selection (no ungated
- * fall-through, QC2 S-1).
+ * Required capability for an op: orchestrated ops resolve through the shared
+ * core table (`requiredCapability` from core dispatch — which also covers
+ * the frozen §6 self-describing `tools.<ns>.<tool_id>` prefix rule, where
+ * the required capability IS the op string itself); `port.*` ops resolve
+ * through the D4 catalogue the responder's serve gate reads. Ops outside
+ * both resolve to `undefined` and are rejected outright by selection (no
+ * ungated fall-through, QC2 S-1). Memory ops are neither orchestrated nor
+ * `port.*`, so they stay rejected even though the core table defines them.
  */
 function requiredCapability(op: string): string | undefined {
-  if (op.startsWith("tools.")) {
-    return op;
+  if (ORCHESTRATED_OPS.has(op) || op.startsWith("tools.")) {
+    return coreRequiredCapability(op);
   }
-  return REQUIRED_CAPABILITY[op] ?? PORT_OP_CAPABILITY_REQUIREMENTS[op];
+  return PORT_OP_CAPABILITY_REQUIREMENTS[op];
 }
 
 // ── Payload-derived selection inputs (contract §2 / §3) ──────────────────

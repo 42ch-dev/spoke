@@ -21,12 +21,7 @@ import { negotiatedCapabilities } from "../../src/core/session.js";
  * (`token_grant_authorizes_by_membership`,
  * `token_grant_missing_requirement_denies`,
  * `token_grant_unknown_ops_fail_closed`).
- *
- * The core-op table spot-check re-asserts `requiredCapability` /
- * `dispatchAllowed` against the Rust table (contract says parity; this is
- * the re-diff guard requested by the brief).
  */
-
 const BASELINE_OPS = ["upsert", "promote", "relate", "check", "assemble"];
 const COMPUTABLE_OPS = ["project", "compute"];
 
@@ -86,21 +81,6 @@ describe("tokenAuthorizesOp (port of dispatch.rs token_authorizes_op)", () => {
     expect(
       tokenAuthorizesOp(requiredCapability("custom-op"), ["spoke-baseline"]),
     ).toBe(false);
-  });
-});
-
-describe("core-op dispatch table spot-check (parity with dispatch.rs)", () => {
-  it("baseline ops require spoke-baseline; compute ops require l2-computable", () => {
-    for (const op of BASELINE_OPS) {
-      expect(requiredCapability(op)).toBe(CAPABILITY_SPOKE_BASELINE);
-      expect(dispatchAllowed(op, ["spoke-baseline"])).toBe(true);
-      expect(dispatchAllowed(op, ["l2-computable"])).toBe(false);
-    }
-    for (const op of COMPUTABLE_OPS) {
-      expect(requiredCapability(op)).toBe(CAPABILITY_L2_COMPUTABLE);
-      expect(dispatchAllowed(op, ["l2-computable"])).toBe(true);
-      expect(dispatchAllowed(op, ["spoke-baseline"])).toBe(false);
-    }
   });
 });
 

@@ -10,7 +10,7 @@ import {
   verifyEd25519Noble,
   webcryptoEd25519Available,
 } from "../src/crypto.js";
-import { GOLDEN_PUBKEY, GOLDEN_SEED } from "../src/golden.js";
+import { GOLDEN_PUBKEY, GOLDEN_SEED } from "./fixtures/golden.js";
 import { toHex } from "./hex.js";
 
 describe("base64url (no padding)", () => {

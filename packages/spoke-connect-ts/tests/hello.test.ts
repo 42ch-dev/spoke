@@ -14,7 +14,7 @@ import {
   RESPONDER_SIGNATURE,
   goldenManifest,
   schemaConformantManifest,
-} from "../src/golden.js";
+} from "./fixtures/golden.js";
 import { derivePeerIdFromEd25519Pubkey } from "../src/identity.js";
 import { canonicalHelloBytes } from "../src/jcs.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../src/core/hello.js";

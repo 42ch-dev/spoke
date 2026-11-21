@@ -41,7 +41,7 @@ import {
 } from "@42ch/spoke-connect/remote";
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
-import { schemaConformantManifest } from "../../src/golden.js";
+import { schemaConformantManifest } from "../fixtures/golden.js";
 import { decodeJsonMessage, encodeJsonMessage } from "../../src/framing.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 import {

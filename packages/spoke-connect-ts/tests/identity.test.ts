@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { derivePeerIdFromEd25519Pubkey } from "../src/identity.js";
-import { GOLDEN_PEER_ID, GOLDEN_PUBKEY } from "../src/golden.js";
+import { GOLDEN_PEER_ID, GOLDEN_PUBKEY } from "./fixtures/golden.js";
 
 describe("derivePeerIdFromEd25519Pubkey", () => {
   it("derives the golden peer_id from the golden public key", () => {

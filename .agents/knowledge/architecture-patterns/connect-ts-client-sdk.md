@@ -26,7 +26,7 @@ tags:
 
 ## Context
 
-The TypeScript connectivity route (`.agents/adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md`) locks **pure-TS-minimal** as the primary Path A client stack: WebSocket as an ordered reliable stream carrying one JSON connect envelope per message, WebCrypto Ed25519 with an `@noble/ed25519` fallback, RFC 8785 JCS canonicalization, and a small behavior port of the Rust session core — no js-libp2p mesh, no WASM. Identity-byte reproducibility in JavaScript is proven by the CI-gated identity proof (`tooling/connect-identity-proof/proof.mjs`), and `packages/spoke-connect-ts` (`@42ch/spoke-connect`) is the pure-TS implementation of that stack: a client library published on npm whose `src/core/` mirrors the pure Rust core accept/reject outcomes without sharing code.
+The TypeScript connectivity route (`.agents/adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md`) locks **pure-TS-minimal** as the primary Path A client stack: WebSocket as an ordered reliable stream carrying one JSON connect envelope per message, WebCrypto Ed25519 with an `@noble/ed25519` fallback, RFC 8785 JCS canonicalization, and a small behavior port of the Rust session core — no js-libp2p mesh, no WASM. Identity-byte reproducibility in JavaScript is pinned by golden vectors asserted in `packages/spoke-connect-ts/tests/golden.test.ts`, and `packages/spoke-connect-ts` (`@42ch/spoke-connect`) is the pure-TS implementation of that stack: a client library published on npm whose `src/core/` mirrors the pure Rust core accept/reject outcomes without sharing code.
 
 ## Guidance
 
@@ -43,7 +43,7 @@ The TypeScript connectivity route (`.agents/adr/implemented/architecture/2026-08
 
 ### Identity port provenance
 
-`derivePeerIdFromEd25519Pubkey` (protobuf `PublicKey` → identity multihash `0x00` → base58btc, no multibase prefix) is ported from `tooling/connect-identity-proof/proof.mjs`; the normative formula lives in the spec §Identity binding. Golden constants are **redeclared once in `src/golden.ts` with provenance comments** pointing at the Rust core test constants (`peer_id.rs`, `hello_crypto.rs`) — tests never recompute values from the code under test.
+`derivePeerIdFromEd25519Pubkey` (protobuf `PublicKey` → identity multihash `0x00` → base58btc, no multibase prefix) follows the normative formula in the spec §Identity binding. Golden constants are **redeclared once in `tests/fixtures/golden.ts` with provenance comments** pointing at the Rust core test constants (`peer_id.rs`, `hello_crypto.rs`) — tests never recompute values from the code under test.
 
 ### Crypto matrix
 
@@ -125,12 +125,12 @@ the pure-rules list are parity work; transport differences are not.
 | Cross-language golden fixture | JCS canonical bytes + signature encoding the other language cannot see from its own round-trip | One side **mints**, the other **verifies** a checked-in proof |
 
 Capability-token golden pattern (landed): Rust mints a proof from the
-identity golden seed (`tooling/connect-identity-proof/` bytes `1..=32` →
+identity golden seed (`tests/fixtures/golden.ts` bytes `1..=32` →
 issuer `GOLDEN_PEER_ID`) with deterministic subject/audience role seeds;
 the proof JSON is checked in as
 `packages/spoke-connect-ts/tests/fixtures/capability-token-golden.json`;
 TS `verifyCapabilityToken` must accept it and return the granted
-capabilities. Identity/hello goldens stay in `src/golden.ts` with provenance
+capabilities. Identity/hello goldens stay in `tests/fixtures/golden.ts` with provenance
 comments pointing at Rust core constants — tests never recompute the pinned
 bytes from the code under test.
 
@@ -178,7 +178,7 @@ Envelope-level interop with Rust peers is the v1 goal: same hello bytes, same `p
 
 ## Examples
 
-### The two-fixture split (excerpt from `src/golden.ts`)
+### The two-fixture split (excerpt from `tests/fixtures/golden.ts`)
 
 ```ts
 goldenManifest(): HostCapabilityManifest // byte contract — namespaces: [] cast past minItems 1;
@@ -192,7 +192,7 @@ The receiver buffers hello/snapshot frames that arrive ahead of their waiter (se
 
 ## See also
 
-- [`connect-identity-parity-proof.md`](../testing-patterns/connect-identity-parity-proof.md) — the proof script and port gotchas this slice implements (protobuf PublicKey, identity multihash, base64url, DER wrap).
+- [`connect-identity-parity-proof.md`](../testing-patterns/connect-identity-parity-proof.md) — the golden-vector parity methodology and port gotchas this slice implements (protobuf PublicKey, identity multihash, base64url, DER wrap).
 - [`connect-session-core-ffi-boundary.md`](connect-session-core-ffi-boundary.md) — the Rust core whose surface this package mirrors (Path A vs Path B parity).
 - [`connect-capability-token-auth.md`](connect-capability-token-auth.md) — capability-token claims/proof design and validation order the parity surface includes.
 - [`spoke-connect-wire-and-auth.md`](spoke-connect-wire-and-auth.md) — the wire family, JCS signed-field set, and identity binding the client implements.

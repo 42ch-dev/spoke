@@ -9,7 +9,7 @@ applies_when: ["porting connect identity or hello-signing logic to a new languag
 tags: [spoke-connect, identity-parity, golden-vectors, peer-id, jcs, ed25519, cross-language, webcrypto]
 ---
 
-# connect identity-byte parity proof across languages
+# connect identity-byte parity across languages
 
 ## Context
 
@@ -25,18 +25,18 @@ Define one fixed input and one set of committed outputs; every language implemen
 |---|---|
 | Public key | `79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664` |
 | `peer_id` | `12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf` |
-| JCS UTF-8 bytes | 264 bytes (hex committed in the Rust core tests and the TS proof) |
+| JCS UTF-8 bytes | 264 bytes (hex committed in the Rust core tests and the TS fixture loader) |
 | Signature (base64url, no pad) | `yWu5Dl0jcKPWGyFDWJ1K8PbgoGcxerFSXSxiCu6Sdh8cqwH667TuAZJwgbuRHJFWehVaJtn5ox2vuYRO8IcMCg` |
 
 Capture vectors **before** refactoring — from the working implementation (e.g. rust-libp2p `PeerId::to_string()` / `Keypair::sign` over `serde_jcs`) — then assert against the committed constants; never assert against values the code under test computes itself.
 
-### Standalone proof script pattern
+### Keeper: the package golden-vector test
 
-The parity check lives in one zero-dependency standalone script that runs locally and in CI:
+The parity check lives in the package test suite:
 
-- `tooling/connect-identity-proof/proof.mjs` — zero npm dependencies; WebCrypto `Ed25519` (`subtle.sign` / `subtle.verify`); pure-JS JCS subset and base58btc; run locally with `node tooling/connect-identity-proof/proof.mjs`; exit 0 on full pass.
-- Not a workspace package, not published; zero-dep and local-fixture (no npm install, no network).
-- **CI-gated:** the `connect-identity` job in `.github/workflows/ci.yml` runs the proof on Node 24 (SHA-pinned `actions/setup-node`) and fails the workflow on non-zero exit. It is a required PR check and therefore not path-filtered: every pull request runs the proof, because the changed-path gate it used to carry reported the context green without proving anything, and the proof is cheap and zero-dep.
+- `packages/spoke-connect-ts/tests/golden.test.ts` asserts `peer_id`, JCS UTF-8 bytes, and the signature against the committed constants, on both the WebCrypto and `@noble/ed25519` paths.
+- Fixtures load through `packages/spoke-connect-ts/tests/fixtures/golden.ts` from the registered copy of the cross-language SSOT (`tests/fixtures/golden-hello.json`; sync gate: `tooling/connect/golden-vector-sync.mjs`).
+- Runs under the CI `typescript` job (`pnpm run ci:typescript`) and locally with `pnpm -F @42ch/spoke-connect exec vitest run tests/golden.test.ts`.
 - Re-run it before a TypeScript connect client slice; the same vectors are the regression check for any future pure-TS or uniffi implementation.
 
 ### Gotchas (the non-obvious parts that break byte parity)
@@ -47,11 +47,11 @@ The parity check lives in one zero-dependency standalone script that runs locall
 4. **JCS optional-field omission.** An absent optional field (`authority`) must be **omitted**, not serialized as `null` — the generated Rust manifest omits `None` via `skip_serializing_if`; emitting `"authority": null` changes the canonical bytes and breaks verification against Rust.
 5. **`JSON.stringify` surrogate pairs.** Trivial JS string encoding can diverge from JCS for non-ASCII characters; the ASCII golden vectors are safe for the pure-JS subset, but real payloads with non-ASCII content should use a maintained JCS implementation.
 6. **base64url without padding.** Encode the 64 raw signature bytes as base64url and strip `=`; padding changes the wire `signature` value.
-7. **WebCrypto import formats.** WebCrypto needs DER-wrapped keys: PKCS8 for the 32-byte seed, SPKI for the 32-byte public key; the proof hand-encodes the RFC 8410 headers (`ed25519SeedToPkcs8`, `ed25519PubkeyToSpki`) instead of pulling in a PEM library.
+7. **WebCrypto import formats.** WebCrypto needs DER-wrapped keys: PKCS8 for the 32-byte seed, SPKI for the 32-byte public key; the TypeScript client hand-encodes the RFC 8410 headers (`ed25519SeedToPkcs8`, `ed25519PubkeyToSpki`) instead of pulling in a PEM library.
 
 ## Why This Matters
 
-Every connect implementation — Rust reference, pure-TS client, native bindings — must agree byte-for-byte on `peer_id`, canonical hello bytes, and signatures. Golden vectors turn that requirement into an executable check per language; the proof-script pattern keeps the check cheap enough to run before any port. The gotchas above are exactly where naive ports diverge: hashing instead of identity multihash, raw keys instead of protobuf, `null` instead of omission, padded base64url.
+Every connect implementation — Rust reference, pure-TS client, native bindings — must agree byte-for-byte on `peer_id`, canonical hello bytes, and signatures. Golden vectors turn that requirement into an executable check per language; one package test keeps the check cheap enough to run before any port. The gotchas above are exactly where naive ports diverge: hashing instead of identity multihash, raw keys instead of protobuf, `null` instead of omission, padded base64url.
 
 ## When to Apply
 
@@ -61,16 +61,16 @@ Every connect implementation — Rust reference, pure-TS client, native bindings
 
 ## Examples
 
-### Proof run (identity reproducible in JavaScript)
+### Keeper test run
 
 ```text
-[PASS] peer_id derivation — 12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf
-[PASS] JCS UTF-8 bytes — 264 bytes match golden hex
-[PASS] Ed25519 sign (64 raw bytes) — 64 bytes
-[PASS] base64url (no pad) signature — yWu5Dl0jcKPWGyFDWJ1K8PbgoGcxerFSXSxiCu6Sdh8cqwH667TuAZJwgbuRHJFWehVaJtn5ox2vuYRO8IcMCg
-[PASS] Ed25519 verify golden signature — verified
-RESULT: ALL CHECKS PASSED
+$ pnpm -F @42ch/spoke-connect exec vitest run tests/golden.test.ts
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
 ```
+
+The assertions cover the golden public key, `peer_id`, the 264-byte JCS object, the 64-byte signature and its base64url encoding, verification, and the auto-selected (WebCrypto-first) sign/verify path.
 
 ### Byte layout of the derivation (identical in every language)
 
@@ -84,6 +84,6 @@ pubkey (32 bytes)
 
 ## See also
 
-- [`2026-08-01-spoke-connect-ts-route.md`](../../adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md) — the decision record whose evidence this proof produced (pure-TS-minimal route locked; the proof runs as a CI regression gate via the `connect-identity` job).
+- [`2026-08-01-spoke-connect-ts-route.md`](../../adr/implemented/architecture/2026-08-01-spoke-connect-ts-route.md) — the decision record for the pure-TS-minimal route these golden vectors pin.
 - [`spoke-connect-wire-and-auth.md`](../architecture-patterns/spoke-connect-wire-and-auth.md) — the wire family and identity-binding model.
 - [`connect-session-core-ffi-boundary.md`](../architecture-patterns/connect-session-core-ffi-boundary.md) — the pure-core extraction that hosts the Rust golden vectors.

@@ -6,13 +6,13 @@ Published on npm as `@42ch/spoke-connect`; the version tracks the monorepo locks
 
 ## What it provides
 
-- **Identity** — `derivePeerIdFromEd25519Pubkey`: protobuf PublicKey → identity multihash `0x00` → base58btc. Ported from `tooling/connect-identity-proof/proof.mjs`; the normative formula lives in `.agents/specs/connect/spoke-connect.md` § Identity binding.
+- **Identity** — `derivePeerIdFromEd25519Pubkey`: protobuf PublicKey → identity multihash `0x00` → base58btc; the normative formula lives in `.agents/specs/connect/spoke-connect.md` § Identity binding.
 - **Crypto** — Ed25519 sign/verify over raw 32-byte keys, WebCrypto primary with an `@noble/ed25519` fallback on the same code path; base64url without padding.
 - **JCS** — `canonicalHelloBytes(peerId, nonce, host, peerNonce?)`: RFC 8785 canonicalization of the signed hello object via the pinned `canonicalize` package — `{protocol_version, peer_id, nonce, host}` for the initiator hello (4 fields), plus `peer_nonce` for the responder hello (5 fields, dial binding). Absent optional members are omitted; only present members appear in the canonical object.
 - **Session core** (`src/core/`) — behavior port of `crates/spoke-connect/src/core/`: `OutboundSequence` / `InboundSequence` (start 0, exhaustion instead of wrap past `2^53−1`), response correlation (session_id / sequence / request_id echo), op dispatch gate (capability ⊆ negotiated, unknown op fails closed), per-sender `NonceStore`, fail-closed allowlist, thin `Session` helper, `PROTOCOL_VERSION`.
 - **Node client** (`src/node/`) — `connectClient({ url, identity, manifest, remotePubkey, allowlist })`: dials a WebSocket, performs the signed hello exchange, validates the session snapshot (peer binding, `initial_sequence` 0), then routes correlated invokes by `request_id` with bounded waits. Node-only because it uses `ws`; the isomorphic `src/` modules stay browser-swappable.
 
-**Golden-vector parity:** tests assert peer_id / JCS bytes / signature byte-identical to the Rust golden vectors. The golden hello vector has a single cross-language source of truth at `crates/spoke-connect/tests/fixtures/golden-hello.json`; this package loads its registered byte-identical copy (`tests/fixtures/golden-hello.json`) through the thin test-only loader `src/golden.ts` (not part of the package `exports` or npm `files`).
+**Golden-vector parity:** tests assert peer_id / JCS bytes / signature byte-identical to the Rust golden vectors. The golden hello vector has a single cross-language source of truth at `crates/spoke-connect/tests/fixtures/golden-hello.json`; this package loads its registered byte-identical copy (`tests/fixtures/golden-hello.json`) through the thin test-only loader `tests/fixtures/golden.ts` (not part of the package `exports` or npm `files`).
 
 ## Install
 

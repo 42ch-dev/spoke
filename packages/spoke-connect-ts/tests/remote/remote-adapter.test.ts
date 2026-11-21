@@ -63,7 +63,7 @@ import { issueCapabilityToken } from "../../src/core/capability-token.js";
 // 4-field (pre-dial-binding) responder hello, served over a scripted
 // transport (test-only import; the adapter surface stays clean).
 import { signHelloEd25519 } from "../../src/core/hello.js";
-import { schemaConformantManifest } from "../../src/golden.js";
+import { schemaConformantManifest } from "../fixtures/golden.js";
 import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
 import { MAX_SEQUENCE } from "../../src/core/sequence.js";
 import { decodeJsonMessage, encodeJsonMessage } from "../../src/framing.js";

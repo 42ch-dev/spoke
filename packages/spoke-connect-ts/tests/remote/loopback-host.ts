@@ -54,7 +54,7 @@ import { signHelloEd25519, verifyHelloEd25519 } from "../../src/core/hello.js";
 import { generateNonce, NonceStore } from "../../src/core/nonce.js";
 import { negotiatedCapabilities, Session } from "../../src/core/session.js";
 import { decodeJsonMessage, encodeJsonMessage } from "../../src/framing.js";
-import { schemaConformantManifest } from "../../src/golden.js";
+import { schemaConformantManifest } from "../fixtures/golden.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 import {
   isConnectHello,

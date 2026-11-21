@@ -295,7 +295,7 @@ mod tests {
     // the SAME golden key pair / manifest signed over `peer_nonce` = the
     // initiator golden nonce. These tests assert the Rust signer reproduces
     // the pinned bytes (cross-language byte parity: the TS client pins the
-    // identical constants in `src/golden.ts` and asserts them in
+    // identical constants in `tests/fixtures/golden.ts` and asserts them in
     // `tests/hello.test.ts`).
 
     #[test]

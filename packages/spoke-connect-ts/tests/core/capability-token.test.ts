@@ -6,7 +6,7 @@ import {
   ed25519PubkeyFromPeerId,
 } from "../../src/identity.js";
 import { CoreError } from "../../src/core/error.js";
-import { GOLDEN_PEER_ID, GOLDEN_PUBKEY, GOLDEN_SEED } from "../../src/golden.js";
+import { GOLDEN_PEER_ID, GOLDEN_PUBKEY, GOLDEN_SEED } from "../fixtures/golden.js";
 import {
   CLOCK_SKEW_SECONDS,
   TOKEN_VERSION,

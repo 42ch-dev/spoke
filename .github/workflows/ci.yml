@@ -3,9 +3,8 @@ name: CI
 on:
   # Unfiltered on pull requests: every required context must always be reported.
   # A docs-only diff short-circuits each heavy job's run steps through the
-  # `changes` job instead of skipping the check; `connect-identity` stays
-  # ungated by design (a green no-op would prove nothing). The push side keeps
-  # the paths-ignore filter below.
+  # `changes` job instead of skipping the check. The push side keeps the
+  # paths-ignore filter below.
   pull_request:
   push:
     branches:
@@ -119,28 +118,6 @@ jobs:
       - name: Cold-clone gate
         if: needs.changes.outputs.code == 'true'
         run: pnpm run ci:typescript
-
-  connect-identity:
-    needs: changes
-    name: connect-identity
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        # actions/checkout@v4.2.2
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-      - name: Setup Node.js
-        # actions/setup-node@v4.4.0 — Node 24 matches the release.yml npm publish surface
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24
-
-      - name: Run connect identity proof
-        # A required PR check runs on every pull request: a changed-path gate
-        # would report this context green without proving anything, and an
-        # unscheduled-proof pass is indistinguishable from a real one. The
-        # proof is zero-dependency, so the minute it costs is the honest price.
-        run: node tooling/connect-identity-proof/proof.mjs
 
   rust:
     needs: changes

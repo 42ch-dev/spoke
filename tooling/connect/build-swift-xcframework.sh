@@ -10,7 +10,7 @@
 #
 # Coverage: one staticlib per Apple target triple, combined into an
 # xcframework with three LibraryIdentifiers:
-#   macos-arm64                 aarch64-apple-darwin    (host)
+#   macos-arm64                 aarch64-apple-darwin    (= host triple on Apple Silicon)
 #   ios-arm64                   aarch64-apple-ios       (device)
 #   ios-arm64_x86_64-simulator  aarch64-apple-ios-sim + x86_64-apple-ios
 #                               (lipo'd: Apple Silicon + Intel simulators)
@@ -20,8 +20,8 @@
 # multi-arch slice before assembly.
 #
 # The host cdylib + uniffi-bindgen build runs for the machine's host triple
-# (derived from `rustc -vV`) in the shared target dir; on arm64 macOS that
-# triple is the macOS slice, so the slice reuses those dependency artifacts.
+# (derived from `rustc -vV`) in the shared target dir. On Apple Silicon that
+# triple is the macOS slice, so the two builds share dependencies in that dir.
 # All four staticlib slices then build sequentially in that same target dir.
 
 set -euo pipefail
@@ -53,11 +53,13 @@ fi
 # image that ships nightly cannot bypass the pin).
 CARGO=(cargo)
 RUSTUP_TOOLCHAIN=()
+RUSTC_TOOLCHAIN=()
 if [[ "${XCFRAMEWORK_LOCKED:-0}" != "1" ]] \
   && command -v rustup >/dev/null 2>&1 \
   && rustup toolchain list | grep -q '^nightly'; then
   CARGO=(cargo +nightly)
   RUSTUP_TOOLCHAIN=(--toolchain nightly)
+  RUSTC_TOOLCHAIN=(+nightly)
 fi
 
 # Cargo folds the package version into crate metadata and therefore into every
@@ -281,7 +283,7 @@ fi
 TARGET_DIR="$("${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 
 FFI_FEATURES="ffi,remote-adapter"
-HOST_TRIPLE="$("${CARGO[@]}" -vV | sed -n 's/^host: //p')"
+HOST_TRIPLE="$("${RUSTC:-rustc}" ${RUSTC_TOOLCHAIN[@]+"${RUSTC_TOOLCHAIN[@]}"} -vV | sed -n 's/^host: //p')"
 if [[ -z "${HOST_TRIPLE}" ]]; then
   echo "error: could not determine the toolchain host triple from rustc -vV" >&2
   exit 1
@@ -315,7 +317,7 @@ module spoke_connectFFI {
 }
 EOF
 
-echo "==> build staticlib slices (shared target dir; macOS reuses host deps)"
+echo "==> build staticlib slices (shared target dir)"
 for entry in "${SLICES[@]}"; do
   slice="${entry%%|*}"
   triple="${entry#*|}"

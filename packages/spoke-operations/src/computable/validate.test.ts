@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type {
   ComputableLogEntry,
   ComputeRequest,
@@ -42,6 +46,19 @@ describe("validateComputableFieldMap", () => {
     }
   });
 });
+
+// Shared cross-language timestamp parity contract: computable logging must
+// apply the same RFC 3339 gate as mind-state (TS isParseableDateTime ↔ Rust
+// is_parseable_date_time), pinned here against the one shared fixture.
+const timestampParityCases = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../fixtures/timestamp-parity-cases.json",
+    ),
+    "utf8",
+  ),
+) as { accept: string[]; reject: string[] };
 
 describe("validateComputableLogEntry", () => {
   const validEntry: ComputableLogEntry = {
@@ -126,6 +143,24 @@ describe("validateComputableLogEntry", () => {
       expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
     }
   });
+
+  it.each(timestampParityCases.accept)(
+    "accepts logged_at %j from the parity fixture",
+    (loggedAt) => {
+      expect(
+        validateComputableLogEntry({ ...validEntry, logged_at: loggedAt }).ok,
+      ).toBe(true);
+    },
+  );
+
+  it.each(timestampParityCases.reject)(
+    "rejects logged_at %j from the parity fixture",
+    (loggedAt) => {
+      expect(
+        validateComputableLogEntry({ ...validEntry, logged_at: loggedAt }).ok,
+      ).toBe(false);
+    },
+  );
 });
 
 describe("validateProjectRequest", () => {

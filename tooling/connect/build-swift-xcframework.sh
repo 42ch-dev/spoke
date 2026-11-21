@@ -10,7 +10,7 @@
 #
 # Coverage: one staticlib per Apple target triple, combined into an
 # xcframework with three LibraryIdentifiers:
-#   macos-arm64                 aarch64-apple-darwin    (host)
+#   macos-arm64                 aarch64-apple-darwin    (= host triple on Apple Silicon)
 #   ios-arm64                   aarch64-apple-ios       (device)
 #   ios-arm64_x86_64-simulator  aarch64-apple-ios-sim + x86_64-apple-ios
 #                               (lipo'd: Apple Silicon + Intel simulators)
@@ -18,6 +18,12 @@
 # xcodebuild -create-xcframework rejects two discrete -library entries for
 # the same platform, so the two simulator staticlibs are lipo'd into one
 # multi-arch slice before assembly.
+#
+# The host cdylib + uniffi-bindgen build runs for the machine's host triple
+# (derived from `rustc -vV`) in the shared target dir. The host build and the
+# macOS slice share dependency artifacts when the compiler's host triple equals
+# the slice triple (aarch64-apple-darwin).
+# All four staticlib slices then build sequentially in that same target dir.
 
 set -euo pipefail
 
@@ -48,11 +54,13 @@ fi
 # image that ships nightly cannot bypass the pin).
 CARGO=(cargo)
 RUSTUP_TOOLCHAIN=()
+RUSTC_TOOLCHAIN=()
 if [[ "${XCFRAMEWORK_LOCKED:-0}" != "1" ]] \
   && command -v rustup >/dev/null 2>&1 \
   && rustup toolchain list | grep -q '^nightly'; then
   CARGO=(cargo +nightly)
   RUSTUP_TOOLCHAIN=(--toolchain nightly)
+  RUSTC_TOOLCHAIN=(+nightly)
 fi
 
 # Cargo folds the package version into crate metadata and therefore into every
@@ -276,10 +284,22 @@ fi
 TARGET_DIR="$("${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 
 FFI_FEATURES="ffi,remote-adapter"
+# An explicit RUSTC is probed as-is (no toolchain flag); only the rustup proxy
+# may take +nightly.
+RUSTC_PROBE=("${RUSTC:-rustc}")
+if [[ -z "${RUSTC:-}" ]] && [[ "${#RUSTC_TOOLCHAIN[@]}" -gt 0 ]]; then
+  RUSTC_PROBE+=("${RUSTC_TOOLCHAIN[@]}")
+fi
+HOST_TRIPLE="$("${RUSTC_PROBE[@]}" -vV | sed -n 's/^host: //p')"
+if [[ -z "${HOST_TRIPLE}" ]]; then
+  echo "error: could not determine the toolchain host triple from rustc -vV" >&2
+  exit 1
+fi
+HOST_BUILD_DIR="${TARGET_DIR}/${HOST_TRIPLE}/release"
 
-echo "==> build ffi cdylib (bindgen metadata source; production surface — no ffi-smoke-host)"
-"${CARGO[@]}" build ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release
-CDYLIB="${TARGET_DIR}/release/libspoke_connect.dylib"
+echo "==> build ffi cdylib + uniffi-bindgen (bindgen metadata source; production surface — no ffi-smoke-host)"
+"${CARGO[@]}" build ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES},bindgen-cli" --release --target "${HOST_TRIPLE}"
+CDYLIB="${HOST_BUILD_DIR}/libspoke_connect.dylib"
 if [[ ! -f "${CDYLIB}" ]]; then
   echo "missing cdylib: ${CDYLIB}" >&2
   exit 1
@@ -287,8 +307,7 @@ fi
 
 echo "==> generate Swift bindings"
 mkdir -p "${GENERATED}"
-"${CARGO[@]}" run ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
-  generate --library "${CDYLIB}" \
+"${HOST_BUILD_DIR}/uniffi-bindgen" generate --library "${CDYLIB}" \
   --language swift \
   --out-dir "${GENERATED}"
 
@@ -305,7 +324,7 @@ module spoke_connectFFI {
 }
 EOF
 
-echo "==> build staticlib slices"
+echo "==> build staticlib slices (shared target dir)"
 for entry in "${SLICES[@]}"; do
   slice="${entry%%|*}"
   triple="${entry#*|}"

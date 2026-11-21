@@ -21,9 +21,8 @@
 #
 # The host cdylib is built for aarch64-apple-darwin in the shared target dir
 # (the macOS slice reuses those dependency artifacts) and that build also
-# produces the uniffi-bindgen binary. The three iOS slices run concurrently,
-# each in a private --target-dir under target/xcframework/<slice>, because
-# cargo holds an exclusive lock on a shared target directory.
+# produces the uniffi-bindgen binary. All four staticlib slices then build
+# sequentially in that same target dir.
 
 set -euo pipefail
 
@@ -69,10 +68,6 @@ CARGO_VERSION_BACKUP=""
 # target/ is already gitignored, so the lock does not dirty the checkout.
 XCFRAMEWORK_VERSION_LOCK="${REPO_ROOT}/target/.xcframework-version.lock"
 XCFRAMEWORK_VERSION_LOCK_HELD=0
-# Slice process-group PIDs (0 marks an already-reaped slot) and a one-shot
-# guard so cleanup can terminate them without re-running the reap.
-IOS_SLICE_PIDS=()
-IOS_SLICE_PIDS_REAPED=0
 create_xcframework_version_lock() {
   (set -C; printf '%s\n' "$$" > "${XCFRAMEWORK_VERSION_LOCK}") 2>/dev/null
 }
@@ -232,33 +227,10 @@ restore_cargo_versions() {
   fi
   return "${status}"
 }
-# Signal and reap every still-running slice process group. Runs before the
-# Cargo manifests are restored so an interrupted build cannot leave cargo/rustc
-# rewriting sources after the checkout is back to normal.
-reap_ios_slice_groups() {
-  local pid
-  if [[ "${IOS_SLICE_PIDS_REAPED}" -eq 1 ]]; then
-    return 0
-  fi
-  IOS_SLICE_PIDS_REAPED=1
-  for pid in ${IOS_SLICE_PIDS[@]+"${IOS_SLICE_PIDS[@]}"}; do
-    # pid 0 marks an already-reaped slot; never signal our own group.
-    if [[ "${pid}" -gt 1 && "${pid}" != "$$" ]]; then
-      kill -TERM -- "-${pid}" 2>/dev/null || true
-    fi
-  done
-  for pid in ${IOS_SLICE_PIDS[@]+"${IOS_SLICE_PIDS[@]}"}; do
-    if [[ "${pid}" -gt 1 ]]; then
-      wait "${pid}" 2>/dev/null || true
-    fi
-  done
-  IOS_SLICE_PIDS=()
-}
 cleanup() {
   local status=$?
   trap - EXIT
   trap '' INT TERM
-  reap_ios_slice_groups
   if ! restore_cargo_versions; then
     status=1
   fi
@@ -339,80 +311,19 @@ module spoke_connectFFI {
 }
 EOF
 
-echo "==> build macOS staticlib slice (shared target dir: reuses host deps)"
-MACOS_SLICE="macos-arm64"
-"${CARGO[@]}" rustc ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${HOST_TRIPLE}"
-STATICLIB="${HOST_BUILD_DIR}/libspoke_connect.a"
-if [[ ! -f "${STATICLIB}" ]]; then
-  echo "missing staticlib: ${STATICLIB}" >&2
-  exit 1
-fi
-mkdir -p "${STAGE}/${MACOS_SLICE}"
-cp "${STATICLIB}" "${STAGE}/${MACOS_SLICE}/"
-
-echo "==> build iOS staticlib slices (parallel, private target dirs)"
-mkdir -p "${STAGE}/logs"
-IOS_SLICE_IDS=()
-IOS_SLICE_TRIPLES=()
-IOS_SLICE_PIDS=()
-# Job control gives each background slice its own process group, so cleanup can
-# signal the whole cargo/rustc tree instead of only the subshell's leader.
-set -m
+echo "==> build staticlib slices (shared target dir; macOS reuses host deps)"
 for entry in "${SLICES[@]}"; do
   slice="${entry%%|*}"
   triple="${entry#*|}"
-  if [[ "${slice}" == "${MACOS_SLICE}" ]]; then
-    continue
-  fi
   echo "  -> ${slice} (${triple})"
-  (
-    "${CARGO[@]}" rustc ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}" --target-dir "${TARGET_DIR}/xcframework/${slice}"
-  ) >"${STAGE}/logs/${slice}.log" 2>&1 &
-  IOS_SLICE_IDS+=("${slice}")
-  IOS_SLICE_TRIPLES+=("${triple}")
-  IOS_SLICE_PIDS+=("$!")
-done
-
-# Poll liveness and reap exited slices (bash 3.2 has no `wait -n`). The first
-# non-zero exit prints its log tail and aborts at once; cleanup then terminates
-# and reaps the remaining groups instead of waiting for them.
-while :; do
-  remaining=0
-  i=0
-  while [[ "${i}" -lt "${#IOS_SLICE_PIDS[@]}" ]]; do
-    pid="${IOS_SLICE_PIDS[${i}]}"
-    if [[ "${pid}" -ne 0 ]]; then
-      if kill -0 "${pid}" 2>/dev/null; then
-        remaining=$((remaining + 1))
-      else
-        IOS_SLICE_PIDS[${i}]=0
-        if ! wait "${pid}"; then
-          echo "error: staticlib slice ${IOS_SLICE_IDS[${i}]} failed; log tail:" >&2
-          tail -n 40 "${STAGE}/logs/${IOS_SLICE_IDS[${i}]}.log" >&2 || true
-          exit 1
-        fi
-      fi
-    fi
-    i=$((i + 1))
-  done
-  if [[ "${remaining}" -eq 0 ]]; then
-    break
-  fi
-  sleep 1
-done
-
-i=0
-while [[ "${i}" -lt "${#IOS_SLICE_PIDS[@]}" ]]; do
-  slice="${IOS_SLICE_IDS[${i}]}"
-  triple="${IOS_SLICE_TRIPLES[${i}]}"
-  STATICLIB="${TARGET_DIR}/xcframework/${slice}/${triple}/release/libspoke_connect.a"
+  "${CARGO[@]}" rustc ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}"
+  STATICLIB="${TARGET_DIR}/${triple}/release/libspoke_connect.a"
   if [[ ! -f "${STATICLIB}" ]]; then
     echo "missing staticlib: ${STATICLIB}" >&2
     exit 1
   fi
   mkdir -p "${STAGE}/${slice}"
   cp "${STATICLIB}" "${STAGE}/${slice}/"
-  i=$((i + 1))
 done
 
 echo "==> lipo simulator staticlibs into one multi-arch slice"

@@ -35,7 +35,7 @@ Capture vectors **before** refactoring — from the working implementation (e.g.
 The parity check lives in the package test suite:
 
 - `packages/spoke-connect-ts/tests/golden.test.ts` asserts `peer_id`, JCS UTF-8 bytes, and the signature against the committed constants, on both the WebCrypto and `@noble/ed25519` paths.
-- Fixtures load through `packages/spoke-connect-ts/tests/fixtures/golden.ts` from the registered copy of the cross-language SSOT (`tests/fixtures/golden-hello.json`; sync gate: `tooling/connect/golden-vector-sync.mjs`).
+- Fixtures load through `packages/spoke-connect-ts/tests/fixtures/golden.ts`, a read-only loader for the registered TS copy `packages/spoke-connect-ts/tests/fixtures/golden-hello.json` of the cross-language SSOT `crates/spoke-connect/tests/fixtures/golden-hello.json` (sync gate: `tooling/connect/golden-vector-sync.mjs`).
 - Runs under the CI `typescript` job (`pnpm run ci:typescript`) and locally with `pnpm -F @42ch/spoke-connect exec vitest run tests/golden.test.ts`.
 - Re-run it before a TypeScript connect client slice; the same vectors are the regression check for any future pure-TS or uniffi implementation.
 

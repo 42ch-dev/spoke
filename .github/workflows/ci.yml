@@ -65,33 +65,11 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - name: Setup Rust toolchain
-        # dtolnay/rust-toolchain@stable (2026-07-16)
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
-        with:
-          # verify-codegen runs `rustfmt` on the generated memory types.
-          components: rustfmt
-
-      - name: Cache Rust dependencies
-        # Swatinem/rust-cache@v2.9.1
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
-        with:
-          shared-key: spoke-rust
-          workspaces: .
-
-      - name: Install dependencies
-        if: needs.changes.outputs.code == 'true'
-        run: pnpm install --frozen-lockfile
-
       - name: Verify codegen output
         if: needs.changes.outputs.code == 'true'
-        # The pnpm `verify-codegen` script also runs workspace typecheck and a
-        # full `cargo check`; CI keeps the codegen-specific half here and lets
-        # the typescript/rust jobs cover the rest.
-        run: |
-          node tooling/codegen/assert-schema-count.mjs
-          node tooling/codegen/assert-opaque-json-types.mjs
-          node --test tooling/codegen/test/deep-ref-hoist.test.mjs
+        # Node-only checks over committed files; the typescript/rust jobs cover
+        # the typecheck and compile halves of the local `verify-codegen` script.
+        run: pnpm run test:codegen
 
   typescript:
     needs: changes
@@ -141,6 +119,11 @@ jobs:
       - name: Check spoke-schemas crate
         if: needs.changes.outputs.code == 'true'
         run: cargo check -p spoke-schemas
+
+      - name: Check spoke-connect-capi crate
+        if: needs.changes.outputs.code == 'true'
+        # Excluded from default-members; the carrier lanes are not host-agnostic.
+        run: cargo check -p spoke-connect-capi
 
       - name: Test spoke-operations crate
         if: needs.changes.outputs.code == 'true'

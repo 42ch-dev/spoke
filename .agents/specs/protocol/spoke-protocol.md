@@ -172,9 +172,9 @@ Current wire bar: nine baseline data objects (including `HostCapabilityManifest`
 
 1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree for baseline data objects + five ops
 2. **CI green on PR** — [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all four jobs must pass:
-   - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
-   - `typescript` — `pnpm -F @42ch/spoke-schemas typecheck` + `build`; `@42ch/spoke-operations` typecheck + test; `pnpm run test:fixtures`; `pnpm run test:release`
-   - `rust` — `cargo check -p spoke-schemas`; `cargo test -p spoke-operations`; `cargo test -p spoke-fixture-toy-world` (private fixture crate; not published)
+   - `verify-codegen` — `pnpm run test:codegen` (schema-count and opaque-JSON asserts plus the deep-ref hoist test)
+   - `typescript` — `pnpm run ci:typescript` (full TypeScript cold-clone gate, including the demo typechecks and `test:demo`)
+   - `rust` — `cargo check -p spoke-schemas`; `cargo check -p spoke-connect-capi`; `cargo test -p spoke-operations`; `cargo test -p spoke-fixture-toy-world` (private fixture crate; not published); `cargo test -p spoke-connect`; the `ffi,remote-adapter` build + test suite
    - `verify-version` — `pnpm run verify:version` (lockstep SemVer across manifests and README badges; see [`spoke-version-release.md`](spoke-version-release.md))
 3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `cargo test -p spoke-fixture-toy-world`, `pnpm run verify:version`)
 4. Extensions contract enforced in data schemas

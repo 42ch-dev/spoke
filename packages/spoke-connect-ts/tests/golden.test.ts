@@ -85,8 +85,8 @@ describe("WebCrypto backend coverage", () => {
   });
 
   it("reports the runtime backend for the auto-selected path", (ctx) => {
-    if (!webcryptoOk) ctx.skip();
-    // The auto-selected path above used WebCrypto Ed25519 on this runtime.
+    // Node 24+ always ships WebCrypto Ed25519; older runtimes may lack it.
+    if (!webcryptoOk && Number.parseInt(process.versions.node, 10) < 24) ctx.skip();
     expect(webcryptoOk).toBe(true);
   });
 });

@@ -24,9 +24,10 @@ Useful scripts (repo root):
 | Script | Purpose |
 |--------|---------|
 | `pnpm run codegen` | Regenerate TypeScript and Rust types from `schemas/` |
-| `pnpm run verify-codegen` | Schema-count assert + opaque-JSON type contract + typecheck and compile of the committed generated trees |
+| `pnpm run verify-codegen` | `test:codegen` plus typecheck and compile of the committed generated trees |
+| `pnpm run test:codegen` | Codegen-only checks: schema-count assert, opaque-JSON type contract, and the deep-ref hoist test |
 | `pnpm run typecheck` | Typecheck all workspace TS packages (`@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-connect`, `@42ch/spoke-demo-server`, `@42ch/spoke-demo-client`) — warm-tree helper; the cold-clone gate is `ci:typescript` |
-| `pnpm run ci:typescript` | Cold-clone gate mirroring the ci.yml `typescript` job stage chain in dependency order, then the demo typechecks + `test:demo` |
+| `pnpm run ci:typescript` | The gate the ci.yml `typescript` job runs: full stage chain in dependency order, including the demo typechecks + `test:demo` |
 | `pnpm run build:schema` / `build:operations` | Build published npm packages |
 | `pnpm run test` / `test:fixtures` | Operations unit tests / toy-world fixture harness |
 | `pnpm run verify:version` | Lockstep SemVer assert across publish surfaces |

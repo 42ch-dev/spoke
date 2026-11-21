@@ -43,7 +43,7 @@ The TypeScript connectivity route (`.agents/adr/implemented/architecture/2026-08
 
 ### Identity port provenance
 
-`derivePeerIdFromEd25519Pubkey` (protobuf `PublicKey` → identity multihash `0x00` → base58btc, no multibase prefix) follows the normative formula in the spec §Identity binding. Golden constants are **redeclared once in `tests/fixtures/golden.ts` with provenance comments** pointing at the Rust core test constants (`peer_id.rs`, `hello_crypto.rs`) — tests never recompute values from the code under test.
+`derivePeerIdFromEd25519Pubkey` (protobuf `PublicKey` → identity multihash `0x00` → base58btc, no multibase prefix) follows the normative formula in the spec §Identity binding. Golden constants come from the cross-language SSOT (`crates/spoke-connect/tests/fixtures/golden-hello.json`) through the registered TS copy read by `tests/fixtures/golden.ts` (sync gate: `tooling/connect/golden-vector-sync.mjs`) — tests never recompute values from the code under test.
 
 ### Crypto matrix
 
@@ -130,8 +130,9 @@ issuer `GOLDEN_PEER_ID`) with deterministic subject/audience role seeds;
 the proof JSON is checked in as
 `packages/spoke-connect-ts/tests/fixtures/capability-token-golden.json`;
 TS `verifyCapabilityToken` must accept it and return the granted
-capabilities. Identity/hello goldens stay in `tests/fixtures/golden.ts` with provenance
-comments pointing at Rust core constants — tests never recompute the pinned
+capabilities. Identity/hello goldens come from the cross-language SSOT
+(`crates/spoke-connect/tests/fixtures/golden-hello.json`) through the registered
+TS copy read by `tests/fixtures/golden.ts` — tests never recompute the pinned
 bytes from the code under test.
 
 When adding a new pure-core rule: extend the surface table, port the

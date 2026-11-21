@@ -20,8 +20,9 @@
 # multi-arch slice before assembly.
 #
 # The host cdylib + uniffi-bindgen build runs for the machine's host triple
-# (derived from `rustc -vV`) in the shared target dir. On Apple Silicon that
-# triple is the macOS slice, so the two builds share dependencies in that dir.
+# (derived from `rustc -vV`) in the shared target dir. The host build and the
+# macOS slice share dependency artifacts when the compiler's host triple equals
+# the slice triple (aarch64-apple-darwin).
 # All four staticlib slices then build sequentially in that same target dir.
 
 set -euo pipefail
@@ -283,7 +284,13 @@ fi
 TARGET_DIR="$("${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 
 FFI_FEATURES="ffi,remote-adapter"
-HOST_TRIPLE="$("${RUSTC:-rustc}" ${RUSTC_TOOLCHAIN[@]+"${RUSTC_TOOLCHAIN[@]}"} -vV | sed -n 's/^host: //p')"
+# An explicit RUSTC is probed as-is (no toolchain flag); only the rustup proxy
+# may take +nightly.
+RUSTC_PROBE=("${RUSTC:-rustc}")
+if [[ -z "${RUSTC:-}" ]] && [[ "${#RUSTC_TOOLCHAIN[@]}" -gt 0 ]]; then
+  RUSTC_PROBE+=("${RUSTC_TOOLCHAIN[@]}")
+fi
+HOST_TRIPLE="$("${RUSTC_PROBE[@]}" -vV | sed -n 's/^host: //p')"
 if [[ -z "${HOST_TRIPLE}" ]]; then
   echo "error: could not determine the toolchain host triple from rustc -vV" >&2
   exit 1

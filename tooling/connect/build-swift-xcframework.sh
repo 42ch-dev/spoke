@@ -18,6 +18,12 @@
 # xcodebuild -create-xcframework rejects two discrete -library entries for
 # the same platform, so the two simulator staticlibs are lipo'd into one
 # multi-arch slice before assembly.
+#
+# The host cdylib is built for aarch64-apple-darwin in the shared target dir
+# (the macOS slice reuses those dependency artifacts) and that build also
+# produces the uniffi-bindgen binary. The three iOS slices run concurrently,
+# each in a private --target-dir under target/xcframework/<slice>, because
+# cargo holds an exclusive lock on a shared target directory.
 
 set -euo pipefail
 
@@ -276,10 +282,12 @@ fi
 TARGET_DIR="$("${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 
 FFI_FEATURES="ffi,remote-adapter"
+HOST_TRIPLE="aarch64-apple-darwin"
+HOST_BUILD_DIR="${TARGET_DIR}/${HOST_TRIPLE}/release"
 
-echo "==> build ffi cdylib (bindgen metadata source; production surface — no ffi-smoke-host)"
-"${CARGO[@]}" build ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release
-CDYLIB="${TARGET_DIR}/release/libspoke_connect.dylib"
+echo "==> build ffi cdylib + uniffi-bindgen (bindgen metadata source; production surface — no ffi-smoke-host)"
+"${CARGO[@]}" build ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES},bindgen-cli" --release --target "${HOST_TRIPLE}"
+CDYLIB="${HOST_BUILD_DIR}/libspoke_connect.dylib"
 if [[ ! -f "${CDYLIB}" ]]; then
   echo "missing cdylib: ${CDYLIB}" >&2
   exit 1
@@ -287,8 +295,7 @@ fi
 
 echo "==> generate Swift bindings"
 mkdir -p "${GENERATED}"
-"${CARGO[@]}" run ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
-  generate --library "${CDYLIB}" \
+"${HOST_BUILD_DIR}/uniffi-bindgen" generate --library "${CDYLIB}" \
   --language swift \
   --out-dir "${GENERATED}"
 
@@ -305,19 +312,66 @@ module spoke_connectFFI {
 }
 EOF
 
-echo "==> build staticlib slices"
+echo "==> build macOS staticlib slice (shared target dir: reuses host deps)"
+MACOS_SLICE="macos-arm64"
+"${CARGO[@]}" rustc ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${HOST_TRIPLE}"
+STATICLIB="${HOST_BUILD_DIR}/libspoke_connect.a"
+if [[ ! -f "${STATICLIB}" ]]; then
+  echo "missing staticlib: ${STATICLIB}" >&2
+  exit 1
+fi
+mkdir -p "${STAGE}/${MACOS_SLICE}"
+cp "${STATICLIB}" "${STAGE}/${MACOS_SLICE}/"
+
+echo "==> build iOS staticlib slices (parallel, private target dirs)"
+mkdir -p "${STAGE}/logs"
+IOS_SLICE_IDS=()
+IOS_SLICE_TRIPLES=()
+IOS_SLICE_PIDS=()
 for entry in "${SLICES[@]}"; do
   slice="${entry%%|*}"
   triple="${entry#*|}"
+  if [[ "${slice}" == "${MACOS_SLICE}" ]]; then
+    continue
+  fi
   echo "  -> ${slice} (${triple})"
-  "${CARGO[@]}" rustc ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}"
-  STATICLIB="${TARGET_DIR}/${triple}/release/libspoke_connect.a"
+  (
+    "${CARGO[@]}" rustc ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}" --target-dir "${TARGET_DIR}/xcframework/${slice}"
+  ) >"${STAGE}/logs/${slice}.log" 2>&1 &
+  IOS_SLICE_IDS+=("${slice}")
+  IOS_SLICE_TRIPLES+=("${triple}")
+  IOS_SLICE_PIDS+=("$!")
+done
+
+# Wait on every PID (bash 3.2 has no `wait -n`); report the first failing
+# slice's log tail, then fail before assembly.
+slice_failed=0
+i=0
+while [[ "${i}" -lt "${#IOS_SLICE_PIDS[@]}" ]]; do
+  slice="${IOS_SLICE_IDS[${i}]}"
+  if ! wait "${IOS_SLICE_PIDS[${i}]}"; then
+    echo "error: staticlib slice ${slice} failed; log tail:" >&2
+    tail -n 40 "${STAGE}/logs/${slice}.log" >&2 || true
+    slice_failed=1
+  fi
+  i=$((i + 1))
+done
+if [[ "${slice_failed}" -ne 0 ]]; then
+  exit 1
+fi
+
+i=0
+while [[ "${i}" -lt "${#IOS_SLICE_PIDS[@]}" ]]; do
+  slice="${IOS_SLICE_IDS[${i}]}"
+  triple="${IOS_SLICE_TRIPLES[${i}]}"
+  STATICLIB="${TARGET_DIR}/xcframework/${slice}/${triple}/release/libspoke_connect.a"
   if [[ ! -f "${STATICLIB}" ]]; then
     echo "missing staticlib: ${STATICLIB}" >&2
     exit 1
   fi
   mkdir -p "${STAGE}/${slice}"
   cp "${STATICLIB}" "${STAGE}/${slice}/"
+  i=$((i + 1))
 done
 
 echo "==> lipo simulator staticlibs into one multi-arch slice"

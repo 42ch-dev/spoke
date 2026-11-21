@@ -19,10 +19,10 @@
 # the same platform, so the two simulator staticlibs are lipo'd into one
 # multi-arch slice before assembly.
 #
-# The host cdylib is built for aarch64-apple-darwin in the shared target dir
-# (the macOS slice reuses those dependency artifacts) and that build also
-# produces the uniffi-bindgen binary. All four staticlib slices then build
-# sequentially in that same target dir.
+# The host cdylib + uniffi-bindgen build runs for the machine's host triple
+# (derived from `rustc -vV`) in the shared target dir; on arm64 macOS that
+# triple is the macOS slice, so the slice reuses those dependency artifacts.
+# All four staticlib slices then build sequentially in that same target dir.
 
 set -euo pipefail
 
@@ -281,7 +281,11 @@ fi
 TARGET_DIR="$("${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 
 FFI_FEATURES="ffi,remote-adapter"
-HOST_TRIPLE="aarch64-apple-darwin"
+HOST_TRIPLE="$("${CARGO[@]}" -vV | sed -n 's/^host: //p')"
+if [[ -z "${HOST_TRIPLE}" ]]; then
+  echo "error: could not determine the toolchain host triple from rustc -vV" >&2
+  exit 1
+fi
 HOST_BUILD_DIR="${TARGET_DIR}/${HOST_TRIPLE}/release"
 
 echo "==> build ffi cdylib + uniffi-bindgen (bindgen metadata source; production surface — no ffi-smoke-host)"

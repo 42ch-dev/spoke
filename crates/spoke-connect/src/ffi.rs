@@ -3322,10 +3322,12 @@ mod remote_adapter_ffi_tests {
         let (async_result, ffi_err) = if case.fresh_pair {
             // Each side dials its own adapter: the injected mutant is
             // single-use, so reusing one session would poison the second half.
+            // The FFI leg goes through the callback transport bridge so that a
+            // callback-layer mapping regression still fails this gate.
             let (client, _, host) = dial_parity_pair((case.dial)());
             let async_result = (case.invoke_async)(&client);
             host.close();
-            let (_, ffi, host) = dial_parity_pair((case.dial)());
+            let (ffi, host) = dial_ffi_with((case.dial)());
             let ffi_err = (case.invoke_ffi)(&ffi);
             host.close();
             (async_result, ffi_err)

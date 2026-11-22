@@ -426,6 +426,10 @@ headers_dir() {
   if [[ -n "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
     printf '%s\n' "${XCFRAMEWORK_OUTPUT_DIR}/Headers"
   else
+    # Without the staged output dir the headers stage into the invocation's
+    # own staging dir — created lazily so the standalone `host` phase works
+    # while `all` reuses the staging it allocated before the host body.
+    STAGE="${STAGE:-$(mktemp -d)}"
     printf '%s\n' "${STAGE}/Headers"
   fi
 }

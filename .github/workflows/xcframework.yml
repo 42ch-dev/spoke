@@ -310,10 +310,10 @@ jobs:
       - name: Validate worker attempts
         id: attempts
         # Every worker artifact name ends in -<run_id>-<attempt>. All five
-        # must share one attempt, and that attempt may precede but never
-        # exceed the aggregate's own run_attempt (a worker-only rerun also
-        # reruns this job, so a mixed set is refused here — before any
-        # download, assembly, manifest or upload).
+        # must share the aggregate's own attempt: a partial rerun that leaves
+        # workers behind also strands the refresh (producer.json binds the
+        # workerAttempt into the record), so anything but an exact match is
+        # refused here — before any download, assembly, manifest or upload.
         env:
           NAMES: >-
             ${{ needs.host.outputs.artifact-name }}
@@ -336,8 +336,8 @@ jobs:
               exit 1
             fi
           done
-          if [[ -z "${worker_attempt}" || "${worker_attempt}" -gt "${GITHUB_RUN_ATTEMPT}" ]]; then
-            echo "error: workerAttempt '${worker_attempt}' is empty or newer than aggregate attempt ${GITHUB_RUN_ATTEMPT}" >&2
+          if [[ "${worker_attempt}" != "${GITHUB_RUN_ATTEMPT}" ]]; then
+            echo "error: workerAttempt '${worker_attempt:-empty}' does not match aggregate attempt ${GITHUB_RUN_ATTEMPT} — rerun all jobs" >&2
             exit 1
           fi
           echo "worker_attempt=${worker_attempt}" >> "$GITHUB_OUTPUT"
@@ -411,11 +411,12 @@ jobs:
         env:
           SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          # Freshness baselines (ci-freshness.yml recomputes the same sets at
-          # HEAD): the last commit touching the build-input source set and the
-          # recipe set. The artifact-writeback paths stay excluded from both
-          # so applying a refresh can never self-report stale. `git log -1`
-          # tolerates nonexistent pathspecs; an empty result records null.
+          # Freshness baselines (the freshness consumer workflow lands in a
+          # follow-up and recomputes the same sets at HEAD): the last commit
+          # touching the build-input source set and the recipe set. The
+          # artifact-writeback paths stay excluded from both so applying a
+          # refresh can never self-report stale. `git log -1` tolerates
+          # nonexistent pathspecs; an empty result records null.
           EXCLUDES=(
             ':(exclude)crates/spoke-connect/bindings/swift/xcframework/**'
             ':(exclude)crates/spoke-connect/bindings/swift/generated/**'
@@ -450,7 +451,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spoke-connect-xcframework-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.XCFRAMEWORK_OUTPUT_DIR }}
+          path: |
+            ${{ env.XCFRAMEWORK_OUTPUT_DIR }}
+            !${{ env.XCFRAMEWORK_OUTPUT_DIR }}/slices
           if-no-files-found: error
           retention-days: 5
 

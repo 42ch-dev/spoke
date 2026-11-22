@@ -231,8 +231,8 @@ try:
         if worker_result == "success":
             if assemble["conclusion"] != "success":
                 raise ValueError("assemble job is '%s' on a rebuild run" % assemble["conclusion"])
-            if any(job["run_attempt"] > assemble["run_attempt"] for job in workers):
-                raise ValueError("a worker attempt is newer than the assemble attempt")
+            if any(job["run_attempt"] != assemble["run_attempt"] for job in workers):
+                raise ValueError("a worker attempt does not match the assemble attempt — rerun all jobs")
             check_steps(
                 assemble,
                 required={

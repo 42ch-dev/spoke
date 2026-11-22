@@ -388,6 +388,12 @@ describe("split producer graph", () => {
     assert.equal(contents, "old native\n");
   });
 
+  it("refuses workers left behind by a partial rerun", () => {
+    const { result, contents } = runFixture({ graph: {}, conclusion: "success", failures: [], assembleAttempt: 2 });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+  });
+
   it("refuses a run whose workers were all skipped", () => {
     const skipped = Object.fromEntries(["host", "slice-macos", "slice-ios-arm64", "slice-ios-arm64-sim", "slice-ios-x86_64-sim"].map((name) => [name, "skipped"]));
     const { result, contents } = runFixture({ graph: { assemble: "skipped" }, conclusion: "success", failures: [], workerConclusion: skipped });

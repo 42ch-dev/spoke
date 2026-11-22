@@ -158,4 +158,38 @@ describe("reserved-prefix terminal dispatch (QC2-16)", () => {
       "an injected map must still serve non-reserved ops",
     ).toBe(true);
   });
+
+  it("a product-map row for the registered knowledge.adopt never bypasses the dual-capability gate (F-020)", () => {
+    // note: the shipped map grants knowledge.adopt nothing — an injected
+    // row claiming `spoke-baseline` (or even `spoke-knowledge`) must not
+    // substitute for the op's OWN dual requirement
+    // (`spoke-knowledge-adoption` AND `spoke-knowledge`).
+    const conflictingMap = {
+      "knowledge.adopt": "spoke-baseline",
+    } as const;
+    for (const negotiated of [
+      ["spoke-baseline"],
+      ["spoke-knowledge"],
+      ["spoke-knowledge-adoption"],
+      ["spoke-baseline", "spoke-knowledge"],
+    ] as const) {
+      expect(
+        portDispatchAllowed("knowledge.adopt", negotiated, conflictingMap),
+        `negotiated=${negotiated}: map row must never short-circuit the core requirement`,
+      ).toBe(false);
+    }
+    // The legitimate pair still serves — through the op's own core
+    // requirement, not through the injected row.
+    expect(
+      portDispatchAllowed(
+        "knowledge.adopt",
+        ["spoke-knowledge-adoption", "spoke-knowledge"],
+        conflictingMap,
+      ),
+    ).toBe(true);
+    // And the same gate holds with the shipped map (param default).
+    expect(
+      portDispatchAllowed("knowledge.adopt", ["spoke-baseline"]),
+    ).toBe(false);
+  });
 });

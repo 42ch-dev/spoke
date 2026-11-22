@@ -102,7 +102,6 @@ import {
   cognitionRequirementPresent,
   dispatchAllowed,
   requiredCapability,
-  reservedPrefixOp,
   WIRE_INVALID_INPUT,
 } from "../core/dispatch.js";
 import { CoreError } from "../core/error.js";
@@ -257,13 +256,15 @@ export function portDispatchAllowed(
   negotiated: readonly string[],
   productMap: Readonly<Record<string, string>> = PORT_OP_CAPABILITY_REQUIREMENTS,
 ): boolean {
-  // note: QC2-16 / F-018 — a `knowledge.*` name with no core-table row is
-  // a reserved unknown: the core decision is terminal and answers
-  // `op_unsupported` BEFORE the product map is consulted, so a
-  // conflicting product-map row can never advance it (Rust parity: the
-  // composed gate's reserved-prefix short-circuit).
-  if (reservedPrefixOp(op)) {
-    return false;
+  // note: QC2-16 / F-018 / F-020 — reserved `knowledge.*` names never
+  // consult the product map (Rust parity: `core_required.is_some()`
+  // routes to `dispatch_allowed`, custom map unread): unregistered
+  // names are terminal `op_unsupported` unknowns; the registered
+  // `knowledge.adopt` evaluates its OWN core requirement — including
+  // the `spoke-knowledge` co-capability conjunct — so a conflicting
+  // product-map row can never grant a reserved op.
+  if (op.startsWith("knowledge.")) {
+    return dispatchAllowed(op, negotiated);
   }
   if (dispatchAllowed(op, negotiated)) {
     return true;

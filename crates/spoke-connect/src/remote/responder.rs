@@ -355,8 +355,9 @@ fn decode_knowledge_call<'a>(
             if let Some(members) = payload.get("entry").and_then(Value::as_object) {
                 // Every schema-optional member whose declared kind is not
                 // nullable: a present `null` is malformed, not absent —
-                // the `Option` decode must not collapse it. (`modules`
-                // is an `Option<ModuleMap>` too.)
+                // the `Option` decode must not collapse it (TS parity:
+                // `matchesOptionalFields` / `isValidKnowledgeEntryDeep`).
+                // (`modules` is an `Option<ModuleMap>` too.)
                 const NULLABLE_OPT_NONE: &[&str] = &[
                     "source_anchor",
                     "adoption_anchor",
@@ -376,6 +377,91 @@ fn decode_knowledge_call<'a>(
                         format!("invalid port.knowledge.put payload: entry.{null_member} must not be null"),
                         None,
                     );
+                }
+                // F-018 residual: the same `Option`-null collapse hides
+                // inside the nested declared objects — every declared
+                // member of `body` / `source_anchor` / `source_anchor.span`
+                // / `body.attributes[]` is non-nullable on the wire, so an
+                // explicit null anywhere under them is malformed (none of
+                // their members carries a nullable type; extension bags
+                // nested inside keep opaque `null` values legal).
+                for (parent, keys) in [
+                    ("body", &["summary", "tags", "attributes", "state", "computable"][..]),
+                    (
+                        "source_anchor",
+                        &[
+                            "schema_version",
+                            "source_id",
+                            "span",
+                            "label",
+                            "mime_type",
+                            "extensions",
+                        ][..],
+                    ),
+                    (
+                        "adoption_anchor",
+                        &[
+                            "schema_version",
+                            "source_scope_id",
+                            "source_entry_id",
+                            "source_revision",
+                            "extensions",
+                        ][..],
+                    ),
+                ] {
+                    if let Some(nested) = members.get(parent).and_then(Value::as_object) {
+                        if let Some(null_member) = keys
+                            .iter()
+                            .find(|name| nested.get(**name).is_some_and(Value::is_null))
+                        {
+                            return spoke_reject(
+                                SpokeRejectCode::InvalidInput,
+                                format!("invalid port.knowledge.put payload: entry.{parent}.{null_member} must not be null"),
+                                None,
+                            );
+                        }
+                    }
+                }
+                if let Some(span) = members
+                    .get("source_anchor")
+                    .and_then(Value::as_object)
+                    .and_then(|anchor| anchor.get("span"))
+                    .and_then(Value::as_object)
+                {
+                    if let Some(null_member) = ["start", "end"]
+                        .iter()
+                        .find(|name| span.get(**name).is_some_and(Value::is_null))
+                    {
+                        return spoke_reject(
+                            SpokeRejectCode::InvalidInput,
+                            format!("invalid port.knowledge.put payload: entry.source_anchor.span.{null_member} must not be null"),
+                            None,
+                        );
+                    }
+                }
+                if let Some(attributes) = members
+                    .get("body")
+                    .and_then(Value::as_object)
+                    .and_then(|body| body.get("attributes"))
+                    .and_then(Value::as_array)
+                {
+                    for attribute in attributes {
+                        if let Some(attribute) = attribute.as_object() {
+                            if let Some(null_member) =
+                                ["trait_type", "value", "display_type", "max_value"]
+                                    .iter()
+                                    .find(|name| {
+                                        attribute.get(**name).is_some_and(Value::is_null)
+                                    })
+                            {
+                                return spoke_reject(
+                                    SpokeRejectCode::InvalidInput,
+                                    format!("invalid port.knowledge.put payload: entry.body.attributes[].{null_member} must not be null"),
+                                    None,
+                                );
+                            }
+                        }
+                    }
                 }
             }
             let entry = match payload_field::<KnowledgeEntry>(payload, "entry", op) {
@@ -3142,6 +3228,97 @@ pub async fn connect_responder(options: ConnectResponderOptions) -> Arc<ConnectR
 
 #[cfg(test)]
 mod tests {
+
+    // ── Scoped-put null-shape checks (F-016/F-018) ─────────────────────
+
+    fn minimal_put_entry() -> Value {
+        json!({
+            "schema_version": 1,
+            "entry_id": "ke_x",
+            "entry_type": "note",
+            "canonical_name": "x",
+            "status": "confirmed",
+            "revision": 1,
+            "body": {},
+            "extensions": {},
+        })
+    }
+
+    fn decode_put(entry: Value) -> SpokeResult<KnowledgeCall<'static>> {
+        decode_knowledge_call(
+            "port.knowledge.put",
+            &json!({ "entry": entry, "expected_base_revision": Value::Null }),
+            None,
+        )
+    }
+
+    /// Every declared nested member is non-nullable: an explicit `null`
+    /// inside `body`, `source_anchor`, `source_anchor.span` or
+    /// `body.attributes[]` is malformed `INVALID_INPUT`, never the
+    /// absent-member collapse (qc1 F-018 / qc3 F-016 residual — TS parity:
+    /// `isValidKnowledgeEntryDeep` refuses them before the store).
+    #[test]
+    fn scoped_put_refuses_null_nested_entry_members() {
+        let mut entry = minimal_put_entry();
+        entry["body"]["summary"] = Value::Null;
+        assert!(matches!(
+            decode_put(entry),
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
+        ));
+
+        let mut entry = minimal_put_entry();
+        entry["source_anchor"] = json!({
+            "schema_version": 1,
+            "source_id": "src_1",
+            "span": Value::Null,
+            "extensions": {},
+        });
+        assert!(matches!(
+            decode_put(entry),
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
+        ));
+
+        let mut entry = minimal_put_entry();
+        entry["source_anchor"] = json!({
+            "schema_version": 1,
+            "source_id": "src_1",
+            "span": { "start": Value::Null, "end": 5 },
+            "extensions": {},
+        });
+        assert!(matches!(
+            decode_put(entry),
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
+        ));
+
+        let mut entry = minimal_put_entry();
+        entry["body"]["attributes"] = json!([{
+            "trait_type": "kind",
+            "value": "v",
+            "display_type": Value::Null,
+        }]);
+        assert!(matches!(
+            decode_put(entry),
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
+        ));
+
+        // Nested extension-bag `null` stays legal — `extensions` values
+        // are opaque, not declared members.
+        let mut entry = minimal_put_entry();
+        entry["extensions"]["ns"] = json!({ "k": Value::Null });
+        assert!(matches!(decode_put(entry), SpokeResult::Ok(_)));
+    }
     use super::*;
     use crate::remote::transport::loopback_transport_pair;
 

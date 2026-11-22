@@ -3518,6 +3518,33 @@ mod tests {
             "a create-only put on an occupied slot refuses: {create:?}"
         );
 
+        // D1 refusal precedence (qc2 QC2-14 / qc3 F-016): the SAME
+        // occupied-create request whose candidate would REMOVE the stored
+        // anchor still refuses the create-only `REVISION_CONFLICT` — the
+        // caller OCC fence evaluates before the anchor-immutability
+        // check on the same snapshot, matching the TS responder.
+        let create_removing_anchor = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", None), None),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(
+            matches!(
+                create_removing_anchor,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::RevisionConflict,
+                    ..
+                })
+            ),
+            "the create-only refusal precedes the anchor refusal: {create_removing_anchor:?}"
+        );
+        assert!(
+            store.cas_bases.lock().expect("cas_bases").is_empty(),
+            "neither overlapping refusal reached a write"
+        );
+
         // The matched base writes — the CAS base IS the caller fence,
         // equal to the inspected revision.
         let result = call_knowledge_op(

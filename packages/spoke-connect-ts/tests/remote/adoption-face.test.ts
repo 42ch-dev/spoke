@@ -242,6 +242,17 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
       const sourceEntryId = request.source_entry_id;
       const destinationScopeId = request.destination_scope_id;
       const sourceRevision = request.source_revision;
+      // note: C7 destination admission (D2): the destination `space_id`
+      // authorization check precedes every source access — an out-of-scope
+      // destination refuses `NOT_AUTHORIZED` without touching the source,
+      // so a retired or unresolvable source can never leak a chain trace
+      // to an unauthorized caller.
+      if (!state.admittedScopes.includes(destinationScopeId)) {
+        return spokeReject(
+          "NOT_AUTHORIZED",
+          "destination scope not authorized",
+        );
+      }
       // Admission: an unadmitted source scope is the same generic
       // absence as a missing entry.
       if (!state.admittedScopes.includes(sourceScopeId)) {
@@ -323,10 +334,6 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
           return genericNotFound();
         }
       }
-      // The destination scope must also be admitted.
-      if (!state.admittedScopes.includes(destinationScopeId)) {
-        return genericNotFound();
-      }
 
       const destinationId =
         request.destination_entry_id ?? terminal.value.source_entry_id;
@@ -402,8 +409,10 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
 /**
  * The fixture scoped store over the shared destination map: the
  * `RemoteKnowledgeFace` backing store. `put` applies the shared
- * `assertAdoptionAnchorPreserved` gate BEFORE the OCC check — the
- * anchor-immutability vectors measure that shipped gate over the wire.
+ * `assertAdoptionAnchorPreserved` gate as the provider-port atomic
+ * backstop (the contract's two-layer rule) — the serving responder's
+ * own refusal order (OCC fence before anchor gate) is what the wire
+ * vectors measure.
  */
 function fixtureScopedStore(state: FixtureState) {
   return {

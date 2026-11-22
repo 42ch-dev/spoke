@@ -323,7 +323,7 @@ function isRfc3339Timestamp(value: unknown): value is string {
 
 const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
-function isValidExtensionMap(value: unknown): boolean {
+export function isValidExtensionMap(value: unknown): boolean {
   if (!isRecord(value)) {
     return false;
   }
@@ -575,19 +575,39 @@ function matchesOptionalFields(
   );
 }
 
+/** note: closed `SourceSpan` member set (additionalProperties: false). */
+const SOURCE_SPAN_WIRE_KEYS: Record<string, true> = { start: true, end: true };
+
 function isValidSourceSpan(value: unknown): boolean {
   return (
     isRecord(value) &&
+    Object.keys(value).every((key) => SOURCE_SPAN_WIRE_KEYS[key] === true) &&
     SOURCE_SPAN_REQUIRED_FIELDS.every(
       (field) =>
         field.name in value &&
         matchesFieldKind(value[field.name], field.kind),
-    )
+    ) &&
+    isExactNonNegativeInteger(value.start) &&
+    isExactNonNegativeInteger(value.end)
   );
 }
+/** note: closed `SourceAnchor` member set (additionalProperties: false). */
+const SOURCE_ANCHOR_WIRE_KEYS: Record<string, true> = {
+  schema_version: true,
+  source_id: true,
+  span: true,
+  label: true,
+  mime_type: true,
+  extensions: true,
+};
 
 function isValidSourceAnchor(value: unknown): boolean {
   if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    !Object.keys(value).every((key) => SOURCE_ANCHOR_WIRE_KEYS[key] === true)
+  ) {
     return false;
   }
   if (
@@ -596,6 +616,9 @@ function isValidSourceAnchor(value: unknown): boolean {
         field.name in value &&
         matchesFieldKind(value[field.name], field.kind),
     ) ||
+    // SchemaVersion is an integer >= 1 — a loose number is malformed.
+    !Number.isSafeInteger(value.schema_version) ||
+    (value.schema_version as number) < 1 ||
     !isValidExtensionMap(value.extensions)
   ) {
     return false;
@@ -607,11 +630,25 @@ function isValidSourceAnchor(value: unknown): boolean {
 }
 
 /**
- * note: `BodyAttribute` (common.schema.json): `trait_type` non-empty string,
- * `value` string | number | boolean; optional `display_type` / `max_value`.
+ * note: `BodyAttribute` (common.schema.json): closed member set —
+ * `trait_type` non-empty string, `value` string | number | boolean;
+ * optional `display_type` / `max_value`. An undeclared member fails Rust
+ * typed decode (`deny_unknown_fields`), so extras are malformed.
  */
+const BODY_ATTRIBUTE_WIRE_KEYS: Record<string, true> = {
+  trait_type: true,
+  value: true,
+  display_type: true,
+  max_value: true,
+};
+
 function isValidBodyAttribute(value: unknown): boolean {
   if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    !Object.keys(value).every((key) => BODY_ATTRIBUTE_WIRE_KEYS[key] === true)
+  ) {
     return false;
   }
   if (typeof value.trait_type !== "string" || value.trait_type.length === 0) {
@@ -628,13 +665,30 @@ function isValidBodyAttribute(value: unknown): boolean {
   return matchesOptionalFields(value, BODY_ATTRIBUTE_OPTIONAL_FIELDS);
 }
 
+/** note: closed `KnowledgeEntry.body` member set (additionalProperties: false). */
+const KNOWLEDGE_ENTRY_BODY_WIRE_KEYS: Record<string, true> = {
+  summary: true,
+  tags: true,
+  attributes: true,
+  state: true,
+  computable: true,
+};
+
 /**
- * note: `KnowledgeEntry.body` (knowledge-entry.schema.json): optional
- * `summary`/`tags`/`attributes`/`state`/`computable`, each typed — a
- * present member with the wrong JSON kind is malformed, not absent.
+ * note: `KnowledgeEntry.body` (knowledge-entry.schema.json): closed member
+ * set — optional `summary`/`tags`/`attributes`/`state`/`computable`, each
+ * typed; an undeclared member or a present member with the wrong JSON kind
+ * is malformed, not absent.
  */
 function isValidKnowledgeEntryBody(value: unknown): boolean {
   if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    !Object.keys(value).every(
+      (key) => KNOWLEDGE_ENTRY_BODY_WIRE_KEYS[key] === true,
+    )
+  ) {
     return false;
   }
   if ("summary" in value && typeof value.summary !== "string") {
@@ -660,14 +714,88 @@ function isValidKnowledgeEntryBody(value: unknown): boolean {
   return !("computable" in value) || isRecord(value.computable);
 }
 
+/** note: closed `AdoptionAnchor` member set (additionalProperties: false). */
+const ADOPTION_ANCHOR_WIRE_KEYS: Record<string, true> = {
+  schema_version: true,
+  source_scope_id: true,
+  source_entry_id: true,
+  source_revision: true,
+  extensions: true,
+};
+
 /**
- * note: full schema-declared `KnowledgeEntry` field set — required
- * members plus every optional member's declared JSON kind, recursively
- * for `body` and `source_anchor`. Unknown extra keys are tolerated; only
- * declared members are type-checked (Rust serde typed-decode parity).
+ * The `AdoptionAnchor` schema check (adoption-anchor.schema.json, closed
+ * member set): an integer `schema_version >= 1`, non-empty
+ * `source_scope_id` / `source_entry_id`, a non-negative integer
+ * `source_revision`, and a shared-`ExtensionMap` `extensions` member.
+ */
+export function isWellFormedAdoptionAnchor(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const key of Object.keys(value)) {
+    if (ADOPTION_ANCHOR_WIRE_KEYS[key] !== true) {
+      return false;
+    }
+  }
+  if (
+    typeof value.schema_version !== "number" ||
+    !Number.isSafeInteger(value.schema_version) ||
+    value.schema_version < 1 ||
+    typeof value.source_scope_id !== "string" ||
+    value.source_scope_id.length === 0 ||
+    typeof value.source_entry_id !== "string" ||
+    value.source_entry_id.length === 0 ||
+    !isExactNonNegativeInteger(value.source_revision)
+  ) {
+    return false;
+  }
+  return isValidExtensionMap(value.extensions);
+}
+
+/** note: closed `KnowledgeEntry` member set (additionalProperties: false). */
+const KNOWLEDGE_ENTRY_WIRE_KEYS: Record<string, true> = {
+  schema_version: true,
+  entry_id: true,
+  entry_type: true,
+  canonical_name: true,
+  status: true,
+  body: true,
+  source_anchor: true,
+  adoption_anchor: true,
+  revision: true,
+  created_at: true,
+  updated_at: true,
+  extensions: true,
+  modules: true,
+  owner: true,
+  disclosure: true,
+};
+
+/**
+ * note: full schema-declared `KnowledgeEntry` field set — the closed
+ * member list, required members plus every optional member's declared
+ * JSON kind, recursively for `body` / `source_anchor` / `adoption_anchor`,
+ * plus the schema's range constraints (`schema_version` integer >= 1,
+ * `canonical_name` / `owner` / `disclosure` non-empty, `revision` a
+ * non-negative integer). An undeclared member fails Rust typed decode
+ * (`deny_unknown_fields`), so extras are malformed, not tolerated.
  */
 export function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): boolean {
+  if (
+    !Object.keys(entity).every((key) => KNOWLEDGE_ENTRY_WIRE_KEYS[key] === true)
+  ) {
+    return false;
+  }
   if (!matchesShape(entity, KNOWLEDGE_ENTRY_SHAPE)) {
+    return false;
+  }
+  // SchemaVersion is an integer >= 1; `canonical_name` is minLength 1.
+  if (
+    !Number.isSafeInteger(entity.schema_version) ||
+    (entity.schema_version as number) < 1 ||
+    (entity.canonical_name as string).length === 0
+  ) {
     return false;
   }
   if (!isValidExtensionMap(entity.extensions)) {
@@ -679,12 +807,24 @@ export function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): bool
   if (!matchesOptionalFields(entity, KNOWLEDGE_ENTRY_OPTIONAL_FIELDS)) {
     return false;
   }
+  // `revision` is a u64; `owner` / `disclosure` are non-empty when present.
+  if ("revision" in entity && !isExactNonNegativeInteger(entity.revision)) {
+    return false;
+  }
+  for (const key of ["owner", "disclosure"] as const) {
+    if (key in entity && (entity[key] as string).length === 0) {
+      return false;
+    }
+  }
   if (!isValidKnowledgeEntryBody(entity.body)) {
     return false;
   }
+  if ("source_anchor" in entity && !isValidSourceAnchor(entity.source_anchor)) {
+    return false;
+  }
   return (
-    !("source_anchor" in entity) ||
-    isValidSourceAnchor(entity.source_anchor)
+    !("adoption_anchor" in entity) ||
+    isWellFormedAdoptionAnchor(entity.adoption_anchor)
   );
 }
 

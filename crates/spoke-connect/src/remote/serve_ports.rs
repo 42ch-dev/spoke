@@ -1125,9 +1125,10 @@ impl RemoteAdoptionService for AdoptionPortService {
             });
         }
         // The digest covers the WHOLE request object under RFC 8785 —
-        // refuse any member outside the JCS exact-integer range before
-        // hashing (see `payload_integers_jcs_exact`).
-        if !payload_integers_jcs_exact(&payload) {
+        // refuse any member outside the adoption exact-integer rule
+        // before hashing (see `adopt_payload_integers_exact`; history
+        // keeps its own stricter digest rule).
+        if !adopt_payload_integers_exact(&payload) {
             return spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 format!("invalid {op} payload: integer member outside the exact-integer range"),
@@ -1154,20 +1155,26 @@ impl RemoteAdoptionService for AdoptionPortService {
                 None,
             );
         }
-        let request: KnowledgeAdoptRequest = match serde_json::from_value(payload) {
-            Ok(request) => request,
-            Err(error) => {
-                return spoke_reject(
-                    SpokeRejectCode::InvalidInput,
-                    format!("invalid {op} payload: {error}"),
-                    None,
-                )
-            }
+        let request = match adopt_request_from_payload(op, &payload) {
+            SpokeResult::Ok(request) => request,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
         let (principal, effective_scope) = match (self.admission)(peer_id) {
             SpokeResult::Ok(admitted) => admitted,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
+        // Destination admission (contract Wire-wide rules): the
+        // destination `scope_id` is authorized against the admitted
+        // context BEFORE any source-chain work — an out-of-scope
+        // destination refuses `NOT_AUTHORIZED` without touching the
+        // source (qc1 F-016 / qc2 QC2-08 / qc3 F-017).
+        if request.destination_scope_id.as_str() != effective_scope.scope_id.as_str() {
+            return spoke_reject(
+                SpokeRejectCode::NotAuthorized,
+                "adoption destination scope is outside the admitted context",
+                None,
+            );
+        }
         let scope_value =
             serde_json::to_value(&effective_scope).unwrap_or_else(|_| json!({}));
         // The dedup key IS the canonical serialization — never a

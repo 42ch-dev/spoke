@@ -2353,19 +2353,19 @@ export class ConnectResponder {
                     // preserve; every other read failure stops the write.
                     return storedResult;
                   }
-                  const gate = assertAdoptionAnchorPreserved(candidate, stored);
-                  if (!gate.ok) {
-                    return gate;
-                  }
-                  // note: C1 — the caller's `expected_base_revision` IS the
-                  // CAS fence; the anchor check above inspected THIS stored
-                  // snapshot, so the two only agree when the caller base
-                  // names it. A caller base that diverges from the snapshot
-                  // is an OCC stale/conflict refusal: a non-null base
-                  // requires that exact stored revision (absent entry fails
-                  // the update), a null base is create-only and fails on an
-                  // existing entry. `undefined` (absent member) decodes the
-                  // same as `null` — never forwarded to the store.
+                  // note: C1 refusal order (QC2-14 / F-016) — the
+                  // caller's OCC fence is judged on THIS stored snapshot
+                  // BEFORE the anchor check: a create-only put into an
+                  // occupied slot keeps the existing create-only
+                  // `REVISION_CONFLICT` refusal even when the candidate
+                  // would also fail anchor immutability, and a base
+                  // mismatch keeps `STORED_REVISION_STALE`. The caller's
+                  // `expected_base_revision` IS the CAS fence: a non-null
+                  // base requires that exact stored revision (absent
+                  // entry fails the update), a null base is create-only
+                  // and fails on an existing entry. `undefined` (absent
+                  // member) decodes the same as `null` — never forwarded
+                  // to the store.
                   const callerBase = (payload.expected_base_revision ??
                     null) as number | null;
                   if (callerBase === null) {
@@ -2390,6 +2390,18 @@ export class ConnectResponder {
                         `Store revision ${storedRevision} does not match expected base ${callerBase}`,
                       );
                     }
+                  }
+                  // The OCC fence passed on this snapshot, so the anchor
+                  // gate applies to an update the caller is entitled to
+                  // make (spoke-knowledge-adoption contract §Anchor
+                  // immutability): a stored `adoption_anchor` is preserved
+                  // byte-identically or the write refuses
+                  // `ADOPTION_ANCHOR_IMMUTABLE` with `details.entry_id` —
+                  // before the put, never after (Rust parity:
+                  // `call_knowledge_op` → `assert_adoption_anchor_preserved`).
+                  const gate = assertAdoptionAnchorPreserved(candidate, stored);
+                  if (!gate.ok) {
+                    return gate;
                   }
                   return face.store.putScopedKnowledgeEntry(
                     admitted.value,

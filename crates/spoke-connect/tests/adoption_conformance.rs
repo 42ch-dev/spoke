@@ -260,14 +260,12 @@ impl AdoptionPort for ScriptedAdoptionPort {
             .as_str()
             .map(str::to_string);
 
-        // Admission: both requested scope selectors are admitted before
-        // any source access or retirement-chain resolution (QC2-08 —
-        // an unadmitted destination paired with a retired source must
-        // not yield a chain trace). Either unadmitted selector is the
-        // same generic absence as a missing entry.
-        if !self.state.admitted_scopes.iter().any(|s| s == source_scope_id) {
-            return FixtureState::generic_not_found();
-        }
+        // Destination admission FIRST (contract Wire-wide rules / qc1
+        // F-016 / qc3 F-017): the destination `scope_id` is authorized
+        // before any source admission or retirement-chain resolution —
+        // an out-of-scope destination refuses `NOT_AUTHORIZED` and the
+        // source stays untouched, so a retired source paired with an
+        // unadmitted destination can never leak a chain trace.
         if !self
             .state
             .admitted_scopes

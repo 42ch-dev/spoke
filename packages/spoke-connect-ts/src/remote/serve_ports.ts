@@ -34,7 +34,12 @@ import {
 } from "@42ch/spoke-operations";
 
 import { isJsonObject, validateDeclaredScope } from "./responder.js";
-import { isValidKnowledgeEntryDeep, isValidRevisionSnapshot } from "./payload.js";
+import {
+  isValidExtensionMap,
+  isValidKnowledgeEntryDeep,
+  isValidRevisionSnapshot,
+  isWellFormedAdoptionAnchor,
+} from "./payload.js";
 
 /**
  * Admission context: maps the authenticated connect peer to the memory-model
@@ -133,20 +138,6 @@ const HISTORY_PRUNE_WIRE_KEYS = new Set([
   "scope",
   "extensions",
 ]);
-
-const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
-
-function isValidExtensionMap(value: unknown): boolean {
-  if (!isJsonObject(value)) {
-    return false;
-  }
-  for (const [key, namespaceValue] of Object.entries(value)) {
-    if (!EXTENSION_MAP_KEY_PATTERN.test(key) || !isJsonObject(namespaceValue)) {
-      return false;
-    }
-  }
-  return true;
-}
 
 /**
  * Decode and validate one `history.*` op payload against the closed
@@ -330,6 +321,14 @@ function payloadIntegersJcsExact(value: unknown): boolean {
  * single-flight at this interface. Calls with unrelated keys proceed
  * concurrently and stay independent of an unrelated in-flight call.
  * Cross-process atomicity is a store-implementation obligation.
+ *
+ * `settle` is OPTIONAL (contract §Injected dedup stores): a lookup/
+ * record-only store keeps compiling and inherits the serving layer's
+ * process-wide keyed single-flight claim — the default claim is keyed
+ * on the four-member retry identity and held in process memory
+ * (`settleDedupKey`, Rust parity: `HistoryDedupStore::claim_key`'s
+ * default). Implement it only for a stronger store-level exclusion
+ * (e.g. cross-process atomic claim); the default is per-process.
  */
 export interface HistoryDedupStore {
   /**
@@ -351,7 +350,54 @@ export interface HistoryDedupStore {
    * exclusion holds across every user of THIS store object — that is
    * what makes a shared store never double-invoke.
    */
-  settle<T>(key: string, execute: () => Promise<T>): Promise<T>;
+  settle?<T>(key: string, execute: () => Promise<T>): Promise<T>;
+}
+
+/**
+ * The serving layer's process-wide keyed single-flight fallback
+ * (spoke-knowledge-adoption contract §Injected dedup stores): one
+ * in-flight execution chain per dedup key, shared by every service that
+ * consults this helper, so a lookup/record-only injected store still
+ * gets same-key exclusion across service instances. A store that
+ * implements `settle` overrides this default. Rust parity: the default
+ * `HistoryDedupStore::claim_key`.
+ */
+const SHARED_DEDUP_IN_FLIGHT = new Map<string, Promise<unknown>>();
+
+async function sharedKeyedSettle<T>(
+  key: string,
+  execute: () => Promise<T>,
+): Promise<T> {
+  const prior = SHARED_DEDUP_IN_FLIGHT.get(key);
+  const current = (prior ?? Promise.resolve()).then(() => execute());
+  const tail = current.then(
+    () => undefined,
+    () => undefined,
+  );
+  SHARED_DEDUP_IN_FLIGHT.set(key, tail);
+  void tail.then(() => {
+    // Only clear the entry when no later claim chained onto it.
+    if (SHARED_DEDUP_IN_FLIGHT.get(key) === tail) {
+      SHARED_DEDUP_IN_FLIGHT.delete(key);
+    }
+  });
+  return current;
+}
+
+/**
+ * Run `execute` under same-key exclusion: the store's own `settle`
+ * override when it implements one, else the shared keyed single-flight
+ * fallback. This is the only call the serving faces use for the
+ * lookup → invoke → record critical section.
+ */
+function settleDedupKey<T>(
+  store: HistoryDedupStore,
+  key: string,
+  execute: () => Promise<T>,
+): Promise<T> {
+  return store.settle !== undefined
+    ? store.settle(key, execute)
+    : sharedKeyedSettle(key, execute);
 }
 
 /**
@@ -461,14 +507,6 @@ export class HistoryPortService implements RemoteHistoryService {
   readonly #port: HistoryPort;
   readonly #admission: HistoryAdmission;
   readonly #dedup: HistoryDedupStore;
-  /**
-   * note: same-key serialization (Rust parity: `dedup_lock` — one mutex
-   * covers lookup → port call → record so two overlapping same-key
-   * prunes cannot both observe `unseen` and execute twice). One FIFO
-   * promise chain covers the whole dedup section; serialization lives
-   * here in the service, not in the store.
-   */
-  #dedupQueue: Promise<void> = Promise.resolve();
 
   constructor(
     port: HistoryPort,
@@ -548,19 +586,21 @@ export class HistoryPortService implements RemoteHistoryService {
       return scopeDigest;
     }
     const dedupKey = `${scopeDigest.value}|${principal.principal_id}|${op}|${call.idempotencyKey}`;
-    // note: one FIFO queue covers lookup → port call → record (Rust
-    // parity: `dedup_lock`) — overlapping same-key prunes cannot both
-    // observe `unseen` and execute twice.
-    const settled = this.#dedupQueue.then(() =>
-      this.#dedupPrune(principal, effectiveScope, call, dedupKey, digestResult.value),
+    // note: the dedup critical section (lookup → port call → record)
+    // runs under the store-interface keyed single-flight claim (Rust
+    // parity: `dedup.claim_key`) — overlapping same-key prunes cannot
+    // both observe `unseen` and execute twice, while unrelated keys
+    // proceed concurrently (contract §Repeat and idempotency /
+    // §Injected dedup stores).
+    return settleDedupKey(this.#dedup, dedupKey, () =>
+      this.#dedupPrune(
+        principal,
+        effectiveScope,
+        call,
+        dedupKey,
+        digestResult.value,
+      ),
     );
-    // The chain only sequences: keep it alive even if plumbing throws —
-    // a task's own result flows through `settled` either way.
-    this.#dedupQueue = settled.then(
-      () => undefined,
-      () => undefined,
-    );
-    return settled;
   }
 
   async #dedupPrune(
@@ -919,7 +959,7 @@ export class AdoptionPortService implements RemoteAdoptionService {
     // a shared store serializes the SAME key across every service
     // instance using it while unrelated keys proceed independently
     // (contract §Repeat and idempotency).
-    return this.#dedup.settle(dedupKey, () =>
+    return settleDedupKey(this.#dedup, dedupKey, () =>
       this.#dedupAdopt(
         principal,
         effectiveScope,
@@ -994,7 +1034,7 @@ export class AdoptionPortService implements RemoteAdoptionService {
     // returned result is a SECOND snapshot: caller-visible results never
     // alias the dedup receipt record (qc3 F-009).
     const outcome = result.ok
-      ? validServedAdoptResult(result.value)
+      ? validServedAdoptResult(result.value, request.destination_entry_id)
       : (JSON.parse(JSON.stringify(result)) as SpokeResult<unknown>);
     await this.#dedup.record(dedupKey, payloadDigest, outcome);
     return JSON.parse(JSON.stringify(outcome)) as SpokeResult<unknown>;
@@ -1014,7 +1054,10 @@ export class AdoptionPortService implements RemoteAdoptionService {
  * replayed outcome can never observe a later provider-side mutation of
  * the provider's own object.
  */
-function validServedAdoptResult(value: unknown): SpokeResult<unknown> {
+function validServedAdoptResult(
+  value: unknown,
+  destinationEntryId: string | undefined,
+): SpokeResult<unknown> {
   if (!isJsonObject(value)) {
     return spokeReject(
       SpokeRejectCode.INTERNAL_ERROR,
@@ -1047,6 +1090,21 @@ function validServedAdoptResult(value: unknown): SpokeResult<unknown> {
       { kind: "transport" },
     );
   }
+  // note: QC2-03 — an explicit `destination_entry_id` binds the served
+  // `entry.entry_id` to the requested selector; a success entry for
+  // another slot is malformed (Rust parity: `valid_served_adopt_result`).
+  // An absent selector defaults to the entry's own id, so no equality
+  // check applies then.
+  if (
+    destinationEntryId !== undefined &&
+    value.entry.entry_id !== destinationEntryId
+  ) {
+    return spokeReject(
+      SpokeRejectCode.INTERNAL_ERROR,
+      "adoption provider returned an entry whose entry_id does not match the requested destination_entry_id",
+      { kind: "transport" },
+    );
+  }
   // note: snapshot the settled JSON — the replay must return the
   // recorded outcome, not a live reference into provider state.
   return spokeOk(
@@ -1056,47 +1114,4 @@ function validServedAdoptResult(value: unknown): SpokeResult<unknown> {
   );
 }
 
-/** note: closed `AdoptionAnchor` member set (additionalProperties: false). */
-const ADOPTION_ANCHOR_WIRE_KEYS: Record<string, true> = {
-  schema_version: true,
-  source_scope_id: true,
-  source_entry_id: true,
-  source_revision: true,
-  extensions: true,
-};
-
-/**
- * The `AdoptionAnchor` schema check the contract demands of a served
- * success entry (§KnowledgeAdoptRequest and response: "a success entry
- * always carries `adoption_anchor` as a well-formed `AdoptionAnchor`
- * object — one satisfying the `AdoptionAnchor` schema"): the closed
- * member set, an integer `schema_version >= 1`, non-empty
- * `source_scope_id` / `source_entry_id`, a non-negative integer
- * `source_revision`, and a shared-`ExtensionMap` `extensions` member.
- */
-function isWellFormedAdoptionAnchor(value: unknown): boolean {
-  if (!isJsonObject(value)) {
-    return false;
-  }
-  for (const key of Object.keys(value)) {
-    if (ADOPTION_ANCHOR_WIRE_KEYS[key] !== true) {
-      return false;
-    }
-  }
-  if (
-    typeof value.schema_version !== "number" ||
-    !Number.isSafeInteger(value.schema_version) ||
-    value.schema_version < 1 ||
-    typeof value.source_scope_id !== "string" ||
-    value.source_scope_id.length === 0 ||
-    typeof value.source_entry_id !== "string" ||
-    value.source_entry_id.length === 0 ||
-    typeof value.source_revision !== "number" ||
-    !Number.isSafeInteger(value.source_revision) ||
-    value.source_revision < 0
-  ) {
-    return false;
-  }
-  return isValidExtensionMap(value.extensions);
-}
 

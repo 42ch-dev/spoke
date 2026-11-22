@@ -1169,6 +1169,69 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(badAnchor.error?.code).toBe("INVALID_INPUT");
       expect(storeCalls).toHaveLength(0);
+      // An explicit `adoption_anchor: null` is the same INVALID_INPUT —
+      // a null anchor is malformed input, never an absent one (F-016:
+      // Rust's `Option` decode must not collapse it either).
+      const nullAnchor = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        3,
+        "put-null-anchor",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_null_anchor"), adoption_anchor: null },
+          expected_base_revision: null,
+        },
+      );
+      expect(nullAnchor.error?.code).toBe("INVALID_INPUT");
+      expect(storeCalls).toHaveLength(0);
+
+      // A top-level `destination_entry_id: null` is malformed input
+      // under the scoped-put precedence rule — refused regardless of
+      // stored state (contract D1 / F-016).
+      const nullSelector = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        4,
+        "put-null-selector",
+        "port.knowledge.put",
+        {
+          entry: entry("kb_null_sel"),
+          expected_base_revision: null,
+          destination_entry_id: null,
+        },
+      );
+      expect(nullSelector.error?.code).toBe("INVALID_INPUT");
+      expect(storeCalls).toHaveLength(0);
+
+      // An anchor at the inclusive `2^53` endpoint is schema-valid
+      // provenance (C5 / F-013): the deep validator must pass it through
+      // to the OCC/store path, not refuse it upfront.
+      const endpointAnchor = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        5,
+        "put-endpoint-anchor",
+        "port.knowledge.put",
+        {
+          entry: {
+            ...entry("kb_endpoint"),
+            adoption_anchor: {
+              schema_version: 1,
+              source_scope_id: "spc_src",
+              source_entry_id: "ke_src",
+              source_revision: 9007199254740992,
+              extensions: {},
+            },
+          },
+          expected_base_revision: null,
+        },
+      );
+      expect(endpointAnchor.error).toBeUndefined();
+      expect(storeCalls).toEqual(["get", "put"]);
     } finally {
       close();
     }

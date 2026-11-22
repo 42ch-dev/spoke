@@ -244,10 +244,19 @@ export const PORT_OP_CAPABILITY_REQUIREMENTS: Readonly<Record<string, string>> =
  * (which also covers the self-describing `tools.*` family), then the product
  * `port.*` map above.
  *
+ * `productMap` defaults to the shipped map; a host injecting its own
+ * `op_capability_requirements` composition passes it here — the gate's
+ * reserved-prefix short-circuit runs before EITHER map, so a conflicting
+ * row can never advance a reserved `knowledge.*` unknown.
+ *
  * Named and pure so the serve decision is asserted directly from the shared
  * capability matrix instead of only through the per-table lookups.
  */
-export function portDispatchAllowed(op: string, negotiated: readonly string[]): boolean {
+export function portDispatchAllowed(
+  op: string,
+  negotiated: readonly string[],
+  productMap: Readonly<Record<string, string>> = PORT_OP_CAPABILITY_REQUIREMENTS,
+): boolean {
   // note: QC2-16 / F-018 — a `knowledge.*` name with no core-table row is
   // a reserved unknown: the core decision is terminal and answers
   // `op_unsupported` BEFORE the product map is consulted, so a
@@ -259,7 +268,7 @@ export function portDispatchAllowed(op: string, negotiated: readonly string[]): 
   if (dispatchAllowed(op, negotiated)) {
     return true;
   }
-  const required = PORT_OP_CAPABILITY_REQUIREMENTS[op];
+  const required = productMap[op];
   return required !== undefined && capabilitySatisfies(negotiated, required);
 }
 
@@ -595,6 +604,17 @@ export function validateKnowledgeOpPayload(
     return null;
   }
   if (op === "port.knowledge.put") {
+    // note: the scoped-put wire-wide precedence (contract D1 / F-016) —
+    // an explicit `null` `destination_entry_id` is malformed input,
+    // answered INVALID_INPUT before any stored-state read, OCC fence or
+    // anchor comparison (Rust parity: the raw-payload null check in
+    // `decode_knowledge_call`).
+    if (payload.destination_entry_id === null) {
+      return scopePayloadReject(
+        op,
+        "destination_entry_id must be a string or absent, not null",
+      );
+    }
     if (!isJsonObject(payload.entry)) {
       return scopePayloadReject(op, "entry must be an object");
     }

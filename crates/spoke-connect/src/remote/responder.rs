@@ -334,6 +334,50 @@ fn decode_knowledge_call<'a>(
             ),
         },
         "port.knowledge.put" => {
+            // Scoped-put wire-wide precedence (contract D1 / qc3 F-016):
+            // request validation answers `INVALID_INPUT` first —
+            // regardless of the stored state. An explicit-null
+            // `destination_entry_id` is malformed, and the typed
+            // `Option` decoder would collapse a present-null member to
+            // `None`, so both null checks run on the RAW payload before
+            // decode (TS parity: `validateKnowledgeOpPayload` /
+            // `isValidKnowledgeEntryDeep`).
+            if payload
+                .get("destination_entry_id")
+                .is_some_and(Value::is_null)
+            {
+                return spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    "invalid port.knowledge.put payload: destination_entry_id must be a string or absent, not null",
+                    None,
+                );
+            }
+            if let Some(members) = payload.get("entry").and_then(Value::as_object) {
+                // Every schema-optional member whose declared kind is not
+                // nullable: a present `null` is malformed, not absent —
+                // the `Option` decode must not collapse it. (`modules`
+                // is an `Option<ModuleMap>` too.)
+                const NULLABLE_OPT_NONE: &[&str] = &[
+                    "source_anchor",
+                    "adoption_anchor",
+                    "revision",
+                    "created_at",
+                    "updated_at",
+                    "modules",
+                    "owner",
+                    "disclosure",
+                ];
+                if let Some(null_member) = NULLABLE_OPT_NONE
+                    .iter()
+                    .find(|name| members.get(**name).is_some_and(Value::is_null))
+                {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        format!("invalid port.knowledge.put payload: entry.{null_member} must not be null"),
+                        None,
+                    );
+                }
+            }
             let entry = match payload_field::<KnowledgeEntry>(payload, "entry", op) {
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),

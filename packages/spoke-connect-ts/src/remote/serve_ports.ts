@@ -271,40 +271,39 @@ export interface RemoteHistoryService {
 }
 
 /**
- * The JCS exact-integer range: largest magnitude `serde_jcs` can
- * serialize back to an integer literal under RFC 8785 (Rust
- * `JCS_EXACT_INTEGER_MAX`). A non-integral f64 member carries no integer
- * identity to lose, and an f64 beyond the u64 range is a float on both
- * stacks — only a number that parses as an integer literal inside the
- * u64 range yet exceeds the exact range is refused (Rust parity:
- * `payload_integers_jcs_exact` — `1e20` arrives as a float and passes,
- * an integer literal like 9007199254740993 is refused).
+ * The adoption exact-integer rule (spoke-knowledge-adoption contract,
+ * canonical numeric spelling): every number member validates by its
+ * parsed VALUE — an integral value is admissible exactly when its
+ * magnitude is within the inclusive exact-integer bound `2^53`
+ * (`9007199254740993` parses to exactly `2^53` and is the same wire
+ * number JavaScript admits) or beyond the u64 range (the `≥ 2^64`
+ * hinge where Rust `serde_jcs` also prints an f64). Deliberately
+ * separate from the history digest predicate in Rust's
+ * `payload_integers_jcs_exact`, whose stricter `2^53 − 1` ceiling
+ * refuses an unrepresentable integer literal (Rust parity:
+ * `adopt_payload_integers_exact`; qc1 F-013 / qc3 F-006).
  */
-const JCS_EXACT_INTEGER_MAX = 9_007_199_254_740_991;
+const ADOPT_EXACT_INTEGER_BOUND = 9_007_199_254_740_992; // 2^53, inclusive
 const U64_RANGE_BOUND = 18_446_744_073_709_551_616; // 2^64
 
-function payloadIntegersJcsExact(value: unknown): boolean {
+function adoptPayloadIntegersExact(value: unknown): boolean {
   if (typeof value === "number") {
     if (!Number.isInteger(value)) {
       return true;
     }
-    // shortcut: JS cannot tell a 9e15 integer literal from a 9e15 float
-    // literal after parse; refusing any unsafe integral value inside the
-    // u64 range is the shared predicate — the only overlap is a float
-    // literal in (2^53, 2^64) that happens to be integral.
     return (
-      Math.abs(value) <= JCS_EXACT_INTEGER_MAX || Math.abs(value) >= U64_RANGE_BOUND
+      Math.abs(value) <= ADOPT_EXACT_INTEGER_BOUND ||
+      Math.abs(value) >= U64_RANGE_BOUND
     );
   }
   if (Array.isArray(value)) {
-    return value.every(payloadIntegersJcsExact);
+    return value.every(adoptPayloadIntegersExact);
   }
   if (isJsonObject(value)) {
-    return Object.values(value).every(payloadIntegersJcsExact);
+    return Object.values(value).every(adoptPayloadIntegersExact);
   }
   return true;
 }
-
 /**
  * The prune dedup store (spoke-history contract §9.1), keyed
  * `(effective_scope, requester_principal_id, op, idempotency_key)` and
@@ -802,14 +801,19 @@ export function decodeAdoptionCall(
     );
   }
   const sourceRevision = payload.source_revision;
+  // note: the decode bound is the inclusive adoption endpoint `2^53`
+  // (C5; qc1 F-013 / qc3 F-006) — NOT `Number.isSafeInteger`, which
+  // stops one below it and would split the endpoint from Rust's
+  // `adopt_request_from_payload` decode.
   if (
     typeof sourceRevision !== "number" ||
-    !Number.isSafeInteger(sourceRevision) ||
-    sourceRevision < 0
+    !Number.isInteger(sourceRevision) ||
+    sourceRevision < 0 ||
+    sourceRevision > ADOPT_EXACT_INTEGER_BOUND
   ) {
     return adoptionInputReject(
       op,
-      "source_revision must be a non-negative integer",
+      "source_revision must be a non-negative integer within the exact-integer range",
     );
   }
   const destinationEntryId = payload.destination_entry_id;
@@ -910,9 +914,11 @@ export class AdoptionPortService implements RemoteAdoptionService {
       );
     }
     // note: the digest covers the WHOLE request object under RFC 8785 —
-    // refuse any member outside the JCS exact-integer range before
-    // hashing (Rust parity: `payload_integers_jcs_exact`).
-    if (!payloadIntegersJcsExact(payload)) {
+    // the adoption exact-integer rule (inclusive 2^53 endpoint, C5) —
+    // refuse any member outside it before hashing (Rust parity:
+    // `adopt_payload_integers_exact`; history keeps its own stricter
+    // `payloadIntegersJcsExact` rule).
+    if (!adoptPayloadIntegersExact(payload)) {
       return spokeReject(
         SpokeRejectCode.INVALID_INPUT,
         `invalid ${op} payload: integer member outside the exact-integer range`,

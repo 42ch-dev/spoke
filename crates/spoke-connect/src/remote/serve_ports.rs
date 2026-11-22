@@ -2465,29 +2465,48 @@ mod history_tests {
         }
     }
 
-    /// QC2-06 / B5 member presence: the generated typed serializer emits
-    /// `extensions` even when empty — the wire form no longer depends on a
-    /// per-adapter repair.
+    /// QC2-06 / B5 member presence (qc3 F-006): the typed serializer is
+    /// presence-sensitive — a present `extensions` member emits
+    /// byte-identically (an explicitly empty `{}` stays a present `{}`),
+    /// and an absent member stays absent, so the provider-visible
+    /// request matches the TypeScript `KnowledgeAdoptRequest` shape.
     #[test]
-    fn typed_request_serialization_always_emits_extensions() {
-        let SpokeResult::Ok(full) = decode_revision(json!(3)) else {
+    fn typed_request_serialization_preserves_extension_presence() {
+        let SpokeResult::Ok(absent) = decode_revision(json!(3)) else {
             panic!("a valid payload decodes");
         };
-        let emitted = serde_json::to_value(&full).expect("request serializes");
-        assert_eq!(
-            emitted.get("extensions"),
-            Some(&json!({})),
-            "an empty request extensions map must serialize as a present member"
+        assert!(
+            absent.extensions.is_none(),
+            "an absent extensions member decodes as absent, not an empty map"
         );
-        // The explicit `extensions: {"ns": {}}` member round-trips.
-        let payload = adopt_payload(Some(json!({"ns": {}})));
-        let SpokeResult::Ok(with_extensions) =
-            adopt_request_from_payload("knowledge.adopt", &payload)
-        else {
-            panic!("a valid payload decodes");
-        };
-        let emitted = serde_json::to_value(&with_extensions).expect("request serializes");
-        assert_eq!(emitted.get("extensions"), Some(&json!({"ns": {}})));
+        let emitted = serde_json::to_value(&absent).expect("request serializes");
+        assert!(
+            emitted.get("extensions").is_none(),
+            "an absent member stays absent on the wire — never emitted as an empty map"
+        );
+        // The explicit `extensions: {}` member stays a present member
+        // through decode AND serialization (contract §Request
+        // `extensions` emission).
+        for (member, expected) in [(json!({}), json!({})), (json!({"ns": {}}), json!({"ns": {}}))] {
+            let payload = adopt_payload(Some(member));
+            let SpokeResult::Ok(request) =
+                adopt_request_from_payload("knowledge.adopt", &payload)
+            else {
+                panic!("a valid payload decodes");
+            };
+            assert_eq!(
+                request
+                    .extensions
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .expect("map serializes"),
+                Some(expected.clone()),
+                "a present member keeps its value through the typed decode"
+            );
+            let emitted = serde_json::to_value(&request).expect("request serializes");
+            assert_eq!(emitted.get("extensions"), Some(&expected));
+        }
     }
 
     /// Destination admission (contract Wire-wide rules): an out-of-scope
@@ -2588,5 +2607,280 @@ mod history_tests {
             "an integral-float revision serves: {result:?}"
         );
         assert_eq!(*port.0.lock().expect("capture lock"), vec![7]);
+    }
+
+    /// F-007 fixture: a lookup/record-only dedup store whose every
+    /// lookup reports `Unseen` — the pre-single-flight surface that
+    /// inherits the default `claim_key`. `lookups` records when the
+    /// dedup probe ran relative to provider invocations.
+    struct RecordingDedupStore {
+        lookups: Arc<AtomicU64>,
+    }
+
+    #[async_trait]
+    impl HistoryDedupStore for RecordingDedupStore {
+        async fn lookup(&self, _key: &str) -> HistoryDedupLookup {
+            self.lookups.fetch_add(1, AtomicOrdering::SeqCst);
+            HistoryDedupLookup::Unseen
+        }
+
+        async fn record(&self, _key: &str, _record: HistoryDedupRecord) {}
+    }
+
+    /// A valid `knowledge.adopt` provider success for the F-007
+    /// single-flight tests — a well-formed anchored entry per B6.
+    fn adopted_success() -> KnowledgeAdoptResponse {
+        serde_json::from_value(json!({
+            "outcome": "adopted",
+            "entry": {
+                "schema_version": 1,
+                "entry_id": "ke_dst",
+                "entry_type": "note",
+                "canonical_name": "copy",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "adoption_anchor": {
+                    "schema_version": 1,
+                    "source_scope_id": "dst-scope",
+                    "source_entry_id": "src-entry",
+                    "source_revision": 3,
+                    "extensions": {},
+                },
+                "extensions": {},
+            },
+        }))
+        .expect("response decodes")
+    }
+
+    /// F-007 default-claim exclusion: two services sharing ONE
+    /// lookup/record-only store serialize the same retry identity
+    /// across lookup → provider → record (the second call's dedup
+    /// probe cannot run while the first is in flight), while an
+    /// unrelated key proceeds concurrently (qc1 F-007).
+    #[tokio::test]
+    async fn default_claim_serializes_same_key_across_services() {
+        struct GatedPort {
+            calls: AtomicU64,
+            in_flight: AtomicU64,
+            max_in_flight: AtomicU64,
+            gate: tokio::sync::Notify,
+        }
+        #[async_trait]
+        impl AdoptionPort for GatedPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+                let depth = self.in_flight.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                self.max_in_flight.fetch_max(depth, AtomicOrdering::SeqCst);
+                self.gate.notified().await;
+                self.in_flight.fetch_sub(1, AtomicOrdering::SeqCst);
+                spoke_ok(adopted_success())
+            }
+        }
+        let lookups = Arc::new(AtomicU64::new(0));
+        let dedup: Arc<dyn HistoryDedupStore> = Arc::new(RecordingDedupStore {
+            lookups: Arc::clone(&lookups),
+        });
+        let port_a = Arc::new(GatedPort {
+            calls: AtomicU64::new(0),
+            in_flight: AtomicU64::new(0),
+            max_in_flight: AtomicU64::new(0),
+            gate: tokio::sync::Notify::new(),
+        });
+        let port_b = Arc::new(GatedPort {
+            calls: AtomicU64::new(0),
+            in_flight: AtomicU64::new(0),
+            max_in_flight: AtomicU64::new(0),
+            gate: tokio::sync::Notify::new(),
+        });
+        let service_a = Arc::new(
+            AdoptionPortService::new(
+                Arc::clone(&port_a) as Arc<dyn AdoptionPort + Send + Sync>,
+                admission(scope("dst-scope"), principal("prn_peer-a")),
+            )
+            .with_dedup_store(Arc::clone(&dedup)),
+        );
+        let service_b = Arc::new(
+            AdoptionPortService::new(
+                Arc::clone(&port_b) as Arc<dyn AdoptionPort + Send + Sync>,
+                admission(scope("dst-scope"), principal("prn_peer-a")),
+            )
+            .with_dedup_store(dedup),
+        );
+        // Service A serves the same retry identity twice; service B
+        // shares the store and must wait on A's claim. An unrelated key
+        // on B proceeds concurrently.
+        let first = tokio::spawn({
+            let service = Arc::clone(&service_a);
+            async move {
+                service
+                    .invoke("peer-a", KNOWLEDGE_OP_ADOPT, adopt_payload(None))
+                    .await
+            }
+        });
+        let second = tokio::spawn({
+            let service = Arc::clone(&service_b);
+            async move {
+                service
+                    .invoke("peer-a", KNOWLEDGE_OP_ADOPT, adopt_payload(None))
+                    .await
+            }
+        });
+        let mut payload_k2 = adopt_payload(None);
+        payload_k2["idempotency_key"] = json!("key-2");
+        let third = tokio::spawn({
+            let service = Arc::clone(&service_a);
+            async move {
+                service
+                    .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload_k2)
+                    .await
+            }
+        });
+        // Wait until the first same-key call and the unrelated call are
+        // inside their provider gates: the unrelated key reaches its
+        // port while the same-key replay is still claimed.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while port_a.calls.load(AtomicOrdering::SeqCst) < 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the first same-key call and the unrelated key reach the provider");
+        // The second same-key call waits on the default claim — its
+        // dedup lookup has not run (only the first and unrelated calls
+        // probed) and its provider never invoked.
+        assert_eq!(
+            lookups.load(AtomicOrdering::SeqCst),
+            2,
+            "the second same-key lookup is held behind the default claim"
+        );
+        assert_eq!(port_b.calls.load(AtomicOrdering::SeqCst), 0);
+        // Release A's held call; the unrelated call releases too; the
+        // claimed second call then serializes behind the released claim.
+        port_a.gate.notify_waiters();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while port_b.calls.load(AtomicOrdering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+                port_b.gate.notify_one();
+            }
+        })
+        .await
+        .expect("the claimed second call reaches its provider after release");
+        port_b.gate.notify_waiters();
+        let (first, second, third) = tokio::join!(first, second, third);
+        for (name, result) in [
+            ("first", first),
+            ("second", second),
+            ("third", third),
+        ] {
+            let result = result.expect("task completes");
+            assert!(
+                matches!(result, SpokeResult::Ok(_)),
+                "{name} must succeed: {result:?}"
+            );
+        }
+        // The same-key second call ran its provider AFTER the first
+        // released the claim — serialized, never overlapped.
+        assert_eq!(port_a.calls.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(port_b.calls.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(
+            port_a.max_in_flight.load(AtomicOrdering::SeqCst)
+                .max(port_b.max_in_flight.load(AtomicOrdering::SeqCst)),
+            2,
+            "only the unrelated key overlapped — same-key calls never share a window"
+        );
+    }
+
+    /// F-007 unsettled retry: a caller whose invoke is cancelled while
+    /// its provider call is in flight releases the default claim — the
+    /// next same-key call invokes the provider again (B3: an unsettled
+    /// invocation frees the retry identity).
+    #[tokio::test]
+    async fn default_claim_releases_on_an_unsettled_invocation() {
+        struct BlockingPort {
+            calls: AtomicU64,
+            gate: tokio::sync::Notify,
+        }
+        #[async_trait]
+        impl AdoptionPort for BlockingPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+                self.gate.notified().await;
+                spoke_ok(adopted_success())
+            }
+        }
+        let port = Arc::new(BlockingPort {
+            calls: AtomicU64::new(0),
+            gate: tokio::sync::Notify::new(),
+        });
+        let service = Arc::new(
+            AdoptionPortService::new(
+                Arc::clone(&port) as Arc<dyn AdoptionPort + Send + Sync>,
+                admission(scope("dst-scope"), principal("prn_peer-a")),
+            )
+            .with_dedup_store(Arc::new(RecordingDedupStore {
+                lookups: Arc::new(AtomicU64::new(0)),
+            })),
+        );
+        // A cancelled caller: the spawned invoke is aborted mid-provider
+        // — the unsettled outcome drops the claim guard.
+        let handle = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move {
+                service
+                    .invoke("peer-a", KNOWLEDGE_OP_ADOPT, adopt_payload(None))
+                    .await
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while port.calls.load(AtomicOrdering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the first provider call starts");
+        handle.abort();
+        let _ = handle.await;
+        // The retry identity is free again: a fresh same-key invoke
+        // claims it and reaches the provider — no stale-claim deadlock.
+        let retry = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move {
+                service
+                    .invoke("peer-a", KNOWLEDGE_OP_ADOPT, adopt_payload(None))
+                    .await
+            }
+        });
+        // Release each provider call as it arrives; the retry must
+        // reach the port for this loop to exit.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while port.calls.load(AtomicOrdering::SeqCst) < 2 {
+                if tokio::time::timeout(
+                    std::time::Duration::from_millis(50),
+                    port.gate.notified(),
+                )
+                .await
+                .is_err()
+                {
+                    port.gate.notify_one();
+                }
+            }
+        })
+        .await
+        .expect("the released claim must not deadlock the retry");
+        port.gate.notify_waiters();
+        let result = retry.await.expect("task completes");
+        assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
+        assert_eq!(port.calls.load(AtomicOrdering::SeqCst), 2);
     }
 }

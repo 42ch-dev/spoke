@@ -131,4 +131,31 @@ describe("reserved-prefix terminal dispatch (QC2-16)", () => {
     }
     expect(reservedPrefixOp("knowledge.adopt")).toBe(false);
   });
+
+  it("a conflicting product-map row never advances a reserved unknown (F-011)", () => {
+    // note: the conflicting row IS the distinguishing case: removing the
+    // production gate's reserved short-circuit would let this map admit
+    // the op — the shipped-map-only checks above cannot tell old from new.
+    const conflictingMap = {
+      "knowledge.made_up": "spoke-knowledge",
+    } as const;
+    expect(
+      portDispatchAllowed(
+        "knowledge.made_up",
+        ["spoke-baseline", "spoke-knowledge"],
+        conflictingMap,
+      ),
+      "a custom-map row must never authorize a reserved knowledge.* unknown",
+    ).toBe(false);
+    // And a non-reserved name still resolves through the same injected map —
+    // the denial above is the prefix rule, not a broken map lookup.
+    expect(
+      portDispatchAllowed(
+        "port.knowledge.get",
+        ["spoke-knowledge"],
+        { "port.knowledge.get": "spoke-knowledge" },
+      ),
+      "an injected map must still serve non-reserved ops",
+    ).toBe(true);
+  });
 });

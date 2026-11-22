@@ -49,14 +49,18 @@ const PRESENCE_SENSITIVE_SCHEMAS: &[&str] = &[
 ];
 
 // The same wire-presence rule applies to optional maps (`skip_serializing_if
-// = "…Map::is_empty"` collapses `{}` into absence). Only the history snapshot
-// carriers need it today: revision replay must keep `modules: {}`,
-// `body.state: {}` and friends byte-identical, so every optional map in these
-// modules becomes `Option<M>` — including enum-variant fields, which carry no
-// `pub` and no builder.
+// = "…Map::is_empty"` collapses `{}` into absence). The history snapshot
+// carriers need it because revision replay must keep `modules: {}`,
+// `body.state: {}` and friends byte-identical; the adoption request needs it
+// because `extensions: {}` is a present member the TypeScript request keeps
+// distinct from an absent one (spoke-knowledge-adoption contract §Request
+// `extensions` emission). Every optional map in these modules becomes
+// `Option<M>` — including enum-variant fields, which carry no `pub` and no
+// builder.
 const PRESENCE_SENSITIVE_MAP_SCHEMAS: &[&str] = &[
     "data/revision-snapshot.schema.json",
     "ops/history-revisions-get-response.schema.json",
+    "ops/knowledge-adopt-request.schema.json",
 ];
 
 const EMPTY_VEC_ATTR: &str =

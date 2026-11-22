@@ -53,6 +53,7 @@ import {
 import {
   AdoptionPortService,
   InMemoryHistoryDedupStore,
+  type HistoryDedupStore,
   type RemoteAdapter,
   type RemoteAdoptionService,
   type RemoteServePorts,
@@ -91,6 +92,9 @@ const PRINCIPAL: Principal = { principal_id: "prn_client", extensions: {} };
 // ── Scripted provider ─────────────────────────────────────────────────────
 
 type JsonObject = Record<string, unknown>;
+
+/** The narrowed success-entry type: `adoption_anchor` is mandatory (C3/F-005). */
+type AdoptedEntry = Extract<KnowledgeAdoptResponse, { entry: unknown }>["entry"];
 
 interface SeededSource {
   entryId: string;
@@ -177,7 +181,7 @@ function copyForDestination(
   terminal: { source_scope_id: string; source_entry_id: string; source_revision: number },
   destinationId: string,
   anchorRevision: number,
-): KnowledgeEntry & JsonObject {
+): AdoptedEntry & JsonObject {
   const copy: JsonObject = {};
   for (const key of [
     "schema_version",
@@ -224,7 +228,7 @@ function copyForDestination(
     source_revision: anchorRevision,
     extensions: {},
   };
-  return copy as KnowledgeEntry & JsonObject;
+  return copy as AdoptedEntry & JsonObject;
 }
 
 /**
@@ -366,7 +370,12 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
               ? sourceRevision
               : terminal.value.source_revision;
           if (anchor.source_revision === resolvedRevision) {
-            return spokeOk({ outcome: "already_present", entry: occupant });
+            // `occupant` was filtered on `adoption_anchor !== undefined`
+            // above — it satisfies the narrowed success-entry type.
+            return spokeOk({
+              outcome: "already_present",
+              entry: occupant as AdoptedEntry,
+            });
           }
           return spokeReject(
             "REVISION_CONFLICT",
@@ -1093,6 +1102,132 @@ describe("adoption dedup single-flight (contract §Repeat and idempotency)", () 
   });
 });
 
+describe("adoption dedup single-flight fallback (lookup/record-only store — F-007)", () => {
+  /** A store with no `settle` — the serving layer's shared keyed claim runs. */
+  const lookupOnlyStore = (): HistoryDedupStore => ({
+    lookup: async () => ({ status: "unseen" }),
+    record: async () => {},
+  });
+
+  it("the shared fallback serializes the same retry identity across services; an unrelated key proceeds", async () => {
+    const shared = lookupOnlyStore();
+    const callsA: string[] = [];
+    const callsB: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const portA: AdoptionPort = {
+      adoptKnowledgeEntry: async () => {
+        callsA.push("call");
+        await gate;
+        return spokeOk(adoptedResponse());
+      },
+    };
+    const portB: AdoptionPort = {
+      adoptKnowledgeEntry: async () => {
+        callsB.push("call");
+        return spokeOk(adoptedResponse());
+      },
+    };
+    const serviceA = new AdoptionPortService(portA, DEDUP_ADMISSION, {
+      dedupStore: shared,
+    });
+    const serviceB = new AdoptionPortService(portB, DEDUP_ADMISSION, {
+      dedupStore: shared,
+    });
+    const first = serviceA.invoke("peer_a", "knowledge.adopt", adoptPayload("k-f1"));
+    const second = serviceB.invoke("peer_a", "knowledge.adopt", adoptPayload("k-f1"));
+    // An unrelated retry identity on B proceeds while A's same-key call
+    // is held — independent keys never queue behind another identity.
+    const third = await serviceB.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("k-f2"),
+    );
+    expect(third.ok).toBe(true);
+    expect(callsA).toHaveLength(1);
+    expect(callsB).toHaveLength(1);
+    release();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult.ok).toBe(true);
+    expect(secondResult.ok).toBe(true);
+    // The held same-key call serialized behind the fallback claim and
+    // invoked its provider AFTER the first call settled — the
+    // lookup/record-only store reports Unseen both times, so both runs
+    // execute, but never in parallel.
+    expect(callsA).toHaveLength(1); // only the first same-key call used A's port
+    expect(callsB).toHaveLength(2); // the unrelated key + the released same-key call
+  });
+
+  it("an unsettled invocation releases the fallback claim — the retry invokes again", async () => {
+    let calls = 0;
+    const port: AdoptionPort = {
+      adoptKnowledgeEntry: async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("provider crashed before settling");
+        }
+        return spokeOk(adoptedResponse());
+      },
+    };
+    const service = new AdoptionPortService(port, DEDUP_ADMISSION, {
+      dedupStore: lookupOnlyStore(),
+    });
+    await expect(
+      service.invoke("peer_a", "knowledge.adopt", adoptPayload("k-f3")),
+    ).rejects.toThrow("provider crashed");
+    const retry = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("k-f3"),
+    );
+    expect(retry.ok).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it("admits the inclusive 2^53 endpoint for source_revision and inside a request extension (F-013/F-006)", async () => {
+    // note: `9007199254740993` parses to exactly `9007199254740992`
+    // (2^53) — the same wire number Rust's adoption path admits; the
+    // payload guard, the request decoder and the anchor deep-check all
+    // share the inclusive bound.
+    const calls: number[] = [];
+    const port: AdoptionPort = {
+      adoptKnowledgeEntry: async (_p, _s, request) => {
+        calls.push(request.source_revision);
+        return spokeOk(adoptedResponse());
+      },
+    };
+    const service = new AdoptionPortService(port, DEDUP_ADMISSION, {
+      dedupStore: new InMemoryHistoryDedupStore(),
+    });
+    for (const [key, revision] of [
+      ["k-edge", 9007199254740992],
+      ["k-edge-2", 9007199254740993], // parses to exactly 2^53
+    ] as const) {
+      const result = await service.invoke("peer_a", "knowledge.adopt", {
+        ...adoptPayload(key),
+        source_revision: revision,
+      });
+      expect(result.ok, `source_revision ${revision} must be admitted`).toBe(
+        true,
+      );
+    }
+    expect(calls).toEqual([9007199254740992, 9007199254740992]);
+    // The same endpoint inside a request extension passes the payload
+    // guard too.
+    const extensionEndpoint = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      {
+        ...adoptPayload("k-edge-3"),
+        extensions: { product: { v: 9007199254740992 } },
+      },
+    );
+    expect(extensionEndpoint.ok).toBe(true);
+  });
+});
+
 // ── Destination admission at the serving boundary (C7 / QC2-08) ────────
 
 describe("adoption destination admission (contract Wire-wide rules)", () => {
@@ -1162,10 +1297,19 @@ describe("adoption request extensions and numeric parity", () => {
     if (!scalarValue.ok) {
       expect(scalarValue.code).toBe("INVALID_INPUT");
     }
+    // note: qc1 F-013 / qc3 F-006 — the inclusive `2^53` endpoint: JS
+    // parses `9007199254740993` to exactly `9007199254740992`, the same
+    // wire number Rust's adoption path admits; only an integral member
+    // strictly beyond `2^53` (and below `2^64`) refuses.
+    const endpoint = await service.invoke("peer_a", "knowledge.adopt", {
+      ...adoptPayload("k8"),
+      extensions: { product: { v: 9007199254740992 } },
+    });
+    expect(endpoint.ok).toBe(true);
     const tooBigInteger = await service.invoke(
       "peer_a",
       "knowledge.adopt",
-      { ...adoptPayload("k8"), extensions: { product: { v: 9007199254740993 } } },
+      { ...adoptPayload("k9"), extensions: { product: { v: 1e16 } } },
     );
     expect(tooBigInteger.ok).toBe(false);
     if (!tooBigInteger.ok) {

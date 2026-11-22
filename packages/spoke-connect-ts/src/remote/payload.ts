@@ -430,6 +430,24 @@ function isExactNonNegativeInteger(value: unknown): value is number {
 }
 
 /**
+ * note: the adoption numeric rule (spoke-knowledge-adoption contract,
+ * canonical numeric spelling — C5): an integral value is admissible at
+ * the INCLUSIVE `2^53` endpoint, one step beyond `Number.isSafeInteger`.
+ * `AdoptionAnchor.source_revision` and the adopt request's
+ * `source_revision` use this bound — the endpoint is the same wire
+ * number Rust's `adopt_request_from_payload` admits (qc1 F-013 /
+ * qc3 F-006). History's stricter `u64`-exact rule above stays untouched.
+ */
+function isAdoptExactNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 9_007_199_254_740_992 // 2^53, inclusive
+  );
+}
+
+/**
  * note: strict `RevisionSnapshot` decode (spoke-history contract
  * §RevisionSnapshot): all six envelope members present and well-formed,
  * `snapshot` a COMPLETE core shape (`KnowledgeEntry` or `Relation`
@@ -748,7 +766,7 @@ export function isWellFormedAdoptionAnchor(value: unknown): boolean {
     value.source_scope_id.length === 0 ||
     typeof value.source_entry_id !== "string" ||
     value.source_entry_id.length === 0 ||
-    !isExactNonNegativeInteger(value.source_revision)
+    !isAdoptExactNonNegativeInteger(value.source_revision)
   ) {
     return false;
   }

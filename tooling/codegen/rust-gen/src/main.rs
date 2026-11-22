@@ -1939,4 +1939,78 @@ mod tests {
         let source = module_with_owner("Rule", &[(OPTIONAL_ATTR, "entry_types")]);
         assert_eq!(normalize_scope_arrays(&source).expect("no-op"), source);
     }
+
+    const JSON_MAP_FIELD: &str =
+        ":: serde_json :: Map < :: std :: string :: String , :: serde_json :: Value >";
+
+    const HASH_MAP_FIELD: &str = ":: std :: collections :: HashMap < Key , Value >";
+
+    /// One optional `serde_json::Map` struct field, one `HashMap` enum-variant
+    /// field, one required `HashMap`, with the builder and setters of the
+    /// `pub` field.
+    fn map_module() -> String {
+        format!(
+            "pub enum Snapshot {{ KnowledgeEntry {{ # [serde (default , skip_serializing_if = \"::std::collections::HashMap::is_empty\")] modules : {HASH_MAP_FIELD} , }} }} \
+             pub struct Target {{ # [serde (default , skip_serializing_if = \"::serde_json::Map::is_empty\")] pub state : {JSON_MAP_FIELD} , pub required : {HASH_MAP_FIELD} , }} \
+             pub mod builder {{ pub struct Target {{ state : :: std :: result :: Result < {JSON_MAP_FIELD} , :: std :: string :: String , > , required : :: std :: result :: Result < {HASH_MAP_FIELD} , :: std :: string :: String , > , }} }} \
+             impl Target {{ pub fn state < T > (mut self , value : T) -> Self where T : :: std :: convert :: TryInto < {JSON_MAP_FIELD} > , T :: Error : :: std :: fmt :: Display , {{ self . state = value . try_into () . map_err (| e | format ! (\"error for state: {{e}}\")) ; self }} }}"
+        )
+    }
+
+    #[test]
+    fn map_fields_become_presence_sensitive_and_required_maps_stay() {
+        let output = normalize_presence_sensitive_maps(&map_module()).expect("normalizes");
+        assert_eq!(output.matches("deserialize_presence_sensitive_map").count(), 3);
+        // `pub` struct field keeps `pub`, variant field keeps no `pub`.
+        assert!(output.contains(
+            "deserialize_with = \"deserialize_presence_sensitive_map\" , skip_serializing_if = \"::std::option::Option::is_none\")] pub state : :: std :: option :: Option <"
+        ));
+        assert!(output.contains(
+            "deserialize_with = \"deserialize_presence_sensitive_map\" , skip_serializing_if = \"::std::option::Option::is_none\")] modules : :: std :: option :: Option <"
+        ));
+        assert!(
+            output.contains(&format!("pub required : {HASH_MAP_FIELD} ,")),
+            "required map stays plain: {output}"
+        );
+        // Builder and setter for the `pub` field wrap `Some`; the variant
+        // field has neither.
+        assert!(output.contains(&format!(
+            "state : :: std :: result :: Result < :: std :: option :: Option <  {JSON_MAP_FIELD} > , :: std :: string :: String , >"
+        )), "builder field must wrap Option: {{output}}");
+        assert!(output.contains(
+            "self . state = value . try_into () . map (:: std :: option :: Option :: Some)"
+        ));
+        assert!(!output.contains("Map::is_empty"), "leftover empty-map attr: {output}");
+    }
+
+    #[test]
+    fn map_module_without_optional_maps_fails_loudly() {
+        let source = "pub struct Target { pub required : :: std :: collections :: HashMap < Key , Value > , }";
+        let error = normalize_presence_sensitive_maps(&source)
+            .expect_err("no optional maps must fail generation");
+        assert!(error.contains("matched no fields"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn missing_map_builder_or_setter_fails_loudly() {
+        let source = map_module();
+        let setter_start = source.find("pub fn state").expect("setter present");
+        let without_setter = format!("{}{}}}", &source[..setter_start], " ");
+        let error = normalize_presence_sensitive_maps(&without_setter)
+            .expect_err("missing setter must fail generation");
+        assert!(
+            error.contains("setter coverage mismatch") && error.contains("Target::state"),
+            "unexpected error: {error}"
+        );
+
+        let without_builder = source.replace(&format!(
+            "state : :: std :: result :: Result < {JSON_MAP_FIELD} , :: std :: string :: String , > , "
+        ), "");
+        let error = normalize_presence_sensitive_maps(&without_builder)
+            .expect_err("missing builder must fail generation");
+        assert!(
+            error.contains("builder coverage mismatch") && error.contains("Target::state"),
+            "unexpected error: {error}"
+        );
+    }
 }

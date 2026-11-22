@@ -3527,7 +3527,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared26Method {
 pub struct Shared27 {
     #[doc = "Higher-order target; bounded by Belief order <= 3."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub about: ::std::option::Option<Shared13>,
+    pub about: ::std::option::Option<::std::boxed::Box<Shared13>>,
     pub carrier: Shared11,
     pub kind: Shared12,
     #[doc = "Non-empty and stable within carrier."]
@@ -10099,7 +10099,10 @@ pub mod builder {
     }
     #[derive(Clone, Debug)]
     pub struct Shared27 {
-        about: ::std::result::Result<::std::option::Option<super::Shared13>, ::std::string::String>,
+        about: ::std::result::Result<
+            ::std::option::Option<::std::boxed::Box<super::Shared13>>,
+            ::std::string::String,
+        >,
         carrier: ::std::result::Result<super::Shared11, ::std::string::String>,
         kind: ::std::result::Result<super::Shared12, ::std::string::String>,
         target_id: ::std::result::Result<super::Shared27TargetId, ::std::string::String>,
@@ -10122,7 +10125,7 @@ pub mod builder {
     impl Shared27 {
         pub fn about<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<::std::option::Option<super::Shared13>>,
+            T: ::std::convert::TryInto<::std::option::Option<::std::boxed::Box<super::Shared13>>>,
             T::Error: ::std::fmt::Display,
         {
             self.about = value
@@ -16304,6 +16307,30 @@ pub mod error {
         fn from(value: String) -> Self {
             Self(value.into())
         }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared1 {
+    type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Shared1 {
+    type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&str> for Shared2 {
+    type Error = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Shared2 {
+    type Error = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
     }
 }
 /// Presence-sensitive array decode: `Some` keeps an explicitly present array

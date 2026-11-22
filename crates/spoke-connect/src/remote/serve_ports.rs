@@ -239,6 +239,653 @@ impl RemoteMemoryService for MemoryPortService {
     }
 }
 
+// ── `spoke-history` serving face (spoke-history contract §Connect
+//    operations / §9.1) ─────────────────────────────────────────────────
+//
+// `RemoteHistoryService` is the invoke seam the responder calls for both
+// `history.*` ops; `HistoryPortService` adapts a provider `HistoryPort` to
+// it, mirroring `RemoteMemoryService` / `MemoryPortService`. The service
+// owns the three concerns the contract keeps OUT of `HistoryPort`: peer
+// admission (`HistoryAdmission` maps the authenticated `peer_id` to the
+// `Principal` and admitted `Scope`), effective-scope resolution (a present
+// request `scope` MUST equal the admission; absent uses the admission),
+// and prune deduplication (the recorded-outcome model keyed
+// `(effective_scope, requester_principal_id, op, idempotency_key)`).
+
+/// Admission context: maps the authenticated connect peer to the history
+/// `Principal` and the `Scope` the provider admits. Neither comes from the
+/// payload (MEM-R003; spoke-history contract §Authorization). The responder
+/// calls it inside the local serve-wait budget: a host resolver MUST return
+/// within that budget on its own (same bound as [`KnowledgeAdmission`]).
+pub type HistoryAdmission =
+    Arc<dyn Fn(&str) -> SpokeResult<(Principal, Scope)> + Send + Sync>;
+
+/// `history.revisions.get` wire op.
+pub const HISTORY_OP_GET: &str = "history.revisions.get";
+/// `history.revisions.prune` wire op.
+pub const HISTORY_OP_PRUNE: &str = "history.revisions.prune";
+
+/// Connect-owned service face for the `spoke-history` family (`history.*`,
+/// spoke-history contract §Connect operations): the serving host owns the
+/// provider — the `spoke_operations::HistoryPort` implementation — the
+/// admission context that turns the authenticated peer into a `Principal`
+/// + admitted `Scope` (never payload-asserted), the mapping of each op
+/// onto its typed port call, and the prune dedup store.
+///
+/// One callable serves both ops (same no-wrapper rule as `extract` /
+/// `memory.*`): `payload` is the op's request object and the returned
+/// value is its response object — `{"snapshot": ...}` for get,
+/// `{deleted, floor_revision}` for prune.
+#[async_trait]
+pub trait RemoteHistoryService: Send + Sync {
+    /// Serve one `history.*` op for the authenticated `peer_id`.
+    async fn invoke(
+        &self,
+        peer_id: &str,
+        op: &str,
+        payload: serde_json::Value,
+    ) -> SpokeResult<serde_json::Value>;
+}
+
+/// One dedup lookup: the recorded `{payload_digest, outcome}` for the key.
+/// The `SpokeResult` is stored, not re-wrapped, so a replayed outcome
+/// returns exactly what the original call settled to — a recorded reject
+/// replays as that reject, not as a success carrying its fields.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistoryDedupRecord {
+    /// SHA-256 hex over RFC 8785 canonical JSON of the request payload
+    /// object (the whole request, idempotency key included).
+    pub payload_digest: String,
+    /// The outcome the admitted call settled to (response object or
+    /// reject), replayed verbatim on same-digest replays.
+    pub outcome: SpokeResult<Value>,
+}
+
+/// Result of a dedup [`HistoryDedupStore::lookup`]: `Unseen` executes,
+/// `Evicted` answers `RECEIPT_EXPIRED` (a discarded recorded outcome must
+/// NEVER silently re-execute), `Recorded` compares digests.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HistoryDedupLookup {
+    /// No entry — first sighting of the key.
+    Unseen,
+    /// The key's recorded outcome was evicted; never re-execute.
+    Evicted,
+    /// A live recorded outcome exists.
+    Recorded(HistoryDedupRecord),
+}
+
+/// The prune dedup store (spoke-history contract §9.1), keyed
+/// `(effective_scope, requester_principal_id, op, idempotency_key)` —
+/// serialized `{scopeDigest}|{principalId}|{op}|{key}` — and recording
+/// `{payload_digest, outcome}`. Host-injectable for durable persistence:
+/// entries MUST outlive a Connect session and the principal-bound
+/// namespace MUST stay stable across reconnects, which the in-memory
+/// default cannot promise — durable `HistoryDedupStore` implementations
+/// own that guarantee.
+#[async_trait]
+pub trait HistoryDedupStore: Send + Sync {
+    /// Resolve one dedup key (see [`HistoryDedupLookup`]).
+    async fn lookup(&self, key: &str) -> HistoryDedupLookup;
+
+    /// Persist the digest and settled outcome for one executed key.
+    async fn record(&self, key: &str, record: HistoryDedupRecord);
+}
+
+/// Bounded in-memory dedup store — the default when the host injects
+/// nothing (spoke-history contract §9.1: "the default in-memory store is
+/// bounded by an eviction policy the host MAY configure").
+///
+/// Eviction keeps a tombstone so a replayed evicted key answers
+/// `RECEIPT_EXPIRED` instead of re-executing; tombstones are bounded by
+/// the same capacity.
+///
+/// shortcut: a tombstone older than `max_entries` later keys is itself
+/// forgotten and the key then replays as `Unseen`; a durable host store
+/// never ages tombstones.
+pub struct InMemoryHistoryDedupStore {
+    max_entries: usize,
+    state: Mutex<InMemoryDedupState>,
+}
+
+#[derive(Default)]
+struct InMemoryDedupState {
+    /// Live records, FIFO by insertion order.
+    records: HashMap<String, HistoryDedupRecord>,
+    order: VecDeque<String>,
+    /// Evicted keys, bounded FIFO by eviction order.
+    tombstones: HashSet<String>,
+    tombstone_order: VecDeque<String>,
+}
+
+impl InMemoryHistoryDedupStore {
+    /// Default bound: 1024 recorded outcomes.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::with_capacity(1024)
+    }
+
+    /// Bounded store retaining at most `max_entries` records;
+    /// capacity 0 evicts every record immediately — every replay answers
+    /// `RECEIPT_EXPIRED`.
+    #[must_use]
+    pub fn with_capacity(max_entries: usize) -> Self {
+        Self {
+            max_entries,
+            state: Mutex::new(InMemoryDedupState::default()),
+        }
+    }
+}
+
+impl Default for InMemoryHistoryDedupStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl HistoryDedupStore for InMemoryHistoryDedupStore {
+    async fn lookup(&self, key: &str) -> HistoryDedupLookup {
+        let state = self.state.lock().expect("dedup lock");
+        if let Some(record) = state.records.get(key) {
+            return HistoryDedupLookup::Recorded(record.clone());
+        }
+        if state.tombstones.contains(key) {
+            return HistoryDedupLookup::Evicted;
+        }
+        HistoryDedupLookup::Unseen
+    }
+
+    async fn record(&self, key: &str, record: HistoryDedupRecord) {
+        let mut state = self.state.lock().expect("dedup lock");
+        state.tombstones.remove(key);
+        if !state.records.contains_key(key) {
+            state.order.push_back(key.to_owned());
+        }
+        state.records.insert(key.to_owned(), record);
+        while state.records.len() > self.max_entries {
+            let Some(oldest) = state.order.pop_front() else {
+                break;
+            };
+            state.records.remove(&oldest);
+            if state.tombstones.insert(oldest.clone()) {
+                state.tombstone_order.push_back(oldest);
+            }
+        }
+        while state.tombstones.len() > self.max_entries {
+            let Some(oldest) = state.tombstone_order.pop_front() else {
+                break;
+            };
+            state.tombstones.remove(&oldest);
+        }
+    }
+}
+
+/// One decoded `history.*` call: the validated arguments produced at the
+/// service boundary — a malformed payload answers `INVALID_INPUT` before
+/// admission, dedup, and any port call. The prune op keeps its
+/// `idempotency_key` (a connect-layer dedup concern that never reaches
+/// the port).
+enum HistoryCall {
+    /// `history.revisions.get` — `(scope, entity_kind, entity_id, revision)`.
+    Get {
+        scope: Option<Scope>,
+        entity_kind: String,
+        entity_id: String,
+        revision: u64,
+    },
+    /// `history.revisions.prune` — `(scope, entity_kind, entity_id, keep,
+    /// idempotency_key)`.
+    Prune {
+        scope: Option<Scope>,
+        entity_kind: String,
+        entity_id: String,
+        keep: u64,
+        idempotency_key: String,
+    },
+}
+
+/// Decode the request's optional `scope` member as the shared `Scope`:
+/// absent is `None` (the admission supplies the effective scope), a
+/// present malformed member is `INVALID_INPUT`. Takes the owned member
+/// value — the caller removes it from the payload before the typed
+/// request decode, so the subtree moves instead of cloning.
+fn decode_history_scope(op: &str, scope: Option<Value>) -> SpokeResult<Option<Scope>> {
+    let Some(scope) = scope else {
+        return spoke_ok(None);
+    };
+    match serde_json::from_value(scope) {
+        Ok(scope) => spoke_ok(Some(scope)),
+        Err(error) => spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            format!("invalid {op} payload: {error}"),
+            None,
+        ),
+    }
+}
+
+/// Decode and validate one `history.*` op payload. The typed request
+/// decode is the trust boundary — a malformed or unknown-member payload
+/// answers `INVALID_INPUT` before admission, dedup, and any port call
+/// (same rule as `extract` and the memory service boundary). `revision`
+/// and `keep` decode as `u64` — the receiving runtime never rounds them
+/// (spoke-history contract §`HistoryPort`); an over-range or non-integer
+/// value fails the decode with `INVALID_INPUT`.
+///
+/// Consumes the payload: the optional `scope` member moves out first
+/// (the request types carry a scope-shaped but distinct member, so the
+/// shared `Scope` decodes once from the owned subtree), then the typed
+/// request decodes from the remaining object and its selector strings
+/// move into the call — no full-payload or selector clones.
+fn decode_history_call(
+    op: &str,
+    payload: Value,
+    scope: Option<Value>,
+) -> SpokeResult<HistoryCall> {
+    let scope = match decode_history_scope(op, scope) {
+        SpokeResult::Ok(scope) => scope,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+    match op {
+        HISTORY_OP_GET => {
+            match serde_json::from_value::<HistoryRevisionsGetRequest>(payload) {
+                Ok(request) => spoke_ok(HistoryCall::Get {
+                    scope,
+                    entity_kind: request.entity_kind.into(),
+                    entity_id: request.entity_id.into(),
+                    revision: request.revision,
+                }),
+                Err(error) => spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("invalid {op} payload: {error}"),
+                    None,
+                ),
+            }
+        }
+        HISTORY_OP_PRUNE => {
+            match serde_json::from_value::<HistoryRevisionsPruneRequest>(payload) {
+                Ok(request) => spoke_ok(HistoryCall::Prune {
+                    scope,
+                    entity_kind: request.entity_kind.into(),
+                    entity_id: request.entity_id.into(),
+                    keep: request.keep,
+                    idempotency_key: request.idempotency_key.into(),
+                }),
+                Err(error) => spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("invalid {op} payload: {error}"),
+                    None,
+                ),
+            }
+        }
+        _ => SpokeResult::Reject(SpokeReject {
+            code: SpokeRejectCode::CapabilityPortMissing,
+            message: format!("unimplemented history op {op}"),
+            details: None,
+        }),
+    }
+}
+
+/// Canonical-byte scope equality: a present request `scope` MUST equal
+/// the admitted scope exactly (spoke-history contract §Connect
+/// operations). Equality is membership-independent — canonical JSON —
+/// because the contract admits no subset semantics for history.
+fn scope_wire_equal(requested: &Scope, admitted: &Scope) -> bool {
+    match (serde_jcs::to_vec(requested), serde_jcs::to_vec(admitted)) {
+        (Ok(left), Ok(right)) => left == right,
+        // A scope that cannot canonicalize cannot prove equality: refuse.
+        _ => false,
+    }
+}
+
+/// Transport-decode reject for a malformed provider success value —
+/// `INTERNAL_ERROR` with `details.kind = "transport"`, never `Ok`
+/// (spoke-history contract §Connect operations).
+fn history_transport_reject<T>(detail: impl Into<String>) -> SpokeResult<T> {
+    let mut details = Map::new();
+    details.insert("kind".into(), Value::String("transport".into()));
+    spoke_reject(
+        SpokeRejectCode::InternalError,
+        detail.into(),
+        Some(details),
+    )
+}
+
+/// Shared `history.revisions.get` snapshot validation (contract §Connect
+/// operations — one rule for the serving face and each `RemoteAdapter`):
+/// the `RevisionSnapshot` must target the request selectors — envelope
+/// `entity_kind` / `entity_id` / `revision` equal — and satisfy the
+/// §`RevisionSnapshot` equality rules: the nested entity's own id and
+/// revision agree with the envelope, and the `snapshot` variant agrees
+/// with `entity_kind` for the core kinds. A malformed or wrong-target
+/// success is a transport decode error, never `Ok`.
+pub(crate) fn validate_history_snapshot(
+    snapshot: &RevisionSnapshot,
+    entity_kind: &str,
+    entity_id: &str,
+    revision: u64,
+) -> SpokeResult<()> {
+    if *snapshot.entity_kind != entity_kind
+        || *snapshot.entity_id != entity_id
+        || snapshot.revision != revision
+    {
+        return history_transport_reject(
+            "provider returned a wrong-target RevisionSnapshot: envelope selectors do not match the request",
+        );
+    }
+    // Core kinds bind the snapshot variant; an additional product kind
+    // declares its core shape and encodes under it consistently, so only
+    // the two core kinds get the variant check.
+    let variant_ok = match (entity_kind, &snapshot.snapshot) {
+        ("knowledge_entry", RevisionSnapshotSnapshot::KnowledgeEntry { .. })
+        | ("relation", RevisionSnapshotSnapshot::Relation { .. }) => true,
+        ("knowledge_entry" | "relation", _) => false,
+        _ => true,
+    };
+    if !variant_ok {
+        return history_transport_reject(
+            "provider returned a malformed RevisionSnapshot: snapshot variant does not agree with entity_kind",
+        );
+    }
+    let (nested_id, nested_revision) = match &snapshot.snapshot {
+        RevisionSnapshotSnapshot::KnowledgeEntry {
+            entry_id,
+            revision,
+            ..
+        } => (entry_id.as_str(), *revision),
+        RevisionSnapshotSnapshot::Relation {
+            relation_id,
+            revision,
+            ..
+        } => (relation_id.as_str(), *revision),
+    };
+    if nested_id != entity_id {
+        return history_transport_reject(
+            "provider returned a malformed RevisionSnapshot: nested entity id does not equal the envelope entity_id",
+        );
+    }
+    // The nested entity's own revision, when present, agrees with the
+    // envelope revision (the authored get-response example carries them
+    // equal; contract §`RevisionSnapshot`: "equals the selected entity
+    // snapshot's own revision").
+    if let Some(nested_revision) = nested_revision {
+        if nested_revision != revision {
+            return history_transport_reject(
+                "provider returned a malformed RevisionSnapshot: nested entity revision does not equal the envelope revision",
+            );
+        }
+    }
+    spoke_ok(())
+}
+
+/// Serving-side get validation: `validate_history_snapshot` on the
+/// provider's typed snapshot, then serialize it exactly once into the
+/// `{ snapshot }` get-response member — no second Value → typed → Value
+/// round-trip.
+fn valid_served_snapshot(
+    snapshot: RevisionSnapshot,
+    entity_kind: &str,
+    entity_id: &str,
+    revision: u64,
+) -> SpokeResult<Value> {
+    if let SpokeResult::Reject(reject) =
+        validate_history_snapshot(&snapshot, entity_kind, entity_id, revision)
+    {
+        return SpokeResult::Reject(reject);
+    }
+    match serde_json::to_value(snapshot) {
+        Ok(snapshot) => spoke_ok(json!({ "snapshot": snapshot })),
+        Err(error) => spoke_reject(
+            SpokeRejectCode::InternalError,
+            format!("history response serialize failed: {error}"),
+            None,
+        ),
+    }
+}
+/// Shared `history.revisions.prune` success-shape validation (contract
+/// §Connect operations — one shape for the serving face and each
+/// `RemoteAdapter`): `deleted` is a `u64`-range integer and
+/// `floor_revision` is a present nullable member.
+pub(crate) fn validate_history_prune_success(value: &Value) -> SpokeResult<()> {
+    let Some(object) = value.as_object() else {
+        return history_transport_reject(
+            "malformed history.revisions.prune success value: payload is not an object",
+        );
+    };
+    if !object.get("deleted").is_some_and(Value::is_u64) {
+        return history_transport_reject(
+            "malformed history.revisions.prune success value: deleted must be a non-negative integer",
+        );
+    }
+    match object.get("floor_revision") {
+        Some(floor) if floor.is_null() || floor.is_u64() => spoke_ok(()),
+        Some(_) => history_transport_reject(
+            "malformed history.revisions.prune success value: floor_revision must be an integer or null",
+        ),
+        None => history_transport_reject(
+            "malformed history.revisions.prune success value: floor_revision must be present (nullable)",
+        ),
+    }
+}
+
+/// Serving-side prune validation: `HistoryPruneResult` is structurally
+/// typed, so the check is `validate_history_prune_success` on the wire
+/// object — `floor_revision` serializes present even when `None` (a
+/// required member of the plain-object success shape).
+fn valid_served_prune_result(result: HistoryPruneResult) -> SpokeResult<Value> {
+    match serde_json::to_value(result) {
+        Ok(value) => match validate_history_prune_success(&value) {
+            SpokeResult::Ok(()) => spoke_ok(value),
+            SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+        },
+        Err(error) => spoke_reject(
+            SpokeRejectCode::InternalError,
+            format!("history response serialize failed: {error}"),
+            None,
+        ),
+    }
+}
+
+/// `RemoteHistoryService` over a provider [`HistoryPort`]: the two
+/// `history.*` ops map onto their typed port calls, so a host attaches an
+/// existing provider with
+/// `RemoteServePortsComposite::new(..).with_history(Arc::new(HistoryPortService::new(port, admission)))`
+/// — mirroring [`MemoryPortService`]. Admission maps the authenticated
+/// peer to its `Principal` + admitted `Scope`; a present request `scope`
+/// MUST equal the admission (get answers `NOT_FOUND`, prune the entity's
+/// existing write-authorization denial, both without invoking the port);
+/// the admitted scope is the effective scope for every port call. Prune
+/// runs the §9.1 recorded-outcome dedup before the admitted call reaches
+/// the port, and the service validates provider success values before
+/// emitting them.
+pub struct HistoryPortService {
+    port: Arc<dyn HistoryPort + Send + Sync>,
+    admission: HistoryAdmission,
+    dedup: Arc<dyn HistoryDedupStore>,
+    /// Serializes the dedup lookup → port call → record sequence so two
+    /// concurrent same-key prunes cannot both observe `Unseen` and
+    /// double-execute.
+    dedup_lock: tokio::sync::Mutex<()>,
+}
+
+impl HistoryPortService {
+    /// Attach a provider port + admission with the bounded in-memory
+    /// dedup default.
+    #[must_use]
+    pub fn new(port: Arc<dyn HistoryPort + Send + Sync>, admission: HistoryAdmission) -> Self {
+        Self {
+            port,
+            admission,
+            dedup: Arc::new(InMemoryHistoryDedupStore::new()),
+            dedup_lock: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    /// Inject a durable dedup store (spoke-history contract §9.1: the
+    /// store is host-injectable; entries MUST outlive a Connect session).
+    #[must_use]
+    pub fn with_dedup_store(mut self, dedup: Arc<dyn HistoryDedupStore>) -> Self {
+        self.dedup = dedup;
+        self
+    }
+}
+
+#[async_trait]
+impl RemoteHistoryService for HistoryPortService {
+    async fn invoke(
+        &self,
+        peer_id: &str,
+        op: &str,
+        payload: serde_json::Value,
+    ) -> SpokeResult<serde_json::Value> {
+        // §9.1: the prune payload digest covers the WHOLE request object
+        // (idempotency key included) — compute it before the scope member
+        // moves out for decoding.
+        let payload_digest = if op == HISTORY_OP_PRUNE {
+            match jcs_sha256_hex(&payload) {
+                SpokeResult::Ok(digest) => Some(digest),
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            }
+        } else {
+            None
+        };
+        // The optional `scope` member moves out once for the shared
+        // `Scope` decode (see `decode_history_call`); a non-object payload
+        // extracts nothing and fails the typed request decode.
+        let mut payload = payload;
+        let scope = payload
+            .as_object_mut()
+            .and_then(|object| object.remove("scope"));
+        // Decode at the boundary first: a malformed payload keeps its
+        // `INVALID_INPUT` without paying an admission lookup.
+        let call = match decode_history_call(op, payload, scope) {
+            SpokeResult::Ok(call) => call,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        let (principal, admitted_scope) = match (self.admission)(peer_id) {
+            SpokeResult::Ok(admitted) => admitted,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        let (requested_scope, is_get) = match &call {
+            HistoryCall::Get { scope, .. } => (scope, true),
+            HistoryCall::Prune { scope, .. } => (scope, false),
+        };
+        // A present request scope MUST equal the admitted scope; absent,
+        // the admitted scope is the effective scope (contract §Connect
+        // operations). The refusal runs before any port call.
+        if let Some(requested_scope) = requested_scope {
+            if !scope_wire_equal(requested_scope, &admitted_scope) {
+                return if is_get {
+                    spoke_reject(
+                        SpokeRejectCode::NotFound,
+                        "history entity not found in the admitted scope",
+                        None,
+                    )
+                } else {
+                    spoke_reject(
+                        SpokeRejectCode::NotAuthorized,
+                        "history prune denied: scope outside admission",
+                        None,
+                    )
+                };
+            }
+        }
+        let effective_scope = admitted_scope;
+        match call {
+            HistoryCall::Get {
+                entity_kind,
+                entity_id,
+                revision,
+                ..
+            } => {
+                let result = self
+                    .port
+                    .get_history_snapshot(
+                        &principal,
+                        &effective_scope,
+                        &entity_kind,
+                        &entity_id,
+                        revision,
+                    )
+                    .await;
+                match result {
+                    SpokeResult::Ok(snapshot) => {
+                        valid_served_snapshot(snapshot, &entity_kind, &entity_id, revision)
+                    }
+                    SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+                }
+            }
+            HistoryCall::Prune {
+                entity_kind,
+                entity_id,
+                keep,
+                idempotency_key,
+                ..
+            } => {
+                // §9.1: the digest over the whole request payload was
+                // computed before the `scope` member moved out.
+                let payload_digest =
+                    payload_digest.expect("prune computes the payload digest");
+                let scope_digest = match jcs_sha256_hex(
+                    &serde_json::to_value(&effective_scope).unwrap_or_else(|_| json!({})),
+                ) {
+                    SpokeResult::Ok(digest) => digest,
+                    SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+                };
+                let dedup_key = format!(
+                    "{scope_digest}|{}|{op}|{idempotency_key}",
+                    principal.principal_id.as_str()
+                );
+                // One lock covers lookup → port → record: concurrent
+                // same-key prunes cannot both see `Unseen`.
+                let _dedup_guard = self.dedup_lock.lock().await;
+                match self.dedup.lookup(&dedup_key).await {
+                    HistoryDedupLookup::Evicted => {
+                        return spoke_reject(
+                            SpokeRejectCode::ReceiptExpired,
+                            "prune idempotency record was evicted; the recorded outcome is no longer available and the prune is not re-executed",
+                            None,
+                        );
+                    }
+                    HistoryDedupLookup::Recorded(record) => {
+                        if record.payload_digest != payload_digest {
+                            return spoke_reject(
+                                SpokeRejectCode::IdempotencyConflict,
+                                "idempotency_key replayed with a different payload digest",
+                                None,
+                            );
+                        }
+                        // Same-key same-digest replay: the recorded
+                        // outcome, no port call, no re-evaluated
+                        // preconditions (contract §9.1).
+                        return record.outcome;
+                    }
+                    HistoryDedupLookup::Unseen => {}
+                }
+                let outcome = match self
+                    .port
+                    .prune_history(&principal, &effective_scope, &entity_kind, &entity_id, keep)
+                    .await
+                {
+                    SpokeResult::Ok(result) => valid_served_prune_result(result),
+                    SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+                };
+                // The settled outcome is recorded — success or reject —
+                // so a same-key replay never re-executes the prune.
+                self.dedup
+                    .record(
+                        &dedup_key,
+                        HistoryDedupRecord {
+                            payload_digest,
+                            outcome: outcome.clone(),
+                        },
+                    )
+                    .await;
+                outcome
+            }
+        }
+    }
+}
+
 /// Decode the op's request object, call the provider once, re-encode its
 /// response object. The decode is the trust boundary: an invalid payload is
 /// `INVALID_INPUT` before the provider runs (same rule as `extract`).

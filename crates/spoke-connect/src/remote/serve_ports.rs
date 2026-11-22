@@ -37,14 +37,15 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
-    jcs_sha256_hex, spoke_ok, spoke_reject, BaselinePorts, ComputablePort,
+    jcs_sha256_hex, spoke_ok, spoke_reject, AdoptionPort, BaselinePorts, ComputablePort,
     ForkTimelineQueryPort, HistoryPort, HistoryPruneResult, MemoryPort, ScopedKnowledgePort,
     SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::data::revision_snapshot::RevisionSnapshotSnapshot;
 use spoke_schemas::{
     ExtractRequest, ExtractResponse, HistoryRevisionsGetRequest,
-    HistoryRevisionsPruneRequest, Principal, RevisionSnapshot, Scope,
+    HistoryRevisionsPruneRequest, KnowledgeAdoptRequest, KnowledgeAdoptResponse, Principal,
+    RevisionSnapshot, Scope,
 };
 
 /// Connect-owned service face for the core `extract` op: the serving host
@@ -934,6 +935,267 @@ impl RemoteHistoryService for HistoryPortService {
     }
 }
 
+// ── `spoke-knowledge-adoption` serving face (spoke-knowledge-adoption
+//    contract §Connect operation) ──────────────────────────────────────
+//
+// `RemoteAdoptionService` is the invoke seam the responder calls for the
+// `knowledge.*` reserved-product ops; `AdoptionPortService` adapts a
+// provider `AdoptionPort` to it, mirroring `RemoteHistoryService` /
+// `HistoryPortService`. The service owns the concerns the contract keeps
+// OUT of `AdoptionPort`: peer admission (`AdoptionAdmission` maps the
+// authenticated `peer_id` to the `Principal` and admitted `Scope`), and
+// the connect idempotency envelope (the recorded-outcome model keyed
+// `(effective_scope, requester_principal_id, op, idempotency_key)`, digest
+// over RFC 8785 canonical JSON of the complete request payload).
+
+/// `knowledge.adopt` wire op.
+pub const KNOWLEDGE_OP_ADOPT: &str = "knowledge.adopt";
+
+/// Admission context for the adoption face: maps the authenticated
+/// connect peer to the `Principal` and the `Scope` the provider admits —
+/// the same `(Principal, Scope)` shape as [`HistoryAdmission`]. Neither
+/// comes from the payload (MEM-R003; contract §Admission and
+/// owner-private absence).
+pub type AdoptionAdmission = HistoryAdmission;
+
+/// Connect-owned service face for the `spoke-knowledge-adoption` family
+/// (`knowledge.*`, spoke-knowledge-adoption contract §Connect operation):
+/// the serving host owns the provider — the
+/// [`spoke_operations::AdoptionPort`] implementation — the admission
+/// context that turns the authenticated peer into a `Principal` +
+/// admitted `Scope` (never payload-asserted), the mapping of the op onto
+/// its typed port call, and the idempotency dedup store.
+///
+/// One callable serves the family (same no-wrapper rule as `memory.*` /
+/// `history.*`): `payload` is the op's request object and the returned
+/// value is its response object — `{outcome, entry}` for adopt.
+#[async_trait]
+pub trait RemoteAdoptionService: Send + Sync {
+    /// Serve one `knowledge.*` op for the authenticated `peer_id`.
+    async fn invoke(
+        &self,
+        peer_id: &str,
+        op: &str,
+        payload: serde_json::Value,
+    ) -> SpokeResult<serde_json::Value>;
+}
+
+/// `RemoteAdoptionService` over a provider [`AdoptionPort`]: the
+/// `knowledge.adopt` op maps onto its typed port call, so a host attaches
+/// an existing provider with
+/// `RemoteServePortsComposite::new(..).with_adoption(Arc::new(AdoptionPortService::new(port, admission)))`
+/// — mirroring [`HistoryPortService`]. The dedup key is
+/// `(effective_scope, requester_principal_id, op, idempotency_key)` and
+/// the request digest is SHA-256 over RFC 8785 canonical JSON of the
+/// complete request payload; a same-key different-digest replay answers
+/// `IDEMPOTENCY_CONFLICT`, a same-key same-digest replay returns the
+/// recorded outcome with `outcome` normalized to `already_present` — the
+/// existing copy, no second write (contract §Repeat and idempotency).
+///
+/// The dedup store reuses the `HistoryDedupStore` seam — the
+/// recorded-outcome shape and bounded in-memory default are identical;
+/// host-injectable for durable persistence.
+pub struct AdoptionPortService {
+    port: Arc<dyn AdoptionPort + Send + Sync>,
+    admission: AdoptionAdmission,
+    dedup: Arc<dyn HistoryDedupStore>,
+    /// Serializes the dedup lookup → port call → record sequence so two
+    /// concurrent same-key adoptions cannot both observe `Unseen` and
+    /// double-execute.
+    dedup_lock: tokio::sync::Mutex<()>,
+}
+
+impl AdoptionPortService {
+    /// Attach a provider port + admission with the bounded in-memory
+    /// dedup default.
+    #[must_use]
+    pub fn new(port: Arc<dyn AdoptionPort + Send + Sync>, admission: AdoptionAdmission) -> Self {
+        Self {
+            port,
+            admission,
+            dedup: Arc::new(InMemoryHistoryDedupStore::new()),
+            dedup_lock: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    /// Inject a durable dedup store (entries MUST outlive a Connect
+    /// session and the principal-bound namespace MUST stay stable across
+    /// reconnects — the in-memory default cannot promise that).
+    #[must_use]
+    pub fn with_dedup_store(mut self, dedup: Arc<dyn HistoryDedupStore>) -> Self {
+        self.dedup = dedup;
+        self
+    }
+}
+
+#[async_trait]
+impl RemoteAdoptionService for AdoptionPortService {
+    async fn invoke(
+        &self,
+        peer_id: &str,
+        op: &str,
+        payload: serde_json::Value,
+    ) -> SpokeResult<serde_json::Value> {
+        if op != KNOWLEDGE_OP_ADOPT {
+            return SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::CapabilityPortMissing,
+                message: format!("unimplemented adoption op {op}"),
+                details: None,
+            });
+        }
+        // The digest covers the WHOLE request object under RFC 8785 —
+        // refuse any member outside the JCS exact-integer range before
+        // hashing (see `payload_integers_jcs_exact`).
+        if !payload_integers_jcs_exact(&payload) {
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("invalid {op} payload: integer member outside the exact-integer range"),
+                None,
+            );
+        }
+        let payload_digest = match jcs_sha256_hex(&payload) {
+            SpokeResult::Ok(digest) => digest,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        // Decode at the boundary first: a malformed payload keeps its
+        // `INVALID_INPUT` without paying an admission lookup.
+        let request: KnowledgeAdoptRequest = match serde_json::from_value(payload) {
+            Ok(request) => request,
+            Err(error) => {
+                return spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("invalid {op} payload: {error}"),
+                    None,
+                )
+            }
+        };
+        let (principal, effective_scope) = match (self.admission)(peer_id) {
+            SpokeResult::Ok(admitted) => admitted,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        let scope_digest = match jcs_sha256_hex(
+            &serde_json::to_value(&effective_scope).unwrap_or_else(|_| json!({})),
+        ) {
+            SpokeResult::Ok(digest) => digest,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        let dedup_key = format!(
+            "{scope_digest}|{}|{op}|{}",
+            principal.principal_id.as_str(),
+            request.idempotency_key.as_str(),
+        );
+        // One lock covers lookup → port → record: concurrent same-key
+        // adoptions cannot both see `Unseen`.
+        let _dedup_guard = self.dedup_lock.lock().await;
+        match self.dedup.lookup(&dedup_key).await {
+            HistoryDedupLookup::Evicted => {
+                return spoke_reject(
+                    SpokeRejectCode::ReceiptExpired,
+                    "adoption idempotency record was evicted; the recorded outcome is no longer available and the adoption is not re-executed",
+                    None,
+                );
+            }
+            HistoryDedupLookup::Recorded(record) => {
+                if record.payload_digest != payload_digest {
+                    return spoke_reject(
+                        SpokeRejectCode::IdempotencyConflict,
+                        "idempotency_key replayed with a different payload digest",
+                        None,
+                    );
+                }
+                // Same-key same-digest replay: the recorded outcome with
+                // `outcome` normalized to `already_present` — the
+                // existing copy, no second write, no re-evaluated
+                // preconditions (contract §Repeat and idempotency).
+                return adoption_replay(record.outcome);
+            }
+            HistoryDedupLookup::Unseen => {}
+        }
+        let outcome = match self
+            .port
+            .adopt_knowledge_entry(&principal, &effective_scope, &request)
+            .await
+        {
+            SpokeResult::Ok(response) => valid_served_adopt_result(response),
+            SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+        };
+        // The settled outcome is recorded — success or reject — so a
+        // same-key replay never re-executes the adoption.
+        self.dedup
+            .record(
+                &dedup_key,
+                HistoryDedupRecord {
+                    payload_digest,
+                    outcome: outcome.clone(),
+                },
+            )
+            .await;
+        outcome
+    }
+}
+
+/// Same-key same-digest replay for `knowledge.adopt` (contract §Repeat and
+/// idempotency): returns the existing copy with `outcome:
+/// "already_present"` — the recorded success value carries the
+/// destination entry; only its outcome word changes. A recorded reject or
+/// a non-object success replays verbatim.
+fn adoption_replay(outcome: SpokeResult<Value>) -> SpokeResult<Value> {
+    match outcome {
+        SpokeResult::Ok(Value::Object(mut response)) => {
+            if response.contains_key("outcome") {
+                response.insert("outcome".into(), Value::String("already_present".into()));
+            }
+            spoke_ok(Value::Object(response))
+        }
+        other => other,
+    }
+}
+
+/// Served-side adopt-response validation (spoke-knowledge-adoption
+/// contract §`KnowledgeAdoptResponse`): the emitted success value is the
+/// success branch `{outcome, entry}` — `outcome` is `"adopted"` or
+/// `"already_present"` and `entry` is a JSON object (the destination
+/// `KnowledgeEntry`). A `Variant1` error branch or any other shape is a
+/// transport decode reject, never `Ok` (parity with TS
+/// `validServedAdoptResult` — the port's expected refusals travel as
+/// `SpokeResult`, not the envelope's error variant).
+fn valid_served_adopt_result(response: KnowledgeAdoptResponse) -> SpokeResult<Value> {
+    let value = match serde_json::to_value(response) {
+        Ok(value) => value,
+        Err(error) => {
+            return spoke_reject(
+                SpokeRejectCode::InternalError,
+                format!("adoption response serialize failed: {error}"),
+                None,
+            )
+        }
+    };
+    let Some(object) = value.as_object() else {
+        return history_transport_reject("adoption provider returned a non-object response");
+    };
+    let outcome = object
+        .get("outcome")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let outcome_ok = outcome
+        .as_deref()
+        .is_some_and(|outcome| outcome == "adopted" || outcome == "already_present");
+    if !outcome_ok {
+        return history_transport_reject(
+            "adoption provider returned a missing or invalid outcome member",
+        );
+    }
+    let Some(entry) = object.get("entry").filter(|entry| entry.is_object()) else {
+        return history_transport_reject(
+            "adoption provider returned a missing or malformed entry member",
+        );
+    };
+    // The emitted success is `{outcome, entry}` — the contract's exact
+    // success branch (parity with TS `validServedAdoptResult`, which
+    // emits those two members only).
+    spoke_ok(json!({ "outcome": outcome, "entry": entry }))
+}
+
 /// Decode the op's request object, call the provider once, re-encode its
 /// response object. The decode is the trust boundary: an invalid payload is
 /// `INVALID_INPUT` before the provider runs (same rule as `extract`).
@@ -1027,6 +1289,19 @@ pub trait RemoteServePorts: Send + Sync {
     fn as_history(&self) -> Option<Arc<dyn RemoteHistoryService>> {
         None
     }
+
+    /// Optional `spoke-knowledge-adoption` service face (adopt a shared
+    /// `KnowledgeEntry` into a destination scope), when provided. Absent
+    /// means the host declared `spoke-knowledge-adoption` without
+    /// providing the service — the responder answers the dispatch-deny
+    /// branch.
+    ///
+    /// Owned (not borrowed) like [`RemoteServePorts::as_memory`]: the
+    /// adopt op mutates, so the responder detaches the admitted invoke
+    /// from its response deadline and the spawned task must own the face.
+    fn as_adoption(&self) -> Option<Arc<dyn RemoteAdoptionService>> {
+        None
+    }
 }
 
 /// Blanket impl: a provider carrying the baseline six + both optional faces
@@ -1054,8 +1329,8 @@ where
 /// Composite responder ports face: each family is optional and independent.
 /// Baseline-only and mixed hosts compose via [`RemoteServePortsComposite::new`]
 /// without manual trait impls; a knowledge-only host composes with
-/// [`RemoteServePortsComposite::knowledge_only`]; extraction, memory and
-/// knowledge are added with the consuming builders.
+/// [`RemoteServePortsComposite::knowledge_only`]; extraction, memory,
+/// history and adoption are added with the consuming builders.
 pub struct RemoteServePortsComposite {
     baseline: Option<Arc<dyn BaselinePorts + Send + Sync>>,
     knowledge: Option<Arc<RemoteKnowledgeFace>>,
@@ -1064,6 +1339,7 @@ pub struct RemoteServePortsComposite {
     extract: Option<Arc<dyn RemoteExtractService>>,
     memory: Option<Arc<dyn RemoteMemoryService>>,
     history: Option<Arc<dyn RemoteHistoryService>>,
+    adoption: Option<Arc<dyn RemoteAdoptionService>>,
 }
 
 impl RemoteServePortsComposite {
@@ -1096,6 +1372,7 @@ impl RemoteServePortsComposite {
             extract: None,
             memory: None,
             history: None,
+            adoption: None,
         }
     }
 
@@ -1136,6 +1413,14 @@ impl RemoteServePortsComposite {
         self.history = Some(history);
         self
     }
+
+    /// Attach the optional `spoke-knowledge-adoption` service face
+    /// (consuming builder).
+    #[must_use]
+    pub fn with_adoption(mut self, adoption: Arc<dyn RemoteAdoptionService>) -> Self {
+        self.adoption = Some(adoption);
+        self
+    }
 }
 
 impl RemoteServePorts for RemoteServePortsComposite {
@@ -1173,6 +1458,10 @@ impl RemoteServePorts for RemoteServePortsComposite {
 
     fn as_history(&self) -> Option<Arc<dyn RemoteHistoryService>> {
         self.history.clone()
+    }
+
+    fn as_adoption(&self) -> Option<Arc<dyn RemoteAdoptionService>> {
+        self.adoption.clone()
     }
 }
 

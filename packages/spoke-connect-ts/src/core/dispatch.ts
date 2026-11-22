@@ -64,6 +64,14 @@ export const CAPABILITY_SPOKE_COGNITION = "spoke-cognition";
 export const CAPABILITY_SPOKE_HISTORY = "spoke-history";
 
 /**
+ * Optional capability: required by `knowledge.adopt` (spoke-knowledge-
+ * adoption contract §Connect operation and capability gate). The op also
+ * requires the mandatory co-capability `spoke-knowledge`; a host declaring
+ * `spoke-knowledge-adoption` also declares `spoke-knowledge`.
+ */
+export const CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION = "spoke-knowledge-adoption";
+
+/**
  * Wire spelling of a dispatch-layer validation verdict (consumer contract
  * §2.2). The ops protocol spells the same internal code `INVALID_INPUT` on
  * its envelopes; a rejection taken at the pre-handler boundary carries this
@@ -138,6 +146,12 @@ export function requiredCapability(op: string): string | undefined {
     case "history.revisions.get":
     case "history.revisions.prune":
       return CAPABILITY_SPOKE_HISTORY;
+    // note: adoption family (spoke-knowledge-adoption contract §Connect
+    // operation): one row — the mandatory co-capability `spoke-knowledge`
+    // is asserted by `requiredCapabilities` / `dispatchAllowed`, never by
+    // this single-row return.
+    case "knowledge.adopt":
+      return CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION;
     case "memory.exports.create":
     case "memory.exports.get":
     case "memory.imports.stage":
@@ -173,7 +187,19 @@ export function dispatchAllowed(op: string, negotiatedCapabilities: readonly str
   if (required === undefined) {
     return false;
   }
-  return capabilitySatisfies(negotiatedCapabilities, required);
+  if (!capabilitySatisfies(negotiatedCapabilities, required)) {
+    return false;
+  }
+  // note: compound gate (spoke-knowledge-adoption contract): `knowledge.adopt`
+  // additionally requires the mandatory co-capability `spoke-knowledge` —
+  // neither flag alone satisfies the gate.
+  if (
+    required === CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION &&
+    !capabilitySatisfies(negotiatedCapabilities, CAPABILITY_SPOKE_KNOWLEDGE)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /**

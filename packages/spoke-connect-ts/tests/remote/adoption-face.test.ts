@@ -1,0 +1,893 @@
+/**
+ * note: `spoke-knowledge-adoption` conformance — corpus interpreter for
+ * the adoption serving face (spoke-knowledge-adoption contract §Connect
+ * operation / §Repeat and idempotency / §Anchor immutability). Loads the
+ * shared wire vectors from `fixtures/adoption-conformance/` and drives
+ * them against the SHIPPED serving path — the same JSON case produces
+ * the same wire outcome as the Rust runner
+ * (`crates/spoke-connect/tests/adoption_conformance.rs`).
+ *
+ * `surface: "wire"` cases run over a real `connectResponder` ↔
+ * `RemoteAdapter` loopback (the compound capability gate, responder
+ * dispatch, `AdoptionPortService` decode / admission / dedup and the
+ * served-response validation boundary); `surface: "service"` cases run
+ * through `AdoptionPortService.invoke` directly.
+ *
+ * The scripted `AdoptionPort` implements only the provider-owned
+ * contract semantics over the seeded tables — owner-private admission,
+ * the shared `resolveRetirementChain` helper, the copy rules,
+ * create-only OCC, anchor repeat classification — so every gate, dedup
+ * and validation assertion measures connect code, never fixture policy.
+ * The fixture scoped store applies the shared
+ * `assertAdoptionAnchorPreserved` gate before OCC (the anchor-immutable
+ * vectors measure that shipped helper over the wire).
+ */
+
+import { readdirSync, readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  assertAdoptionAnchorPreserved,
+  resolveRetirementChain,
+  spokeOk,
+  spokeReject,
+  type AdoptionPort,
+  type SpokeResult,
+} from "@42ch/spoke-operations";
+
+import type {
+  HostCapabilityManifest,
+  KnowledgeAdoptRequest,
+  KnowledgeAdoptResponse,
+  KnowledgeEntry,
+  Principal,
+  Scope,
+} from "@42ch/spoke-schemas";
+
+import {
+  connectRemoteAdapter,
+  connectResponder,
+  loopbackTransportPair,
+} from "../../src/remote/index.js";
+import {
+  AdoptionPortService,
+  InMemoryHistoryDedupStore,
+  type RemoteAdapter,
+  type RemoteAdoptionService,
+  type RemoteServePorts,
+} from "../../src/remote/index.js";
+import { getPublicKeyEd25519 } from "../../src/crypto.js";
+import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
+
+function seed(base: number): Uint8Array {
+  return Uint8Array.from({ length: 32 }, (_, i) => base + i);
+}
+
+function manifest(
+  hostId: string,
+  capabilities: string[],
+): HostCapabilityManifest {
+  return {
+    schema_version: 1,
+    host_id: hostId,
+    roles: ["data-store"],
+    capabilities: capabilities as [string, ...string[]],
+    namespaces: ["world_a"],
+    extensions: {},
+  };
+}
+
+const HOST_CAPABILITIES = ["spoke-knowledge", "spoke-knowledge-adoption"];
+const CLIENT_CAPABILITIES = ["spoke-knowledge", "spoke-knowledge-adoption"];
+/** note: the destination scope the fixture store and knowledge face admit. */
+const DESTINATION_SCOPE = "spc_local";
+/** note: every source entry is stored under this scope in the source table. */
+const SOURCE_SCOPE = "spc_shared";
+const DEFAULT_ADMITTED_SCOPES = [SOURCE_SCOPE, DESTINATION_SCOPE];
+
+const PRINCIPAL: Principal = { principal_id: "prn_client", extensions: {} };
+
+// ── Scripted provider ─────────────────────────────────────────────────────
+
+type JsonObject = Record<string, unknown>;
+
+interface SeededSource {
+  entryId: string;
+  successors: string[] | undefined;
+  entry: KnowledgeEntry & JsonObject;
+}
+
+interface CaseInput {
+  sources?: Array<{ entry_id: string; successors?: string[]; entry: KnowledgeEntry & JsonObject }>;
+  destinations?: KnowledgeEntry[];
+  admitted_viewpoint?: string;
+  admitted_scopes?: string[];
+  destination_governance?: JsonObject;
+  client_capabilities?: string[];
+  host_capabilities?: string[];
+  adoption_face?: boolean;
+  dedup_capacity?: number;
+}
+
+/**
+ * Shared state between the scripted `AdoptionPort` and the fixture
+ * scoped store: the source table (keyed `${scopeId}|${entryId}`), the
+ * destination map the `RemoteKnowledgeFace` reads/writes (so the written
+ * copy is observable through `port.knowledge.get`), the provider call
+ * counter, and the destination governance the copy rules reset to.
+ */
+function fixtureState(input: CaseInput): FixtureState {
+  const sources = new Map<string, SeededSource>();
+  for (const source of input.sources ?? []) {
+    sources.set(`${SOURCE_SCOPE}|${source.entry_id}`, {
+      entryId: source.entry_id,
+      successors: source.successors,
+      entry: source.entry,
+    });
+  }
+  const destinations = new Map<string, KnowledgeEntry>();
+  for (const entry of input.destinations ?? []) {
+    destinations.set(entry.entry_id, entry);
+  }
+  return {
+    sources,
+    destinations,
+    calls: [] as string[],
+    admittedScopes: input.admitted_scopes ?? DEFAULT_ADMITTED_SCOPES,
+    destinationGovernance: input.destination_governance ?? {},
+  };
+}
+
+/**
+ * The fixture's seeded state: the source table (keyed
+ * `${scopeId}|${entryId}`), the destination map the
+ * `RemoteKnowledgeFace` reads/writes (so the written copy is observable
+ * through `port.knowledge.get`), the provider call counter, and the
+ * destination governance the copy rules reset to.
+ */
+interface FixtureState {
+  sources: Map<string, SeededSource>;
+  destinations: Map<string, KnowledgeEntry>;
+  calls: string[];
+  admittedScopes: string[];
+  destinationGovernance: JsonObject;
+}
+
+/** note: one generic absence — missing, out-of-scope and owner-private all answer it. */
+function genericNotFound<T>(): SpokeResult<T> {
+  return spokeReject("NOT_FOUND", "no such source");
+}
+
+/**
+ * The destination copy per the contract copy rules: body /
+ * canonical_name / entry_type / status preserved; `source_anchor`
+ * cleared; `modules` minus `cognition`; `extensions` minus
+ * `mindcore_adoption`; owner/disclosure reset to the destination
+ * governance; `adoption_anchor` records the resolved terminal triple.
+ */
+function copyForDestination(
+  state: FixtureState,
+  terminalEntry: KnowledgeEntry & JsonObject,
+  terminal: { source_scope_id: string; source_entry_id: string; source_revision: number },
+  destinationId: string,
+  anchorRevision: number,
+): KnowledgeEntry & JsonObject {
+  const copy: JsonObject = {};
+  for (const key of [
+    "schema_version",
+    "entry_type",
+    "canonical_name",
+    "status",
+    "body",
+  ]) {
+    if (key in terminalEntry) {
+      copy[key] = (terminalEntry as JsonObject)[key];
+    }
+  }
+  copy.entry_id = destinationId;
+  copy.revision = 1;
+  if (terminalEntry.modules !== undefined) {
+    const modules: JsonObject = {};
+    for (const [key, value] of Object.entries(
+      terminalEntry.modules as JsonObject,
+    )) {
+      if (key !== "cognition") {
+        modules[key] = value;
+      }
+    }
+    copy.modules = modules;
+  }
+  const extensions: JsonObject = {};
+  for (const [key, value] of Object.entries(
+    (terminalEntry.extensions ?? {}) as JsonObject,
+  )) {
+    if (key !== "mindcore_adoption") {
+      extensions[key] = value;
+    }
+  }
+  copy.extensions = extensions;
+  for (const key of ["owner", "disclosure"]) {
+    if (key in state.destinationGovernance) {
+      copy[key] = state.destinationGovernance[key];
+    }
+  }
+  copy.adoption_anchor = {
+    schema_version: 1,
+    source_scope_id: terminal.source_scope_id,
+    source_entry_id: terminal.source_entry_id,
+    source_revision: anchorRevision,
+    extensions: {},
+  };
+  return copy as KnowledgeEntry & JsonObject;
+}
+
+/**
+ * Scripted `AdoptionPort`: the provider-owned contract semantics over
+ * the seeded tables. `calls` is the observable "did the port run" probe
+ * (`provider_calls`).
+ */
+function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
+  return {
+    async adoptKnowledgeEntry(principal, scope, request) {
+      state.calls.push(
+        `adopt:${request.source_entry_id}@${request.source_revision}`,
+      );
+      const sourceScopeId = request.source_scope_id;
+      const sourceEntryId = request.source_entry_id;
+      const destinationScopeId = request.destination_scope_id;
+      const sourceRevision = request.source_revision;
+
+      // Admission: an unadmitted source scope is the same generic
+      // absence as a missing entry.
+      if (!state.admittedScopes.includes(sourceScopeId)) {
+        return genericNotFound();
+      }
+      // Source load: missing or owner-private to another viewpoint is
+      // one generic NOT_FOUND with no source-identifying details.
+      const requested = state.sources.get(
+        `${sourceScopeId}|${sourceEntryId}`,
+      )?.entry;
+      if (requested === undefined) {
+        return genericNotFound();
+      }
+      if (requested.disclosure === "owner-private") {
+        const owner = requested.owner as string | undefined;
+        if (owner !== (scope.viewpoint as string | undefined)) {
+          return genericNotFound();
+        }
+      }
+
+      // Retirement-chain resolution via the shared helper (cycle /
+      // ambiguous / deleted terminal / 33rd edge answers SOURCE_RETIRED
+      // with details.retirement_chain).
+      const chainNode = (entry: KnowledgeEntry & JsonObject) => ({
+        entry_id: entry.entry_id,
+        scope_id: sourceScopeId,
+        status: entry.status,
+        revision: entry.revision,
+      });
+      const terminal = await resolveRetirementChain(
+        chainNode(requested),
+        async (node) =>
+          state.sources.get(`${sourceScopeId}|${node.entry_id}`)?.successors,
+        async (entryId) => {
+          const loaded = state.sources.get(`${sourceScopeId}|${entryId}`);
+          return loaded === undefined ? undefined : chainNode(loaded.entry);
+        },
+      );
+      if (!terminal.ok) {
+        return terminal;
+      }
+      const terminalEntry = state.sources.get(
+        `${sourceScopeId}|${terminal.value.source_entry_id}`,
+      )?.entry;
+      if (terminalEntry === undefined) {
+        return spokeReject("INTERNAL_ERROR", "resolved terminal is not stored");
+      }
+
+      // The destination scope must also be admitted.
+      if (!state.admittedScopes.includes(destinationScopeId)) {
+        return genericNotFound();
+      }
+
+      const destinationId =
+        request.destination_entry_id ?? terminal.value.source_entry_id;
+      const occupant = state.destinations.get(destinationId);
+      if (occupant !== undefined) {
+        const anchor = occupant.adoption_anchor as
+          | {
+              source_scope_id: string;
+              source_entry_id: string;
+              source_revision: number;
+            }
+          | undefined;
+        if (
+          anchor !== undefined &&
+          anchor.source_scope_id === terminal.value.source_scope_id &&
+          anchor.source_entry_id === terminal.value.source_entry_id
+        ) {
+          // The stored copy is classified by its anchor (contract
+          // §Repeat and idempotency): the same terminal source at the
+          // same REQUESTED source_revision is the repeat case; a
+          // different requested source_revision refuses
+          // REVISION_CONFLICT with details.adopted_revision from the
+          // stored anchor.
+          if (anchor.source_revision === sourceRevision) {
+            return spokeOk({ outcome: "already_present", entry: occupant });
+          }
+          return spokeReject(
+            "REVISION_CONFLICT",
+            `destination ${destinationId} already anchors source revision ${anchor.source_revision}`,
+            { adopted_revision: anchor.source_revision },
+          );
+        }
+        // An unrelated occupant retains the existing create-only put
+        // refusal and is never overwritten.
+        return spokeReject(
+          "REVISION_CONFLICT",
+          `destination ${destinationId} is already occupied`,
+        );
+      }
+      // The anchor records the REQUESTED revision for a live source
+      // (the repeat rule classifies on it), the terminal's own revision
+      // for a retirement-resolved source.
+      const anchorRevision =
+        terminal.value.source_entry_id === sourceEntryId
+          ? sourceRevision
+          : terminal.value.source_revision;
+      const copy = copyForDestination(
+        state,
+        terminalEntry,
+        terminal.value,
+        destinationId,
+        anchorRevision,
+      );
+      state.destinations.set(destinationId, copy);
+      const response: KnowledgeAdoptResponse = {
+        outcome: "adopted",
+        entry: copy,
+      };
+      return spokeOk(response);
+    },
+  };
+}
+
+/**
+ * The fixture scoped store over the shared destination map: the
+ * `RemoteKnowledgeFace` backing store. `put` applies the shared
+ * `assertAdoptionAnchorPreserved` gate BEFORE the OCC check — the
+ * anchor-immutability vectors measure that shipped gate over the wire.
+ */
+function fixtureScopedStore(state: FixtureState) {
+  return {
+    async getScopedKnowledgeEntry(
+      _scope: Scope,
+      entryId: string,
+    ): Promise<SpokeResult<KnowledgeEntry>> {
+      const entry = state.destinations.get(entryId);
+      return entry === undefined
+        ? spokeReject("KNOWLEDGE_ENTRY_NOT_FOUND", `no such entry ${entryId}`)
+        : spokeOk(entry);
+    },
+    async putScopedKnowledgeEntry(
+      _scope: Scope,
+      entry: KnowledgeEntry,
+      expectedBaseRevision: number | null,
+    ): Promise<SpokeResult<KnowledgeEntry>> {
+      const stored = state.destinations.get(entry.entry_id);
+      const gate = assertAdoptionAnchorPreserved(entry, stored);
+      if (!gate.ok) {
+        return gate;
+      }
+      if (expectedBaseRevision === null) {
+        if (stored !== undefined) {
+          return spokeReject(
+            "REVISION_CONFLICT",
+            `Entry already exists: ${entry.entry_id}`,
+            { entry_id: entry.entry_id },
+          );
+        }
+      } else {
+        if (stored === undefined) {
+          return spokeReject(
+            "STORED_REVISION_STALE",
+            `KnowledgeEntry not found for update: ${entry.entry_id}`,
+          );
+        }
+        const current = stored.revision ?? 0;
+        if (current !== expectedBaseRevision) {
+          return spokeReject(
+            "STORED_REVISION_STALE",
+            `Store revision ${current} does not match expected base ${expectedBaseRevision}`,
+          );
+        }
+      }
+      state.destinations.set(entry.entry_id, entry);
+      return spokeOk(entry);
+    },
+    async listScopedKnowledgeEntries(
+      _scope: Scope,
+    ): Promise<SpokeResult<KnowledgeEntry[]>> {
+      return spokeOk([...state.destinations.values()]);
+    },
+  };
+}
+
+// ── Loopback dial ─────────────────────────────────────────────────────────
+
+interface DialedAdoptionHost {
+  client: RemoteAdapter;
+  close: () => void;
+}
+
+async function dialAdoptionHost(options: {
+  ports: RemoteServePorts;
+  clientCapabilities: string[];
+  hostCapabilities?: string[];
+}): Promise<DialedAdoptionHost> {
+  const hostSeed = seed(0xa0);
+  const hostPubkey = getPublicKeyEd25519(hostSeed);
+  const hostPeerId = derivePeerIdFromEd25519Pubkey(hostPubkey);
+  const clientSeed = seed(0xb0);
+  const clientPubkey = getPublicKeyEd25519(clientSeed);
+  const clientPeerId = derivePeerIdFromEd25519Pubkey(clientPubkey);
+  const pair = loopbackTransportPair();
+  const host = await connectResponder({
+    transport: pair.server,
+    identity: { seed: hostSeed },
+    manifest: manifest(
+      "adoption-conformance-host",
+      options.hostCapabilities ?? HOST_CAPABILITIES,
+    ),
+    allowlist: [clientPeerId],
+    peerKeys: { [clientPeerId]: clientPubkey },
+    ports: options.ports,
+  });
+  const client = await connectRemoteAdapter({
+    transport: pair.client,
+    localIdentity: { seed: clientSeed },
+    localManifest: manifest(
+      "adoption-conformance-client",
+      options.clientCapabilities,
+    ),
+    remotePubkey: hostPubkey,
+    allowlist: [hostPeerId],
+  });
+  return {
+    client,
+    close: (): void => {
+      client.close();
+      host.close();
+    },
+  };
+}
+
+// ── Step execution ────────────────────────────────────────────────────────
+
+type StepOutcome =
+  | { kind: "value"; value: unknown }
+  | { kind: "reject"; code: string; details: unknown };
+
+interface StepRequest {
+  op: string;
+  request: JsonObject;
+}
+
+function parseStep(step: JsonObject, defaultOp?: string): StepRequest {
+  const op = (step.op as string | undefined) ?? defaultOp;
+  if (op === undefined) {
+    throw new Error("step op");
+  }
+  return { op, request: (step.request ?? {}) as JsonObject };
+}
+
+/**
+ * Dispatch a step. For `wire` the typed client is the boundary (adopt
+ * and the knowledge ops); for `service` the raw request value goes
+ * through `AdoptionPortService.invoke` verbatim.
+ */
+async function runStep(
+  surface: string,
+  host: DialedAdoptionHost | undefined,
+  service: RemoteAdoptionService,
+  clientPeer: string,
+  step: StepRequest,
+): Promise<StepOutcome> {
+  if (surface === "service") {
+    if (!step.op.startsWith("knowledge.")) {
+      throw new Error(`service surface serves adoption ops only, got ${step.op}`);
+    }
+    const result = await service.invoke(clientPeer, step.op, step.request);
+    return result.ok
+      ? { kind: "value", value: result.value }
+      : { kind: "reject", code: result.code, details: result.details };
+  }
+  if (host === undefined) {
+    throw new Error("wire step needs a dialed host");
+  }
+  const clientScope: Scope = { scope_id: DESTINATION_SCOPE, extensions: {} };
+  switch (step.op) {
+    case "knowledge.adopt": {
+      const result = await host.client.adoptKnowledgeEntry(
+        PRINCIPAL,
+        clientScope,
+        step.request as unknown as KnowledgeAdoptRequest,
+      );
+      return result.ok
+        ? { kind: "value", value: result.value }
+        : { kind: "reject", code: result.code, details: result.details };
+    }
+    case "port.knowledge.get": {
+      const result = await host.client.getKnowledgeEntry(
+        step.request.entry_id as string,
+      );
+      return result.ok
+        ? { kind: "value", value: result.value }
+        : { kind: "reject", code: result.code, details: result.details };
+    }
+    case "port.knowledge.put": {
+      const result = await host.client.putKnowledgeEntry(
+        step.request.entry as KnowledgeEntry,
+        (step.request.expected_base_revision ?? null) as number | null,
+      );
+      return result.ok
+        ? { kind: "value", value: result.value }
+        : { kind: "reject", code: result.code, details: result.details };
+    }
+    default:
+      throw new Error(`unknown adoption op ${step.op}`);
+  }
+}
+
+// ── Expect vocabulary ─────────────────────────────────────────────────────
+
+/** `dotted.path[0]` lookup into a plain value. */
+function pathGet(value: unknown, path: string): unknown {
+  let current = value;
+  for (const segment of path.split(".")) {
+    const bracket = segment.indexOf("[");
+    if (bracket >= 0) {
+      const name = segment.slice(0, bracket);
+      const index = Number(segment.slice(bracket + 1, -1));
+      current =
+        (current as JsonObject | undefined)?.[name] === undefined
+          ? undefined
+          : (current as JsonObject)[name];
+      current = Array.isArray(current) ? current[index] : undefined;
+    } else {
+      current =
+        current === null || typeof current !== "object"
+          ? undefined
+          : (current as JsonObject)[segment];
+    }
+  }
+  return current;
+}
+
+/** Containment: every (nested) member of `expected` equals `actual`'s. */
+function detailsContain(actual: unknown, expected: unknown): boolean {
+  if (
+    expected !== null &&
+    typeof expected === "object" &&
+    !Array.isArray(expected)
+  ) {
+    if (actual === null || typeof actual !== "object" || Array.isArray(actual)) {
+      return false;
+    }
+    return Object.entries(expected as JsonObject).every(([key, want]) =>
+      detailsContain((actual as JsonObject)[key], want),
+    );
+  }
+  return JSON.stringify(actual) === JSON.stringify(expected);
+}
+
+function checkExpect(
+  caseId: string,
+  expectObj: JsonObject,
+  outcome: StepOutcome,
+  providerCalls: number,
+): void {
+  const code = expectObj.error_code as string | undefined;
+  if (code !== undefined) {
+    expect(
+      outcome.kind,
+      `case ${caseId}: expected reject ${code}, got ${JSON.stringify(outcome)}`,
+    ).toBe("reject");
+    if (outcome.kind !== "reject") {
+      return;
+    }
+    if (code === "capability_missing" || code === "op_unsupported") {
+      // Dispatch-layer wire codes arrive client-side mapped to
+      // CAPABILITY_PORT_MISSING with details.wire_code preserved.
+      expect(outcome.code, `case ${caseId}: mapped wire code`).toBe(
+        "CAPABILITY_PORT_MISSING",
+      );
+      expect(
+        pathGet(outcome.details, "wire_code"),
+        `case ${caseId}: details.wire_code`,
+      ).toBe(code);
+    } else {
+      expect(outcome.code, `case ${caseId}: reject code`).toBe(code);
+    }
+    if (expectObj.details !== undefined) {
+      expect(
+        detailsContain(outcome.details, expectObj.details),
+        `case ${caseId}: details ${JSON.stringify(expectObj.details)} not contained in ${JSON.stringify(outcome.details)}`,
+      ).toBe(true);
+    }
+    for (const key of (expectObj.absent_details ?? []) as string[]) {
+      const present =
+        outcome.details !== null &&
+        typeof outcome.details === "object" &&
+        key in (outcome.details as JsonObject);
+      expect(
+        present,
+        `case ${caseId}: details.${key} must be absent (generic absence)`,
+      ).toBe(false);
+    }
+  } else {
+    expect(
+      expectObj.success,
+      `case ${caseId}: expect must carry error_code or success`,
+    ).toBe(true);
+    expect(
+      outcome.kind,
+      `case ${caseId}: expected success, got ${JSON.stringify(outcome)}`,
+    ).toBe("value");
+    if (outcome.kind !== "value") {
+      return;
+    }
+    for (const assertion of (expectObj.state ?? []) as Array<{
+      path: string;
+      equals: unknown;
+    }>) {
+      expect(
+        pathGet(outcome.value, assertion.path),
+        `case ${caseId}: state.${assertion.path}`,
+      ).toEqual(assertion.equals);
+    }
+    for (const path of (expectObj.present ?? []) as string[]) {
+      expect(
+        pathGet(outcome.value, path) !== undefined,
+        `case ${caseId}: member ${path} must be present`,
+      ).toBe(true);
+    }
+    for (const path of (expectObj.absent ?? []) as string[]) {
+      expect(
+        pathGet(outcome.value, path) === undefined,
+        `case ${caseId}: member ${path} must be absent`,
+      ).toBe(true);
+    }
+  }
+  const wantCalls = expectObj.provider_calls as number | undefined;
+  if (wantCalls !== undefined) {
+    expect(providerCalls, `case ${caseId}: provider call count`).toBe(wantCalls);
+  }
+}
+
+// ── Corpus ────────────────────────────────────────────────────────────────
+
+interface CorpusCase {
+  id: string;
+  invariant: string;
+  surface: string;
+  outcome: string;
+  what: string;
+  input: CaseInput;
+  setup?: Array<JsonObject>;
+  op: string;
+  request: JsonObject;
+  expect: JsonObject;
+  then?: Array<JsonObject>;
+  requires?: string[];
+}
+
+interface Scenario {
+  id: string;
+  cases: CorpusCase[];
+}
+
+function loadScenarios(): Scenario[] {
+  const corpusDir = new URL(
+    "../../../../fixtures/adoption-conformance/",
+    import.meta.url,
+  );
+  const files = readdirSync(corpusDir)
+    .filter((name) => name.endsWith(".json"))
+    .sort();
+  return files.map((name) => {
+    const doc = JSON.parse(
+      readFileSync(new URL(name, corpusDir), "utf8"),
+    ) as Scenario;
+    return { id: doc.id, cases: doc.cases ?? [] };
+  });
+}
+
+const REQUIRED_SCENARIOS = [
+  "adopt-basic",
+  "anchor-immutable",
+  "idempotent-repeat",
+  "private-source",
+  "retirement-chain",
+  "revision-conflict",
+];
+
+const EXPECT_KEYS: Record<string, true> = {
+  error_code: true,
+  details: true,
+  absent_details: true,
+  success: true,
+  state: true,
+  present: true,
+  absent: true,
+  provider_calls: true,
+};
+
+const CORPUS_OPS: Record<string, true> = {
+  "knowledge.adopt": true,
+  "port.knowledge.get": true,
+  "port.knowledge.put": true,
+};
+
+describe("adoption-conformance corpus integrity", () => {
+  it("covers the required scenarios with well-formed cases", () => {
+    const scenarios = loadScenarios();
+    const ids = scenarios.map((scenario) => scenario.id);
+    for (const required of REQUIRED_SCENARIOS) {
+      expect(ids, `scenario ${required} missing`).toContain(required);
+    }
+    const seen = new Set<string>();
+    for (const scenario of scenarios) {
+      for (const corpusCase of scenario.cases) {
+        expect(seen.has(corpusCase.id), `duplicate case id ${corpusCase.id}`).toBe(
+          false,
+        );
+        seen.add(corpusCase.id);
+        expect(["wire", "service"]).toContain(corpusCase.surface);
+        expect(corpusCase.outcome).toBe("identical");
+        expect(typeof corpusCase.invariant).toBe("string");
+        expect(typeof corpusCase.what).toBe("string");
+        expect(typeof corpusCase.request).toBe("object");
+        expect(CORPUS_OPS[corpusCase.op], `case ${corpusCase.id} op`).toBe(
+          true,
+        );
+        for (const key of Object.keys(corpusCase.expect)) {
+          expect(
+            EXPECT_KEYS[key],
+            `case ${corpusCase.id}: unknown expect key ${key}`,
+          ).toBe(true);
+        }
+        expect(
+          corpusCase.expect.error_code !== undefined ||
+            corpusCase.expect.success !== undefined,
+          `case ${corpusCase.id}: expect needs error_code or success`,
+        ).toBe(true);
+        for (const stepList of [corpusCase.setup ?? [], corpusCase.then ?? []]) {
+          for (const step of stepList) {
+            expect(
+              CORPUS_OPS[step.op as string],
+              `case ${corpusCase.id} step op`,
+            ).toBe(true);
+            expect(typeof step.request).toBe("object");
+            for (const key of Object.keys(
+              (step.expect ?? {}) as JsonObject,
+            )) {
+              expect(
+                EXPECT_KEYS[key],
+                `case ${corpusCase.id}: unknown step expect key ${key}`,
+              ).toBe(true);
+            }
+          }
+        }
+        for (const source of corpusCase.input.sources ?? []) {
+          expect(typeof source.entry_id).toBe("string");
+          expect(typeof source.entry).toBe("object");
+          expect(source.entry.entry_id).toBe(source.entry_id);
+        }
+      }
+    }
+  });
+});
+
+/**
+ * Run one case end-to-end: seed the fixture tables, attach the service
+ * (or not), dial the loopback for wire cases, execute setup → op → then,
+ * and assert every step's expect vocabulary.
+ */
+async function runCase(corpusCase: CorpusCase): Promise<void> {
+  const surface = corpusCase.surface ?? "wire";
+  const input = corpusCase.input ?? {};
+  const state = fixtureState(input);
+  const port = scriptedAdoptionPort(state);
+  const viewpoint = input.admitted_viewpoint;
+  const service: RemoteAdoptionService = new AdoptionPortService(
+    port,
+    (peerId) =>
+      spokeOk({
+        principal: { principal_id: `prn_${peerId}`, extensions: {} },
+        scope: {
+          scope_id: DESTINATION_SCOPE,
+          ...(viewpoint !== undefined ? { viewpoint } : {}),
+          extensions: {},
+        },
+      }),
+    input.dedup_capacity === undefined
+      ? undefined
+      : {
+          dedupStore: new InMemoryHistoryDedupStore({
+            maxEntries: input.dedup_capacity,
+          }),
+        },
+  );
+  const adoptionFace = input.adoption_face ?? true;
+  const clientCaps = input.client_capabilities ?? CLIENT_CAPABILITIES;
+  const hostCaps = input.host_capabilities ?? HOST_CAPABILITIES;
+
+  // Wire surface: dial a responder whose composite carries the service
+  // (or not) plus the knowledge face over the shared destination store;
+  // service surface talks to the service directly.
+  const host =
+    surface === "wire"
+      ? await dialAdoptionHost({
+          clientCapabilities: clientCaps,
+          hostCapabilities: hostCaps,
+          ports: {
+            knowledge: {
+              store: fixtureScopedStore(state),
+              admission: () =>
+                spokeOk({ scope_id: DESTINATION_SCOPE, extensions: {} }),
+            },
+            asAdoption: adoptionFace ? () => service : undefined,
+          },
+        })
+      : undefined;
+  const clientPeer = derivePeerIdFromEd25519Pubkey(
+    getPublicKeyEd25519(seed(0xb0)),
+  );
+
+  try {
+    const execute = async (step: StepRequest): Promise<StepOutcome> =>
+      runStep(surface, host, service, clientPeer, step);
+
+    // setup steps: execute, honoring an optional per-step expect.
+    for (const step of corpusCase.setup ?? []) {
+      const parsed = parseStep(step);
+      const outcome = await execute(parsed);
+      if (step.expect !== undefined) {
+        checkExpect(corpusCase.id, step.expect as JsonObject, outcome, state.calls.length);
+      } else if (outcome.kind === "reject") {
+        throw new Error(
+          `setup step rejected: ${JSON.stringify(outcome)}`,
+        );
+      }
+    }
+
+    // The op under test.
+    const parsedOp = parseStep(corpusCase as unknown as JsonObject);
+    const outcome = await execute(parsedOp);
+    checkExpect(corpusCase.id, corpusCase.expect, outcome, state.calls.length);
+
+    // then steps.
+    for (const step of corpusCase.then ?? []) {
+      const parsed = parseStep(step);
+      const outcome = await execute(parsed);
+      if (step.expect !== undefined) {
+        checkExpect(corpusCase.id, step.expect as JsonObject, outcome, state.calls.length);
+      }
+    }
+  } finally {
+    host?.close();
+  }
+}
+
+describe("adoption wire conformance (fixtures/adoption-conformance)", () => {
+  const scenarios = loadScenarios();
+  for (const scenario of scenarios) {
+    for (const corpusCase of scenario.cases) {
+      it(`${scenario.id}/${corpusCase.id}`, async () => {
+        await runCase(corpusCase);
+      });
+    }
+  }
+});

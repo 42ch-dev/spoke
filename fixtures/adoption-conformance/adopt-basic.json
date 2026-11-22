@@ -1,0 +1,253 @@
+{
+  "id": "adopt-basic",
+  "title": "Adopt a shared KnowledgeEntry — outcome adopted, anchor written, copy rules, capability gate",
+  "protocol_refs": [
+    "§KnowledgeAdoptRequest and response",
+    "§Copy rules and create-only OCC",
+    "§Connect operation and capability gate"
+  ],
+  "cases": [
+    {
+      "id": "adopt-shared-entry-writes-anchor",
+      "invariant": "§KnowledgeAdoptRequest and response",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a live shared source adopts into the destination scope with outcome adopted and entry.adoption_anchor recording the source triple",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_mira_harbor",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_mira_harbor",
+              "entry_type": "character",
+              "canonical_name": "Mira",
+              "status": "confirmed",
+              "revision": 3,
+              "body": { "tags": ["pov"], "state": {}, "attributes": [] },
+              "source_anchor": {
+                "schema_version": 1,
+                "source_id": "manuscript:tw-ch1",
+                "span": { "start": 48, "end": 312 },
+                "label": "Harbor arrival scene",
+                "extensions": {}
+              },
+              "modules": {
+                "cognition": { "world_facts": [] },
+                "mental": { "beliefs": [] }
+              },
+              "owner": "vp_other",
+              "disclosure": "shared-public",
+              "extensions": {
+                "mindcore_adoption": { "source_revision": 3 },
+                "nexus": { "world_id": "wld_toy_nexus_001" },
+                "creader": {}
+              }
+            }
+          }
+        ],
+        "admitted_viewpoint": "vp_caller",
+        "destination_governance": { "owner": "vp_caller", "disclosure": "owner-private" }
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_mira_harbor",
+        "source_revision": 3,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "adopt-basic-1",
+        "extensions": {}
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          { "path": "outcome", "equals": "adopted" },
+          { "path": "entry.entry_id", "equals": "ke_mira_harbor" },
+          { "path": "entry.entry_type", "equals": "character" },
+          { "path": "entry.canonical_name", "equals": "Mira" },
+          { "path": "entry.adoption_anchor.schema_version", "equals": 1 },
+          { "path": "entry.adoption_anchor.source_scope_id", "equals": "spc_shared" },
+          { "path": "entry.adoption_anchor.source_entry_id", "equals": "ke_mira_harbor" },
+          { "path": "entry.adoption_anchor.source_revision", "equals": 3 },
+          { "path": "entry.modules.mental", "equals": { "beliefs": [] } },
+          { "path": "entry.extensions.nexus", "equals": { "world_id": "wld_toy_nexus_001" } },
+          { "path": "entry.extensions.creader", "equals": {} },
+          { "path": "entry.owner", "equals": "vp_caller" },
+          { "path": "entry.disclosure", "equals": "owner-private" }
+        ],
+        "present": ["entry.adoption_anchor", "entry.modules", "entry.extensions.creader"],
+        "absent": [
+          "entry.source_anchor",
+          "entry.modules.cognition",
+          "entry.extensions.mindcore_adoption"
+        ],
+        "provider_calls": 1
+      },
+      "then": [
+        {
+          "op": "port.knowledge.get",
+          "request": { "entry_id": "ke_mira_harbor" },
+          "expect": {
+            "success": true,
+            "state": [
+              { "path": "adoption_anchor.source_entry_id", "equals": "ke_mira_harbor" },
+              { "path": "adoption_anchor.source_revision", "equals": 3 }
+            ],
+            "absent": ["source_anchor"]
+          }
+        }
+      ],
+      "requires": [
+        "the adoption destination store and the knowledge face's scoped store share the destination map so the written copy is observable through port.knowledge.get"
+      ]
+    },
+    {
+      "id": "adopt-with-destination-entry-id",
+      "invariant": "§KnowledgeAdoptRequest and response",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a supplied destination_entry_id names the copy while the anchor still records the source triple",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_mira_harbor",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_mira_harbor",
+              "entry_type": "character",
+              "canonical_name": "Mira",
+              "status": "confirmed",
+              "revision": 3,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_mira_harbor",
+        "source_revision": 3,
+        "destination_scope_id": "spc_local",
+        "destination_entry_id": "ke_my_mira",
+        "idempotency_key": "adopt-basic-2",
+        "extensions": {}
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          { "path": "outcome", "equals": "adopted" },
+          { "path": "entry.entry_id", "equals": "ke_my_mira" },
+          { "path": "entry.adoption_anchor.source_entry_id", "equals": "ke_mira_harbor" }
+        ],
+        "provider_calls": 1
+      },
+      "then": [
+        {
+          "op": "port.knowledge.get",
+          "request": { "entry_id": "ke_my_mira" },
+          "expect": {
+            "success": true,
+            "state": [
+              { "path": "adoption_anchor.source_entry_id", "equals": "ke_mira_harbor" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "capability-gate-denial-without-port-call",
+      "invariant": "§Connect operation and capability gate",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a session that did not negotiate spoke-knowledge-adoption answers capability_missing and never reaches the port",
+      "input": {
+        "client_capabilities": ["spoke-knowledge"],
+        "sources": []
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_any",
+        "source_revision": 0,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "adopt-gated",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "capability_missing",
+        "provider_calls": 0
+      }
+    },
+    {
+      "id": "co-capability-gate-denial",
+      "invariant": "§Connect operation and capability gate",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "spoke-knowledge-adoption without the mandatory spoke-knowledge co-capability still fails the compound gate with capability_missing",
+      "input": {
+        "client_capabilities": ["spoke-knowledge-adoption"],
+        "sources": []
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_any",
+        "source_revision": 0,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "adopt-gated-co",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "capability_missing",
+        "provider_calls": 0
+      }
+    },
+    {
+      "id": "absent-face-dispatch-deny",
+      "invariant": "§Connect operation and capability gate",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a host that advertises spoke-knowledge-adoption but provides no service answers the documented op_unsupported dispatch-deny branch",
+      "input": {
+        "adoption_face": false,
+        "sources": []
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_any",
+        "source_revision": 0,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "adopt-noface",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "op_unsupported"
+      }
+    },
+    {
+      "id": "invalid-input-missing-idempotency-key",
+      "invariant": "§KnowledgeAdoptRequest and response",
+      "surface": "service",
+      "outcome": "identical",
+      "what": "a payload missing the required idempotency_key answers INVALID_INPUT at the service decode boundary before admission or any port call",
+      "input": {
+        "sources": []
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_any",
+        "source_revision": 0,
+        "destination_scope_id": "spc_local",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "INVALID_INPUT",
+        "provider_calls": 0
+      }
+    }
+  ]
+}

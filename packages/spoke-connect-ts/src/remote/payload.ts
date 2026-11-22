@@ -220,6 +220,16 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   "memory.imports.stage": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   "memory.imports.activate": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   "memory.imports.discard": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  // note: `knowledge.adopt` success branch (knowledge-adopt-response
+  // schema): `{ outcome, entry }` — the error branch never reaches this
+  // gate (a refusal answers the connect error envelope).
+  "knowledge.adopt": {
+    kind: "object",
+    fields: [
+      { name: "outcome", kind: "string" },
+      { name: "entry", kind: "object" },
+    ],
+  },
   extract: {
     kind: "object",
     fields: [

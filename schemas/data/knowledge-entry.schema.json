@@ -62,6 +62,10 @@
       "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json",
       "description": "Optional provenance pointer."
     },
+    "adoption_anchor": {
+      "$ref": "https://spoke42.invalid/schemas/data/adoption-anchor.schema.json",
+      "description": "Optional adoption provenance (spoke-knowledge-adoption). Present when this entry is an adopted copy; points at the resolved terminal live source. A normal put must preserve it unchanged (ADOPTION_ANCHOR_IMMUTABLE)."
+    },
     "revision": {
       "type": "integer",
       "minimum": 0,

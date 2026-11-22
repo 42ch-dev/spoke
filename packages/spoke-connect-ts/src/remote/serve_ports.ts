@@ -16,12 +16,18 @@
 
 import canonicalize from "canonicalize";
 
-import type { Principal, RevisionSnapshot, Scope } from "@42ch/spoke-schemas";
+import type {
+  KnowledgeAdoptRequest,
+  Principal,
+  RevisionSnapshot,
+  Scope,
+} from "@42ch/spoke-schemas";
 import {
   jcsSha256Hex,
   SpokeRejectCode,
   spokeOk,
   spokeReject,
+  type AdoptionPort,
   type HistoryPort,
   type SpokeReject,
   type SpokeResult,
@@ -567,4 +573,347 @@ function validServedPruneResult(value: unknown): SpokeResult<unknown> {
     deleted: value.deleted,
     floor_revision: value.floor_revision,
   });
+}
+
+/**
+ * note: the `spoke-knowledge-adoption` serving face (spoke-knowledge-
+ * adoption contract §Connect operation and capability gate /
+ * §Repeat and idempotency). `RemoteAdoptionService` is the invoke seam
+ * the responder calls for `knowledge.adopt`; `AdoptionPortService`
+ * adapts a provider `AdoptionPort` to that face, mirroring
+ * `RemoteHistoryService` / `HistoryPortService` (Rust parity:
+ * `crates/spoke-connect/src/remote/serve_ports.rs`).
+ *
+ * The service owns the two concerns the contract keeps OUT of
+ * `AdoptionPort`: peer admission (`AdoptionAdmission` maps the
+ * authenticated `peer_id` to the `Principal` and admitted `Scope`) and
+ * connect idempotency deduplication (the `(effective_scope,
+ * requester_principal_id, op, idempotency_key)` namespace with the
+ * SHA-256 / RFC 8785 request digest). Retirement resolution, owner-
+ * private absence, copy rules and create-only OCC all live in the
+ * provider port — they never reach this seam.
+ */
+
+/**
+ * Admission context: maps the authenticated connect peer to the
+ * `Principal` and the `Scope` the provider admits for source visibility
+ * and destination authorization (MEM-R003 parity; contract
+ * §Standalone `AdoptionPort`). Both come from the host's admission
+ * context, never from the payload — the request carries scope ids, not a
+ * declared `Scope`.
+ */
+export type AdoptionAdmission = (
+  peerId: string,
+) => SpokeResult<{ principal: Principal; scope: Scope }>;
+
+/** note: `knowledge.adopt` wire op. */
+export const KNOWLEDGE_OP_ADOPT = "knowledge.adopt";
+
+/** note: closed request shape (Rust `deny_unknown_fields` parity). */
+const ADOPTION_ADOPT_WIRE_KEYS = new Set([
+  "source_scope_id",
+  "source_entry_id",
+  "source_revision",
+  "destination_scope_id",
+  "destination_entry_id",
+  "idempotency_key",
+  "extensions",
+]);
+
+function adoptionInputReject(op: string, detail: string): SpokeReject {
+  return spokeReject(
+    SpokeRejectCode.INVALID_INPUT,
+    `${op} request decode failed: ${detail}`,
+  );
+}
+
+/**
+ * Decode and validate one `knowledge.adopt` payload against the closed
+ * `KnowledgeAdoptRequest` schema — undeclared members, empty or missing
+ * selectors, a negative or non-integer `source_revision`, and a missing /
+ * over-length `idempotency_key` (1–128 Unicode code points, never
+ * UTF-16 code units) answer `INVALID_INPUT` at the receiving boundary,
+ * before admission, dedup, and any port call (Rust parity: the generated
+ * `KnowledgeAdoptRequest` decoder). The returned request keeps its
+ * `idempotency_key` — dedup consumes it here; the port call drops it
+ * because the connect idempotency envelope is a connect-layer concern.
+ */
+export function decodeAdoptionCall(
+  op: string,
+  payload: unknown,
+): SpokeResult<KnowledgeAdoptRequest> {
+  if (!isJsonObject(payload)) {
+    return adoptionInputReject(op, "payload must be an object");
+  }
+  if (op !== KNOWLEDGE_OP_ADOPT) {
+    return adoptionInputReject(op, `unknown adoption op ${op}`);
+  }
+  for (const key of Object.keys(payload)) {
+    if (!ADOPTION_ADOPT_WIRE_KEYS.has(key)) {
+      return adoptionInputReject(op, `undeclared member ${key}`);
+    }
+  }
+  const requireNonEmptyString = (key: string): string | SpokeReject => {
+    const value = payload[key];
+    if (typeof value !== "string" || value.length === 0) {
+      return adoptionInputReject(op, `${key} must be a non-empty string`);
+    }
+    return value;
+  };
+  const sourceScopeId = requireNonEmptyString("source_scope_id");
+  if (typeof sourceScopeId !== "string") return sourceScopeId;
+  const sourceEntryId = requireNonEmptyString("source_entry_id");
+  if (typeof sourceEntryId !== "string") return sourceEntryId;
+  const destinationScopeId = requireNonEmptyString("destination_scope_id");
+  if (typeof destinationScopeId !== "string") return destinationScopeId;
+  const idempotencyKey = payload.idempotency_key;
+  if (typeof idempotencyKey !== "string") {
+    return adoptionInputReject(op, "idempotency_key must be a string");
+  }
+  // why: the contract counts Unicode code points, not UTF-16 units or
+  // UTF-8 bytes — spread iterates code points.
+  const keyLength = [...idempotencyKey].length;
+  if (keyLength < 1 || keyLength > 128) {
+    return adoptionInputReject(
+      op,
+      "idempotency_key must be 1–128 Unicode code points",
+    );
+  }
+  const sourceRevision = payload.source_revision;
+  if (
+    typeof sourceRevision !== "number" ||
+    !Number.isSafeInteger(sourceRevision) ||
+    sourceRevision < 0
+  ) {
+    return adoptionInputReject(
+      op,
+      "source_revision must be a non-negative integer",
+    );
+  }
+  const destinationEntryId = payload.destination_entry_id;
+  if (
+    destinationEntryId !== undefined &&
+    (typeof destinationEntryId !== "string" || destinationEntryId.length === 0)
+  ) {
+    return adoptionInputReject(
+      op,
+      "destination_entry_id must be a non-empty string when present",
+    );
+  }
+  if (
+    payload.extensions !== undefined &&
+    !isValidExtensionMap(payload.extensions)
+  ) {
+    return adoptionInputReject(op, "extensions must be an ExtensionMap");
+  }
+  return spokeOk({
+    source_scope_id: sourceScopeId,
+    source_entry_id: sourceEntryId,
+    source_revision: sourceRevision,
+    destination_scope_id: destinationScopeId,
+    ...(destinationEntryId !== undefined
+      ? { destination_entry_id: destinationEntryId }
+      : {}),
+    idempotency_key: idempotencyKey,
+    ...(payload.extensions !== undefined
+      ? { extensions: payload.extensions as KnowledgeAdoptRequest["extensions"] }
+      : {}),
+  });
+}
+
+/**
+ * Remote-only adoption service seam (spoke-knowledge-adoption contract
+ * §Connect operation): the serving face a responder host attaches to
+ * answer `knowledge.adopt`. It owns peer admission and the connect
+ * idempotency envelope — the dedup namespace and request digest never
+ * reach the provider `AdoptionPort` (contract §Repeat and idempotency;
+ * mirroring `RemoteHistoryService`; Rust parity:
+ * `RemoteServePorts::as_adoption`).
+ */
+export interface RemoteAdoptionService {
+  invoke(
+    peerId: string,
+    op: string,
+    payload: unknown,
+  ): Promise<SpokeResult<unknown>>;
+}
+
+/**
+ * The adoption dedup store (contract §Repeat and idempotency), keyed
+ * `(effective_scope, requester_principal_id, op, idempotency_key)` and
+ * recording `{payload_digest, outcome}`. Host-injectable for durable
+ * persistence — entries MUST outlive a Connect session and the
+ * principal-bound namespace MUST stay stable across reconnects.
+ * Identical shape to `HistoryDedupStore`.
+ */
+export type AdoptionDedupStore = HistoryDedupStore;
+
+/**
+ * `RemoteAdoptionService` over a provider `AdoptionPort`
+ * (spoke-knowledge-adoption contract): admission maps the authenticated
+ * peer to its `Principal` + admitted `Scope`; dedup runs the
+ * recorded-outcome model before the admitted call reaches the port —
+ * same key + same digest returns the recorded outcome, same key +
+ * different digest refuses `IDEMPOTENCY_CONFLICT` (contract §Repeat and
+ * idempotency: the MemoryPort model). The service validates provider
+ * success values before emitting them: the emitted `knowledge.adopt`
+ * success response is `{ outcome, entry }` per the
+ * `KnowledgeAdoptResponse` success branch — a malformed provider result
+ * answers `INTERNAL_ERROR` `details.kind = "transport"`, never `Ok`.
+ */
+export class AdoptionPortService implements RemoteAdoptionService {
+  readonly #port: AdoptionPort;
+  readonly #admission: AdoptionAdmission;
+  readonly #dedup: HistoryDedupStore;
+  /**
+   * note: same-key serialization (Rust parity: `dedup_lock` — one mutex
+   * covers lookup → port call → record so two overlapping same-key
+   * adoptions cannot both observe `unseen` and execute twice). One FIFO
+   * promise chain covers the whole dedup section.
+   */
+  #dedupQueue: Promise<void> = Promise.resolve();
+
+  constructor(
+    port: AdoptionPort,
+    admission: AdoptionAdmission,
+    options?: { dedupStore?: HistoryDedupStore },
+  ) {
+    this.#port = port;
+    this.#admission = admission;
+    this.#dedup = options?.dedupStore ?? new InMemoryHistoryDedupStore();
+  }
+
+  async invoke(
+    peerId: string,
+    op: string,
+    payload: unknown,
+  ): Promise<SpokeResult<unknown>> {
+    const admitted = this.#admission(peerId);
+    if (!admitted.ok) {
+      return admitted;
+    }
+    const decoded = decodeAdoptionCall(op, payload);
+    if (!decoded.ok) {
+      return decoded;
+    }
+    const { principal, scope: effectiveScope } = admitted.value;
+    const request = decoded.value;
+    const digestResult = jcsSha256Hex(payload);
+    if (!digestResult.ok) {
+      return digestResult;
+    }
+    const scopeDigest = jcsSha256Hex(effectiveScope);
+    if (!scopeDigest.ok) {
+      return scopeDigest;
+    }
+    const dedupKey = `${scopeDigest.value}|${principal.principal_id}|${op}|${request.idempotency_key}`;
+    // note: one FIFO queue covers lookup → port call → record (Rust
+    // parity: `dedup_lock`) — overlapping same-key adoptions cannot both
+    // observe `unseen` and execute twice.
+    const settled = this.#dedupQueue.then(() =>
+      this.#dedupAdopt(
+        principal,
+        effectiveScope,
+        request,
+        dedupKey,
+        digestResult.value,
+      ),
+    );
+    this.#dedupQueue = settled.then(
+      () => undefined,
+      () => undefined,
+    );
+    return settled;
+  }
+
+  async #dedupAdopt(
+    principal: Principal,
+    effectiveScope: Scope,
+    request: KnowledgeAdoptRequest,
+    dedupKey: string,
+    payloadDigest: string,
+  ): Promise<SpokeResult<unknown>> {
+    const existing = await this.#dedup.lookup(dedupKey);
+    if (existing.status === "evicted") {
+      return spokeReject(
+        SpokeRejectCode.RECEIPT_EXPIRED,
+        "adoption idempotency record was evicted; the recorded outcome is no longer available and the adoption is not re-executed",
+      );
+    }
+    if (existing.status === "found") {
+      if (existing.payloadDigest !== payloadDigest) {
+        return spokeReject(
+          SpokeRejectCode.IDEMPOTENCY_CONFLICT,
+          "idempotency_key replayed with a different payload digest",
+        );
+      }
+      // note: same-key same-digest replay returns the recorded outcome —
+      // no port call — but the wire `outcome` normalizes to
+      // `already_present` (contract §Repeat and idempotency: "the same key
+      // and same request digest return the existing copy with outcome
+      // already_present"); recorded refusals replay verbatim.
+      const recorded = existing.outcome as SpokeResult<unknown>;
+      if (
+        recorded.ok &&
+        isJsonObject(recorded.value) &&
+        "outcome" in recorded.value
+      ) {
+        return spokeOk({
+          ...recorded.value,
+          outcome: "already_present",
+        });
+      }
+      return recorded;
+    }
+    // note: `idempotency_key` is a connect-layer dedup concern that never
+    // reaches the port (spoke-knowledge-adoption contract §AdoptionPort —
+    // the port signature deliberately omits it).
+    const { idempotency_key: _connectKey, ...portRequest } = request;
+    const result = await this.#port.adoptKnowledgeEntry(
+      principal,
+      effectiveScope,
+      portRequest as KnowledgeAdoptRequest,
+    );
+    // note: validate the provider's success — a malformed adopt response
+    // is a transport decode reject, never `Ok`. Either settled outcome —
+    // refusal, validated success, or the malformed-success reject — is
+    // recorded: a same-digest replay returns the recorded outcome
+    // verbatim and never re-executes.
+    const outcome = result.ok ? validServedAdoptResult(result.value) : result;
+    await this.#dedup.record(dedupKey, payloadDigest, outcome);
+    return outcome;
+  }
+}
+
+/**
+ * note: served-side adopt-response validation — the emitted success value
+ * is the `KnowledgeAdoptResponse` success branch `{ outcome, entry }`:
+ * `outcome` is `"adopted"` or `"already_present"` and `entry` is a plain
+ * object (the destination `KnowledgeEntry`). Anything else is a transport
+ * decode reject, never `Ok`.
+ */
+function validServedAdoptResult(value: unknown): SpokeResult<unknown> {
+  if (!isJsonObject(value)) {
+    return spokeReject(
+      SpokeRejectCode.INTERNAL_ERROR,
+      "adoption provider returned a non-object response",
+      { kind: "transport" },
+    );
+  }
+  const outcome = value.outcome;
+  if (outcome !== "adopted" && outcome !== "already_present") {
+    return spokeReject(
+      SpokeRejectCode.INTERNAL_ERROR,
+      "adoption provider returned an invalid outcome member",
+      { kind: "transport" },
+    );
+  }
+  if (!isJsonObject(value.entry)) {
+    return spokeReject(
+      SpokeRejectCode.INTERNAL_ERROR,
+      "adoption provider returned a missing or malformed entry member",
+      { kind: "transport" },
+    );
+  }
+  return spokeOk({ outcome, entry: value.entry });
 }

@@ -4,6 +4,7 @@ use crate::adapter::ports::{
     BaselinePorts, ComputablePorts, ExtractRunInput, ExtractionPort, ExtractionResult, ForkPorts,
     KnowledgeEntryPort, RelationPort,
 };
+use crate::adoption::assert_adoption_anchor_preserved;
 use crate::assemble::{build_assemble_packet, BuildAssemblePacketInput, KnowledgeEntryForAssemble};
 use crate::cognition::CurrentViewPolicy;
 use crate::computable::{validate_compute_request, validate_project_request};
@@ -219,6 +220,11 @@ pub async fn orchestrate_upsert(
             return SpokeResult::Reject(reject);
         }
 
+        if let SpokeResult::Reject(reject) =
+            assert_adoption_anchor_preserved(&candidate, stored.as_ref())
+        {
+            return SpokeResult::Reject(reject);
+        }
         let expected_base_revision = stored
             .as_ref()
             .map(|stored| stored.revision.unwrap_or(0));

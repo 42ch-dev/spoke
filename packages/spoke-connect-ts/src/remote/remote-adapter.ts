@@ -32,6 +32,8 @@ import type {
   Finding,
   ForkId,
   HostCapabilityManifest,
+  KnowledgeAdoptRequest,
+  KnowledgeAdoptResponse,
   KnowledgeEntry,
   MemoryCandidatesDismissRequest,
   MemoryCandidatesDismissResponse,
@@ -115,6 +117,7 @@ import {
   spokeOk,
   spokeReject,
   toErrorEnvelope,
+  type AdoptionPort,
   type BaselinePorts,
   type HistoryPort,
   type HistoryPruneResult,
@@ -370,6 +373,16 @@ export const HISTORY_OPS = {
   pruneHistory: "history.revisions.prune",
 } as const;
 
+/**
+ * Adoption-port method → `knowledge.*` op (spoke-knowledge-adoption
+ * contract §Connect operation). Exported so the cross-language golden
+ * vectors can assert the adapter's op table row-for-row against the Rust
+ * `AdoptionPort for RemoteAdapter` impl.
+ */
+export const ADOPTION_OPS = {
+  adoptKnowledgeEntry: "knowledge.adopt",
+} as const;
+
 /** Raw Ed25519 keypair material for the local connect peer. */
 export interface RemoteIdentity {
   seed: Uint8Array;
@@ -433,7 +446,7 @@ export type ToolHandler = (
  * session. Construct via `connectRemoteAdapter` — the constructor alone
  * yields an un-established adapter that fails closed on every port call.
  */
-export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort {
+export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, AdoptionPort {
   readonly #transport: Transport;
   readonly #invokeTimeoutMs: number;
   /** note: this adapter's raw 32-byte Ed25519 seed (hello identity — signs outbound envelopes). */
@@ -1056,6 +1069,33 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort {
     return this.#invokeMapped<HistoryPruneResult>(
       HISTORY_OPS.pruneHistory,
       request,
+    );
+  }
+
+  // note: AdoptionPort — spoke-knowledge-adoption contract §Connect operation
+
+  /**
+   * note: client `AdoptionPort` over the session — `adopt` sends the
+   * `KnowledgeAdoptRequest` object (its required `idempotency_key` is
+   * caller-owned for retries, matching the contract's connect dedup
+   * namespace) and returns the response envelope verbatim
+   * (`{ outcome, entry }` on the success branch). `principal` and `scope`
+   * are the LOCAL admission context — over the wire the serving host
+   * admits the authenticated peer (MEM-R003 parity; they are not sent).
+   * The responder's compound gate is the only capability authority: an
+   * unnegotiated `spoke-knowledge-adoption` or `spoke-knowledge` answers
+   * `capability_missing`, mapped to `CAPABILITY_PORT_MISSING` with
+   * `details.wire_code` (Rust parity:
+   * `impl AdoptionPort for RemoteAdapter`). Row mirrors `ADOPTION_OPS`.
+   */
+  async adoptKnowledgeEntry(
+    _principal: Principal,
+    _scope: Scope,
+    request: KnowledgeAdoptRequest,
+  ): Promise<SpokeResult<KnowledgeAdoptResponse>> {
+    return this.#invokeMapped<KnowledgeAdoptResponse>(
+      ADOPTION_OPS.adoptKnowledgeEntry,
+      { ...request },
     );
   }
 

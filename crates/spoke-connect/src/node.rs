@@ -66,6 +66,7 @@ use crate::config::{ConnectConfig, InvokeHandler, InvokeHandlerV2};
 use crate::core::{
     cognition_requirement_present, token_authorizes_op, verify_capability_token,
     CapabilityTokenProof, CoreError, CoreInvokeError, InboundSequence, CAPABILITY_SPOKE_COGNITION,
+    CAPABILITY_SPOKE_KNOWLEDGE, CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION,
 };
 use crate::error::{ConnectError, InvokeError};
 use crate::gate::{gate_hello, is_allowlisted, NonceStore};
@@ -1038,10 +1039,10 @@ impl EventLoop {
                                     .sessions
                                     .get(peer)
                                     .expect("session verified above");
-                                let required = crate::core::required_capability(
+                                let core_required = crate::core::required_capability(
                                     request.op.as_str(),
-                                )
-                                .or_else(|| {
+                                );
+                                let required = core_required.or_else(|| {
                                     self.config
                                         .op_capability_requirements
                                         .get(request.op.as_str())
@@ -1053,6 +1054,20 @@ impl EventLoop {
                                         required,
                                     )
                                 });
+                                // Compound gate (spoke-knowledge-adoption
+                                // contract): `knowledge.adopt` additionally
+                                // requires the mandatory co-capability
+                                // `spoke-knowledge` — neither flag alone
+                                // satisfies the gate. The conjunct reads the
+                                // core-table row only; a product-map override
+                                // never widens or narrows it.
+                                let negotiated_allowed = negotiated_allowed
+                                    && (core_required
+                                        != Some(CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION)
+                                        || crate::core::capability_satisfies(
+                                            &session.negotiated_capabilities,
+                                            CAPABILITY_SPOKE_KNOWLEDGE,
+                                        ));
                                 let token_allowed = token_grant
                                     .as_deref()
                                     .is_none_or(|grant| {

@@ -114,7 +114,7 @@ import {
   isConnectInvokeRequest,
   isConnectInvokeResponse,
 } from "./guards.js";
-import type { RemoteHistoryService } from "./serve_ports.js";
+import type { RemoteAdoptionService, RemoteHistoryService } from "./serve_ports.js";
 import type { RemoteIdentity, ToolHandler } from "./remote-adapter.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
 
@@ -748,17 +748,20 @@ export interface RemoteMemoryService {
 }
 
 /**
- * Remote-only history service seam (spoke-history contract §Connect
- * operations): the serving face a responder host attaches to answer the
- * two `history.*` ops. It owns peer admission, effective-scope
- * resolution, and prune deduplication — the connect idempotency envelope
- * and the closed request decode never reach the provider `HistoryPort`
- * (spoke-history contract §9.1). Re-exported from `serve_ports.ts`, which
- * also ships `HistoryPortService` adapting a provider port to this seam
- * (mirroring `RemoteMemoryService` / `MemoryPortService`; Rust parity:
- * `RemoteServePorts::as_history`).
+ * Remote-only history and adoption service seams (spoke-history contract
+ * §Connect operations; spoke-knowledge-adoption contract §Connect
+ * operation): the serving faces a responder host attaches to answer the
+ * `history.*` ops and `knowledge.adopt`. Each owns peer admission and its
+ * connect-layer dedup — the connect idempotency envelope and the closed
+ * request decode never reach the provider port. Re-exported from
+ * `serve_ports.ts`, which also ships `HistoryPortService` and
+ * `AdoptionPortService` adapting a provider port to each seam (mirroring
+ * `RemoteMemoryService` / `MemoryPortService`; Rust parity:
+ * `RemoteServePorts::as_history` / `::as_adoption`).
  */
 export type {
+  AdoptionAdmission,
+  RemoteAdoptionService,
   HistoryAdmission,
   HistoryCall,
   HistoryDedupStore,
@@ -795,6 +798,16 @@ export interface RemoteServePorts {
    * dispatch-deny branch (Rust parity: `RemoteServePorts::as_history`).
    */
   asHistory?: () => RemoteHistoryService | undefined;
+  /**
+   * note: optional `spoke-knowledge-adoption` service face
+   * (`knowledge.adopt` with connect idempotency dedup), when provided —
+   * attach a provider `AdoptionPort` via `AdoptionPortService`
+   * (`serve_ports.ts`). Absent means the host declared
+   * `spoke-knowledge-adoption` without providing the service — an
+   * `undefined` probe answers the documented `op_unsupported`
+   * dispatch-deny branch (Rust parity: `RemoteServePorts::as_adoption`).
+   */
+  asAdoption?: () => RemoteAdoptionService | undefined;
 }
 
 /** Knowledge-only serve ports: no baseline face, so `assemble` and every other baseline op stays denied. */
@@ -1555,7 +1568,9 @@ export class ConnectResponder {
         // row at all stays `op_unsupported`.
         const memoryBoundary = doc.op.startsWith("memory.");
         const coreGatedDeny =
-          memoryBoundary || doc.op.startsWith("history.");
+          memoryBoundary ||
+          doc.op.startsWith("history.") ||
+          doc.op.startsWith("knowledge.");
         const deny = coreGatedDeny && requiredCapability(doc.op) !== undefined;
         await this.#sendReverseErrorEnvelope(doc, {
           code: deny ? "capability_missing" : "op_unsupported",
@@ -1591,6 +1606,16 @@ export class ConnectResponder {
       // gate → probe → serve/deny order as the optional `port.*` families.
       if (doc.op.startsWith("history.")) {
         await this.#dispatchHistoryInvoke(doc);
+        return;
+      }
+      // note: `knowledge.adopt` is served by the optional injected
+      // `RemoteAdoptionService` face (spoke-knowledge-adoption contract) —
+      // the same gate → probe → serve/deny order as the `history.*`
+      // family; the `knowledge.*` reserved-product prefix owns no other
+      // row, so other `knowledge.*` ops keep falling through to the
+      // `port.*` dispatch-deny path.
+      if (doc.op.startsWith("knowledge.")) {
+        await this.#dispatchAdoptionInvoke(doc);
         return;
       }
       await this.#dispatchPortInvoke(doc);
@@ -2055,6 +2080,86 @@ export class ConnectResponder {
     // note: the service returns the op's response object verbatim —
     // `history.revisions.get` wraps the snapshot under `snapshot`, prune
     // serializes `HistoryPruneResult` (`{ deleted, floor_revision }`).
+    await this.#sendOkResponse(doc, result.value);
+  }
+
+  /**
+   * note: serve a `knowledge.*` invoke (`knowledge.adopt`) through the
+   * optional injected `RemoteAdoptionService` face (spoke-knowledge-
+   * adoption contract §Connect operation). The static compound gate
+   * (`spoke-knowledge-adoption` AND `spoke-knowledge`) already passed in
+   * `#dispatchInvoke` — an unnegotiated `knowledge.adopt` never reaches
+   * here (`capability_missing`). The serving order mirrors the
+   * `history.*` branch: `asAdoption` probe → bounded service invoke →
+   * response envelope. No cognition gate: the request carries scope ids,
+   * not a declared `Scope`, so `cognitionRequirementPresent` has no
+   * carrier (contract §Connect operation — `ke-ownership` stays scoped
+   * to Scope-bearing ops). The service owns the closed request decode,
+   * peer admission, and connect idempotency dedup; an absent face is the
+   * documented dispatch-deny branch.
+   *
+   * The serve bound matches the `history.*` ops: a zero budget answers
+   * the plain timeout without invoking the service at all, while expiry
+   * AFTER invocation means the admitted mutation may have committed —
+   * `OUTCOME_UNCERTAIN`/`uncertain`, recoverable through the
+   * recorded-outcome dedup, never a clean internal error or a silent
+   * re-execution.
+   */
+  async #dispatchAdoptionInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const session = this.#session;
+    if (session === null) {
+      return;
+    }
+    const adoption = this.#ports?.asAdoption?.();
+    if (adoption === undefined) {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "op_unsupported",
+        message: `no adoption service configured for op ${doc.op}`,
+        extensions: {},
+      });
+      return;
+    }
+    // invariant: the admitted principal/scope derive from the authenticated
+    // session peer, never from the payload (MEM-R003 parity; contract
+    // §Admission and owner-private absence).
+    const peerId = this.remotePeerId;
+    const uncertainOnExpiry =
+      this.#invokeTimeoutMs === 0
+        ? undefined
+        : spokeReject(
+            SpokeRejectCode.OUTCOME_UNCERTAIN,
+            `adoption serve wait exceeded the local budget of ${this.#invokeTimeoutMs}ms; the outcome is unknown — replay the same idempotency key`,
+            { retry_class: "uncertain", kind: "timeout" },
+          );
+    let result: SpokeResult<unknown>;
+    try {
+      result = await this.#withServeBudget(
+        () => adoption.invoke(peerId, doc.op, doc.payload),
+        uncertainOnExpiry,
+      );
+    } catch (error) {
+      // why: the service threw or rejected AFTER invocation, so the transport
+      // has no evidence that nothing committed — answer uncertain (same
+      // containment as the memory/history paths), never a clean internal
+      // error.
+      result = spokeReject(
+        SpokeRejectCode.OUTCOME_UNCERTAIN,
+        `adoption service failed after invocation: ${
+          error instanceof Error ? error.message : String(error)
+        }; the outcome is unknown — replay the same idempotency key`,
+        { retry_class: "uncertain", kind: "panic" },
+      );
+    }
+    // note: a close during the bounded wait answers nothing afterwards.
+    if (this.#stateInternal === "Closed") {
+      return;
+    }
+    if (!result.ok) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
+      return;
+    }
+    // note: the service returns the `knowledge.adopt` success branch
+    // verbatim — `{ outcome, entry }`.
     await this.#sendOkResponse(doc, result.value);
   }
 

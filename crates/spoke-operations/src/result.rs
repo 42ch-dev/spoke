@@ -81,6 +81,14 @@ pub enum SpokeRejectCode {
     /// reconstructed — an implementation-declared retention gap
     /// (`details.retention_reason`).
     HistoryNotRetained,
+    // Adoption-family vocabulary (spoke-knowledge-adoption contract §Refusal
+    // vocabulary).
+    /// A normal put attempted to change or remove an existing destination
+    /// `adoption_anchor` (`details.entry_id`).
+    AdoptionAnchorImmutable,
+    /// Retirement-chain resolution hit a cycle, ambiguity, a deleted
+    /// terminal, or the 32-edge limit (`details.retirement_chain`).
+    SourceRetired,
 }
 
 impl SpokeRejectCode {
@@ -130,6 +138,8 @@ impl SpokeRejectCode {
             Self::HistoryTruncated => "HISTORY_TRUNCATED",
             Self::HistoryEntityUnsupported => "HISTORY_ENTITY_UNSUPPORTED",
             Self::HistoryNotRetained => "HISTORY_NOT_RETAINED",
+            Self::AdoptionAnchorImmutable => "ADOPTION_ANCHOR_IMMUTABLE",
+            Self::SourceRetired => "SOURCE_RETIRED",
         }
     }
 
@@ -179,6 +189,8 @@ impl SpokeRejectCode {
             "HISTORY_TRUNCATED" => Some(Self::HistoryTruncated),
             "HISTORY_ENTITY_UNSUPPORTED" => Some(Self::HistoryEntityUnsupported),
             "HISTORY_NOT_RETAINED" => Some(Self::HistoryNotRetained),
+            "ADOPTION_ANCHOR_IMMUTABLE" => Some(Self::AdoptionAnchorImmutable),
+            "SOURCE_RETIRED" => Some(Self::SourceRetired),
             _ => None,
         }
     }

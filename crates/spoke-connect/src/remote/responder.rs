@@ -673,6 +673,44 @@ fn history_panic_uncertain_reject() -> SpokeReject {
     }
 }
 
+/// §14.2/§14.3, adoption face: the serve budget expired AFTER the
+/// adoption service was invoked, so the transport has no evidence that
+/// nothing committed — an adoption may have written its destination copy.
+/// The response says the outcome is unknown instead of claiming a clean
+/// failure; provider work is neither cancelled nor rolled back by this
+/// end, and the settled adoption is still recorded by the service dedup
+/// so a same-key replay recovers it (same rule as `history.*`).
+fn adoption_uncertain_reject(budget: Duration) -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("timeout".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: format!(
+            "adoption serve wait exceeded the local budget of {}ms; the outcome is unknown — replay the same idempotency key",
+            budget.as_millis()
+        ),
+        details: Some(details),
+    }
+}
+
+/// §14.2/§14.3: the detached adoption invoke panicked (or otherwise
+/// dropped its result channel) AFTER invocation, so the transport has no
+/// evidence that nothing committed — a clean `INTERNAL_ERROR` would
+/// assert no-effect. The response says the outcome is unknown instead
+/// (same containment as the memory/history panic paths).
+fn adoption_panic_uncertain_reject() -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("panic".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: "adoption service failed after invocation; the outcome is unknown — replay the same idempotency key"
+            .to_string(),
+        details: Some(details),
+    }
+}
+
 /// A parked reverse invoke: correlation material + the waiter channel + the
 /// timeout task (mirror of the adapter's `PendingInvoke`).
 struct PendingReverseInvoke {
@@ -1327,12 +1365,15 @@ impl ConnectResponder {
         // against `negotiated_capabilities` (never a raw requirements-map
         // composition, which would deny the self-describing tools family).
         if !self.gate_allows(op, &negotiated) {
-            // A `memory.*` or `history.*` op with a core-table row is a
-            // capability gap: the gate evaluates negotiated capabilities
-            // only, so a known op that was not negotiated answers
-            // `capability_missing` (protocol §4.1 / spoke-history contract).
-            // An op with no row at all stays `op_unsupported`.
-            let core_gated_deny = op.starts_with("memory.") || op.starts_with("history.");
+            // A `memory.*`, `history.*` or `knowledge.*` op with a
+            // core-table row is a capability gap: the gate evaluates
+            // negotiated capabilities only, so a known op that was not
+            // negotiated answers `capability_missing` (protocol §4.1 /
+            // spoke-history / spoke-knowledge-adoption contracts). An op
+            // with no row at all stays `op_unsupported`.
+            let core_gated_deny = op.starts_with("memory.")
+                || op.starts_with("history.")
+                || op.starts_with("knowledge.");
             let code = if core_gated_deny && required_capability(op).is_some() {
                 "capability_missing"
             } else {
@@ -1374,6 +1415,18 @@ impl ConnectResponder {
                 .map(Value::take)
                 .unwrap_or_else(|| json!({}));
             self.dispatch_history_invoke(doc, payload, &negotiated).await?;
+            return Ok(());
+        }
+        // `knowledge.*` ops are served by the optional injected
+        // `RemoteAdoptionService` face (spoke-knowledge-adoption
+        // contract): the same gate → probe → serve/deny order as
+        // `history.*`.
+        if op.starts_with("knowledge.") {
+            let payload = doc
+                .get_mut("payload")
+                .map(Value::take)
+                .unwrap_or_else(|| json!({}));
+            self.dispatch_adoption_invoke(doc, payload).await?;
             return Ok(());
         }
         // `extract` is a core op served by an optional injected service
@@ -1891,6 +1944,134 @@ impl ConnectResponder {
                 serve_timeout_reject(self.invoke_timeout)
             } else {
                 history_uncertain_reject(self.invoke_timeout)
+            };
+            self.send_reverse_error_envelope(
+                doc,
+                reject.code.as_str(),
+                &reject.message,
+                reject.details.as_ref(),
+            )
+            .await?;
+            return Ok(());
+        };
+        match result {
+            SpokeResult::Ok(value) => self.send_ok_response(doc, value).await?,
+            SpokeResult::Reject(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Serve a `knowledge.*` invoke through the injected
+    /// [`RemoteAdoptionService`](crate::remote::RemoteAdoptionService)
+    /// face (spoke-knowledge-adoption contract §Connect operation). The
+    /// static capability gate already passed in
+    /// [`ConnectResponder::try_dispatch_invoke`] — `knowledge.adopt`
+    /// requires `spoke-knowledge-adoption` AND `spoke-knowledge`, and a
+    /// known adoption op that was not negotiated never reaches here
+    /// (`capability_missing`). The serving order mirrors the `history.*`
+    /// branch: `as_adoption` probe → bounded service invoke → response
+    /// envelope. The service owns the closed request decode, peer
+    /// admission, effective-scope resolution and idempotency dedup; an
+    /// absent face is the documented dispatch-deny branch (the host
+    /// declared `spoke-knowledge-adoption` without providing the
+    /// service). The request carries scope ids, never a declared `Scope`
+    /// — there is no cognition selection slot, so no cognition gate.
+    ///
+    /// The serve bound matches the `history.*` ops: a zero budget answers
+    /// the plain timeout without invoking the service at all, while
+    /// expiry AFTER invocation means the admitted mutation may have
+    /// committed — that is `OUTCOME_UNCERTAIN`/`uncertain`, recoverable
+    /// through the service's recorded-outcome dedup, never a clean
+    /// internal error or a silent re-execution. The service task keeps
+    /// running past the deadline so a settling adoption still records its
+    /// outcome.
+    async fn dispatch_adoption_invoke(
+        &self,
+        doc: &Value,
+        payload: Value,
+    ) -> Result<(), ResponderError> {
+        let Some(op) = doc.get("op").and_then(Value::as_str) else {
+            // Defensive: the dispatch gate routes only string ops here — a
+            // non-string op means a caller bypassed it. Fail closed instead
+            // of silently swallowing the invoke.
+            self.send_reverse_error_envelope(
+                doc,
+                SpokeRejectCode::InvalidInput.as_str(),
+                "invalid adoption invoke: op must be a string",
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_adoption()) else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no adoption service configured for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // The admitted principal/scope derive from the authenticated
+        // session peer, never from the payload (MEM-R003; contract
+        // §Admission and owner-private absence).
+        let Some(peer_id) = self.remote_peer_id() else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no authenticated peer for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // Same serve bound as `history.*`: a zero budget rejects before the
+        // service is invoked. A non-zero budget that expires AFTER
+        // invocation means the mutation may have committed: that is
+        // `OUTCOME_UNCERTAIN`, not a clean internal error. The admitted
+        // invoke is detached from the response deadline (spawned): expiry
+        // answers the budget, it never cancels the provider task, and the
+        // dedup store still records the settled outcome for a same-key
+        // replay to recover.
+        let zero_budget = self.invoke_timeout.is_zero();
+        let bounded = if zero_budget {
+            None
+        } else {
+            let service = Arc::clone(&service);
+            let peer_id = peer_id.clone();
+            let op = op.to_string();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let _ = tx.send(service.invoke(&peer_id, &op, payload).await);
+            });
+            match tokio::time::timeout(self.invoke_timeout, rx).await {
+                Ok(Ok(result)) => Some(result),
+                // The detached task sends exactly once before dropping the
+                // sender; a receive failure means it panicked AFTER
+                // admission, so — like a budget expiry — the transport
+                // cannot assert no-effect: answer uncertain, never a clean
+                // internal error.
+                Ok(Err(_)) => Some(SpokeResult::Reject(adoption_panic_uncertain_reject())),
+                Err(_) => None,
+            }
+        };
+        if self.state() == ConnectResponderState::Closed {
+            return Ok(());
+        }
+        let Some(result) = bounded else {
+            let reject = if zero_budget {
+                serve_timeout_reject(self.invoke_timeout)
+            } else {
+                adoption_uncertain_reject(self.invoke_timeout)
             };
             self.send_reverse_error_envelope(
                 doc,

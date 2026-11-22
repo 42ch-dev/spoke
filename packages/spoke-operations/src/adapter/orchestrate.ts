@@ -28,6 +28,7 @@ import type {
   UpsertResponse,
 } from "@42ch/spoke-schemas";
 
+import { assertAdoptionAnchorPreserved } from "../adoption.js";
 import { buildAssemblePacket } from "../assemble/builder.js";
 import type { CurrentViewPolicy } from "../cognition/select.js";
 import {
@@ -169,6 +170,11 @@ export async function orchestrateUpsert(
       return statusGate;
     }
 
+    const anchorGate = assertAdoptionAnchorPreserved(candidate, stored);
+    if (!anchorGate.ok) {
+      return anchorGate;
+    }
+
     const uniqueness = assertUniquenessWhenApplicable(candidate, [
       ...batchPeers,
       ...(stored !== undefined ? [stored] : []),
@@ -176,6 +182,7 @@ export async function orchestrateUpsert(
     if (!uniqueness.ok) {
       return uniqueness;
     }
+
 
     const expectedBaseRevision =
       stored === undefined ? null : (stored.revision ?? 0);

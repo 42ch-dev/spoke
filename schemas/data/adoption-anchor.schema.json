@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/adoption-anchor.schema.json",
+  "title": "AdoptionAnchor",
+  "description": "Adoption provenance recorded on a destination KnowledgeEntry (spoke-knowledge-adoption). Points at the resolved terminal live source — retirement chains resolve before the anchor is written. Carried on the optional adoption_anchor field of KnowledgeEntry; a normal put must preserve it unchanged.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "source_scope_id",
+    "source_entry_id",
+    "source_revision",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "source_scope_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Scope id of the resolved terminal source."
+    },
+    "source_entry_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Entry id of the resolved terminal source."
+    },
+    "source_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Revision of the resolved terminal source."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false
+}

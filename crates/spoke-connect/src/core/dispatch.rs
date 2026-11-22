@@ -52,6 +52,11 @@ pub const CAPABILITY_SPOKE_COGNITION: &str = "spoke-cognition";
 /// `spoke-baseline` nor `spoke-knowledge` satisfies it — dispatch requires
 /// exact `spoke-history` membership.
 pub const CAPABILITY_SPOKE_HISTORY: &str = "spoke-history";
+/// Optional capability: required by `knowledge.adopt` (spoke-knowledge-
+/// adoption contract §Connect operation and capability gate). The op also
+/// requires the mandatory co-capability `spoke-knowledge` — a host
+/// declaring `spoke-knowledge-adoption` also declares `spoke-knowledge`.
+pub const CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION: &str = "spoke-knowledge-adoption";
 
 /// Ops whose registered request carries a `Scope` and therefore the
 /// `Scope.cognition` selection slot (`common.schema.json` → `Scope`,
@@ -171,6 +176,11 @@ pub fn required_capability(op: &str) -> Option<&str> {
         "history.revisions.get" | "history.revisions.prune" => {
             Some(CAPABILITY_SPOKE_HISTORY)
         }
+        // Adoption family (spoke-knowledge-adoption contract §Connect
+        // operation): one row — the mandatory co-capability
+        // `spoke-knowledge` is asserted by `dispatch_allowed`, never by
+        // this single-row return.
+        "knowledge.adopt" => Some(CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION),
         "memory.exports.create"
         | "memory.exports.get"
         | "memory.imports.stage"
@@ -195,8 +205,21 @@ pub fn capability_satisfies(negotiated: &[String], required: &str) -> bool {
 /// authorized by this gate (hosts answer `op_unsupported`).
 #[must_use]
 pub fn dispatch_allowed(op: &str, negotiated_capabilities: &[String]) -> bool {
-    required_capability(op)
-        .is_some_and(|required| capability_satisfies(negotiated_capabilities, required))
+    let Some(required) = required_capability(op) else {
+        return false;
+    };
+    if !capability_satisfies(negotiated_capabilities, required) {
+        return false;
+    }
+    // Compound gate (spoke-knowledge-adoption contract): `knowledge.adopt`
+    // additionally requires the mandatory co-capability `spoke-knowledge`
+    // — neither flag alone satisfies the gate.
+    if required == CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION
+        && !capability_satisfies(negotiated_capabilities, CAPABILITY_SPOKE_KNOWLEDGE)
+    {
+        return false;
+    }
+    true
 }
 
 /// Whether a capability-token grant (validated `claims.capabilities`)

@@ -33,7 +33,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
-    ComputablePort, FindingPort, ForkTimelineQueryPort, HistoryPort, HostManifestPort,
+    AdoptionPort, ComputablePort, FindingPort, ForkTimelineQueryPort, HistoryPort, HostManifestPort,
     KnowledgeEntryPort, KnowledgeQueryPort, MemoryPort, RelationPort, RuleQueryPort,
     ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
@@ -46,8 +46,9 @@ use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
 use spoke_schemas::{
     ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
-    HostCapabilityManifest, KnowledgeEntry, MemoryCandidatesDismissRequest,
-    MemoryCandidatesDismissResponse, MemoryCandidatesGetRequest, MemoryCandidatesGetResponse,
+    HostCapabilityManifest, KnowledgeAdoptRequest, KnowledgeAdoptResponse, KnowledgeEntry,
+    MemoryCandidatesDismissRequest, MemoryCandidatesDismissResponse, MemoryCandidatesGetRequest,
+    MemoryCandidatesGetResponse,
     MemoryCandidatesListRequest, MemoryCandidatesListResponse, MemoryCandidatesReviewRequest,
     MemoryCandidatesReviewResponse, MemoryCaptureRequest, MemoryCaptureResponse,
     MemoryDescribeRequest, MemoryDescribeResponse, MemoryExportsCreateRequest,
@@ -2015,6 +2016,29 @@ impl RemoteAdapter {
                 format!("history.revisions.prune response decode failed: {error}"),
             ),
         }
+    }
+}
+
+/// Client `AdoptionPort` over the session (spoke-knowledge-adoption
+/// contract §Connect operation): `adopt_knowledge_entry` sends the
+/// `KnowledgeAdoptRequest` object — `idempotency_key` included, the
+/// wire request carries it — and decodes the `KnowledgeAdoptResponse`
+/// envelope. `principal` and `scope` are the LOCAL admission context:
+/// over the wire the serving host admits the authenticated peer, so
+/// neither is transmitted (MEM-R003). The responder's gate is the only
+/// capability authority: an unnegotiated `spoke-knowledge-adoption` (or
+/// its co-capability `spoke-knowledge`) answers `capability_missing`,
+/// mapped to `CAPABILITY_PORT_MISSING` with `details.wire_code`.
+#[async_trait]
+impl AdoptionPort for RemoteAdapter {
+    async fn adopt_knowledge_entry(
+        &self,
+        _principal: &Principal,
+        _scope: &Scope,
+        request: &KnowledgeAdoptRequest,
+    ) -> SpokeResult<KnowledgeAdoptResponse> {
+        self.invoke_mapped("knowledge.adopt", json!(request))
+            .await
     }
 }
 

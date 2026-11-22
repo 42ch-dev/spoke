@@ -16,7 +16,8 @@
 //! productized responder: handshake recipe + `port.*` serving through the
 //! [`RemoteServePorts`] seam + the reverse `invoke_tool` face + the
 //! optional [`RemoteExtractService`] `extract` face + the optional
-//! [`RemoteHistoryService`] `history.*` face), the
+//! [`RemoteHistoryService`] `history.*` face + the optional
+//! [`RemoteAdoptionService`] `knowledge.*` face), the
 //! [`Transport`] trait, the in-repo loopback transport pair for tests, and
 //! the multi-peer capability router ([`MultiPeerRouter`] +
 //! [`connect_multi_peer_router`] — capability-selected async `BaselinePorts`
@@ -50,11 +51,11 @@ pub use responder::{
     connect_responder, ConnectResponder, ConnectResponderOptions, ConnectResponderState,
 };
 pub use serve_ports::{
-    HistoryAdmission, HistoryDedupLookup, HistoryDedupRecord, HistoryDedupStore,
-    HistoryPortService, InMemoryHistoryDedupStore, KnowledgeAdmission, MemoryAdmission,
-    MemoryPortService, RemoteExtractService, RemoteHistoryService, RemoteKnowledgeFace,
-    RemoteMemoryService, RemoteServePorts, RemoteServePortsComposite, HISTORY_OP_GET,
-    HISTORY_OP_PRUNE,
+    AdoptionAdmission, AdoptionPortService, HistoryAdmission, HistoryDedupLookup,
+    HistoryDedupRecord, HistoryDedupStore, HistoryPortService, InMemoryHistoryDedupStore,
+    KnowledgeAdmission, MemoryAdmission, MemoryPortService, RemoteAdoptionService,
+    RemoteExtractService, RemoteHistoryService, RemoteKnowledgeFace, RemoteMemoryService,
+    RemoteServePorts, RemoteServePortsComposite, KNOWLEDGE_OP_ADOPT, HISTORY_OP_GET, HISTORY_OP_PRUNE,
 };
 pub use transport::{
     loopback_transport_pair, LoopbackTransport, LoopbackTransportPair, Transport, TransportError,

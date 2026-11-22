@@ -1,0 +1,269 @@
+{
+  "id": "idempotent-repeat",
+  "title": "Repeat and idempotency — recorded-outcome replay, anchor repeat rules, digest conflict, evicted receipt",
+  "protocol_refs": [
+    "§Repeat and idempotency",
+    "§Refusal vocabulary"
+  ],
+  "cases": [
+    {
+      "id": "same-key-replay-returns-recorded-outcome",
+      "invariant": "§Repeat and idempotency",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a same-key same-request replay returns outcome already_present — the recorded copy — without re-executing the port call",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_shared_a",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_shared_a",
+              "entry_type": "note",
+              "canonical_name": "shared-a",
+              "status": "confirmed",
+              "revision": 5,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_shared_a",
+        "source_revision": 5,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "replay-key-1",
+        "extensions": {}
+      },
+      "expect": {
+        "success": true,
+        "state": [{ "path": "outcome", "equals": "adopted" }],
+        "provider_calls": 1
+      },
+      "then": [
+        {
+          "op": "knowledge.adopt",
+          "request": {
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_shared_a",
+            "source_revision": 5,
+            "destination_scope_id": "spc_local",
+            "idempotency_key": "replay-key-1",
+            "extensions": {}
+          },
+          "expect": {
+            "success": true,
+            "state": [
+              { "path": "outcome", "equals": "already_present" },
+              { "path": "entry.adoption_anchor.source_entry_id", "equals": "ke_shared_a" }
+            ],
+            "provider_calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "same-key-different-digest-idempotency-conflict",
+      "invariant": "§Repeat and idempotency",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "the same idempotency key with a different request digest answers IDEMPOTENCY_CONFLICT with no adoption-specific details and no second execution",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_shared_a",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_shared_a",
+              "entry_type": "note",
+              "canonical_name": "shared-a",
+              "status": "confirmed",
+              "revision": 5,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_shared_b",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_shared_b",
+              "entry_type": "note",
+              "canonical_name": "shared-b",
+              "status": "confirmed",
+              "revision": 5,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "setup": [
+        {
+          "op": "knowledge.adopt",
+          "request": {
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_shared_a",
+            "source_revision": 5,
+            "destination_scope_id": "spc_local",
+            "idempotency_key": "conflict-key",
+            "extensions": {}
+          }
+        }
+      ],
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_shared_b",
+        "source_revision": 5,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "conflict-key",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "IDEMPOTENCY_CONFLICT",
+        "provider_calls": 1
+      }
+    },
+    {
+      "id": "anchor-repeat-different-key-already-present",
+      "invariant": "§Repeat and idempotency",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a second adoption of the same source at the same revision under a different key returns the existing copy as already_present with no second write",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_shared_a",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_shared_a",
+              "entry_type": "note",
+              "canonical_name": "shared-a",
+              "status": "confirmed",
+              "revision": 5,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_shared_a",
+        "source_revision": 5,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "repeat-key-1",
+        "extensions": {}
+      },
+      "expect": {
+        "success": true,
+        "state": [{ "path": "outcome", "equals": "adopted" }],
+        "provider_calls": 1
+      },
+      "then": [
+        {
+          "op": "knowledge.adopt",
+          "request": {
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_shared_a",
+            "source_revision": 5,
+            "destination_scope_id": "spc_local",
+            "idempotency_key": "repeat-key-2",
+            "extensions": {}
+          },
+          "expect": {
+            "success": true,
+            "state": [
+              { "path": "outcome", "equals": "already_present" },
+              { "path": "entry.adoption_anchor.source_revision", "equals": 5 }
+            ],
+            "provider_calls": 2
+          }
+        },
+        {
+          "op": "port.knowledge.get",
+          "request": { "entry_id": "ke_shared_a" },
+          "expect": {
+            "success": true,
+            "state": [
+              { "path": "adoption_anchor.source_revision", "equals": 5 }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "evicted-receipt-expired",
+      "invariant": "§Repeat and idempotency",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a replay against an evicted recorded outcome answers RECEIPT_EXPIRED and never silently re-executes the adoption",
+      "input": {
+        "dedup_capacity": 1,
+        "sources": [
+          {
+            "entry_id": "ke_shared_a",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_shared_a",
+              "entry_type": "note",
+              "canonical_name": "shared-a",
+              "status": "confirmed",
+              "revision": 5,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "setup": [
+        {
+          "op": "knowledge.adopt",
+          "request": {
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_shared_a",
+            "source_revision": 5,
+            "destination_scope_id": "spc_local",
+            "destination_entry_id": "ke_dst_evict_a",
+            "idempotency_key": "evicted-key",
+            "extensions": {}
+          }
+        },
+        {
+          "op": "knowledge.adopt",
+          "request": {
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_shared_a",
+            "source_revision": 5,
+            "destination_scope_id": "spc_local",
+            "destination_entry_id": "ke_dst_evict_b",
+            "idempotency_key": "evictor-key",
+            "extensions": {}
+          }
+        }
+      ],
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_shared_a",
+        "source_revision": 5,
+        "destination_scope_id": "spc_local",
+        "destination_entry_id": "ke_dst_evict_a",
+        "idempotency_key": "evicted-key",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "RECEIPT_EXPIRED",
+        "provider_calls": 2
+      },
+      "requires": [
+        "dedup_capacity evicts the first recorded outcome under the second key, leaving the tombstone the replay hits"
+      ]
+    }
+  ]
+}

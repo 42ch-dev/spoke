@@ -97,7 +97,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -502,8 +502,10 @@ function assertCarrierReportComplete(report) {
 }
 
 /** A Map serialized as a plain object with sorted keys, for a stable file. */
-function sortedObject(map) {
-  const result = {};
+export function sortedObject(map) {
+  // Null-prototype: an identifier spelled '__proto__' must serialize as a
+  // data property, not hit Object.prototype's setter and drop the entry.
+  const result = Object.create(null);
   for (const key of [...map.keys()].sort()) {
     result[key] = map.get(key);
   }
@@ -515,8 +517,8 @@ function sortedObject(map) {
  * objects (record field offsets are an object inside each record) with keys
  * in sorted order, so two runs over the same layout produce identical bytes.
  */
-function carrierReportJson(report) {
-  const records = {};
+export function carrierReportJson(report) {
+  const records = Object.create(null);
   for (const name of [...report.records.keys()].sort()) {
     const { size, align, fields } = report.records.get(name);
     records[name] = { size, align, fields: sortedObject(fields) };
@@ -560,7 +562,7 @@ function mapSection(value, path) {
  * path returns. A missing file, invalid JSON, wrong schemaVersion or
  * malformed section fails the gate outright — it never falls back to cargo.
  */
-function readCarrierReport(path) {
+export function readCarrierReport(path) {
   const origin = `carrier report '${display(path)}'`;
   if (!existsSync(path)) fail(`missing ${origin}`);
   let document;
@@ -1670,4 +1672,6 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

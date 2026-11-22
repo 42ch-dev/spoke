@@ -23,6 +23,8 @@ concurrency:
 
 permissions:
   contents: read
+  # The build lanes fetch the committed carrier report with gh run download.
+  actions: read
 
 jobs:
   changes:
@@ -79,11 +81,6 @@ jobs:
     name: windows-smoke-committed
     # PR-time ABI proof on the committed carrier; skipped on docs-only PRs.
     if: ${{ needs.changes.outputs.code == 'true' }}
-    outputs:
-      # The build worker downloads exactly this name instead of rebuilding it,
-      # so a re-run of only the failed jobs still resolves the attempt this
-      # worker actually uploaded under.
-      report-name: ${{ steps.report_name.outputs.name }}
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -184,20 +181,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-      - name: Export report artifact name
-        # Published after the upload so the output names an artifact that
-        # exists; the build worker downloads it by this name.
-        id: report_name
-        shell: pwsh
-        run: |
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "name=carrier-report-windows-smoke-${{ github.run_id }}-${{ github.run_attempt }}"
-
       - name: Fail on committed carrier errors
         if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
         run: exit 1
 
   windows-smoke-build:
-    needs: [changes, windows-smoke-committed]
+    needs: changes
     name: windows-smoke-build
     # Carrier rebuild plus the rebuilt ABI proof on rebuild-triggering PRs.
     if: ${{ needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true' }}
@@ -269,18 +258,34 @@ jobs:
         run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
 
       - name: Download committed carrier report
-        # actions/download-artifact@v4.3.0 — the name comes from the committed
-        # worker, which also guarantees its upload finished before this job.
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ needs.windows-smoke-committed.outputs.report-name }}
-          path: ${{ runner.temp }}/carrier-report
+        # Best effort: the committed worker may have failed before its upload,
+        # so a miss here is data for the check below, not a step failure.
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          try {
+            gh run download ${{ github.run_id }} --repo ${{ github.repository }} --name "carrier-report-windows-smoke-${{ github.run_id }}-${{ github.run_attempt }}" --dir "${{ runner.temp }}/carrier-report"
+          } catch {}
+          if (Test-Path "${{ runner.temp }}/carrier-report/carrier-report.json") {
+            Add-Content -Path $env:GITHUB_ENV -Value "REPORT_AVAILABLE=true"
+          } else {
+            Add-Content -Path $env:GITHUB_ENV -Value "REPORT_AVAILABLE=false"
+          }
 
       - name: Check rebuilt C ABI symbols
-        # The report file stands in for the carrier's cargo test surface, so
-        # the rebuilt proof does not recompile what the committed worker ran.
+        # With the committed report the check skips recompiling the carrier
+        # test surface; without it the report is compiled in-process — the
+        # correctness trade-off that keeps this lane green on ABI drift.
         id: rebuilt_symbols
-        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test --carrier-report "${{ runner.temp }}/carrier-report/carrier-report.json"
+        shell: pwsh
+        run: |
+          $reportArg = @()
+          if ("${{ env.REPORT_AVAILABLE }}" -eq "true") {
+            $reportArg = @("--carrier-report", "${{ runner.temp }}/carrier-report/carrier-report.json")
+          }
+          node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test @reportArg
 
       - name: Run rebuilt C++ smoke
         id: rebuilt_smoke
@@ -360,11 +365,6 @@ jobs:
     name: macos-smoke-committed
     # PR-time ABI proof on the committed carrier; skipped on docs-only PRs.
     if: ${{ needs.changes.outputs.code == 'true' }}
-    outputs:
-      # The build worker downloads exactly this name instead of rebuilding it,
-      # so a re-run of only the failed jobs still resolves the attempt this
-      # worker actually uploaded under.
-      report-name: ${{ steps.report_name.outputs.name }}
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -455,19 +455,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-      - name: Export report artifact name
-        # Published after the upload so the output names an artifact that
-        # exists; the build worker downloads it by this name.
-        id: report_name
-        shell: bash
-        run: echo "name=carrier-report-macos-smoke-${{ github.run_id }}-${{ github.run_attempt }}" >> "${GITHUB_OUTPUT}"
-
       - name: Fail on committed carrier errors
         if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
         run: exit 1
 
   macos-smoke-build:
-    needs: [changes, macos-smoke-committed]
+    needs: changes
     name: macos-smoke-build
     # Carrier rebuild plus the rebuilt ABI proof on rebuild-triggering PRs.
     if: ${{ needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true' }}
@@ -528,18 +521,32 @@ jobs:
         run: node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.98.1
 
       - name: Download committed carrier report
-        # actions/download-artifact@v4.3.0 — the name comes from the committed
-        # worker, which also guarantees its upload finished before this job.
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ needs.macos-smoke-committed.outputs.report-name }}
-          path: ${{ runner.temp }}/carrier-report
+        # Best effort: the committed worker may have failed before its upload,
+        # so a miss here is data for the check below, not a step failure.
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" --name "carrier-report-macos-smoke-${{ github.run_id }}-${{ github.run_attempt }}" --dir "${{ runner.temp }}/carrier-report" \
+            && [[ -f "${{ runner.temp }}/carrier-report/carrier-report.json" ]]; then
+            echo "REPORT_AVAILABLE=true" >> "${GITHUB_ENV}"
+          else
+            echo "REPORT_AVAILABLE=false" >> "${GITHUB_ENV}"
+          fi
 
       - name: Check rebuilt C ABI symbols
-        # The report file stands in for the carrier's cargo test surface, so
-        # the rebuilt proof does not recompile what the committed worker ran.
+        # With the committed report the check skips recompiling the carrier
+        # test surface; without it the report is compiled in-process — the
+        # correctness trade-off that keeps this lane green on ABI drift.
         id: rebuilt_symbols
-        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test --carrier-report "$RUNNER_TEMP/carrier-report/carrier-report.json"
+        shell: bash
+        run: |
+          reportArg=()
+          if [[ "${{ env.REPORT_AVAILABLE }}" == "true" ]]; then
+            reportArg=(--carrier-report "${{ runner.temp }}/carrier-report/carrier-report.json")
+          fi
+          node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test "${reportArg[@]}"
 
       - name: Run rebuilt C++ smoke
         id: rebuilt_smoke

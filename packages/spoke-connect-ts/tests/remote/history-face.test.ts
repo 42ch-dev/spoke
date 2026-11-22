@@ -747,6 +747,16 @@ describe("RevisionSnapshot — nested entity deep shape", () => {
     });
     expect(isValidRevisionSnapshot(leap)).toBe(true);
   });
+  it("an invalid calendar day is rejected even with a leap-second clamp", () => {
+    // note: QC-Re6th F-008 — `Date.parse` normalizes `2026-02-30` into a
+    // valid date while chrono rejects it; the day is range-checked
+    // before the `ss=60→59` normalization reaches `Date.parse`.
+    const invalidDay = snapshot("ke_1", 3, {
+      created_at: "2026-02-30T23:59:60Z",
+      updated_at: "2026-02-30T23:59:60Z",
+    });
+    expect(isValidRevisionSnapshot(invalidDay)).toBe(false);
+  });
 
 });
 

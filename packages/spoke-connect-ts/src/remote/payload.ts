@@ -263,14 +263,16 @@ const EXTRACTION_RUN_WIRE_KEYS = new Set(["run_id", "method", "coverage_hint"]);
 
 /** note: chrono `DateTime<Utc>` serde parity — RFC 3339 (`date-time`):
  * full date, `T`/`t` separator (chrono's serde impl accepts both cases),
- * seconds, optional fractional seconds, `Z`/`z` or ±hh:mm offset;
- * calendar sanity and the ±23:59 offset ceiling come from
- * `Date.parse` (NaN rejects). Clock fields are range-checked here
- * because `Date.parse` normalizes `24:00:00` into the next day while
- * chrono rejects it, and `Date.parse` rejects second `:60` while
- * chrono accepts leap seconds. */
+ * seconds, optional fractional seconds, `Z`/`z` or ±hh:mm offset.
+ * `Date.parse` (NaN rejects) covers the ±23:59 offset ceiling; calendar
+ * days and clock fields are range-checked here because `Date.parse`
+ * normalizes `2026-02-30` and `24:00:00` into valid dates while chrono
+ * rejects them, and `Date.parse` rejects second `:60` while chrono
+ * accepts leap seconds. */
 const RFC3339_PATTERN =
-  /^\d{4}-\d{2}-\d{2}[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 function isRfc3339Timestamp(value: unknown): value is string {
   if (typeof value !== "string") {
@@ -280,10 +282,22 @@ function isRfc3339Timestamp(value: unknown): value is string {
   if (match === null) {
     return false;
   }
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  const second = Number(match[3]);
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
   if (hour > 23 || minute > 59 || second > 60) {
+    return false;
+  }
+  // `Date.parse` normalizes out-of-range calendar days (`2026-02-30`
+  // rolls into March) while chrono rejects them, so bound the day here.
+  const daysInMonth =
+    month === 2 && year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+      ? 29
+      : (MONTH_DAYS[month - 1] ?? 0);
+  if (day < 1 || day > daysInMonth) {
     return false;
   }
   const offset = /([+-])(\d{2}):(\d{2})$/.exec(value);
@@ -291,7 +305,7 @@ function isRfc3339Timestamp(value: unknown): value is string {
     return false;
   }
   // `:60` leap second is accepted by chrono but NaN in `Date.parse`;
-  // parse the clock one second earlier to reuse the calendar checks.
+  // parse the clock one second earlier to reuse the remaining checks.
   const normalized =
     second === 60 ? `${value.slice(0, 17)}59${value.slice(19)}` : value;
   return !Number.isNaN(Date.parse(normalized));

@@ -96,6 +96,36 @@ function ownEnumerable(value: object, key: string): boolean {
   return Object.prototype.propertyIsEnumerable.call(value, key);
 }
 
+// note: The producer-facing wire projection — an object's wire members are
+// exactly its own enumerable JSON-typed properties (contract §Wire member
+// enumerability). Non-enumerable own members, inherited members, and values
+// JSON drops (undefined, functions, symbols, bigints — including `toJSON`
+// hooks) never reach the wire, so validation and canonicalization both run
+// on this copy rather than the raw producer object. Holes in sparse arrays
+// serialize as null on the wire, matching canonicalize's array handling.
+function wireCopy(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(wireCopy);
+  }
+  if (!isPlainObject(value)) {
+    return value;
+  }
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const member = value[key];
+    if (
+      member === undefined ||
+      typeof member === "function" ||
+      typeof member === "symbol" ||
+      typeof member === "bigint"
+    ) {
+      continue;
+    }
+    out[key] = wireCopy(member);
+  }
+  return out;
+}
+
 // note: Lexicographic first-offender order is Unicode code-point order
 // (contract §Wire-wide rules), matching Rust UTF-8 string order. ECMAScript's
 // default `.sort()` compares UTF-16 code units, which misorders
@@ -161,6 +191,10 @@ function validateJudgmentRef(
  * product-specific `detail` shape stay product-owned.
  */
 export function validateJudgment(judgment: Judgment): SpokeResult<void> {
+  // note: Validation reads wire members only — the producer object is first
+  // projected through `wireCopy` so inherited, non-enumerable, and JSON-
+  // droppable members are absent rather than merely skipped at each read.
+  judgment = wireCopy(judgment) as Judgment;
   if (!isPlainObject(judgment)) {
     return invalid("judgment", "judgment must be an object");
   }
@@ -287,7 +321,9 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
  */
 function canonicalJson(value: unknown): string | undefined {
   try {
-    return canonicalize(value);
+    // note: `canonicalize` invokes enumerable `toJSON` hooks, which are not
+    // wire members; `wireCopy` strips them (and all off-wire members) first.
+    return canonicalize(wireCopy(value));
   } catch {
     return undefined;
   }

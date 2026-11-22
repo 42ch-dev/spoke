@@ -3,9 +3,11 @@
 //! fields, the closed `Judgment` / `JudgmentRef` / `verdict` envelopes, raw
 //! `minLength: 1` strings, the interoperable integer domain,
 //! `verdict.confidence` in `[0, 1]` and the reserved `verdict.detail`
-//! members. It runs on the untyped wire value so contract refusals (e.g.
 //! `verdict.detail.target`) report `INVALID_INPUT` with `details.field`
-//! instead of opaque decode errors.
+//! instead of opaque decode errors. `validate_judgment_typed` runs the same
+//! gate on the generated typed `Judgment`: the generated integer carriers
+//! admit values above the `2^53-1` wire ceiling, so the typed value is
+//! re-encoded to the wire form and checked there.
 //!
 //! `judgments_equal_canonical` is the RFC 8785 comparison helper on the wire
 //! JSON itself: `verdict.detail` presence, `extensions` and the `created_at`
@@ -292,12 +294,15 @@ pub fn validate_judgment(judgment: &Value) -> SpokeResult<()> {
     let Some(extensions) = judgment.get("extensions").and_then(Value::as_object) else {
         return invalid("extensions", "extensions must be a present object");
     };
-    // serde_json::Map is a BTreeMap: iteration is lexicographic key order, so
-    // with several failing entries the first refusal names the
-    // lexicographically-first offending member — the contract's sorted-order
-    // probe, derived from the map's keys alone and matching TypeScript's
-    // explicit sort.
-    for (key, entry) in extensions {
+    // Sorted-order probe: with several failing entries the first refusal
+    // names the lexicographically-first offending member. Keys are sorted
+    // explicitly by code point (`str::cmp` compares UTF-8 bytes, which is
+    // code-point order) so the probe never depends on `serde_json::Map`
+    // iteration order — it stays correct even under `serde_json/preserve_order`.
+    let mut keys: Vec<&String> = extensions.keys().collect();
+    keys.sort();
+    for key in keys {
+        let entry = &extensions[key];
         if !is_namespace(key) || !is_plain_object(entry) {
             return invalid(
                 &format!("extensions.{key}"),
@@ -307,6 +312,22 @@ pub fn validate_judgment(judgment: &Value) -> SpokeResult<()> {
     }
 
     spoke_ok_unit()
+}
+
+/// Wire-shape gate for the generated typed `Judgment`
+/// (`spoke_schemas::Judgment`). The generated carrier admits values the wire
+/// domain refuses — `schema_version` and `JudgmentRef.revision` are
+/// `NonZeroU64` with no `2^53-1` ceiling — so the typed value is re-encoded
+/// to the wire form and run through `validate_judgment`, which applies the
+/// wire-integer domain to the typed value's fields. A typed `Judgment` that
+/// fails to re-encode reports `INVALID_INPUT` at `judgment`.
+pub fn validate_judgment_typed(
+    judgment: &spoke_schemas::data::judgment::Judgment,
+) -> SpokeResult<()> {
+    match serde_json::to_value(judgment) {
+        Ok(wire) => validate_judgment(&wire),
+        Err(_) => invalid("judgment", "judgment failed to re-encode to the wire form"),
+    }
 }
 
 /// Whether two `Judgment` wire values are byte-identical under RFC 8785
@@ -658,6 +679,41 @@ mod tests {
         judgment["verdict"]["detail"] =
             serde_json::json!({"outcome": 1, "judgment_kind": 1});
         expect_invalid(validate_judgment(&judgment), "verdict.detail.judgment_kind");
+    }
+
+    #[test]
+    fn validate_judgment_typed_enforces_the_wire_integer_ceiling() {
+        // The generated integer carriers are NonZeroU64: a typed decode
+        // accepts u64 values above the 2^53-1 interoperable domain. The
+        // typed gate re-applies the wire-integer rule to those fields.
+        let typed: spoke_schemas::data::judgment::Judgment =
+            serde_json::from_value(valid_judgment()).expect("valid wire decodes");
+        assert!(matches!(
+            validate_judgment_typed(&typed),
+            SpokeResult::Ok(())
+        ));
+
+        let mut typed: spoke_schemas::data::judgment::Judgment =
+            serde_json::from_value(valid_judgment()).expect("valid wire decodes");
+        typed.schema_version =
+            std::num::NonZeroU64::new(MAX_INTEROPERABLE_INTEGER + 1).unwrap();
+        expect_invalid(validate_judgment_typed(&typed), "schema_version");
+
+        // The boundary value itself stays accepted.
+        let mut typed: spoke_schemas::data::judgment::Judgment =
+            serde_json::from_value(valid_judgment()).expect("valid wire decodes");
+        typed.schema_version =
+            std::num::NonZeroU64::new(MAX_INTEROPERABLE_INTEGER).unwrap();
+        assert!(matches!(
+            validate_judgment_typed(&typed),
+            SpokeResult::Ok(())
+        ));
+
+        let mut typed: spoke_schemas::data::judgment::Judgment =
+            serde_json::from_value(valid_judgment()).expect("valid wire decodes");
+        typed.evidence[0].revision =
+            std::num::NonZeroU64::new(MAX_INTEROPERABLE_INTEGER + 1).unwrap();
+        expect_invalid(validate_judgment_typed(&typed), "evidence[0].revision");
     }
 
     #[test]

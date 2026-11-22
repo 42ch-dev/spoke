@@ -70,8 +70,11 @@ returns `INVALID_INPUT` at that member's field path. The per-field positivity ru
 **`created_at` offset and raw match.** `created_at` is an RFC 3339 `date-time` carrying an explicit
 UTC offset (`Z` or `±hh:mm`); an offsetless timestamp returns `INVALID_INPUT` at `created_at`. The
 grammar is matched against the raw wire string exactly as received: a value with leading or
-trailing whitespace returns `INVALID_INPUT` at `created_at` on both stacks. Leap-second `23:59:60`
-spellings remain accepted, and invalid calendar days remain refused.
+trailing whitespace returns `INVALID_INPUT` at `created_at` on both stacks. The value is
+ASCII-only: any non-ASCII character — including the `U+2212` MINUS SIGN in an offset — returns
+`INVALID_INPUT` at `created_at` on both stacks, while the ASCII `T`/`t` separator and `Z`/`z`
+suffix lettercase stay accepted per RFC 3339. Leap-second `23:59:60` spellings remain accepted,
+and invalid calendar days remain refused.
 
 **Extension and module maps.** `extensions` follows the shared `ExtensionMap` grammar: namespace
 keys match `^[a-z][a-z0-9_-]*$`, and each value is an object. A non-conforming entry returns
@@ -82,6 +85,12 @@ independent of insertion or enumeration order, deterministic across stacks (Rust
 order is already code-point order; TypeScript compares code points explicitly, not UTF-16 code
 units). The check reads namespace key and value kind only;
 map children stay opaque.
+
+**Wire member enumerability.** Only an object's own enumerable properties are wire members. A
+non-enumerable own property never reaches the wire — it is absent from canonical serialization
+and ignored by `validateJudgment` — and prototype members are likewise excluded. Every member
+enumeration this contract names, including the reserved-name probe over `verdict.detail`, reads
+exactly this own-enumerable scope.
 
 ### `Judgment`
 
@@ -195,7 +204,11 @@ Canonical equality is wire-form equality. `judgmentsEqualCanonical(left, right)`
 JSON the producer emitted or the validator accepted — rather than the canonical serialization of
 any typed decode of it, and returns `SpokeResult<bool>`; it rejects `INVALID_INPUT` when either
 value cannot be canonicalized. Typed representations normalize members in ways the wire keeps
-distinct, and those normalizations stay out of the comparison on both stacks.
+distinct, and those normalizations stay out of the comparison on both stacks. On a language stack
+that accepts producer objects rather than parsed wire JSON, the comparison first projects each
+value to its wire members (§ Wire-wide rules): non-enumerable own properties, inherited members,
+and members a JSON serializer would drop — including enumerable `toJSON` hooks — are excluded, so
+off-wire producer detail can never change the compared bytes.
 
 Wire presence is comparison-significant: a present-and-empty `verdict.detail: {}` is a distinct
 member and compares unequal to an absent `detail`. `created_at` compares by its exact wire

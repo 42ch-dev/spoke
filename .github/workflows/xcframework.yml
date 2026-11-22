@@ -47,7 +47,9 @@ jobs:
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             code=true
             rebuild=true
-          elif ! files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD); then
+          # --no-renames: a file moved out of a rebuild prefix still reports
+          # its old path, so the prefix keeps triggering the rebuild.
+          elif ! files=$(git diff --no-renames --name-only "origin/${{ github.base_ref }}"...HEAD); then
             # Fail closed: a diff failure must never be read as "docs only".
             code=true
             rebuild=true

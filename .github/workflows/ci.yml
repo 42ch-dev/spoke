@@ -40,7 +40,9 @@ jobs:
             echo "code=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD || true)
+          # --no-renames keeps a moved file's old path in the diff, so a rename
+          # out of a rebuild prefix still reports a change inside it.
+          files=$(git diff --no-renames --name-only "origin/${{ github.base_ref }}"...HEAD || true)
           if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
@@ -72,16 +74,16 @@ jobs:
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@v4
 
       - name: Setup pnpm
         # pnpm/action-setup@v4.4.0
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
 
       - name: Setup Node.js
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -118,16 +120,16 @@ jobs:
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@v4
 
       - name: Setup pnpm
         # pnpm/action-setup@v4.4.0
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
 
       - name: Setup Node.js
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -166,17 +168,17 @@ jobs:
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16)
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
 
       - name: Cache Rust dependencies
         # Swatinem/rust-cache@v2.9.1
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
           shared-key: spoke-rust
@@ -256,17 +258,17 @@ jobs:
 
       - name: Checkout
         # actions/checkout@v4.2.2
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16)
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
 
       - name: Cache Rust dependencies
         # Swatinem/rust-cache@v2.9.1
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
           shared-key: spoke-rust
@@ -274,7 +276,7 @@ jobs:
 
       - name: Setup .NET
         # actions/setup-dotnet@v4.3.1
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: "8.0.x"
@@ -321,17 +323,17 @@ jobs:
 
       - name: Checkout
         # actions/checkout@v4.2.2
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16)
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
 
       - name: Cache Rust dependencies
         # Swatinem/rust-cache@v2.9.1
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
           shared-key: spoke-rust
@@ -339,7 +341,7 @@ jobs:
 
       - name: Setup Java
         # actions/setup-java@v4.7.0
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           distribution: temurin
@@ -404,11 +406,11 @@ jobs:
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -442,11 +444,11 @@ jobs:
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24

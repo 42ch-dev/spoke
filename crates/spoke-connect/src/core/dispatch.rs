@@ -52,6 +52,13 @@ pub const CAPABILITY_SPOKE_COGNITION: &str = "spoke-cognition";
 /// `spoke-baseline` nor `spoke-knowledge` satisfies it — dispatch requires
 /// exact `spoke-history` membership.
 pub const CAPABILITY_SPOKE_HISTORY: &str = "spoke-history";
+/// Optional capability: the `spoke-judgment` data/conformance family. A host
+/// that validates or produces `Judgment` advertises this in
+/// `HostCapabilityManifest.capabilities` (spoke-judgment contract §Manifest).
+/// Manifest-only: it is never an op requirement — this table has no
+/// `spoke-judgment` row, and `tools.<ns>.<tool_id>` ops carrying `Judgment`
+/// payload are gated on their exact op string, not on this flag.
+pub const CAPABILITY_SPOKE_JUDGMENT: &str = "spoke-judgment";
 
 /// Ops whose registered request carries a `Scope` and therefore the
 /// `Scope.cognition` selection slot (`common.schema.json` → `Scope`,

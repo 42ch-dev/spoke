@@ -9,6 +9,7 @@ Wire authority stays in root [`schemas/`](../../schemas/); these pages describe 
 | [`protocol/spoke-protocol.md`](protocol/spoke-protocol.md) | Umbrella protocol: three columns, L0–L8 model, schema URI rules, language packages, repository layout |
 | [`protocol/spoke-protocol-layers.md`](protocol/spoke-protocol-layers.md) | Layer model and capability levels (baseline + optional flags) |
 | [`protocol/spoke-data-model.md`](protocol/spoke-data-model.md) | Data wire shapes: KnowledgeEntry, Rule, TimelineEvent, TimelineScale, host manifest, MindState |
+| [`protocol/spoke-judgment.md`](protocol/spoke-judgment.md) | `spoke-judgment` data capability: Judgment envelope, JudgmentRef, verdict core/detail, `validateJudgment`, RFC 8785 comparison, manifest-only advertisement |
 | [`protocol/spoke-ops.md`](protocol/spoke-ops.md) | Ops wire layer: request/response families, optional ops, error envelope |
 | [`protocol/spoke-operations.md`](protocol/spoke-operations.md) | Operations library: pure helpers, adapter ports, injection orchestration |
 | [`protocol/spoke-version-release.md`](protocol/spoke-version-release.md) | Lockstep SemVer, tag convention, CI-gated release policy |

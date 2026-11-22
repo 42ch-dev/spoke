@@ -1,0 +1,520 @@
+{
+  "id": "refusals",
+  "title": "Pure-validation refusal matrix — every case must reject INVALID_INPUT with details.field set to the exact logical field path",
+  "protocol_refs": [
+    "§Pure validation",
+    "§Judgment",
+    "§JudgmentRef",
+    "§verdict core and detail"
+  ],
+  "cases": [
+    {
+      "id": "envelope-not-object",
+      "invariant": "§Pure validation closed envelope",
+      "what": "a non-object wire value is not a Judgment",
+      "judgment": [1],
+      "expect": { "field": "judgment" }
+    },
+    {
+      "id": "unknown-envelope-member",
+      "invariant": "§Judgment additionalProperties: false",
+      "what": "a member outside the Judgment shape refuses at the envelope path",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {},
+        "product_label": "not-a-member"
+      },
+      "expect": { "field": "judgment" }
+    },
+    {
+      "id": "schema-version-non-integer",
+      "invariant": "§Judgment schema_version",
+      "what": "schema_version must be an integer >= 1",
+      "judgment": {
+        "schema_version": 1.5,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "schema_version" }
+    },
+    {
+      "id": "schema-version-zero",
+      "invariant": "§Judgment schema_version",
+      "what": "schema_version 0 is below the >= 1 floor",
+      "judgment": {
+        "schema_version": 0,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "schema_version" }
+    },
+    {
+      "id": "missing-judgment-id",
+      "invariant": "§Judgment required members",
+      "what": "judgment_id is required",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "judgment_id" }
+    },
+    {
+      "id": "empty-judgment-id",
+      "invariant": "§Judgment judgment_id",
+      "what": "judgment_id must be non-empty",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "judgment_id" }
+    },
+    {
+      "id": "empty-judgment-kind",
+      "invariant": "§Judgment judgment_kind",
+      "what": "judgment_kind must be a non-empty string",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "judgment_kind" }
+    },
+    {
+      "id": "missing-judgment-kind",
+      "invariant": "§Judgment required members",
+      "what": "judgment_kind is required",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "judgment_kind" }
+    },
+    {
+      "id": "missing-target",
+      "invariant": "§Judgment required members",
+      "what": "target is required",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "target" }
+    },
+    {
+      "id": "target-empty-id",
+      "invariant": "§JudgmentRef id",
+      "what": "target.id must be non-empty",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "target.id" }
+    },
+    {
+      "id": "target-revision-zero",
+      "invariant": "§JudgmentRef revision",
+      "what": "target.revision when present must be a positive integer",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1", "revision": 0 },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "target.revision" }
+    },
+    {
+      "id": "target-namespace-empty",
+      "invariant": "§JudgmentRef namespace",
+      "what": "namespace when present must be non-empty",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1", "namespace": "" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "target.namespace" }
+    },
+    {
+      "id": "target-unknown-member",
+      "invariant": "§JudgmentRef additionalProperties: false",
+      "what": "a member outside the JudgmentRef shape refuses at the ref path",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1", "digest": "sha256:xx" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "target" }
+    },
+    {
+      "id": "missing-evidence-member",
+      "invariant": "§Judgment required members",
+      "what": "evidence must be present even when empty",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "evidence" }
+    },
+    {
+      "id": "evidence-not-array",
+      "invariant": "§Judgment evidence",
+      "what": "evidence must be an array",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": { "kind": "knowledge_entry", "id": "ke_1", "revision": 1 },
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "evidence" }
+    },
+    {
+      "id": "evidence-item-missing-revision",
+      "invariant": "§JudgmentRef revision",
+      "what": "every evidence item requires a revision",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [{ "kind": "knowledge_entry", "id": "ke_2" }],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "evidence[0].revision" }
+    },
+    {
+      "id": "evidence-revision-zero",
+      "invariant": "§JudgmentRef revision",
+      "what": "evidence revision 0 violates the positive-integer rule",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [{ "kind": "knowledge_entry", "id": "ke_2", "revision": 0 }],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "evidence[0].revision" }
+    },
+    {
+      "id": "evidence-item-empty-kind",
+      "invariant": "§JudgmentRef kind",
+      "what": "an evidence item's kind must be non-empty; the index lands in the field path",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [
+          { "kind": "knowledge_entry", "id": "ke_2", "revision": 1 },
+          { "kind": "", "id": "ke_3", "revision": 2 }
+        ],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "evidence[1].kind" }
+    },
+    {
+      "id": "missing-verdict",
+      "invariant": "§Judgment required members",
+      "what": "verdict is required",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "extensions": {}
+      },
+      "expect": { "field": "verdict" }
+    },
+    {
+      "id": "verdict-not-object",
+      "invariant": "§verdict core and detail",
+      "what": "verdict must be an object",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": "accepted",
+        "extensions": {}
+      },
+      "expect": { "field": "verdict" }
+    },
+    {
+      "id": "missing-verdict-outcome",
+      "invariant": "§verdict core and detail",
+      "what": "verdict.outcome is required",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": {},
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.outcome" }
+    },
+    {
+      "id": "empty-verdict-outcome",
+      "invariant": "§verdict core and detail",
+      "what": "verdict.outcome must be non-empty",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "" },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.outcome" }
+    },
+    {
+      "id": "confidence-above-one",
+      "invariant": "§verdict core and detail",
+      "what": "confidence above 1 is outside [0, 1]",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted", "confidence": 1.5 },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.confidence" }
+    },
+    {
+      "id": "confidence-below-zero",
+      "invariant": "§verdict core and detail",
+      "what": "confidence below 0 is outside [0, 1]",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted", "confidence": -0.25 },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.confidence" }
+    },
+    {
+      "id": "detail-non-object",
+      "invariant": "§verdict core and detail",
+      "what": "verdict.detail must be an object when present",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted", "detail": "freeform" },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.detail" }
+    },
+    {
+      "id": "detail-reserved-target",
+      "invariant": "§verdict core and detail reserved members",
+      "what": "verdict.detail.target duplicates a protocol envelope location",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": {
+          "outcome": "accepted",
+          "detail": { "target": { "kind": "shadow", "id": "s_1" } }
+        },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.detail.target" }
+    },
+    {
+      "id": "detail-reserved-evidence",
+      "invariant": "§verdict core and detail reserved members",
+      "what": "verdict.detail.evidence duplicates a protocol envelope location",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted", "detail": { "evidence": [] } },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.detail.evidence" }
+    },
+    {
+      "id": "detail-reserved-judgment-kind",
+      "invariant": "§verdict core and detail reserved members",
+      "what": "verdict.detail.judgment_kind duplicates a protocol envelope location",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": {
+          "outcome": "accepted",
+          "detail": { "judgment_kind": "shadow" }
+        },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.detail.judgment_kind" }
+    },
+    {
+      "id": "detail-reserved-outcome",
+      "invariant": "§verdict core and detail reserved members",
+      "what": "verdict.detail.outcome duplicates a protocol envelope location",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted", "detail": { "outcome": "shadow" } },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.detail.outcome" }
+    },
+    {
+      "id": "verdict-unknown-member",
+      "invariant": "§verdict core and detail additionalProperties: false",
+      "what": "a member outside the Verdict shape refuses at the verdict path",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted", "score": 42 },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict" }
+    },
+    {
+      "id": "missing-extensions",
+      "invariant": "§Judgment required members",
+      "what": "extensions is required even when empty",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" }
+      },
+      "expect": { "field": "extensions" }
+    },
+    {
+      "id": "extensions-non-object",
+      "invariant": "§Judgment extensions",
+      "what": "extensions must be an object",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": []
+      },
+      "expect": { "field": "extensions" }
+    },
+    {
+      "id": "basis-non-string",
+      "invariant": "§Judgment basis",
+      "what": "basis must be a string when present",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "basis": 42,
+        "extensions": {}
+      },
+      "expect": { "field": "basis" }
+    },
+    {
+      "id": "created-at-invalid",
+      "invariant": "§Judgment created_at",
+      "what": "created_at must be an RFC 3339 date-time",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "created_at": "not-a-date",
+        "extensions": {}
+      },
+      "expect": { "field": "created_at" }
+    }
+  ]
+}

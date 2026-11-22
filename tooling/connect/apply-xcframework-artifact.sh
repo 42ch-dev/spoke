@@ -366,8 +366,8 @@ if not match or int(match.group(1)) != record.get("runAttempt"):
     fail("finalArtifact name does not match the recorded attempt")
 if record.get("runAttempt") != by_name.get("assemble", {}).get("run_attempt"):
     fail("record attempt does not match the assemble job")
-live = {entry["id"]: entry for entry in artifacts if not entry["expired"]}
-resolved = live.get(final.get("id"))
+live = {str(entry["id"]): entry for entry in artifacts if not entry["expired"]}
+resolved = live.get(str(final.get("id")))
 if resolved is None or resolved["name"] != name:
     fail("final artifact %s is missing or expired — use a newer run or rerun the workflow" % name)
 print(name)

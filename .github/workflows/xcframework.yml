@@ -484,7 +484,7 @@ jobs:
             --arg iosResult "${IOS_RESULT}" --arg iosName "${IOS_NAME}" --arg iosId "${IOS_ID}" \
             --arg iossimResult "${IOSSIM_RESULT}" --arg iossimName "${IOSSIM_NAME}" --arg iossimId "${IOSSIM_ID}" \
             --arg iosx86Result "${IOSX86_RESULT}" --arg iosx86Name "${IOSX86_NAME}" --arg iosx86Id "${IOSX86_ID}" \
-            --arg finalId "${FINAL_ID}" \
+            --argjson finalId "${FINAL_ID}" \
             --arg finalName "spoke-connect-xcframework-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             '{
               validated: true,

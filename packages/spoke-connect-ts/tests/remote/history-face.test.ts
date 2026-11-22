@@ -581,6 +581,9 @@ describe("RevisionSnapshot — nested entity deep shape", () => {
     ["updated_at no seconds", { updated_at: "2026-07-23T06:15Z" }],
     ["created_at bad month", { created_at: "2026-13-23T06:15:00Z" }],
     ["updated_at offset out of range", { updated_at: "2026-07-23T06:15:00+24:00" }],
+    // note: QC-Re5th F-008 — `Date.parse` normalizes hour 24 into the
+    // next day; chrono `DateTime<Utc>` rejects it outright.
+    ["created_at hour 24", { created_at: "2026-07-23T24:00:00Z" }],
     [
       "extensions bad key",
       { extensions: { "Bad.Key": {} } },
@@ -735,6 +738,16 @@ describe("RevisionSnapshot — nested entity deep shape", () => {
     });
     expect(isValidRevisionSnapshot(relation)).toBe(true);
   });
+  it("a leap-second timestamp still decodes (chrono parity)", () => {
+    // note: QC-Re5th F-008 — `Date.parse` returns NaN for `:60`, but
+    // chrono `DateTime<Utc>` accepts leap seconds.
+    const leap = snapshot("ke_1", 3, {
+      created_at: "2026-07-23T23:59:60Z",
+      updated_at: "2026-07-23T23:59:60.5Z",
+    });
+    expect(isValidRevisionSnapshot(leap)).toBe(true);
+  });
+
 });
 
 // ——— loopback responder ↔ RemoteAdapter ———

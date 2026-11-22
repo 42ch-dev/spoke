@@ -264,20 +264,37 @@ const EXTRACTION_RUN_WIRE_KEYS = new Set(["run_id", "method", "coverage_hint"]);
 /** note: chrono `DateTime<Utc>` serde parity — RFC 3339 (`date-time`):
  * full date, `T`/`t` separator (chrono's serde impl accepts both cases),
  * seconds, optional fractional seconds, `Z`/`z` or ±hh:mm offset;
- * calendar/clock sanity and the ±23:59 offset ceiling come from
- * `Date.parse` (NaN rejects). */
+ * calendar sanity and the ±23:59 offset ceiling come from
+ * `Date.parse` (NaN rejects). Clock fields are range-checked here
+ * because `Date.parse` normalizes `24:00:00` into the next day while
+ * chrono rejects it, and `Date.parse` rejects second `:60` while
+ * chrono accepts leap seconds. */
 const RFC3339_PATTERN =
-  /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+  /^\d{4}-\d{2}-\d{2}[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
 
 function isRfc3339Timestamp(value: unknown): value is string {
-  if (typeof value !== "string" || !RFC3339_PATTERN.test(value)) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const match = RFC3339_PATTERN.exec(value);
+  if (match === null) {
+    return false;
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const second = Number(match[3]);
+  if (hour > 23 || minute > 59 || second > 60) {
     return false;
   }
   const offset = /([+-])(\d{2}):(\d{2})$/.exec(value);
   if (offset !== null && (Number(offset[2]) > 23 || Number(offset[3]) > 59)) {
     return false;
   }
-  return !Number.isNaN(Date.parse(value));
+  // `:60` leap second is accepted by chrono but NaN in `Date.parse`;
+  // parse the clock one second earlier to reuse the calendar checks.
+  const normalized =
+    second === 60 ? `${value.slice(0, 17)}59${value.slice(19)}` : value;
+  return !Number.isNaN(Date.parse(normalized));
 }
 
 const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;

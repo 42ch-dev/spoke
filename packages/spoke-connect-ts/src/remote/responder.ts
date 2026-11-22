@@ -102,6 +102,7 @@ import {
   cognitionRequirementPresent,
   dispatchAllowed,
   requiredCapability,
+  reservedPrefixOp,
   WIRE_INVALID_INPUT,
 } from "../core/dispatch.js";
 import { CoreError } from "../core/error.js";
@@ -115,6 +116,7 @@ import {
   isConnectInvokeRequest,
   isConnectInvokeResponse,
 } from "./guards.js";
+import { isValidKnowledgeEntryDeep } from "./payload.js";
 import type { RemoteAdoptionService, RemoteHistoryService } from "./serve_ports.js";
 import type { RemoteIdentity, ToolHandler } from "./remote-adapter.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
@@ -246,6 +248,14 @@ export const PORT_OP_CAPABILITY_REQUIREMENTS: Readonly<Record<string, string>> =
  * capability matrix instead of only through the per-table lookups.
  */
 export function portDispatchAllowed(op: string, negotiated: readonly string[]): boolean {
+  // note: QC2-16 / F-018 — a `knowledge.*` name with no core-table row is
+  // a reserved unknown: the core decision is terminal and answers
+  // `op_unsupported` BEFORE the product map is consulted, so a
+  // conflicting product-map row can never advance it (Rust parity: the
+  // composed gate's reserved-prefix short-circuit).
+  if (reservedPrefixOp(op)) {
+    return false;
+  }
   if (dispatchAllowed(op, negotiated)) {
     return true;
   }
@@ -550,6 +560,15 @@ function validateKnowledgeEntryFields(
     if (!isJsonObject(entry[name])) {
       return `entry.${name} must be an object`;
     }
+  }
+  // note: QC2-15 / F-016 — the fast field gate above only sees the top
+  // level; the FULL wire-shape check must also run here, before any
+  // stored-entry read, OCC fence or anchor comparison (contract D1: (a)
+  // malformed → (b) OCC → (c) anchor). Rust's typed entry decoder
+  // (`deny_unknown_fields`) refuses a malformed nested member at decode —
+  // e.g. `body.tags: 5` is `INVALID_INPUT`, never a stored-state refusal.
+  if (!isValidKnowledgeEntryDeep(entry)) {
+    return "entry does not satisfy the KnowledgeEntry wire shape";
   }
   return null;
 }

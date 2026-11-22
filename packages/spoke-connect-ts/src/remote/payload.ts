@@ -587,8 +587,10 @@ function isValidSourceSpan(value: unknown): boolean {
         field.name in value &&
         matchesFieldKind(value[field.name], field.kind),
     ) &&
-    isExactNonNegativeInteger(value.start) &&
-    isExactNonNegativeInteger(value.end)
+    // `start`/`end` are plain numbers on the wire (Rust `f64`) — decimals
+    // are schema-valid, only non-numbers fail.
+    Number.isFinite(value.start) &&
+    Number.isFinite(value.end)
   );
 }
 /** note: closed `SourceAnchor` member set (additionalProperties: false). */

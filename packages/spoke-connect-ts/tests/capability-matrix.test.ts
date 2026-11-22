@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
 
-import { capabilitySatisfies, requiredCapability } from "../src/core/dispatch.js";
+import { capabilitySatisfies, requiredCapability, reservedPrefixOp } from "../src/core/dispatch.js";
 import { selectPeerForOp, type SelectablePeer } from "../src/remote/multi-peer-router.js";
 import { PORT_OP_CAPABILITY_REQUIREMENTS, portDispatchAllowed } from "../src/remote/responder.js";
 
@@ -108,5 +108,27 @@ describe("shared capability matrix", () => {
         ).toBe(false);
       }
     }
+  });
+});
+
+describe("reserved-prefix terminal dispatch (QC2-16)", () => {
+  it("a reserved knowledge.* unknown is terminal before the product map", () => {
+    // note: the shipped product map is constant, so a conflicting row is
+    // pinned by the guard's contract: `reservedPrefixOp` is the SAME
+    // predicate the gate runs before its product-map fallback — a
+    // reserved unknown denies even when a map row + negotiated capability
+    // would otherwise admit it.
+    for (const op of ["knowledge.archive", "knowledge.", "knowledge.migrate"]) {
+      expect(reservedPrefixOp(op), `${op}: reserved unknown`).toBe(true);
+      expect(
+        portDispatchAllowed(op, [
+          "spoke-baseline",
+          "spoke-knowledge",
+          "spoke-knowledge-adoption",
+        ]),
+        `${op}: serve gate must refuse before the product map`,
+      ).toBe(false);
+    }
+    expect(reservedPrefixOp("knowledge.adopt")).toBe(false);
   });
 });

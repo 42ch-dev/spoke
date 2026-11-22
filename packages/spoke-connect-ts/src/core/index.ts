@@ -41,6 +41,7 @@ export {
   cognitionRequirementPresent,
   dispatchAllowed,
   requiredCapability,
+  reservedPrefixOp,
   tokenAuthorizesOp,
   WIRE_INVALID_INPUT,
 } from "./dispatch.js";

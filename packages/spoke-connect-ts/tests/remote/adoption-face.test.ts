@@ -1093,6 +1093,41 @@ describe("adoption dedup single-flight (contract §Repeat and idempotency)", () 
   });
 });
 
+// ── Destination admission at the serving boundary (C7 / QC2-08) ────────
+
+describe("adoption destination admission (contract Wire-wide rules)", () => {
+  it("a destination scope outside the admitted context answers NOT_AUTHORIZED with zero provider calls — before dedup, single-flight and source work", async () => {
+    const calls: string[] = [];
+    const port: AdoptionPort = {
+      adoptKnowledgeEntry: async () => {
+        calls.push("call");
+        return spokeOk(adoptedResponse());
+      },
+    };
+    const service = new AdoptionPortService(port, DEDUP_ADMISSION);
+    // The admission binds `spc_local`; a request naming another
+    // destination space_id refuses before the provider runs.
+    const denied = await service.invoke("peer_a", "knowledge.adopt", {
+      ...adoptPayload("dst-1"),
+      destination_scope_id: "spc_elsewhere",
+    });
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.code).toBe("NOT_AUTHORIZED");
+    }
+    expect(calls).toHaveLength(0);
+
+    // A same-key replay of the admitted destination still works.
+    const allowed = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("dst-2"),
+    );
+    expect(allowed.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+});
+
 describe("adoption request extensions and numeric parity", () => {
   it("an extension float member that Rust parses as f64 digests identically on both stacks (extension-number parity)", async () => {
     // note: qc1 F-013 — `1e20` in an extension value arrives at Rust as

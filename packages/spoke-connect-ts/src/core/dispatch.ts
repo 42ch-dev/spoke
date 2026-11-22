@@ -164,6 +164,21 @@ export function requiredCapability(op: string): string | undefined {
 }
 
 /**
+ * Whether `op` falls under a core-reserved prefix with no registered
+ * row. `knowledge.*` is a reserved-product prefix owned by this core
+ * decision (spoke-knowledge-adoption contract §Connect operation):
+ * `knowledge.adopt` is its single registered operation — an op that
+ * starts with `knowledge.` and has no core-table row is an unknown
+ * reserved name, refused `op_unsupported` by every dispatch surface
+ * BEFORE the product custom-map (`op_capability_requirements` and
+ * equivalents) is consulted. Custom mappings apply only outside
+ * reserved families. Rust parity: `reserved_prefix_op`.
+ */
+export function reservedPrefixOp(op: string): boolean {
+  return requiredCapability(op) === undefined && op.startsWith("knowledge.");
+}
+
+/**
  * Whether `negotiated` satisfies `required` (port capability gate): plain
  * membership. No capability implies another — in particular `spoke-baseline`
  * never satisfies `spoke-knowledge`, because the knowledge ops are served

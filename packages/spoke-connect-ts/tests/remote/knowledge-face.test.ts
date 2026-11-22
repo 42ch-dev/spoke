@@ -291,6 +291,33 @@ describe("knowledge-only responder", () => {
       close();
     }
   });
+  it("a decimal SourceSpan is schema-valid: the put succeeds (F-019)", async () => {
+    // note: `SourceSpan.start`/`end` are plain numbers on the wire
+    // (Rust `f64`), not integers — the put decode must admit decimal
+    // span members.
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(SCOPE_A),
+      clientSeed: seed(0x10),
+      clientCapabilities: ["spoke-knowledge"],
+    });
+    try {
+      const spanned = {
+        ...entry("kb_span"),
+        source_anchor: {
+          schema_version: 1,
+          source_id: "src_1",
+          span: { start: 1.5, end: 4.25 },
+          extensions: {},
+        },
+      } as KnowledgeEntry;
+      const put = await client.putKnowledgeEntry(spanned, null);
+      expect(put.ok).toBe(true);
+      const got = await client.getKnowledgeEntry("kb_span");
+      expect(got.ok).toBe(true);
+    } finally {
+      close();
+    }
+  });
 
   it("denies assemble on the knowledge-only dispatch gate (raw wire)", async () => {
     const face = scopedStoreFace(() => spokeOk(SCOPE_A));
@@ -1076,6 +1103,72 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(missingRevision.error).toBeUndefined();
       expect(storeCalls).toEqual(["get", "put", "get", "put"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("a malformed nested entry member answers INVALID_INPUT before the OCC read — zero store calls (QC2-15)", async () => {
+    const admissionCalls: string[] = [];
+    const storeCalls: string[] = [];
+    const face = scopedStoreFace((peerId) => {
+      admissionCalls.push(peerId);
+      return spokeOk(SCOPE_A);
+    }, storeCalls);
+    const { clientEnd, sessionId, close } = await dialRawKnowledgeHost(
+      knowledgeOnlyServePorts(face),
+    );
+    try {
+      // note: `body.tags: 5` fails the full wire-shape decode (Rust typed
+      // decode parity) — the refusal is INVALID_INPUT, never a
+      // stored-state OCC answer, even on an occupied slot.
+      const malformed = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        0,
+        "put-malformed-tags",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_mal"), body: { tags: 5 } },
+          expected_base_revision: null,
+        },
+      );
+      expect(malformed.error?.code).toBe("INVALID_INPUT");
+      expect(storeCalls).toHaveLength(0);
+
+      // An undeclared entry member is the same decode refusal (serde
+      // `deny_unknown_fields` parity).
+      const extra = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        1,
+        "put-extra-member",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_ext"), product_field: 1 },
+          expected_base_revision: null,
+        },
+      );
+      expect(extra.error?.code).toBe("INVALID_INPUT");
+
+      // A malformed `adoption_anchor` fails decode before the OCC fence
+      // — the anchor gate never sees it.
+      const badAnchor = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        2,
+        "put-bad-anchor",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_anchor"), adoption_anchor: { bogus: true } },
+          expected_base_revision: null,
+        },
+      );
+      expect(badAnchor.error?.code).toBe("INVALID_INPUT");
+      expect(storeCalls).toHaveLength(0);
     } finally {
       close();
     }

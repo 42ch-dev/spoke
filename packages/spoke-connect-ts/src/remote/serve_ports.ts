@@ -936,6 +936,18 @@ export class AdoptionPortService implements RemoteAdoptionService {
       return admitted;
     }
     const { principal, scope: effectiveScope } = admitted.value;
+    // note: destination admission (contract Wire-wide rules / C7;
+    // QC2-08): the destination `scope_id` is authorized against the
+    // admitted context BEFORE dedup, single-flight and any provider or
+    // source-chain work — an out-of-scope destination refuses
+    // `NOT_AUTHORIZED` without touching the source (Rust parity:
+    // `AdoptionPortService::invoke`).
+    if (request.destination_scope_id !== effectiveScope.scope_id) {
+      return spokeReject(
+        SpokeRejectCode.NOT_AUTHORIZED,
+        "adoption destination scope is outside the admitted context",
+      );
+    }
     // note: the dedup key is the RFC 8785 canonical JSON serialization of
     // the ordered retry-identity tuple `(op, effective_scope,
     // requester_principal_id, idempotency_key)` — structural member

@@ -9,7 +9,7 @@ import {
 } from "../index.js";
 
 describe("MemoryPort / MemoryPorts (TS parity with the Rust trait)", () => {
-  // Type-level probe: each representative method must accept a
+  // note: Type-level probe — each representative method must accept a
   // Principal-first signature and return an awaitable SpokeResult. The
   // assignments below are the assertion — tsc rejects a mismatched shape.
   const describe: MemoryPort["describe"] = (

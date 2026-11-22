@@ -1,5 +1,5 @@
 /**
- * Per-op request validators and pure policy predicates — TS parity with
+ * note: Per-op request validators and pure policy predicates — TS parity with
  * `crates/spoke-operations/src/memory/validate.rs`.
  *
  * Covers only the conditional wire rules the JSON-Schema codegen cannot
@@ -60,11 +60,11 @@ function checkPageLimit(limit: number | undefined, maxPageSize: number): SpokeRe
   return spokeOk();
 }
 
-// TextEncoder is stateless; one instance serves every measure call.
+// why: TextEncoder is stateless; one instance serves every measure call.
 const utf8Encoder = new TextEncoder();
 
 /**
- * Byte size of a `Content` request field against `max_content_bytes`
+ * note: Byte size of a `Content` request field against `max_content_bytes`
  * (§7.1): UTF-8 bytes of the compact serialization of the complete
  * `content` value — field name, quotes, escaping, and `structured` included.
  *
@@ -90,7 +90,7 @@ interface Content {
 }
 
 /**
- * C5 entry-point guard (§6.1): every present `Content.cognition` entry must
+ * note: C5 entry-point guard (§6.1) — every present `Content.cognition` entry must
  * be a closed standard cognition record with `view = "recorded_at"`. Called
  * before byte admission so a malformed carrier fails `INVALID_INPUT` on the
  * field, never on the budget.
@@ -148,7 +148,7 @@ function checkFilter(filter: FilterLike | undefined): SpokeResult<void> {
  */
 export function isFreezeAllowlisted(op: string): boolean {
   switch (op) {
-    // Read-only ops (MEM-R011).
+    // note: Read-only ops (MEM-R011).
     case "memory.describe":
     case "memory.spaces.list":
     case "memory.subjects.get":
@@ -163,7 +163,7 @@ export function isFreezeAllowlisted(op: string): boolean {
     case "memory.reflections.list":
     case "memory.receipts.get":
     case "memory.exports.get":
-    // §8.2 maintenance mutations.
+    // note: §8.2 maintenance mutations.
     case "memory.spaces.unfreeze":
     case "memory.grants.revoke":
     case "memory.exports.create":

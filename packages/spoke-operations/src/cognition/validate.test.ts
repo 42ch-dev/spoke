@@ -16,7 +16,7 @@ import {
   validateObservationModule,
 } from "./validate.js";
 
-// Shared cross-language cognition validator contract (TS ↔ Rust): both
+// note: Shared cross-language cognition validator contract (TS ↔ Rust) — both
 // suites execute every vector id from this single file by shape and must
 // record the same accept/reject result. An unknown shape is an explicit
 // failure, never a skip.
@@ -38,7 +38,7 @@ interface VectorCase {
   observation_state?: string;
 }
 
-// Every vector is dispatched directly to its declared guard.
+// note: Every vector is dispatched directly to its declared guard.
 const SHAPES: Record<string, (input: unknown) => boolean> = {
   "cognition-content": validateCognitionContent,
   "cognition-record": validateCognitionRecord,
@@ -178,7 +178,7 @@ describe("isolated cognition boundaries", () => {
   });
 });
 
-// C5 is the sole authority for the relative member at which a filter or
+// note: C5 is the sole authority for the relative member at which a filter or
 // selection is rejected: the Connect responders only prefix the carrier
 // location. Each case below fails for exactly one member.
 describe("C5 relative diagnostic field", () => {
@@ -312,7 +312,7 @@ describe("C5 relative diagnostic field", () => {
   });
 
   it("keeps empty and non-identifier members distinct from root failure", () => {
-    // A root that is not an object fails without a relative field; an empty
+    // note: A root that is not an object fails without a relative field; an empty
     // member is still a member and keeps its own identity.
     expectRejectField(validateCognitionFilter(7));
     expectRejectField(validateCognitionFilter({ "": 1 }), '[""]');

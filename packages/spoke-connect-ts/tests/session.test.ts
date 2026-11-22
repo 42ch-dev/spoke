@@ -51,8 +51,8 @@ describe("Session helper (AD-P0-3 thin state)", () => {
   it("evaluates the dispatch gate against the session's negotiated capabilities", () => {
     const session = baselineSession();
     expect(session.dispatchAllowed("check")).toBe(true);
-    expect(session.dispatchAllowed("compute")).toBe(false); // l2-computable not negotiated
-    expect(session.dispatchAllowed("custom-op")).toBe(false); // unknown op fail-closed
+    expect(session.dispatchAllowed("compute")).toBe(false); // why: l2-computable not negotiated
+    expect(session.dispatchAllowed("custom-op")).toBe(false); // why: unknown op fail-closed
   });
 });
 

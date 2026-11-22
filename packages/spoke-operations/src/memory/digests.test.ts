@@ -20,7 +20,7 @@ function unwrapReject(result: SpokeResult<string>): SpokeReject {
 
 describe("memory digests (RFC 8785 JCS + SHA-256)", () => {
   it("matches the Rust pinned known vectors", () => {
-    // Same pins as crates/spoke-operations/src/memory/digests.rs; SHA-256
+    // note: same pins as crates/spoke-operations/src/memory/digests.rs; SHA-256
     // produced independently via `shasum -a 256` over the JCS bytes.
     expect(
       unwrap(jcsSha256Hex({ b: 1, a: [true, null] })),
@@ -37,7 +37,7 @@ describe("memory digests (RFC 8785 JCS + SHA-256)", () => {
   });
 
   it("sorts non-BMP member names by UTF-16 code units like Rust", () => {
-    // RFC 8785 §3.2.3 sorts member names by UTF-16 code units. U+1F600
+    // note: RFC 8785 §3.2.3 sorts member names by UTF-16 code units. U+1F600
     // encodes as the surrogate pair D83D DE00, so it orders BEFORE the BMP
     // key U+FF61 — the opposite of Unicode-scalar order (which would put
     // U+FF61 first). The Rust test pins the same canonical bytes and digest.
@@ -56,7 +56,7 @@ describe("memory digests (RFC 8785 JCS + SHA-256)", () => {
   it("digests excluding a field (chunk_digest / bundle digest)", () => {
     const chunk = { chunk_digest: "deadbeef", a: 1, z: 2 };
     expect(unwrap(jcsSha256HexExcluding(chunk, "chunk_digest"))).toBe(
-      // shasum -a 256 over '{"a":1,"z":2}'
+      // note: `shasum -a 256` over '{"a":1,"z":2}'
       "99168216144c7fed5d4c54916cf98d9c66096280c04a499822a99b6658bd177a",
     );
   });

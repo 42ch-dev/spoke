@@ -16,7 +16,7 @@ import {
 } from "../src/core/envelope-auth.js";
 
 /**
- * Deterministic 32-byte test identity seed (mirrors the Rust
+ * why: deterministic 32-byte test identity seed (mirrors the Rust
  * `correlate.rs` test module convention — no key material as a literal in a
  * crypto call site).
  */

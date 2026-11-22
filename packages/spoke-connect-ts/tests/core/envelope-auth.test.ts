@@ -28,7 +28,7 @@ import type {
 } from "../../src/core/envelope-auth.js";
 
 /**
- * Envelope-auth core tests — mirror the locked contract
+ * why: envelope-auth core tests — mirror the locked contract
  * (`.agents/specs/connect/spoke-connect.md` §Envelope authentication):
  * algorithm ids, exact signed-field sets, conditional-`auth` inclusion,
  * oneOf invoke-response branch separation, canonical base64url round-trip,
@@ -51,25 +51,23 @@ const INITIATOR_PEER_ID = peerOf(INITIATOR_SEED);
 const RESPONDER_PEER_ID = peerOf(RESPONDER_SEED);
 const SESSION_ID = "session-0001";
 
-/** A peer id for a raw Ed25519 seed (runtime-derived — no literals in crypto positions). */
+/** why: a peer id for a raw Ed25519 seed (runtime-derived — no literals in crypto positions). */
 function peerOf(seed: Uint8Array): string {
   return derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed));
 }
 
 /**
- * Cast an OpaqueJson `auth` value (any JSON — scalar, null, array, object)
+ * why: cast an OpaqueJson `auth` value (any JSON — scalar, null, array, object)
  * through the generated schema type, whose `auth` is object-only. The
  * contract (§3) types `auth` as `<OpaqueJson>` and both runtimes bind
  * arbitrary JSON (Rust `Option<serde_json::Value>`), so the generated type
  * is narrower than the contract — the cast is a type-level accommodation
- * only (schema codegen nit tracked as QC F-5; the schema itself is not
- * widened in this wave).
+ * only.
  */
 function opaqueAuth(auth: unknown): ConnectInvokeRequest["auth"] {
   return auth as ConnectInvokeRequest["auth"];
 }
 
-/** Assert a verify call rejects with exactly the locked machine kind. */
 async function rejectsWithKind(
   promise: Promise<unknown>,
   kind: EnvelopeAuthErrorKind,
@@ -77,7 +75,7 @@ async function rejectsWithKind(
   await expect(promise).rejects.toMatchObject({ kind });
 }
 
-/** Swap the final base64url char for a sibling encoding the same 64 bytes with non-zero slack bits. */
+/** note: swap the final base64url char for a sibling encoding the same 64 bytes with non-zero slack bits. */
 function nonCanonicalSignature(encoded: string): string {
   const last = encoded[encoded.length - 1];
   const sibling =
@@ -85,7 +83,6 @@ function nonCanonicalSignature(encoded: string): string {
   return encoded.slice(0, -1) + sibling;
 }
 
-/** The locked session signed-field set as a sign input. */
 function sessionInput(): SessionSignInput {
   return {
     session_id: SESSION_ID,
@@ -97,7 +94,6 @@ function sessionInput(): SessionSignInput {
   };
 }
 
-/** A request sign input; `extra` lets tests add/override `auth` and friends. */
 function requestInput(extra: Partial<InvokeRequestSignInput> = {}): InvokeRequestSignInput {
   return {
     session_id: SESSION_ID,
@@ -109,7 +105,7 @@ function requestInput(extra: Partial<InvokeRequestSignInput> = {}): InvokeReques
   };
 }
 
-/** Success-branch response sign input (oneOf branch 1). */
+/** note: success-branch response sign input (oneOf branch 1). */
 function responseSuccessInput(): InvokeResponseSignInput {
   return {
     session_id: SESSION_ID,
@@ -119,7 +115,7 @@ function responseSuccessInput(): InvokeResponseSignInput {
   };
 }
 
-/** Error-branch response sign input (oneOf branch 2). */
+/** note: error-branch response sign input (oneOf branch 2). */
 function responseErrorInput(): InvokeResponseSignInput {
   return {
     session_id: SESSION_ID,
@@ -142,7 +138,7 @@ describe("ConnectSession envelope auth (spoke-connect-session-jcs-v1)", () => {
     const session = await authenticateSession(EMITTER_SEED, sessionInput());
     expect(session.signature).toMatch(/^[A-Za-z0-9_-]{86}$/);
     expect(session.extensions).toEqual({});
-    // Verify with the emitter's hello public key + the authenticated hellos.
+    // note: verify with the emitter's hello public key + the authenticated hellos.
     await verifySessionAuth(
       EMITTER_PUBKEY,
       session,
@@ -196,7 +192,7 @@ describe("ConnectSession envelope auth (spoke-connect-session-jcs-v1)", () => {
 
   it("rejects peer ids that do not match the authenticated hellos (envelope_auth_session_unbound)", async () => {
     const session = await authenticateSession(EMITTER_SEED, sessionInput());
-    // Signature verifies (emitter key) but the snapshot's peer ids do not
+    // why: signature verifies (emitter key) but the snapshot's peer ids do not
     // match the authenticated hellos of the current session.
     await rejectsWithKind(
       verifySessionAuth(EMITTER_PUBKEY, session, peerOf(OTHER_SEED), RESPONDER_PEER_ID),

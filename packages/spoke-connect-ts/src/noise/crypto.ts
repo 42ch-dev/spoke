@@ -1,9 +1,10 @@
 /**
- * Noise crypto primitives — thin wrappers over the noble suite with
- * Noise-constant semantics (frozen contract
- * `.agents/specs/connect/noise-xx-libp2p-contract.md` §7).
+ * see .agents/specs/connect/noise-xx-libp2p-contract.md §7
  *
- * Surface (consumed by `src/noise/xx.ts`, Task 2):
+ * Noise crypto primitives — thin wrappers over the noble suite with
+ * Noise-constant semantics.
+ *
+ * Surface (consumed by `src/noise/xx.ts`):
  *
  *   - `dh(priv, pub)`                    X25519 shared secret (RFC 7748)
  *   - `getPublicKey(priv)`               X25519 public key (RFC 7748)
@@ -18,16 +19,14 @@
  * `chacha20Poly1305Seal`/`chacha20Poly1305Open` with an explicit 12-byte
  * nonce), which carry the RFC 5869 / RFC 8439 vector gates.
  *
- * Imports stay inside `src/noise/**` only (default-bundle isolation rule,
- * plan "Global Constraints"). No WebCrypto: noble is the portable source
- * per architect decision.
+ * why: imports stay inside `src/noise/**` only (default-bundle isolation
+ * rule, plan "Global Constraints"). No WebCrypto — noble is the portable
+ * source per architect decision.
  */
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { x25519 } from "@noble/curves/ed25519.js";
 import { hkdf as nobleHkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-
-// ── X25519 DH (RFC 7748) ──────────────────────────────────────────────────
 
 /**
  * X25519 public key for a 32-byte private key (RFC 7748 §5).
@@ -43,8 +42,6 @@ export function getPublicKey(privateKey: Uint8Array): Uint8Array {
 export function dh(privateKey: Uint8Array, publicKey: Uint8Array): Uint8Array {
   return x25519.getSharedSecret(privateKey, publicKey);
 }
-
-// ── HKDF-SHA256 (RFC 5869) ────────────────────────────────────────────────
 
 /**
  * General HKDF-SHA256 (RFC 5869): `HKDF-Extract(salt, ikm)` then
@@ -76,8 +73,6 @@ export function hkdf(
     key: okm.subarray(32, 64),
   };
 }
-
-// ── ChaCha20-Poly1305 (RFC 8439) ──────────────────────────────────────────
 
 /**
  * Raw ChaCha20-Poly1305 AEAD seal with an explicit 96-bit nonce

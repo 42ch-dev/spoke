@@ -15,7 +15,6 @@
  * schema package's job and is intentionally not duplicated here.
  */
 
-/** Primitive JSON kinds the required-field guards enforce. */
 type FieldKind = "string" | "number" | "object" | "array" | "boolean";
 
 interface Field {
@@ -23,11 +22,10 @@ interface Field {
   kind: FieldKind;
 }
 
-/** Required-field shape of one ops/data wire type (schemas/data/*.schema.json). */
+/** note: required-field shape of one ops/data wire type (schemas/data/*.schema.json). */
 interface SuccessShape {
-  /** Top-level JSON kind of the success payload. */
   kind: "object" | "array";
-  /** Required fields (of the payload, or of each array element). */
+  /** note: required fields (of the payload, or of each array element). */
   fields: readonly Field[];
 }
 
@@ -84,7 +82,7 @@ const HOST_MANIFEST_FIELDS = [
   { name: "extensions", kind: "object" },
 ] as const satisfies readonly Field[];
 
-/** Required fields shared by every memory receipt state (committed,
+/** note: required fields shared by every memory receipt state (committed,
  * pending, failed) — the base receipt envelope
  * (schemas/data/memory-receipt.schema.json). */
 const MEMORY_RECEIPT_FIELDS = [
@@ -144,7 +142,7 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   "port.finding.put": { kind: "array", fields: FINDING_FIELDS },
   "port.rule.list": { kind: "array", fields: RULE_FIELDS },
   "port.host.list_peer_manifests": { kind: "array", fields: HOST_MANIFEST_FIELDS },
-  // Memory reads (schemas/ops/memory-*-response.schema.json success branch).
+  // note: memory reads (schemas/ops/memory-*-response.schema.json success branch).
   "memory.describe": { kind: "object", fields: MEMORY_DESCRIBE_FIELDS },
   "memory.spaces.list": {
     kind: "object",
@@ -192,8 +190,8 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
     kind: "object",
     fields: [{ name: "receipt", kind: "object" }],
   },
-  // Receipt states: every mutating memory op answers with a receipt whose
-  // envelope fields are pinned above (committed and pending alike).
+  // note: every mutating memory op answers with a receipt whose envelope
+  // fields are pinned above (committed and pending alike).
   "memory.spaces.freeze": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   "memory.spaces.unfreeze": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   "memory.subjects.ensure": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
@@ -300,12 +298,9 @@ const EXTRACT_CANDIDATE_SHAPE: SuccessShape = {
 };
 
 /**
- * Whether `value` matches the success-payload shape for `op` (Rust §8.2
- * parity: malformed payloads must reject with `INTERNAL_ERROR` instead of
- * flowing through `spokeOk` unvalidated).
- *
- * Ops outside the baseline catalogue have no shape table entry and are
- * accepted as-is (the dispatch gate owns the op vocabulary).
+ * note: strict `extract` success shape — Rust §8.2 parity: a malformed
+ * payload must reject with `INTERNAL_ERROR` instead of flowing through
+ * `spokeOk` unvalidated.
  */
 function isValidExtractSuccessPayload(value: unknown): boolean {
   if (!isRecord(value)) {

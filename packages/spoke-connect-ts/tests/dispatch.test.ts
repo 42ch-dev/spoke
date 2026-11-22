@@ -92,7 +92,7 @@ describe("ke remote", () => {
   });
 });
 
-// Memory family (SPOKE memory protocol §4.1/§13): parity twin of the Rust
+// why: memory family (SPOKE memory protocol §4.1/§13): parity twin of the Rust
 // `core::dispatch::tests` memory block. Three flags gate disjoint op groups;
 // the gate evaluates negotiated capabilities only.
 describe("memory family", () => {
@@ -118,7 +118,7 @@ describe("memory family", () => {
   });
 
   it("unnegotiated memory op denies while unknown memory op stays unsupported", () => {
-    // `memory.capture` has a row, so the responder boundary answers
+    // why: `memory.capture` has a row, so the responder boundary answers
     // `capability_missing` (requirement known, capability not negotiated).
     // The wire code is not asserted here — this gate only knows the
     // requirement; the Rust `tests/memory_loopback.rs` covers the served deny.
@@ -127,7 +127,7 @@ describe("memory family", () => {
     expect(
       dispatchAllowed("memory.capture", ["spoke-baseline", "l2-computable", "ke-extraction"]),
     ).toBe(false);
-    // No row ⇒ no requirement ⇒ the host answers `op_unsupported`.
+    // why: no row ⇒ no requirement ⇒ the host answers `op_unsupported`.
     expect(requiredCapability("memory.archive.purge")).toBeUndefined();
     expect(dispatchAllowed("memory.archive.purge", ALL_MEMORY)).toBe(false);
   });
@@ -155,7 +155,7 @@ describe("memory family", () => {
   });
 
   it("sub-flag without core leaves core ops unnegotiated", () => {
-    // Protocol §4.1: a provider declaring a sub-flag MUST also declare
+    // why: protocol §4.1: a provider declaring a sub-flag MUST also declare
     // `spoke-memory`; a session with only the sub-flag admits the sub-family
     // and still fails core ops with `capability_missing`.
     expect(dispatchAllowed("memory.reflections.list", [CAPABILITY_SPOKE_MEMORY_REFLECTION])).toBe(

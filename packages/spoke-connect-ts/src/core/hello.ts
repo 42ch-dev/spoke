@@ -2,8 +2,8 @@
  * Hello signing and verification over **raw** Ed25519 key bytes
  * (`spoke-connect-hello-jcs-v1`).
  *
- * Ported from `crates/spoke-connect/src/core/hello_crypto.rs`; normative
- * rules `.agents/specs/connect/spoke-connect.md` §Signature canonicalization /
+ * Ported from `crates/spoke-connect/src/core/hello_crypto.rs`; see
+ * `.agents/specs/connect/spoke-connect.md` contract §Signature canonicalization /
  * §Identity binding:
  * - Signed object = exactly `{protocol_version, peer_id, nonce, host}` for
  *   the **initiator** hello (4 fields), and exactly
@@ -35,7 +35,6 @@ import { canonicalHelloBytes } from "../jcs.js";
 import { CoreError } from "./error.js";
 import { PROTOCOL_VERSION } from "./version.js";
 
-/** JCS-canonicalize the signed hello object, mapping failures to `jcs`. */
 function canonicalBytes(
   peerId: string,
   nonce: string,
@@ -159,7 +158,7 @@ export async function verifyHelloEd25519(
     );
   }
 
-  // The claimed peer id was just checked to equal `expectedPeerId`, so
+  // safety: the claimed peer id was just checked to equal `expectedPeerId`, so
   // canonicalizing over `expectedPeerId` reproduces the signer's bytes.
   // Role-aware signed object: 5 fields (incl. `peer_nonce`) for a responder
   // hello, 4 fields for an initiator hello. When the initiator supplies

@@ -77,18 +77,15 @@ const DEFAULT_PORT_CAPABILITY_REQUIREMENTS: Record<string, string> = {
 };
 
 export interface LoopbackHostOptions {
-  /** The server end of a loopback transport pair (the end the client dials). */
+  /** note: the server end of the pair; the client dials the other end. */
   transport: Transport;
-  /** Host Ed25519 seed. */
   seed: Uint8Array;
-  /** The client's Ed25519 public key (key distribution is test-owned). */
   clientPubkey: Uint8Array;
-  /** Trusted client peer ids (fail-closed). */
+  /** note: peer ids outside this list are denied. */
   allowlist: readonly string[];
-  /** Local async BaselinePorts served on the remote side (e.g. ToyWorldAdapter). */
   adapter: BaselinePorts;
   /**
-   * Override the host's advertised capability manifest (the `host` field of
+   * note: override the host's advertised capability manifest (the `host` field of
    * its signed hello — what the client caches as `remoteManifest` and a
    * multi-peer router selects on). Defaults to `schemaConformantManifest()`;
    * the dual-peer loopback proof dials disjoint per-peer manifests.
@@ -100,10 +97,10 @@ export interface LoopbackHostOptions {
    * the baseline `port.*` → `spoke-baseline` map.
    */
   opCapabilityRequirements?: Record<string, string>;
-  /** Optional per-request response delay (ms) — out-of-order fixtures. */
+  /** note: per-request response delay in ms — out-of-order fixtures. */
   delay?: (request: ConnectInvokeRequest) => number;
   /**
-   * Test-only: when non-undefined for a request, the returned envelope is
+   * note: test-only; when non-undefined for a request, the returned envelope is
    * sent verbatim instead of the host's real response (deterministic
    * malformed-response fixtures, e.g. corrupted echo fields or a garbage
    * success payload).
@@ -112,28 +109,21 @@ export interface LoopbackHostOptions {
 }
 
 export interface LoopbackHostStats {
-  /** Signed client hellos that passed allowlist + signature + nonce gates. */
   hellosVerified: number;
-  /** Invokes that passed the gates and were dispatched to the local adapter. */
   invokesDispatched: number;
-  /** Invokes rejected by the inbound sequence gate. */
   sequenceRejections: number;
-  /** Invokes rejected by the envelope-auth verify gate (fail-closed). */
   authRejections: number;
-  /** Invokes rejected by the dispatch gate. */
   dispatchDenials: number;
-  /** Request sequence numbers in response-arrival order (out-of-order fixture). */
+  /** note: request sequence numbers in response-arrival order (out-of-order fixture). */
   responseOrder: number[];
-  /** Whether any invoke carried an `auth` field (capability-token attach). */
   authSeen: boolean;
 }
 
 export interface LoopbackHost {
-  /** The server end of the loopback transport the client dials. */
   readonly transport: Transport;
   readonly sessionId: string;
   readonly stats: LoopbackHostStats;
-  /** Close the connection (fails the client's pending recv / invokes). */
+  /** note: fails the client's pending recv / invokes. */
   close(): void;
 }
 
@@ -190,7 +180,7 @@ export async function startLoopbackHost(
   const hostPeerId = derivePeerIdFromEd25519Pubkey(
     getPublicKeyEd25519(seed),
   );
-  // This fixture host serves the knowledge ports through `DEFAULT_PORT_CAPABILITY_REQUIREMENTS`,
+  // note: this fixture host serves the knowledge ports through `DEFAULT_PORT_CAPABILITY_REQUIREMENTS`,
   // so it negotiates `spoke-knowledge` explicitly (no flag implies it).
   const hostManifest = options.hostManifest ?? {
     ...schemaConformantManifest(),
@@ -217,7 +207,7 @@ export async function startLoopbackHost(
 
   function sendEnvelope(doc: unknown): void {
     void transportEnd.send(encodeEnvelope(doc)).catch(() => {
-      // Peer gone — responses are fire-and-forget at the host boundary.
+      // why: peer gone — responses are fire-and-forget at the host boundary.
     });
   }
 
@@ -255,7 +245,6 @@ export async function startLoopbackHost(
     );
   }
 
-/** Result of the serialized gate phase (peek → verify → advance). */
 type GateResult =
   | { ok: true }
   | {
@@ -285,7 +274,7 @@ type GateResult =
   async function runGate(doc: ConnectInvokeRequest): Promise<GateResult> {
     const current = session;
     if (current === null || doc.session_id !== current.session_id) {
-      return null; // stray request — ignored
+      return null;
     }
     try {
       current.peekInboundSequence(doc.sequence);
@@ -309,24 +298,26 @@ type GateResult =
           details: { kind: error.kind },
         };
       }
-      throw error; // wrong-length key is host misconfiguration — fail loudly
+      // why: a wrong-length key is host misconfiguration — fail loudly.
+      throw error;
     }
-    // Advance the inbound counter only after envelope-auth verify passed.
+    // safety: advance the inbound counter only after envelope-auth verify passed.
     current.acceptInboundSequence(doc.sequence);
     return { ok: true };
   }
 
-  /** Dispatch phase — runs after the serialized gate; may interleave. */
+  /** note: dispatch phase — runs after the serialized gate; may interleave. */
   async function handleInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const current = session;
     if (current === null || doc.session_id !== current.session_id) {
-      return; // stray request — ignored (belt-and-braces; the gate checked)
+      // note: stray request — ignored (belt-and-braces; the gate checked).
+      return;
     }
     if (doc.auth !== undefined) {
       stats.authSeen = true;
     }
 
-    // Dispatch gate — product map first, then the core table; unknown
+    // note: dispatch gate — product map first, then the core table; unknown
     // ops and missing capabilities answer `op_unsupported`.
     const required = requirements[doc.op] ?? requiredCapability(doc.op);
     if (
@@ -342,7 +333,6 @@ type GateResult =
       return;
     }
 
-    // Optional deterministic delay (out-of-order response fixtures).
     const delayMs = delay(doc);
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -351,7 +341,7 @@ type GateResult =
       return;
     }
 
-    // Test-only response override: replace the envelope the host would send
+    // note: test-only response override — replace the envelope the host would send
     // (malformed-response fixtures). The request already passed the gates, so
     // the client has a pending waiter to exercise against. The override is
     // still signed with the host identity, so the client's envelope-auth
@@ -370,7 +360,6 @@ type GateResult =
       return;
     }
 
-    // 5. Dispatch to the local adapter.
     const result = await dispatchOp(doc);
     if (result.ok) {
       stats.invokesDispatched += 1;
@@ -384,8 +373,8 @@ type GateResult =
   function dispatchOp(
     doc: ConnectInvokeRequest,
   ): Promise<SpokeResult<unknown>> {
-    // Unchecked cast is deliberate: `payload` is any-JSON on the wire, so a
-    // null / malformed value keeps the pre-existing property-access outcome.
+    // why: `payload` is any-JSON on the wire, so keeping the unchecked cast
+    // preserves the pre-existing property-access outcome for null / malformed input.
     const payload = doc.payload as Record<string, unknown>;
     switch (doc.op) {
       case "port.knowledge.get":
@@ -413,8 +402,8 @@ type GateResult =
       case "port.host.list_peer_manifests":
         return adapter.listPeerHostCapabilityManifests();
       default:
-        // Unreachable: the dispatch gate denies unknown ops first. Kept as
-        // a safety net for host misconfiguration.
+        // note: unreachable — the dispatch gate denies unknown ops first. Kept
+        // as a safety net for host misconfiguration.
         return Promise.resolve(
           spokeReject(
             SpokeRejectCode.CAPABILITY_PORT_MISSING,
@@ -449,7 +438,7 @@ type GateResult =
       ),
     });
 
-    // Answer with our signed hello (responder role — dial binding): the
+    // why: answer with our signed hello (responder role — dial binding); the
     // hello signs the 5-field object incl. `peer_nonce` = the initiator's
     // nonce, so a captured responder hello cannot be replayed into a fresh
     // dial. Then the A-assigned session snapshot.
@@ -471,9 +460,9 @@ type GateResult =
         initiator_peer_id: clientPeerId,
         responder_peer_id: hostPeerId,
         opened_at: new Date().toISOString(),
-        // The wire snapshot requires ≥1 negotiated capability; the client
-        // derives its own negotiated set from the hellos, so the fallback
-        // only covers the degenerate empty-intersection test fixture.
+        // why: the wire snapshot requires ≥1 negotiated capability and the client
+        // derives its own negotiated set from the hellos, so the fallback only
+        // covers the degenerate empty-intersection test fixture.
         negotiated_capabilities:
           session.negotiated_capabilities.length > 0
             ? (session.negotiated_capabilities as [string, ...string[]])
@@ -485,7 +474,7 @@ type GateResult =
     sendEnvelope(snapshot);
   }
 
-  // Gate-phase serialization: `runGate` (peek → verify → advance) must not
+  // why: gate-phase serialization — `runGate` (peek → verify → advance) must not
   // interleave with a concurrent invoke (the async verify would let a
   // second request peek against the pre-advance counter), so invokes queue
   // on `gateTail`; after the gate releases, the dispatch phase runs
@@ -505,7 +494,7 @@ type GateResult =
         const gate = await runGate(doc);
         release();
         if (gate === null) {
-          return; // stray request — ignored
+          return;
         }
         if (!gate.ok) {
           await sendErrorResponse(doc, gate.code, gate.message, gate.details);
@@ -517,7 +506,7 @@ type GateResult =
         throw error;
       }
     })().catch(() => {
-      // Host-side handler failure must not crash the loop.
+      // why: a host-side handler failure must not crash the loop.
     });
   }
 
@@ -527,16 +516,16 @@ type GateResult =
       try {
         doc = decodeJsonMessage(await transportEnd.recv());
       } catch {
-        return; // transport closed — stop serving
+        return;
       }
       if (!isConnectInvokeRequest(doc)) {
-        continue; // stray envelope — ignored
+        continue;
       }
       queueInvoke(doc);
     }
   }
 
-  // Run the handshake + serve loop in the background: the client's dial is
+  // why: the handshake + serve loop run in the background — the client's dial is
   // the synchronization point (its hello triggers the host's reply), so
   // awaiting the handshake here would deadlock a caller that dials after
   // `startLoopbackHost` returns. A hello-gate failure closes the transport,

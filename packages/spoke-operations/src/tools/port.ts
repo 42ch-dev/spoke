@@ -1,5 +1,5 @@
 /**
- * Optional `ToolInvokePort` family — wire-adjacent invoke request/response
+ * note: Optional `ToolInvokePort` family — wire-adjacent invoke request/response
  * types and the async port contract for injecting remote tool invocation.
  *
  * The family is standalone: it is NOT folded into `BaselinePorts`, and no
@@ -18,9 +18,9 @@ import type { SpokeResult } from "../result.js";
  * Request to invoke a remote tool by its `tools.<ns>.<tool_id>` capability id.
  */
 export type ToolInvokeRequest = {
-  /** Tool capability string `tools.<ns>.<tool_id>`. */
+  /** note: Tool capability string `tools.<ns>.<tool_id>`. */
   capability_id: string;
-  /** Opaque JSON arguments object for the tool. Intentionally tighter than Rust's `Value` (any JSON incl. `null`): a non-object payload only reaches the port via a deliberate cast — do not "align" later. */
+  /** note: Opaque JSON arguments object for the tool. Intentionally tighter than Rust's `Value` (any JSON incl. `null`): a non-object payload only reaches the port via a deliberate cast — do not "align" later. */
   arguments: Record<string, unknown>;
 };
 
@@ -28,7 +28,6 @@ export type ToolInvokeRequest = {
  * Successful tool invocation result — an opaque JSON value.
  */
 export type ToolInvokeResponse = {
-  /** Opaque JSON result value produced by the tool. */
   result: unknown;
 };
 

@@ -158,7 +158,7 @@ import type { EnvelopeBytes, Transport } from "./transport.js";
 const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
 
 /**
- * Process-wide single-use store of **accepted** server-hello
+ * why: process-wide single-use store of **accepted** server-hello
  * `(peer_id, nonce)` pairs (spec §Nonce / replay protection: "Receiver MUST
  * reject a hello whose `(peer_id, nonce)` pair was already accepted"; "an
  * in-memory set for the life of the process is sufficient for the reference
@@ -180,10 +180,10 @@ const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
 let acceptedServerHellos = new NonceStore();
 
 /**
- * Test-only: reset the process-wide accepted-server-hello store (simulates a
- * process restart, so the cross-restart replay test can target the dial
- * binding — the responder-hello `peer_nonce` assert — rather than the
- * in-memory nonce single-use gate). Mirrors the Rust adapter's
+ * note: test-only reset of the process-wide accepted-server-hello store —
+ * simulates a process restart, so the cross-restart replay test can target
+ * the dial binding (the responder-hello `peer_nonce` assert) rather than the
+ * in-memory nonce single-use gate. Mirrors the Rust adapter's
  * `reset_accepted_server_hellos_for_test`.
  *
  * @internal test-only — not part of the RemoteAdapter public API.
@@ -199,7 +199,7 @@ function encodeEnvelope(doc: unknown): EnvelopeBytes {
 }
 
 /**
- * Bounded wait: race `promise` against a deadline; rejects with a
+ * note: bounded wait — races `promise` against a deadline and rejects with a
  * descriptive error on elapse. Every dial await is bounded (no bare waits).
  */
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
@@ -222,10 +222,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
 }
 
 /**
- * Internal invoke-failure classes. Consumers only ever observe these mapped
- * to `SpokeResult` `INTERNAL_ERROR` rejects with `details.kind` (contract
- * §8.2) — except `connectRemoteAdapter`, which throws for dial/hello
- * failures (§8.2 last row).
+ * note: internal invoke-failure classes. Consumers only ever observe these
+ * mapped to `SpokeResult` `INTERNAL_ERROR` rejects with `details.kind`
+ * (contract §8.2) — except `connectRemoteAdapter`, which throws for
+ * dial/hello failures (§8.2 last row).
  */
 type RemoteErrorKind =
   | "transport"
@@ -358,28 +358,26 @@ export const MEMORY_OPS = {
 
 /** Raw Ed25519 keypair material for the local connect peer. */
 export interface RemoteIdentity {
-  /** 32-byte Ed25519 seed (raw). */
   seed: Uint8Array;
 }
 
 export interface RemoteAdapterOptions {
-  /** Message-oriented transport (consumer-provided; loopback ships in-repo). */
+  /** note: message-oriented transport (consumer-provided; loopback ships in-repo). */
   transport: Transport;
-  /** This adapter's raw Ed25519 seed. */
   localIdentity: RemoteIdentity;
-  /** Host manifest advertised in this adapter's signed hello. */
+  /** note: host manifest advertised in this adapter's signed hello. */
   localManifest: HostCapabilityManifest;
   /**
-   * Preconfigured remote Ed25519 public key. How the key is obtained is
-   * transport-adapter-owned (spec §Auth model); the remote's peer_id is
+   * note: preconfigured remote Ed25519 public key — how the key is obtained
+   * is transport-adapter-owned (spec §Auth model); the remote's peer_id is
    * derived from it and must be on `allowlist` (fail-closed).
    */
   remotePubkey: Uint8Array;
-  /** Trusted remote peer ids — must contain the remote's derived peer_id (fail-closed). */
+  /** invariant: must contain the remote's derived peer_id (fail-closed). */
   allowlist: readonly string[];
-  /** Bounded-wait deadline for the handshake and each invoke, ms (default 5000). */
+  /** note: bounded-wait deadline for the handshake and each invoke, ms (default 5000). */
   invokeTimeoutMs?: number;
-  /** Optional capability-token proof attached as `auth` on outbound invokes (§3.2/§3.3). */
+  /** note: optional capability-token proof attached as `auth` on outbound invokes (§3.2/§3.3). */
   capabilityToken?: CapabilityTokenProof;
 }
 
@@ -390,7 +388,7 @@ interface PendingInvoke {
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** Gate-phase outcome for a reverse invoke (see `#runReverseGate`). */
+/** note: gate-phase outcome for a reverse invoke (see `#runReverseGate`). */
 type ReverseGateResult =
   | { ok: true }
   | {
@@ -424,15 +422,15 @@ export type ToolHandler = (
 export class RemoteAdapter implements BaselinePorts, MemoryPort {
   readonly #transport: Transport;
   readonly #invokeTimeoutMs: number;
-  /** This adapter's raw 32-byte Ed25519 seed (hello identity — signs outbound envelopes). */
+  /** note: this adapter's raw 32-byte Ed25519 seed (hello identity — signs outbound envelopes). */
   readonly #secret: Uint8Array;
-  /** The remote peer's 32-byte hello Ed25519 public key (verifies inbound envelopes). */
+  /** note: the remote peer's 32-byte hello Ed25519 public key (verifies inbound envelopes). */
   readonly #remotePubkey: Uint8Array;
   #capabilityToken?: CapabilityTokenProof;
 
-  // Verification-gating state. All of it is ECMAScript `#`-private (NOT TS
-  // `private`): the invoke gate reads these slots, and no JS consumer can
-  // write a `#`-slot from outside the class — a forged `Established` /
+  // why: verification-gating state is ECMAScript `#`-private (NOT TS
+  // `private`) — the invoke gate reads these slots, and no JS consumer can
+  // write a `#`-slot from outside the class, so a forged `Established` /
   // forged `session` / forged remote-manifest cache is unreachable even
   // through an `any` cast or a subclass.
   #stateInternal: RemoteAdapterState = "Disconnected";
@@ -441,20 +439,20 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
   #receiveLoopRunning = false;
   #pending = new Map<string, PendingInvoke>();
   /**
-   * Tool-handler registry for reverse invokes (frozen contract §6):
-   * `registerToolHandler` fills it; the receive loop's serving path looks
-   * it up by exact capability id. The local manifest's `tools[]` (carried
+   * note: tool-handler registry for reverse invokes (frozen contract §6) —
+   * `registerToolHandler` fills it; the receive loop's serving path looks it
+   * up by exact capability id. The local manifest's `tools[]` (carried
    * through hello) is the discovery source — this registry MUST NOT mutate
-   * the manifest; a registry/manifest mismatch is surfaced at invoke
-   * time: a manifest-declared tool with no registered handler is denied
-   * fail-closed (op_unsupported → CAPABILITY_PORT_MISSING);
-   * `validateManifestTools` checks manifest-internal consistency only.
+   * the manifest; a registry/manifest mismatch is surfaced at invoke time: a
+   * manifest-declared tool with no registered handler is denied fail-closed
+   * (op_unsupported → CAPABILITY_PORT_MISSING); `validateManifestTools`
+   * checks manifest-internal consistency only.
    */
   #toolHandlers = new Map<string, ToolHandler>();
   /**
-   * Outbound send serialization tail. Sequences are allocated synchronously
-   * in call order, but the Ed25519 sign is async (WebCrypto) — without a
-   * chain, signs complete out of order and requests hit the wire
+   * why: outbound send serialization tail. Sequences are allocated
+   * synchronously in call order, but the Ed25519 sign is async (WebCrypto) —
+   * without a chain, signs complete out of order and requests hit the wire
    * out of sequence, which the peer's strict inbound gate rejects. Every
    * invoke chains its send behind the previous invoke's send.
    */
@@ -474,24 +472,24 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     this.#capabilityToken = capabilityToken;
   }
 
-  /** Read-only session state (contract §4 labels). */
+  /** note: read-only session state (contract §4 labels). */
   get state(): RemoteAdapterState {
     return this.#stateInternal;
   }
 
-  /** The remote-assigned session id (empty before establishment). */
+  /** note: the remote-assigned session id (empty before establishment). */
   get sessionId(): string {
     return this.#session?.session_id ?? "";
   }
 
-  /** The verified remote peer id (empty before establishment). */
+  /** note: the verified remote peer id (empty before establishment). */
   get remotePeerId(): string {
     return this.#session?.responder_peer_id ?? "";
   }
 
   /**
-   * The remote peer's `HostCapabilityManifest`, from the authenticated hello
-   * `host` (contract §7). Throws when accessed before establishment
+   * note: the remote peer's `HostCapabilityManifest`, from the authenticated
+   * hello `host` (contract §7). Throws when accessed before establishment
    * (programmer misuse — a dialed adapter always has one).
    */
   get remoteManifest(): HostCapabilityManifest {
@@ -501,7 +499,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     return this.#remoteManifestInternal;
   }
 
-  // ── BaselinePorts (async) ───────────────────────────────────────────────
+  // note: BaselinePorts (async)
 
   async getKnowledgeEntry(entryId: string): Promise<SpokeResult<KnowledgeEntry>> {
     return this.#invokeMapped<KnowledgeEntry>(PORT_OPS.getKnowledgeEntry, {
@@ -595,9 +593,9 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
 
 
   /**
-   * Remote extract core op (frozen contract F1): delegates literal op
+   * note: remote extract core op (frozen contract F1) — delegates literal op
    * `"extract"` with the `ExtractRequest` as the invoke payload. No local
-   * capability pre-gate — the responder's negotiated-set gate denies when
+   * capability pre-gate: the responder's negotiated-set gate denies when
    * `ke-extraction` is absent; D7 maps wire `op_unsupported` /
    * `capability_missing` to `CAPABILITY_PORT_MISSING`.
    */
@@ -606,9 +604,9 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
   }
 
   /**
-   * HostManifestPort: "self" on a RemoteAdapter is the **remote** peer
+   * note: HostManifestPort — "self" on a RemoteAdapter is the **remote** peer
    * (contract §7). Returns the authenticated hello `host` from the session
-   * cache — cache-only, no network round-trip.
+   * cache, cache-only, no network round-trip.
    */
   async getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>> {
     const manifest = this.#remoteManifestInternal;
@@ -628,19 +626,21 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     );
   }
 
-  // ── MemoryPort (protocol §13) ────────────────────────────────────────────
+  // note: MemoryPort — memory protocol §13
 
   /**
-   * Client `MemoryPort` over the session: one method per op, each sending the
-   * op's request object as the invoke payload and returning the op's response
-   * object — the same `#invokeMapped` shape as the `port.*` catalogue. Rows
-   * mirror `MEMORY_OPS` (Rust parity: `impl MemoryPort for RemoteAdapter`).
+   * note: client `MemoryPort` over the session — one method per op, each
+   * sending the op's request object as the invoke payload and returning the
+   * op's response object, the same `#invokeMapped` shape as the `port.*`
+   * catalogue. Rows mirror `MEMORY_OPS` (Rust parity: `impl MemoryPort for
+   * RemoteAdapter`).
    *
-   * The `principal` parameter is the LOCAL admission context: over the wire
-   * the serving host admits the authenticated peer as the requester's
-   * principal (MEM-R003), so it is never transmitted. There is no local
-   * capability pre-gate — an unnegotiated family answers `capability_missing`,
-   * mapped to `CAPABILITY_PORT_MISSING` with `details.wire_code`.
+   * invariant: the `principal` parameter is the LOCAL admission context —
+   * over the wire the serving host admits the authenticated peer as the
+   * requester's principal (MEM-R003), so it is never transmitted. There is
+   * no local capability pre-gate: an unnegotiated family answers
+   * `capability_missing`, mapped to `CAPABILITY_PORT_MISSING` with
+   * `details.wire_code`.
    */
   async describe(
     _principal: Principal,
@@ -961,33 +961,33 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
   }
 
   /**
-   * Release the session and transport. Idempotent; pending invokes fail with
-   * `INTERNAL_ERROR` `details.kind = "session_closed"`.
+   * note: release the session and transport. Idempotent; pending invokes fail
+   * with `INTERNAL_ERROR` `details.kind = "session_closed"`.
    */
   close(): void {
     this.#closeSession("local shutdown");
   }
 
-  // ── Tool serving (reverse invokes) ───────────────────────────────────────
+  // see contract §6 — tool serving (reverse invokes)
 
   /**
-   * Register a handler for a `tools.<ns>.<tool_id>` capability served on
-   * this adapter (frozen contract §6). A reverse invoke whose op passes the
-   * dispatch gate dispatches to the registered handler; the handler runs
+   * note: register a handler for a `tools.<ns>.<tool_id>` capability served
+   * on this adapter (frozen contract §6). A reverse invoke whose op passes
+   * the dispatch gate dispatches to the registered handler; the handler runs
    * off the receive loop and its `SpokeResult` maps to a signed
    * `ConnectInvokeResponse` (success `{ result }` branch, or the error
    * branch via `toErrorEnvelope`).
    *
-   * Grammar-asserted: a non-`tools.` id throws (programmer misuse, like the
-   * generated-type ergonomics of `toolCapabilityId`). Duplicate registration
-   * for the same id OVERWRITES the previous handler (last-wins, documented).
+   * invariant: a non-`tools.` id throws (grammar assertion, programmer
+   * misuse, like the generated-type ergonomics of `toolCapabilityId`);
+   * duplicate registration for the same id OVERWRITES the previous handler
+   * (last-wins, documented).
    *
-   * The registry does NOT mutate the local manifest — descriptor truth for
-   * discovery stays in the manifest's `tools[]` (sent through hello);
-   * registering a handler for a tool the manifest does not declare
-   * leaves that id unserved — invoking it answers the dispatch-deny
-   * branch; `validateManifestTools` checks manifest-internal
-   * consistency only.
+   * invariant: the registry does NOT mutate the local manifest — descriptor
+   * truth for discovery stays in the manifest's `tools[]` (sent through
+   * hello); registering a handler for a tool the manifest does not declare
+   * leaves that id unserved (invoking it answers the dispatch-deny branch).
+   * `validateManifestTools` checks manifest-internal consistency only.
    */
   registerToolHandler(capabilityId: string, handler: ToolHandler): void {
     const parsed = parseToolCapabilityId(capabilityId);
@@ -998,9 +998,9 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
   }
 
   /**
-   * Forward tool-invoke face (frozen contract §6): issue a
+   * note: forward tool-invoke face (frozen contract §6) — issues a
    * `ConnectInvokeRequest` with `op = capabilityId` toward the remote peer
-   * and resolve with the tool's `result` (extracted from the success
+   * and resolves with the tool's `result` (extracted from the success
    * `payload = { result: <opaque JSON> }`). Deny answers map via the
    * existing D7 row (`op_unsupported` / `capability_missing` →
    * `CAPABILITY_PORT_MISSING` with `details.wire_code` preserved). Reuses
@@ -1010,7 +1010,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     capabilityId: string,
     args: Record<string, unknown>,
   ): Promise<SpokeResult<unknown>> {
-    // Fail fast on a non-tool capability id (the op string IS the
+    // why: fail fast on a non-tool capability id (the op string IS the
     // capability string; a non-`tools.` id is a programming error).
     const parsed = parseToolCapabilityId(capabilityId);
     if (!parsed.ok) {
@@ -1021,7 +1021,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
       if ("error" in response) {
         return mapErrorEnvelope(response.error);
       }
-      // Tool success-payload gate (frozen §4): success is
+      // invariant: tool success-payload gate (frozen §4) — success is
       // `payload = { "result": <opaque JSON> }`; a success payload without
       // a `result` key rejects with `INTERNAL_ERROR` `details.kind =
       // "transport"` (mirrors the `#invokeMapped` shape gate).
@@ -1047,31 +1047,31 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     }
   }
 
-  // ── Session lifecycle (hard-private — only `connectRemoteAdapter` dials) ─
+  // note: session lifecycle is hard-private — only `connectRemoteAdapter` dials.
   //
-  // ECMAScript `#`-private methods AND state fields: invisible to consumers
-  // in the shipped `dist/remote/index.d.ts` AND unreachable at runtime (not
-  // even through an `any` cast or a subclass), so no consumer can forge
-  // `Established` state past the hello/allowlist/nonce verification. The
-  // dial entrypoint lives on the class (`connectRemoteAdapter` static below)
-  // where these stay callable.
+  // why: ECMAScript `#`-private methods AND state fields are invisible to
+  // consumers in the shipped `dist/remote/index.d.ts` AND unreachable at
+  // runtime (not even through an `any` cast or a subclass), so no consumer
+  // can forge `Established` state past the hello/allowlist/nonce
+  // verification. The dial entrypoint lives on the class
+  // (`connectRemoteAdapter` static below) where these stay callable.
 
-  /** Dial-only. Adapter is in `Handshaking` while dialing. */
+  /** note: dial-only — the adapter is in `Handshaking` while dialing. */
   #beginHandshake(): void {
     this.#stateInternal = "Handshaking";
   }
 
-  /** Dial-only: send one handshake envelope. */
+  /** note: dial-only — sends one handshake envelope. */
   async #sendEnvelope(doc: unknown): Promise<void> {
     await this.#transport.send(encodeEnvelope(doc));
   }
 
-  /** Dial-only: receive + decode the next handshake envelope. */
+  /** note: dial-only — receives and decodes the next handshake envelope. */
   async #recvEnvelope(): Promise<unknown> {
     return decodeJsonMessage(await this.#transport.recv());
   }
 
-  /** Dial-only: bind the authenticated session and start the receive loop. */
+  /** note: dial-only — binds the authenticated session and starts the receive loop. */
   #establish(session: Session, remoteManifest: HostCapabilityManifest): void {
     this.#session = session;
     this.#remoteManifestInternal = remoteManifest;
@@ -1080,8 +1080,8 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
   }
 
   /**
-   * All failure paths that make the session unusable. Transitions to
-   * `Closed`, settles every pending waiter, and releases the transport
+   * note: every failure path that makes the session unusable — transitions
+   * to `Closed`, settles every pending waiter, and releases the transport
    * (fire-and-forget).
    */
   #closeSession(reason: string): void {
@@ -1089,13 +1089,13 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
       return;
     }
     this.#stateInternal = "Closed";
-    // Fire-and-forget teardown (contract §2.1: close is optional and
-    // idempotent; `close()` is void): neither a synchronous throw nor a
-    // rejecting async close may surface — the adapter has already
-    // transitioned to `Closed` and every pending invoke is failed below,
-    // so there is no caller that could receive the failure (§8.2 defines
-    // no close-failure row). A sync throw is caught here; `Promise.resolve`
-    // (not `instanceof Promise`) drains cross-realm / non-native thenables.
+    // note: fire-and-forget teardown (contract §2.1: close is optional and
+    // idempotent; `close()` is void) — neither a synchronous throw nor a
+    // rejecting async close may surface: the adapter has already transitioned
+    // to `Closed` and every pending invoke is failed below, so no caller could
+    // receive the failure (§8.2 defines no close-failure row). A sync throw is
+    // caught here; `Promise.resolve` (not `instanceof Promise`) drains
+    // cross-realm / non-native thenables.
     let closeResult: unknown;
     try {
       closeResult = this.#transport.close?.();
@@ -1104,8 +1104,9 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     }
     if (closeResult !== undefined) {
       void Promise.resolve(closeResult).catch(() => {
-        // Transport close failure is intentionally swallowed: the session
-        // is unusable either way and the adapter already settled waiters.
+        // note: transport close failure is intentionally swallowed — the
+        // session is unusable either way and the adapter already settled
+        // waiters.
       });
     }
     this.#failAllPending(
@@ -1121,7 +1122,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     this.#pending.clear();
   }
 
-  // ── Receive loop (adapter-owned; port methods never call recv) ──────────
+  // note: receive loop is adapter-owned — port methods never call recv.
 
   #runReceiveLoop(): void {
     if (this.#receiveLoopRunning) {
@@ -1143,7 +1144,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
       try {
         doc = decodeJsonMessage(await this.#transport.recv());
       } catch (error) {
-        // Transport loss: fail every pending waiter and transition to
+        // note: transport loss — fail every pending waiter and transition to
         // `Closed` (contract §6 "Transport close mid-flight" / §8.2).
         this.#closeSession(
           `transport loss: ${error instanceof Error ? error.message : String(error)}`,
@@ -1151,25 +1152,25 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         return;
       }
 
-      // Classify request shape FIRST (normative `spoke-connect.md`
-      // §Request / response classification): an inbound envelope carrying
-      // `op` is a `ConnectInvokeRequest` — never a response, even though a
+      // invariant: classify request shape FIRST (normative `spoke-connect.md`
+      // §Request / response classification) — an inbound envelope carrying
+      // `op` is a `ConnectInvokeRequest`, never a response, even though a
       // reverse request carries the same correlation echo fields + payload
       // as the response success branch. Without this order the reverse
       // request would satisfy the response discriminator and be silently
       // swallowed by the request_id demux below.
       if (isConnectInvokeRequest(doc)) {
-        // Reverse invoke serving. The gate (peek → verify → advance) is
-        // awaited INLINE: the loop reads the next envelope only after this
-        // request's gate completes, so steps 3–5 are serialized per session
-        // (frozen §4). Dispatch (gate → handler) fires without blocking the
-        // loop.
+        // note: reverse invoke serving — the gate (peek → verify → advance)
+        // is awaited INLINE, so the loop reads the next envelope only after
+        // this request's gate completes and steps 3–5 are serialized per
+        // session (frozen §4). Dispatch (gate → handler) fires without
+        // blocking the loop.
         try {
           await this.#serveReverseInvoke(doc);
         } catch (error) {
-          // Unexpected serving failure (local key misconfiguration /
-          // internal bug): fail closed like transport loss — a live
-          // session must not silently drop reverse invokes.
+          // why: unexpected serving failure (local key misconfiguration /
+          // internal bug) fails closed like transport loss — a live session
+          // must not silently drop reverse invokes.
           this.#closeSession(
             `reverse invoke serving failed: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -1179,7 +1180,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
       }
 
       if (isConnectInvokeResponse(doc)) {
-        // Demux by request_id; unknown/duplicate responses are dropped
+        // note: demux by request_id; unknown/duplicate responses are dropped
         // (protocol v1 defines no retry).
         const entry = this.#pending.get(doc.request_id);
         if (entry === undefined) {
@@ -1188,11 +1189,11 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         clearTimeout(entry.timer);
         this.#pending.delete(doc.request_id);
         try {
-          // Correlation echo check first (non-mutating wire-position
-          // validation), then envelope-auth verify (contract §7: the
-          // response must carry the peer's authentic signature over the
-          // exact wire branch). A forged/tampered response fails closed —
-          // only this waiter, never a session-state mutation.
+          // note: correlation echo check first (non-mutating wire-position
+          // validation), then envelope-auth verify (contract §7: the response
+          // must carry the peer's authentic signature over the exact wire
+          // branch). A forged/tampered response fails closed — only this
+          // waiter, never a session-state mutation.
           checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
           await verifyInvokeResponseAuth(this.#remotePubkey, doc, session.session_id);
           entry.resolve(doc);
@@ -1200,9 +1201,9 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
           if (error instanceof EnvelopeAuthError) {
             entry.reject(new RemoteError(error.kind, error.message));
           } else if (error instanceof CoreError && error.code === "crypto") {
-            // Crypto verify failure (wrong-length / invalid key bytes —
-            // local key misuse, no envelope-auth kind): still a
-            // verification failure of the response's authenticator →
+            // why: crypto verify failure (wrong-length / invalid key bytes —
+            // local key misuse, no envelope-auth kind) is still a
+            // verification failure of the response's authenticator, so
             // `envelope_auth_invalid`, never mislabeled as a correlation
             // mismatch (Rust parity).
             entry.reject(new RemoteError("envelope_auth_invalid", error.message));
@@ -1218,25 +1219,25 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         continue;
       }
 
-      // Post-handshake stray envelope (hello / session / unknown shape):
-      // ignored.
+      // note: post-handshake stray envelope (hello / session / unknown shape)
+      // is ignored.
     }
   }
 
-  // ── Reverse invoke serving (frozen §4 pipeline) ─────────────────────────
+  // see contract §4 — reverse invoke serving pipeline
 
   /**
-   * Send one signed response envelope, fire-and-forget (responses are
-   * demuxed by `request_id` on the peer; a send failure is not observable
-   * to this session).
+   * note: sends one signed response envelope, fire-and-forget — responses are
+   * demuxed by `request_id` on the peer, so a send failure is not observable
+   * to this session.
    */
   #sendReverseResponse(doc: unknown): void {
     void this.#transport.send(encodeEnvelope(doc)).catch(() => {
-      // Peer gone — responses are fire-and-forget at the serving boundary.
+      // note: peer gone — responses are fire-and-forget at the serving boundary.
     });
   }
 
-  /** Sign + send an error-branch response to a reverse invoke. */
+  /** note: signs and sends an error-branch response to a reverse invoke. */
   async #sendReverseErrorEnvelope(
     doc: ConnectInvokeRequest,
     error: ErrorEnvelope,
@@ -1256,7 +1257,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
   }
 
   /**
-   * Serve one reverse invoke per the canonical order (frozen §4):
+   * note: serves one reverse invoke in the canonical order (frozen §4):
    * classify (caller) → stray → sequence peek → envelope-auth verify →
    * advance → gate → handler → signed response. The caller (receive loop)
    * awaits this method inline so peek → verify → advance are serialized;
@@ -1265,7 +1266,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
   async #serveReverseInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const gate = await this.#runReverseGate(doc);
     if (gate === null) {
-      return; // stray — ignored
+      return; // note: stray — ignored
     }
     if (!gate.ok) {
       await this.#sendReverseErrorEnvelope(doc, {
@@ -1280,7 +1281,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
   }
 
   /**
-   * Gate phase — sequence peek (non-mutating) → envelope-auth verify →
+   * note: gate phase — sequence peek (non-mutating) → envelope-auth verify →
    * advance. Fail-closed (auth-before-advance, spec §Verify rules): a
    * forged/tampered/stripped signature answers `auth_failed` and leaves the
    * inbound counter unchanged. Returns `null` for stray requests (ignored),
@@ -1290,13 +1291,13 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
   async #runReverseGate(doc: ConnectInvokeRequest): Promise<ReverseGateResult> {
     const session = this.#session;
     if (session === null) {
-      return null; // stray — no established session
+      return null; // note: stray — no established session
     }
-    // Stray check (single-peer adapter): a `session_id` bound to a
-    // DIFFERENT live session is ignored — no response. A `session_id`
-    // bound to no established session stays on this path and is rejected
-    // `auth_failed` at verify (session-binding assert below) — this
-    // adapter owns one session, so verify owns the binding check.
+    // note: stray check (single-peer adapter) — a `session_id` bound to a
+    // DIFFERENT live session is ignored (no response). A `session_id` bound
+    // to no established session stays on this path and is rejected
+    // `auth_failed` at verify (session-binding assert below): this adapter
+    // owns one session, so verify owns the binding check.
     try {
       session.peekInboundSequence(doc.sequence);
     } catch {
@@ -1321,16 +1322,16 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
           details: { kind: error.kind },
         };
       }
-      throw error; // wrong-length key is adapter misconfiguration — fail loudly
+      throw error; // note: wrong-length key is adapter misconfiguration — fail loudly
     }
-    // Advance the inbound counter only after envelope-auth verify passed.
+    // invariant: advance the inbound counter only after envelope-auth verify passed.
     session.acceptInboundSequence(doc.sequence);
     return { ok: true };
   }
 
   /**
-   * Dispatch phase — runs after the serialized gate; may interleave with
-   * other invokes. Fully contained: a throwing/rejecting handler answers
+   * note: dispatch phase — runs after the serialized gate and may interleave
+   * with other invokes. Fully contained: a throwing/rejecting handler answers
    * the error branch and never crashes the loop.
    */
   async #dispatchReverseInvoke(doc: ConnectInvokeRequest): Promise<void> {
@@ -1339,8 +1340,8 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
       return;
     }
     try {
-      // Dispatch gate — `Session.dispatchAllowed`-level logic (frozen §3):
-      // `tools.*` ops require the op string itself, evaluated against
+      // note: dispatch gate is `Session.dispatchAllowed`-level logic (frozen
+      // §3) — `tools.*` ops require the op string itself, evaluated against
       // `negotiated_capabilities` (never a raw requirements-map
       // composition, which would deny the self-describing tools family).
       if (!session.dispatchAllowed(doc.op)) {
@@ -1351,8 +1352,8 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         });
         return;
       }
-      // Handler or deny — fail-closed serving (frozen deny matrix): a gate
-      // pass with no registered handler answers `op_unsupported`.
+      // note: handler or deny — fail-closed serving (frozen deny matrix): a
+      // gate pass with no registered handler answers `op_unsupported`.
       const handler = this.#toolHandlers.get(doc.op);
       if (handler === undefined) {
         await this.#sendReverseErrorEnvelope(doc, {
@@ -1362,12 +1363,12 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         });
         return;
       }
-      // The request payload carries the tool arguments as
-      // `{ "arguments": <opaque JSON> }` (frozen §4). A non-object
-      // arguments field is a malformed provider request — serve `{}`
-      // (the structural argument gate is caller-side). The unchecked cast is
-      // deliberate: `payload` is any-JSON on the wire, so a null / malformed
-      // value keeps its pre-existing property-access outcome (serving error path).
+      // note: the request payload carries the tool arguments as
+      // `{ "arguments": <opaque JSON> }` (frozen §4). A non-object arguments
+      // field is a malformed provider request — serve `{}` (the structural
+      // argument gate is caller-side). The unchecked cast is deliberate:
+      // `payload` is any-JSON on the wire, so a null / malformed value keeps
+      // its pre-existing property-access outcome (serving error path).
       const payload = doc.payload as { arguments?: unknown };
       const argumentsField = payload.arguments;
       const handlerArgs: Record<string, unknown> =
@@ -1380,7 +1381,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
       try {
         result = await handler(handlerArgs);
       } catch (error) {
-        // Handler threw → error branch via toErrorEnvelope (INTERNAL_ERROR
+        // note: handler threw → error branch via toErrorEnvelope (INTERNAL_ERROR
         // for a crash); never crashes the loop (frozen §6).
         result = spokeReject(
           SpokeRejectCode.INTERNAL_ERROR,
@@ -1388,7 +1389,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         );
       }
       if (result.ok) {
-        // Success branch: `payload = { "result": <opaque JSON> }` (frozen §4).
+        // note: success branch is `payload = { "result": <opaque JSON> }` (frozen §4).
         this.#sendReverseResponse(
           await authenticateInvokeResponse(this.#secret, {
             session_id: doc.session_id,
@@ -1403,9 +1404,9 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
       }
     } catch (error) {
-      // Unexpected serving failure (e.g. non-JSON-serializable handler
-      // result): answer the error branch so the invoker never hangs, and
-      // never crash the loop.
+      // why: unexpected serving failure (e.g. non-JSON-serializable handler
+      // result) answers the error branch so the invoker never hangs, and
+      // never crashes the loop.
       try {
         await this.#sendReverseErrorEnvelope(doc, {
           code: SpokeRejectCode.INTERNAL_ERROR,
@@ -1413,15 +1414,15 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
           extensions: {},
         });
       } catch {
-        // Peer gone — responses are fire-and-forget.
+        // note: peer gone — responses are fire-and-forget.
       }
     }
   }
 
-  // ── Invoke path ─────────────────────────────────────────────────────────
+  // note: invoke path
 
   /**
-   * Send one op invoke and resolve with its correlated response envelope.
+   * note: send one op invoke and resolve with its correlated response envelope.
    * Rejects with `RemoteError` on timeout / transport failure / session
    * close / correlation mismatch / sequence exhaustion.
    */
@@ -1440,7 +1441,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     try {
       sequence = session.allocateOutboundSequence();
     } catch (error) {
-      // Outbound sequence exhaustion: the session is unusable (no wrap);
+      // why: outbound sequence exhaustion makes the session unusable (no wrap) —
       // close it and fail this invoke with `sequence_exhausted` (§6/§8.2).
       this.#closeSession("outbound sequence exhausted");
       throw new RemoteError(
@@ -1489,7 +1490,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         reject,
         timer,
       });
-      // Outbound wire-order serialization: the tail entry is created HERE,
+      // invariant: outbound wire-order serialization — the tail entry is created HERE,
       // synchronously, so the wire order matches the allocation order even
       // though the Ed25519 sign completes asynchronously (an out-of-order
       // send would be rejected by the peer's strict inbound sequence gate).
@@ -1502,7 +1503,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         (signed) => {
           void prevSend
             .then(() => {
-              // The invoke may have settled while this send waited behind
+              // why: the invoke may have settled while this send waited behind
               // the tail (timeout fired → entry deleted; session closed →
               // `#failAllPending` cleared the map). Do NOT transmit late:
               // the caller already observed the failure, and a retry would
@@ -1524,7 +1525,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
               try {
                 return this.#transport.send(encodeEnvelope(signed));
               } catch (error) {
-                // Synchronous encode failure (e.g. non-JSON-serializable
+                // why: synchronous encode failure (e.g. non-JSON-serializable
                 // payload): same cleanup, same mapping.
                 throw new RemoteError(
                   "transport",
@@ -1537,7 +1538,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
                 releaseSend();
               },
               (sendError) => {
-                // Async send failure (transport closed between setup and
+                // why: async send failure (transport closed between setup and
                 // send): settle this invoke now — no dead entry waits out
                 // the timeout.
                 releaseSend();
@@ -1569,7 +1570,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     });
   }
 
-  /** Invoke the `extract` core op and map the wire response (F1). */
+  /** note: invoke the `extract` core op and map the wire response (F1). */
   async #invokeExtractMapped(
     request: ExtractRequest,
   ): Promise<SpokeResult<ExtractResponse>> {
@@ -1639,7 +1640,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
   }
 
   /**
-   * Test-only: position the outbound counter of the established session so
+   * note: test-only — position the outbound counter of the established session so
    * the loopback suite can exercise sequence exhaustion without 2⁵³ real
    * invokes (mirrors the Rust in-module unit test, which reaches
    * `OutboundSequence::set_next` under `#[cfg(test)]`; TS has no cfg(test),
@@ -1703,7 +1704,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     adapter.#beginHandshake();
 
     try {
-      // 1. Send our signed hello (nonce generated internally — single-use).
+      // note: step 1 — send our signed hello (nonce generated internally, single-use).
       //    The initiator hello signs the 4-field object (no `peer_nonce`);
       //    the nonce is kept for the responder-hello dial-binding assert.
       const initiatorNonce = generateNonce();
@@ -1719,7 +1720,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         "hello send",
       );
 
-      // 2. Await + verify the server's signed hello (signature + identity).
+      // note: step 2 — await + verify the server's signed hello (signature + identity).
       //    Dial binding: the responder signs the 5-field object incl.
       //    `peer_nonce` = our nonce; a replayed responder hello (signed over
       //    a different or absent initiator nonce — e.g. captured on an
@@ -1739,7 +1740,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
         helloDoc,
         initiatorNonce,
       );
-      // Receiver-side nonce single-use (spec §Nonce / replay protection):
+      // safety: receiver-side nonce single-use (spec §Nonce / replay protection) —
       // record the accepted server hello and reject a replayed one. An
       // active transport attacker cannot reuse a previously-signed hello
       // from the allowlisted peer to re-enter `Established` on a later dial
@@ -1752,7 +1753,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
       }
       const remoteManifest: HostCapabilityManifest = helloDoc.host;
 
-      // 3. Await + validate the A-assigned session snapshot. Envelope-auth
+      // note: step 3 — await + validate the A-assigned session snapshot. Envelope-auth
       //    verify runs on the wire form BEFORE the typed checks
       //    (`spoke-connect-session-jcs-v1` against the responder's hello
       //    key; the step-6 peer-id binding assert replaces the old manual
@@ -1793,7 +1794,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
       );
       return adapter;
     } catch (error) {
-      // Handshake rejection: release the transport so the peer sees a clean
+      // why: handshake rejection releases the transport so the peer sees a clean
       // disconnect (mirrors the connect-client handshake-rejection pattern).
       adapter.close();
       throw error;

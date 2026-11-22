@@ -29,7 +29,7 @@ import type {
 import { fromHex, toHex } from "../hex.js";
 
 /**
- * Cross-language golden vectors for envelope authentication: wire envelopes
+ * why: cross-language golden vectors for envelope authentication: wire envelopes
  * signed by the **Rust** core (`crates/spoke-connect`, the capture
  * authority) from the identity golden seed (bytes 1..=32 — the same key
  * pair as `golden-hello.json`), checked in as
@@ -85,12 +85,11 @@ const golden = JSON.parse(
 const GOLDEN_SEED = fromHex(golden.seed_hex);
 const GOLDEN_PUBKEY = fromHex(golden.pubkey_hex);
 
-/** Parse a pinned wire envelope (the form the verify helpers consume). */
 function wireOf(envelopeJson: string): Record<string, unknown> {
   return JSON.parse(envelopeJson) as Record<string, unknown>;
 }
 
-/** The signed object a session envelope covers: wire minus signature/extensions. */
+/** note: the signed object a session envelope covers: wire minus signature/extensions. */
 function sessionSignInput(wire: Record<string, unknown>): SessionSignInput {
   return {
     session_id: wire.session_id as string,
@@ -131,7 +130,6 @@ function invokeResponseSignInput(wire: Record<string, unknown>): InvokeResponseS
   };
 }
 
-/** JCS-canonicalize a signed object and return its UTF-8 bytes as hex. */
 function jcsHex(signedObject: Record<string, unknown>): string {
   const jcs = canonicalize(signedObject);
   if (jcs === undefined) {
@@ -140,7 +138,6 @@ function jcsHex(signedObject: Record<string, unknown>): string {
   return toHex(new TextEncoder().encode(jcs));
 }
 
-/** Assert a verify call rejects with exactly the locked machine kind. */
 async function rejectsWithKind(
   promise: Promise<unknown>,
   kind: EnvelopeAuthErrorKind,
@@ -158,7 +155,7 @@ describe("Rust-minted envelope-auth golden vectors", () => {
     );
     expect(toHex(getPublicKeyEd25519(GOLDEN_SEED))).toBe(golden.pubkey_hex);
 
-    // The golden host (the fixture peer_id) signs its own session snapshot.
+    // note: the golden host (the fixture peer_id) signs its own session snapshot.
     const sessionWire = wireOf(golden.session.positive[0].envelope_json);
     expect(sessionWire.initiator_peer_id).toBe(golden.peer_id);
 
@@ -171,11 +168,11 @@ describe("Rust-minted envelope-auth golden vectors", () => {
       expect(family.negative.length).toBeGreaterThanOrEqual(1);
       for (const positive of family.positive) {
         expect(wireOf(positive.envelope_json).signature).toBe(positive.signature_b64u);
-        // 64 raw signature bytes → 86 base64url chars, no padding.
+        // why: 64 raw signature bytes → 86 base64url chars, no padding.
         expect(positive.signature_b64u).toHaveLength(86);
       }
     }
-    // The invoke-response family pins both branches (never merged).
+    // why: the invoke-response family pins both branches (never merged).
     const responsePositives = golden.invoke_response.positive;
     expect(responsePositives.length).toBe(2);
     expect(wireOf(responsePositives[0].envelope_json)).toHaveProperty("payload");
@@ -195,7 +192,7 @@ describe("Rust-minted envelope-auth golden vectors", () => {
       ),
     ).resolves.toBeUndefined();
 
-    // Re-sign the received wire fields: identical JCS bytes + signature.
+    // why: re-sign the received wire fields: identical JCS bytes + signature.
     const input = sessionSignInput(wire);
     expect(jcsHex(input as unknown as Record<string, unknown>)).toBe(positive.jcs_hex);
     const reSigned = await authenticateSession(GOLDEN_SEED, input);
@@ -230,7 +227,7 @@ describe("Rust-minted envelope-auth golden vectors", () => {
     ).resolves.toBeUndefined();
 
     const input = invokeRequestSignInput(wire);
-    // The pinned vector carries `auth` — conditional inclusion must survive
+    // why: the pinned vector carries `auth` — conditional inclusion must survive
     // the re-sign (a lost auth would change the signed bytes).
     expect(input.auth).toBeDefined();
     expect(jcsHex(input as unknown as Record<string, unknown>)).toBe(positive.jcs_hex);

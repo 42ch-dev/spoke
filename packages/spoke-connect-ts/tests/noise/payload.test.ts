@@ -1,5 +1,5 @@
 /**
- * libp2p Noise identity payload gates (Task 3, connect-ts-noise-stack) —
+ * why: libp2p Noise identity payload gates (Task 3, connect-ts-noise-stack) —
  * frozen contract `.agents/specs/connect/noise-xx-libp2p-contract.md` §4:
  *
  *   - §4.2 domain-separated Ed25519 signature over
@@ -32,29 +32,29 @@ import {
 } from "../../src/noise/payload.js";
 import { fromHex, toHex } from "../hex.js";
 
-// ── Fixtures ────────────────────────────────────────────────────────────────
+// note: fixtures
 
-/** golden-hello.json seed (package-pinned identity). */
+/** note: golden-hello.json seed (package-pinned identity). */
 const IDENTITY_SEED = fromHex(
   "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
 );
-/** Its Ed25519 public key (pinned in golden-hello.json). */
+/** note: its Ed25519 public key (pinned in golden-hello.json). */
 const IDENTITY_PUBLIC = fromHex(
   "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664",
 );
-/** X25519 public of the cacophony initiator static key (xx.test.ts). */
+/** note: X25519 public of the cacophony initiator static key (xx.test.ts). */
 const STATIC_PUBLIC = fromHex(
   "6bc3822a2aa7f4e6981d6538692b3cdf3e6df9eea6ed269eb41d93c22757b75a",
 );
-/** Ed25519 signature of the golden identity over the domain preimage. */
+/** note: Ed25519 signature of the golden identity over the domain preimage. */
 const EXPECTED_SIGNATURE = fromHex(
   "cf05b6ba239566483c7106cb7a8bf1137e3fcc12d9f003ddb94f1211d5c7ef28" +
     "fda4f0efbb005d0411eedaf38cb7067157d3f388a6509811395ccbf8e8424405",
 );
-/** ASCII "noise-libp2p-static-key:" (no NUL) — pinned byte layout. */
+/** note: ASCII "noise-libp2p-static-key:" (no NUL) — pinned byte layout. */
 const DOMAIN_HEX = "6e6f6973652d6c69627032702d7374617469632d6b65793a";
 
-// ── §4.2 domain string ──────────────────────────────────────────────────────
+// note: §4.2 domain string
 
 describe("STATIC_KEY_DOMAIN", () => {
   it("is the frozen ASCII domain string (no NUL)", () => {
@@ -62,7 +62,7 @@ describe("STATIC_KEY_DOMAIN", () => {
   });
 });
 
-// ── §4.2 sign / verify ──────────────────────────────────────────────────────
+// note: §4.2 sign / verify
 
 describe("signNoiseStaticKey / verifyNoiseStaticKey", () => {
   it("produces the deterministic signature fixture over the domain preimage", async () => {
@@ -111,11 +111,11 @@ describe("signNoiseStaticKey / verifyNoiseStaticKey", () => {
   });
 });
 
-// ── §4.3 libp2p PublicKey protobuf (identity_key) ───────────────────────────
+// note: §4.3 libp2p PublicKey protobuf (identity_key)
 
 describe("encodeIdentityPublicKey / decodeIdentityPublicKey", () => {
   it("encodes the libp2p PublicKey protobuf for Ed25519 (36 bytes)", () => {
-    // field 1 varint Type = 1 (Ed25519): 08 01; field 2 bytes Data: 12 20 || key
+    // note: field 1 varint Type = 1 (Ed25519): 08 01; field 2 bytes Data: 12 20 || key
     expect(toHex(encodeIdentityPublicKey(IDENTITY_PUBLIC))).toBe(
       "08011220" + toHex(IDENTITY_PUBLIC),
     );
@@ -129,14 +129,14 @@ describe("encodeIdentityPublicKey / decodeIdentityPublicKey", () => {
   });
 
   it("rejects non-Ed25519 key types", () => {
-    // RSA (Type = 0): 08 00
+    // note: RSA (Type = 0): 08 00
     const rsa = Uint8Array.of(0x08, 0x00, 0x12, 0x20, ...IDENTITY_PUBLIC);
     expect(decodeIdentityPublicKey(rsa)).toBeUndefined();
   });
 
   it("rejects malformed or truncated encodings", () => {
     expect(decodeIdentityPublicKey(new Uint8Array(0))).toBeUndefined();
-    expect(decodeIdentityPublicKey(IDENTITY_PUBLIC)).toBeUndefined(); // raw key ≠ protobuf
+    expect(decodeIdentityPublicKey(IDENTITY_PUBLIC)).toBeUndefined(); // note: raw key ≠ protobuf
     expect(
       decodeIdentityPublicKey(encodeIdentityPublicKey(IDENTITY_PUBLIC).slice(0, 35)),
     ).toBeUndefined();
@@ -147,7 +147,7 @@ describe("encodeIdentityPublicKey / decodeIdentityPublicKey", () => {
   });
 });
 
-// ── §4.3 NoiseHandshakePayload protobuf ─────────────────────────────────────
+// note: §4.3 NoiseHandshakePayload protobuf
 
 describe("encodeHandshakePayload / decodeHandshakePayload", () => {
   it("encodes the default payload as zero bytes (flight 1)", () => {
@@ -160,7 +160,7 @@ describe("encodeHandshakePayload / decodeHandshakePayload", () => {
       identityKey: encodeIdentityPublicKey(IDENTITY_PUBLIC),
       identitySig: EXPECTED_SIGNATURE,
     });
-    // 0a 24 (field 1, 36-byte PublicKey) || 12 40 (field 2, 64-byte sig)
+    // note: 0a 24 (field 1, 36-byte PublicKey) || 12 40 (field 2, 64-byte sig)
     expect(toHex(encoded)).toBe(
       "0a2408011220" + toHex(IDENTITY_PUBLIC) + "1240" + toHex(EXPECTED_SIGNATURE),
     );
@@ -195,7 +195,7 @@ describe("encodeHandshakePayload / decodeHandshakePayload", () => {
       identityKey: encodeIdentityPublicKey(IDENTITY_PUBLIC),
       identitySig: EXPECTED_SIGNATURE,
     });
-    // append field 3 (bytes "abc") — 1a 03 61 62 63
+    // note: append field 3 (bytes "abc") — 1a 03 61 62 63
     const withUnknown = fromHex(toHex(base) + "1a03616263");
     const decoded = decodeHandshakePayload(withUnknown);
     expect(decoded.identityKey).toEqual(encodeIdentityPublicKey(IDENTITY_PUBLIC));
@@ -203,7 +203,7 @@ describe("encodeHandshakePayload / decodeHandshakePayload", () => {
   });
 
   it("skips unknown fields inside NoiseExtensions", () => {
-    // payload = identity_key + identity_sig, then field 4 (extensions) whose
+    // note: payload = identity_key + identity_sig, then field 4 (extensions) whose
     // inner message is `0a 02 01 02` (field 1, certhash 0102) plus unknown
     // field 3 (bytes 01) — `22 07 0a 02 01 02 1a 01 01`.
     const base = encodeHandshakePayload({
@@ -220,9 +220,9 @@ describe("encodeHandshakePayload / decodeHandshakePayload", () => {
   });
 
   it("rejects malformed protobuf", () => {
-    expect(() => decodeHandshakePayload(fromHex("0a"))).toThrow(); // truncated length
-    expect(() => decodeHandshakePayload(fromHex("0a0501"))).toThrow(); // declared > available
-    expect(() => decodeHandshakePayload(fromHex("1b01"))).toThrow(); // group wire type
-    expect(() => decodeHandshakePayload(fromHex("ffffffffffffffffffffffff"))).toThrow(); // varint overrun
+    expect(() => decodeHandshakePayload(fromHex("0a"))).toThrow(); // note: truncated length
+    expect(() => decodeHandshakePayload(fromHex("0a0501"))).toThrow(); // note: declared > available
+    expect(() => decodeHandshakePayload(fromHex("1b01"))).toThrow(); // note: group wire type
+    expect(() => decodeHandshakePayload(fromHex("ffffffffffffffffffffffff"))).toThrow(); // note: varint overrun
   });
 });

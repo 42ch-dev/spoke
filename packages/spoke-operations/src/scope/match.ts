@@ -102,7 +102,7 @@ function cognitionRecordsOfEntry(
     );
   }
 
-  // The wire-shape gate above already proved the closed module shape.
+  // note: The wire-shape gate above already proved the closed module shape.
   const validatedModule = cognitionModule as { records: CognitionRecord[] };
   return spokeOk(validatedModule.records);
 }
@@ -154,7 +154,7 @@ export function assertSupportedCognitionSelection(
 
   const validated = validateCognitionSelection(selection);
   if (!validated.ok) {
-    // C5 names the failing member relative to the selection; the caller's
+    // note: C5 names the failing member relative to the selection; the caller's
     // `fieldPath` is this request's location for the selection root. A
     // non-identifier member already carries its own bracket, so no dot.
     const relative = validated.details?.field;

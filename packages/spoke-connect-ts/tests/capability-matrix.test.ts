@@ -10,7 +10,7 @@ import { selectPeerForOp, type SelectablePeer } from "../src/remote/multi-peer-r
 import { PORT_OP_CAPABILITY_REQUIREMENTS, portDispatchAllowed } from "../src/remote/responder.js";
 
 /**
- * Capability selection matrix parity. The fixture is a byte-identical
+ * why: capability selection matrix parity. The fixture is a byte-identical
  * registered copy of the SSOT under
  * `crates/spoke-connect/tests/fixtures/capability-matrix.json` (sync gate:
  * `tooling/connect/golden-vector-sync.mjs`); the Rust twin iterates the same
@@ -29,14 +29,12 @@ const MATRIX = JSON.parse(
   readFileSync(fileURLToPath(new URL("./fixtures/capability-matrix.json", import.meta.url)), "utf8"),
 ) as { schema_version: number; cases: CapabilityCase[] };
 
-/** The requirement the row's owning table reports for its op. */
 function tableRequirement(row: CapabilityCase): string | undefined {
   return row.table === "core"
     ? requiredCapability(row.op)
     : PORT_OP_CAPABILITY_REQUIREMENTS[row.op];
 }
 
-/** A payload valid for the row's op (Scope-bearing rows declare a Scope, no viewpoint). */
 function payloadFor(op: string): Record<string, unknown> {
   switch (op) {
     case "port.scope.list_knowledge_entries":
@@ -51,7 +49,6 @@ function payloadFor(op: string): Record<string, unknown> {
   }
 }
 
-/** One candidate whose manifest advertises exactly the row's negotiated set. */
 function candidate(negotiated: string[]): SelectablePeer {
   const manifest: HostCapabilityManifest = {
     schema_version: 1,
@@ -80,7 +77,7 @@ describe("shared capability matrix", () => {
         `${row.op}: verdict for negotiated [${row.negotiated.join(", ")}]`,
       ).toBe(row.allowed);
 
-      // The responder's actual combined gate, not just the row's owning
+      // why: the responder's actual combined gate, not just the row's owning
       // table: a core-table entry for a `port.*` op would otherwise pass both
       // lookups above while admitting the wrong session.
       expect(
@@ -93,7 +90,7 @@ describe("shared capability matrix", () => {
         );
       }
 
-      // The real selection path, not just the table lookup: one candidate
+      // why: the real selection path, not just the table lookup: one candidate
       // carrying exactly this row's negotiated set must be selected for an
       // allowed row and rejected for a denied one.
       const selection = selectPeerForOp([candidate(row.negotiated)], row.op, payloadFor(row.op));

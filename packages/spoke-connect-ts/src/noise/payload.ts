@@ -42,7 +42,7 @@ export const STATIC_KEY_DOMAIN = "noise-libp2p-static-key:";
 
 const STATIC_KEY_DOMAIN_BYTES = new TextEncoder().encode(STATIC_KEY_DOMAIN);
 
-// ── Minimal protobuf wire helpers (fixed small messages only) ──────────────
+// why: minimal hand-rolled protobuf wire helpers — fixed small messages only
 
 function encodeVarint(value: number | bigint): Uint8Array {
   let v = BigInt(value);
@@ -62,7 +62,7 @@ function readVarint(
   let result = 0n;
   let shift = 0n;
   let i = offset;
-  // Max 10 bytes for a 64-bit varint; continuation bit beyond that is
+  // note: max 10 bytes for a 64-bit varint; continuation bit beyond that is
   // malformed input, not a larger integer.
   while (i < bytes.length && i - offset < 10) {
     const b = bytes[i++];
@@ -84,16 +84,14 @@ function encodeBytesField(num: number, data: Uint8Array): Uint8Array {
 interface ParsedField {
   num: number;
   wire: number;
-  /** wire type 2 payload. */
   bytes?: Uint8Array;
-  /** wire type 0 value. */
   varint?: bigint;
 }
 
 /**
- * Parse a protobuf message, skipping unknown fields. Wire types 0 (varint),
- * 1 (64-bit), 2 (length-delimited) and 5 (32-bit) are consumed; groups
- * (3/4) are rejected as malformed. Throws on truncated input.
+ * note: wire types 0 (varint), 1 (64-bit), 2 (length-delimited) and 5
+ * (32-bit) are consumed and unknown fields skipped; groups (3/4) are
+ * rejected as malformed, and truncated input throws.
  */
 function parseProto(bytes: Uint8Array): ParsedField[] {
   const fields: ParsedField[] = [];
@@ -130,7 +128,7 @@ function parseProto(bytes: Uint8Array): ParsedField[] {
   return fields;
 }
 
-// ── §4.2 static-key signature ───────────────────────────────────────────────
+// see contract §4.2 — static-key signature
 
 /**
  * Sign a Noise static X25519 public key with the long-term Ed25519
@@ -168,7 +166,7 @@ export async function verifyNoiseStaticKey(
   }
 }
 
-// ── §4.3 libp2p PublicKey protobuf (identity_key) ───────────────────────────
+// see contract §4.3 — libp2p PublicKey protobuf (identity_key)
 
 /**
  * Encode a raw 32-byte Ed25519 public key as the libp2p `PublicKey`
@@ -202,23 +200,23 @@ export function decodeIdentityPublicKey(bytes: Uint8Array): Uint8Array | undefin
   return data;
 }
 
-// ── §4.3 NoiseHandshakePayload protobuf ─────────────────────────────────────
+// see contract §4.3 — NoiseHandshakePayload protobuf
 
 /** `NoiseExtensions` message (contract §4.3). */
 export interface NoiseExtensions {
-  /** WebTransport certificate hashes (field 1) — parsed, never required. */
+  /** note: WebTransport certificate hashes (field 1) — parsed, never required. */
   webtransportCerthashes?: Uint8Array[];
-  /** Preferred stream muxers (field 2). */
+  /** note: preferred stream muxers (field 2). */
   streamMuxers?: string[];
 }
 
 /** Decoded `NoiseHandshakePayload` (contract §4.3). */
 export interface NoiseHandshakePayload {
-  /** libp2p `PublicKey` protobuf bytes (36 bytes for Ed25519). */
+  /** note: libp2p `PublicKey` protobuf bytes (36 bytes for Ed25519). */
   identityKey?: Uint8Array;
-  /** Ed25519 signature over `STATIC_KEY_DOMAIN || static_public` (§4.2). */
+  /** note: Ed25519 signature over `STATIC_KEY_DOMAIN || static_public` (§4.2). */
   identitySig?: Uint8Array;
-  /** Optional extensions (field 4) — omitted on the golden path. */
+  /** note: optional extensions (field 4) — omitted on the golden path. */
   extensions?: NoiseExtensions;
 }
 

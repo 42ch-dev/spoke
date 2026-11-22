@@ -24,7 +24,7 @@ import {
 import { fromHex, toHex } from "./hex.js";
 
 /**
- * Golden-vector parity (AD-P0-4): every value asserted here is byte-identical
+ * why: golden-vector parity (AD-P0-4): every value asserted here is byte-identical
  * to the constants captured from rust-libp2p and redeclared in
  * crates/spoke-connect/src/core/{hello_crypto,peer_id}.rs and to
  * `.agents/specs/connect/spoke-connect.md` §Identity binding /
@@ -85,7 +85,7 @@ describe("WebCrypto backend coverage", () => {
   });
 
   it("reports the runtime backend for the auto-selected path", (ctx) => {
-    // Node 24+ always ships WebCrypto Ed25519; older runtimes may lack it.
+    // why: Node 24+ always ships WebCrypto Ed25519; older runtimes may lack it.
     if (!webcryptoOk && Number.parseInt(process.versions.node, 10) < 24) ctx.skip();
     expect(webcryptoOk).toBe(true);
   });

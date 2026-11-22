@@ -39,7 +39,7 @@ function makeTimelineEvent(
 
 const baseScope: Scope = { scope_id: "world_1" };
 
-/** Run the served list filter and unwrap; an unexpected rejection fails the test. */
+/** note: Run the served list filter and unwrap; an unexpected rejection fails the test. */
 function filteredEntries(
   knowledgeEntries: KnowledgeEntry[],
   scope: Scope,
@@ -192,7 +192,7 @@ describe("knowledgeEntryPassesScopeAuthorization", () => {
         viewpoint: "kb_mira",
       }),
     ).toBe(true);
-    // entry_ids would admit the entry; the disclosure predicate still excludes it.
+    // note: entry_ids would admit the entry; the disclosure predicate still excludes it.
     expect(
       knowledgeEntryPassesScopeAuthorization(privateEntry, {
         ...baseScope,
@@ -200,7 +200,7 @@ describe("knowledgeEntryPassesScopeAuthorization", () => {
         viewpoint: "kb_other",
       }),
     ).toBe(false);
-    // viewpoint would admit the entry; the entry refinement still excludes it.
+    // note: viewpoint would admit the entry; the entry refinement still excludes it.
     expect(
       knowledgeEntryPassesScopeAuthorization(privateEntry, {
         ...baseScope,
@@ -467,7 +467,7 @@ describe("filterTimelineEventsByScope", () => {
 });
 
 describe("Scope.extensions is opaque to matchers", () => {
-  // Product-scoped query metadata lives under extensions.<namespace>; protocol matchers
+  // note: Product-scoped query metadata lives under extensions.<namespace>; protocol matchers
   // match core Scope fields only and must neither consume nor alter extensions.
   const extensions: NonNullable<Scope["extensions"]> = {
     toy: { branch_id: "fork_mainline_a" },
@@ -499,7 +499,7 @@ describe("Scope.extensions is opaque to matchers", () => {
     expect(knowledgeEntryPassesScopeAuthorization(matching, coreRefinements)).toBe(true);
     expect(knowledgeEntryPassesScopeAuthorization(nonMatching, coreRefinements)).toBe(false);
 
-    // Same core refinements, now carrying product query metadata in extensions.
+    // note: Same core refinements, now carrying product query metadata in extensions.
     const withExtensions: Scope = { ...coreRefinements, extensions };
 
     expect(knowledgeEntryPassesScopeAuthorization(matching, withExtensions)).toBe(
@@ -509,7 +509,7 @@ describe("Scope.extensions is opaque to matchers", () => {
       knowledgeEntryPassesScopeAuthorization(nonMatching, coreRefinements),
     );
 
-    // Timeline matchers also ignore extensions.
+    // note: Timeline matchers also ignore extensions.
     const event = makeTimelineEvent({
       timeline_event_id: "evt_1",
       timeline_scale: "narrative",
@@ -538,13 +538,13 @@ describe("Scope.extensions is opaque to matchers", () => {
       extensions,
     };
 
-    // Drive every matcher + filter surface.
+    // note: Drive every matcher + filter surface.
     knowledgeEntryPassesScopeAuthorization(knowledgeEntries[0]!, scope);
     expect(filterKnowledgeEntriesByScope(knowledgeEntries, scope).ok).toBe(true);
     timelineEventMatchesScope(timelineEvents[0]!, scope);
     filterTimelineEventsByScope(timelineEvents, scope);
 
-    // Referential identity + deep equality: the bag survived untouched.
+    // note: Referential identity + deep equality — the bag survived untouched.
     expect(scope.extensions).toBe(extensions);
     expect(scope.extensions).toEqual({
       toy: { branch_id: "fork_mainline_a" },
@@ -791,7 +791,7 @@ describe("assertSupportedCognitionSelection", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // C5 names the relative member; this carrier only prefixes the root.
+      // note: C5 names the relative member; this carrier only prefixes the root.
       expect(result.details).toMatchObject({
         reason: "unsupported_cognition_requirement",
         field: "scope.cognition.filter.q_min",

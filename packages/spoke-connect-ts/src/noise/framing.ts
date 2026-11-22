@@ -50,14 +50,14 @@ export const MAX_NOISE_MSG_LEN = 65535;
 /** Extra encrypt headroom reserved per frame — libp2p-noise
  *  `EXTRA_ENCRYPT_SPACE`. */
 export const EXTRA_ENCRYPT_SPACE = 1024;
-/** Max cleartext per post-handshake transport frame. */
-export const MAX_FRAME_LEN = MAX_NOISE_MSG_LEN - EXTRA_ENCRYPT_SPACE; // 64511
+/** note: max cleartext per post-handshake transport frame. */
+export const MAX_FRAME_LEN = MAX_NOISE_MSG_LEN - EXTRA_ENCRYPT_SPACE;
 
 function readU16BE(bytes: Uint8Array, offset: number): number {
   return new DataView(bytes.buffer, bytes.byteOffset + offset, 2).getUint16(0, false);
 }
 
-// ── §3 u16-BE length-prefix codec ───────────────────────────────────────────
+// see contract §3 — u16-BE length-prefix codec
 
 /**
  * Prefix `payload` with its u16 big-endian length (ciphertext byte count
@@ -132,13 +132,13 @@ export function createNoiseStaticKeypair(): NoiseKeyPair {
   return { privateKey: x25519.utils.randomSecretKey() };
 }
 
-// ── §3.1 NoiseTransport (post-split AEAD frames) ────────────────────────────
+// see contract §3.1 — post-split AEAD transport frames
 
 /** Post-split transport keys (from `NoiseXXResult` / `NoiseHandshakeResult`). */
 export interface NoiseTransportKeys {
-  /** Key sealing outgoing frames (initiator: first Split output). */
+  /** note: initiator seals with the first Split output. */
   tx: Uint8Array;
-  /** Key opening incoming frames (initiator: second Split output). */
+  /** note: initiator opens with the second Split output. */
   rx: Uint8Array;
 }
 
@@ -154,6 +154,7 @@ export class NoiseTransport {
   // simplify: JS-number nonce counters; Noise rekeying at 2^64−1 is out of
   // scope (a direction would need 2^53+ frames to lose precision — a
   // transport-adapter concern, mirroring rust only in the realistic range).
+  // upgrade: switch to bigint counters once any direction can reach 2^53 frames.
   private txNonce = 0;
   private rxNonce = 0;
 
@@ -163,8 +164,7 @@ export class NoiseTransport {
   }
 
   /**
-   * Seal `plaintext` into one or more length-prefixed frames (splits at
-   * `MAX_FRAME_LEN`). Empty input produces no bytes.
+   * note: splits at `MAX_FRAME_LEN`; empty input produces no bytes.
    */
   writeFrame(plaintext: Uint8Array): Uint8Array {
     const frames: Uint8Array[] = [];
@@ -179,8 +179,8 @@ export class NoiseTransport {
   }
 
   /**
-   * Open exactly one length-prefixed frame. Throws on truncation and on
-   * AEAD authentication failure (tampered frame / wrong key).
+   * note: throws on truncation and on AEAD authentication failure (tampered
+   * frame / wrong key).
    */
   readFrame(frame: Uint8Array): Uint8Array {
     const sealed = decodeLengthPrefixed(frame);
@@ -194,38 +194,37 @@ export class NoiseTransport {
   }
 }
 
-// ── §5 NoiseHandshake driver ────────────────────────────────────────────────
+// see contract §5 — NoiseHandshake driver
 
 /** The peer's long-term Ed25519 identity (same key as the SPOKE `peer_id`). */
 export interface NoiseIdentity {
-  /** 32-byte Ed25519 seed. */
   seed: Uint8Array;
 }
 
 export interface NoiseHandshakeOptions {
-  /** `true` = initiator (dialer), `false` = responder (listener). */
+  /** note: `true` = initiator (dialer), `false` = responder (listener). */
   initiator: boolean;
-  /** Local static X25519 keypair carried in the `s` tokens (§2.1). */
+  /** note: local static X25519 keypair carried in the `s` tokens (§2.1). */
   staticKeyPair: NoiseKeyPair;
-  /** Long-term identity signing the static key (§4). */
+  /** note: long-term identity signing the static key (§4). */
   identity: NoiseIdentity;
-  /** Prologue; MUST match the peer. Default empty. */
+  /** invariant: prologue MUST match the peer; default empty. */
   prologue?: Uint8Array;
-  /** Fixed ephemeral keypair — test vectors / golden recording only. */
+  /** note: fixed ephemeral keypair — test vectors / golden recording only. */
   ephemeralKeyPair?: NoiseKeyPair;
 }
 
 /** Result of a completed, verified handshake (contract §4.4). */
 export interface NoiseHandshakeResult {
-  /** Post-split frame codec (AAD = empty, per-direction nonces 0+). */
+  /** note: post-split frame codec (AAD = empty, per-direction nonces 0+). */
   transport: NoiseTransport;
-  /** Final handshake hash `h` — identical on both parties. */
+  /** invariant: final handshake hash `h` — identical on both parties. */
   handshakeHash: Uint8Array;
-  /** Remote static X25519 public key (from the `s` tokens). */
+  /** note: remote static X25519 public key (from the `s` tokens). */
   remoteStaticPublic: Uint8Array;
-  /** Remote Ed25519 public key from the payload `identity_key`. */
+  /** note: remote Ed25519 public key from the payload `identity_key`. */
   remoteIdentityPublicKey: Uint8Array;
-  /** SPOKE `peer_id` of the remote identity (identity multihash). */
+  /** note: SPOKE `peer_id` of the remote identity (identity multihash). */
   remotePeerId: string;
 }
 
@@ -240,11 +239,11 @@ export class NoiseHandshake {
   private readonly xx: NoiseXX;
   private readonly identitySeed: Uint8Array;
   private readonly staticPublic: Uint8Array;
-  /** Flights processed by this side (0..3). */
+  /** note: flights processed by this side (0..3). */
   private phase = 0;
-  /** Remote `NoiseHandshakePayload` from the last read flight. */
+  /** note: remote `NoiseHandshakePayload` from the last read flight. */
   private remotePayload: ReturnType<typeof decodeHandshakePayload> | null = null;
-  /** Single-shot completion result — shared by every `finish()` caller. */
+  /** invariant: single-shot completion result — shared by every `finish()` caller. */
   private finishPromise: Promise<NoiseHandshakeResult> | null = null;
 
   constructor(options: NoiseHandshakeOptions) {
@@ -260,7 +259,7 @@ export class NoiseHandshake {
   }
 
   /**
-   * Encode, sign (flights 2–3) and frame the next handshake flight:
+   * note: encodes, signs (flights 2–3) and frames the next handshake flight —
    * initiator flights 1 and 3, responder flight 2.
    */
   async writeMessage(): Promise<Uint8Array> {

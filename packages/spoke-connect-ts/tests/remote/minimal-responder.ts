@@ -1,5 +1,5 @@
 /**
- * Minimal test responder — the dialed (responder) side of a loopback pair
+ * note: minimal test responder — the dialed (responder) side of a loopback pair
  * used to exercise the RemoteAdapter's tool-serving mode (Task 1 of
  * tools-connect-reverse-invoke).
  *
@@ -71,10 +71,10 @@ import type { EnvelopeBytes, Transport } from "../../src/remote/transport.js";
 
 const SESSION_ID = "test-session-reverse-0001";
 
-/** Dispatch-deny wire codes (D7): deny → `CAPABILITY_PORT_MISSING` + wire_code. */
+/** note: dispatch-deny wire codes (D7) — deny → `CAPABILITY_PORT_MISSING` + `wire_code`. */
 const DISPATCH_DENY_CODES = new Set(["op_unsupported", "capability_missing"]);
 
-/** Map an error-branch envelope to a `SpokeResult` reject (D7 mapping, mirrors remote-adapter.ts). */
+/** note: maps an error-branch envelope to a `SpokeResult` reject (D7 mapping, mirrors remote-adapter.ts). */
 function mapErrorEnvelope(error: ErrorEnvelope): SpokeReject {
   if (DISPATCH_DENY_CODES.has(error.code)) {
     return spokeReject(SpokeRejectCode.CAPABILITY_PORT_MISSING, error.message, {
@@ -135,20 +135,18 @@ export type TestToolHandler = (
 ) => Promise<SpokeResult<unknown>>;
 
 export interface MinimalResponderOptions {
-  /** The server end of a loopback transport pair (the end the client dials). */
+  /** note: the server end of the pair; the client dials the other end. */
   transport: Transport;
-  /** Responder Ed25519 seed. */
   seed: Uint8Array;
-  /** The client's Ed25519 public key (key distribution is test-owned). */
   clientPubkey: Uint8Array;
-  /** Trusted client peer ids (fail-closed). */
+  /** note: peer ids outside this list are denied. */
   allowlist: readonly string[];
-  /** The responder's advertised manifest (both hellos must list tool capabilities for negotiation). */
+  /** note: both hellos must list the tool capabilities for negotiation. */
   manifest: HostCapabilityManifest;
-  /** Bounded wait for the response to an issued reverse invoke, ms (default 2000). */
+  /** note: bound on the wait for an issued reverse invoke's response, ms (default 2000). */
   invokeTimeoutMs?: number;
   /**
-   * Test-only: when non-undefined for a served request, the returned
+   * note: test-only; when non-undefined for a served request, the returned
    * envelope is sent verbatim instead of the real response (malformed-
    * response fixtures for the dialer's success-payload gate).
    */
@@ -156,19 +154,12 @@ export interface MinimalResponderOptions {
 }
 
 export interface MinimalResponderStats {
-  /** Signed client hellos that passed allowlist + signature + nonce gates. */
   hellosVerified: number;
-  /** Tool handlers that ran (gate passed + handler registered + invoked). */
   handlersRun: number;
-  /** Reverse invokes issued toward the dialer. */
   reverseInvokesIssued: number;
-  /** Responses received and correlation+auth-verified. */
   responsesVerified: number;
-  /** Forward invokes rejected by the inbound sequence gate. */
   sequenceRejections: number;
-  /** Forward invokes rejected by the envelope-auth verify gate. */
   authRejections: number;
-  /** Forward invokes rejected by the dispatch gate. */
   dispatchDenials: number;
 }
 
@@ -176,10 +167,10 @@ export interface MinimalResponder {
   readonly transport: Transport;
   readonly sessionId: string;
   readonly stats: MinimalResponderStats;
-  /** Register a served tool handler (last-wins overwrite). */
+  /** note: a repeat registration for the same capability id overwrites the handler. */
   registerToolHandler(capabilityId: string, handler: TestToolHandler): void;
   /**
-   * Issue a reverse tool invoke toward the dialer and await the verified
+   * note: issues a reverse tool invoke toward the dialer and awaits the verified
    * response, mapped to `SpokeResult`. `args` is the tool arguments object
    * — the harness wraps it as the frozen request payload
    * `{ "arguments": <opaque JSON> }` (`tool-contracts.md` §4), mirroring
@@ -192,12 +183,12 @@ export interface MinimalResponder {
     args: Record<string, unknown>,
     sequence?: number,
   ): Promise<SpokeResult<unknown>>;
-  /** Close the connection (fails the client's pending recv / invokes). */
+  /** note: fails the client's pending recv / invokes. */
   close(): void;
 }
 
 /**
- * Start a minimal responder: performs the signed-hello handshake over
+ * note: performs the signed-hello handshake over
  * `transport` in the background (the client's dial is the synchronization
  * point), then serves forward invokes and correlates responses to its own
  * reverse invokes.
@@ -235,7 +226,7 @@ export async function startMinimalResponder(
 
   function sendEnvelope(doc: unknown): void {
     void transportEnd.send(encodeEnvelope(doc)).catch(() => {
-      // Peer gone — responses are fire-and-forget at the serving boundary.
+      // why: peer gone — responses are fire-and-forget at the serving boundary.
     });
   }
 
@@ -267,11 +258,11 @@ export async function startMinimalResponder(
     );
   }
 
-  // ── Serving pipeline (frozen order: classify → stray → peek → verify →
-  // ── advance → gate → handler → signed response) ─────────────────────────
+  // note: serving-pipeline order is frozen — classify → stray → peek → verify
+  // → advance → gate → handler → signed response.
 
   /**
-   * Gate phase — sequence peek (non-mutating) → envelope-auth verify →
+   * note: gate phase — sequence peek (non-mutating) → envelope-auth verify →
    * advance. Auth-before-advance: a failed verify leaves the inbound
    * counter unchanged. Returns `null` for stray requests (ignored), a
    * rejection spec for gate failures, or `{ok: true}` when dispatch may
@@ -287,12 +278,12 @@ export async function startMinimalResponder(
   > {
     const current = session;
     if (current === null) {
-      return null; // stray — no established session
+      return null;
     }
-    // Stray check: a session_id bound to a different live session is
-    // ignored; a session_id bound to no established session stays on this
-    // path and is rejected `auth_failed` at verify (session-binding
-    // assert) — single-session peer, so verify owns the binding check.
+    // why: a session_id bound to a different live session is ignored, while one
+    // bound to no established session stays on this path and is rejected
+    // `auth_failed` at verify (session-binding assert) — this is a single-session
+    // peer, so verify owns the binding check.
     try {
       current.peekInboundSequence(doc.sequence);
     } catch {
@@ -315,20 +306,22 @@ export async function startMinimalResponder(
           details: { kind: error.kind },
         };
       }
-      throw error; // wrong-length key is responder misconfiguration — fail loudly
+      // why: a wrong-length key is responder misconfiguration — fail loudly.
+      throw error;
     }
     current.acceptInboundSequence(doc.sequence);
     return { ok: true };
   }
 
-  /** Dispatch phase — runs after the serialized gate; may interleave. */
+  /** note: dispatch phase — runs after the serialized gate; may interleave. */
   async function handleInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const current = session;
     if (current === null) {
-      return; // stray — belt-and-braces; the gate checked
+      // note: belt-and-braces; the gate already checked.
+      return;
     }
 
-    // Dispatch gate — `Session.dispatchAllowed`-level logic (frozen §3):
+    // note: dispatch gate — `Session.dispatchAllowed`-level logic (frozen §3);
     // `tools.*` ops require the op string itself, evaluated against
     // `negotiated_capabilities`.
     if (!current.dispatchAllowed(doc.op)) {
@@ -341,7 +334,6 @@ export async function startMinimalResponder(
       return;
     }
 
-    // Test-only response override (malformed-response fixtures).
     const override = options.responseOverride?.(doc);
     if (override !== undefined) {
       sendEnvelope(
@@ -353,7 +345,7 @@ export async function startMinimalResponder(
       return;
     }
 
-    // Handler or deny (fail-closed serving, frozen §4).
+    // note: handler or deny (fail-closed serving, frozen §4).
     const handler = toolHandlers.get(doc.op);
     if (handler === undefined) {
       stats.dispatchDenials += 1;
@@ -370,7 +362,7 @@ export async function startMinimalResponder(
         (doc.payload as { arguments?: Record<string, unknown> }).arguments ?? {},
       );
     } catch (error) {
-      // Handler threw → error branch via toErrorEnvelope (INTERNAL_ERROR);
+      // why: handler threw → error branch via toErrorEnvelope (INTERNAL_ERROR);
       // never crash the serve loop.
       result = spokeReject(
         SpokeRejectCode.INTERNAL_ERROR,
@@ -385,9 +377,6 @@ export async function startMinimalResponder(
       await sendErrorEnvelope(doc, toErrorEnvelope(result));
     }
   }
-
-  // ── Handshake (allowlist → hello verify → nonce → dial-bound hello →
-  // ── session snapshot) ────────────────────────────────────────────────────
 
   async function handshake(): Promise<void> {
     const helloDoc: unknown = decodeJsonMessage(await transportEnd.recv());
@@ -434,7 +423,7 @@ export async function startMinimalResponder(
     sendEnvelope(snapshot);
   }
 
-  // ── Serve loop (request-first classification) ────────────────────────────
+  // note: request-first classification — an op-bearing doc is never a response.
 
   async function serve(): Promise<void> {
     while (!closed) {
@@ -442,14 +431,14 @@ export async function startMinimalResponder(
       try {
         doc = decodeJsonMessage(await transportEnd.recv());
       } catch {
-        return; // transport closed — stop serving
+        return;
       }
-      // Classify request shape FIRST (an op-bearing doc is never a
-      // response, even though it carries the same echo fields + payload).
+      // why: classify the request shape first — an op-bearing doc is never a
+      // response, even though it carries the same echo fields + payload.
       if (isConnectInvokeRequest(doc)) {
-        // Gate serialization: await peek → verify → advance inline; the
-        // loop reads the next envelope only after this gate completes.
-        // Dispatch fires without blocking the loop.
+        // invariant: await peek → verify → advance inline; the loop reads the
+        // next envelope only after this gate completes, while dispatch fires
+        // without blocking the loop.
         let gate:
           | { ok: true }
           | { ok: false; code: string; message: string; details?: Record<string, unknown> }
@@ -457,7 +446,7 @@ export async function startMinimalResponder(
         try {
           gate = await runGate(doc);
         } catch {
-          // Misconfiguration — fail the request closed, never crash the loop.
+          // why: misconfiguration — fail the request closed, never crash the loop.
           await sendErrorEnvelope(doc, {
             code: "auth_failed",
             message: "responder gate failure",
@@ -467,7 +456,7 @@ export async function startMinimalResponder(
           continue;
         }
         if (gate === null) {
-          continue; // stray — ignored
+          continue;
         }
         if (!gate.ok) {
           await sendErrorEnvelope(doc, {
@@ -479,16 +468,15 @@ export async function startMinimalResponder(
           continue;
         }
         void handleInvoke(doc).catch(() => {
-          // Handler failures are contained in handleInvoke; anything that
+          // why: handler failures are contained in handleInvoke; anything that
           // escapes is a harness bug — never crash the loop.
         });
         continue;
       }
-      // Response branch — demux by request_id.
       if (isConnectInvokeResponse(doc)) {
         const entry = pendingReverse.get(doc.request_id);
         if (entry === undefined) {
-          continue; // unknown/duplicate response — dropped
+          continue;
         }
         clearTimeout(entry.timer);
         pendingReverse.delete(doc.request_id);
@@ -540,11 +528,10 @@ export async function startMinimalResponder(
         }
         continue;
       }
-      // Stray envelope (hello / session / unknown shape) — ignored.
     }
   }
 
-  // Run the handshake + serve loop in the background (the client's dial is
+  // why: the handshake + serve loop run in the background (the client's dial is
   // the synchronization point). A hello-gate failure closes the transport,
   // which fails the client's dial fast instead of waiting out its timeout.
   void (async () => {
@@ -561,7 +548,7 @@ export async function startMinimalResponder(
     sessionId: SESSION_ID,
     stats,
     registerToolHandler(capabilityId, handler) {
-      // Grammar gate parity with the production surface (D13): a non-`tools.`
+      // why: grammar gate parity with the production surface (D13) — a non-`tools.`
       // capability id is a test-harness programming error — throw instead of
       // registering a handler that could never be dispatched.
       const parsed = parseToolCapabilityId(capabilityId);
@@ -600,11 +587,11 @@ export async function startMinimalResponder(
         sequence: seq,
         request_id: requestId,
         op,
-        // Tool invoke payload shape: `{ "arguments": <opaque JSON> }` (§4).
+        // note: tool invoke payload shape — `{ "arguments": <opaque JSON> }` (§4).
         payload: { arguments: args },
       });
-      // Waiter registered before send: the reverse invoke is in flight
-      // immediately from the caller's perspective.
+      // invariant: the waiter is registered before send, so the reverse invoke
+      // is in flight immediately from the caller's perspective.
       return new Promise<SpokeResult<unknown>>((resolve) => {
         const timer = setTimeout(() => {
           pendingReverse.delete(requestId);

@@ -11,7 +11,7 @@ import {
 
 const SPACE = "sp_1";
 const GRANTEE = "p1";
-// Fixed "now" mirroring the Rust tests.
+// note: Fixed "now" mirroring the Rust tests.
 const NOW = Date.parse("2026-06-01T00:00:00Z");
 
 function makeGrant(overrides: Record<string, unknown>): MemoryGrant {
@@ -94,7 +94,7 @@ describe("grantCovers (§6.5)", () => {
   });
 
   it("space-wide ops require space-wide grants", () => {
-    // §6.5: a subject-scoped grant never covers space-wide operations.
+    // note: §6.5 — a subject-scoped grant never covers space-wide operations.
     const subjectGrant = makeGrant({ subject_id: "s1" });
     expect(grantCovers(subjectGrant, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
 
@@ -152,11 +152,11 @@ describe("grantCovers (§6.5)", () => {
 
 describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
   it("requires an applicable admin grant", () => {
-    // capture-only principal can never issue.
+    // note: capture-only principal can never issue.
     const captureOnly = [makeGrant({ capabilities: ["capture"] })];
     expectNotAuthorized(validateGrantIssuance(captureOnly, GRANTEE, SPACE, NOW, issued(["capture"])));
 
-    // admin implies every capability within its coverage.
+    // note: admin implies every capability within its coverage.
     const admin = [makeGrant({ capabilities: ["admin"] })];
     expect(validateGrantIssuance(admin, GRANTEE, SPACE, NOW, issued(["recall"])).ok).toBe(true);
   });
@@ -183,7 +183,7 @@ describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
         contextIds: ["c1", "c2"],
       }),
     );
-    // Critical: restricted granter can never issue an unrestricted grant.
+    // note: restricted granter can never issue an unrestricted grant.
     expectNotAuthorized(validateGrantIssuance(granter, GRANTEE, SPACE, NOW, issued(["capture"])));
 
     expect(
@@ -202,7 +202,7 @@ describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
   });
 
   it("never unions disjoint grants", () => {
-    // admin for c1 + capture for c2 cannot jointly authorize a c2 issuance.
+    // note: admin for c1 + capture for c2 cannot jointly authorize a c2 issuance.
     const granter = [
       makeGrant({ capabilities: ["admin"], context_ids: ["c1"] }),
       makeGrant({ capabilities: ["capture"], context_ids: ["c2"] }),
@@ -249,16 +249,16 @@ describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
     const at2027 = { ...issued(["capture"]), expiresAt: Date.parse("2027-01-01T00:00:00Z") };
     expect(validateGrantIssuance(granter, GRANTEE, SPACE, NOW, at2027).ok).toBe(true);
 
-    // Non-expiring issuance rejected while any applicable admin grant expires.
+    // note: non-expiring issuance rejected while any applicable admin grant expires.
     expectNotAuthorized(validateGrantIssuance(granter, GRANTEE, SPACE, NOW, issued(["capture"])));
 
-    // Non-expiring granter may issue any expiry.
+    // note: non-expiring granter may issue any expiry.
     const eternal = [makeGrant({ capabilities: ["admin"] })];
     expect(validateGrantIssuance(eternal, GRANTEE, SPACE, NOW, at2028).ok).toBe(true);
   });
 
   it("ignores inapplicable grants when bounding expiry", () => {
-    // Expiring admin(s1) must not bound s2 issuance.
+    // note: expiring admin(s1) must not bound s2 issuance.
     const granter = [
       makeGrant({ capabilities: ["admin"], subject_id: "s2" }),
       makeGrant({
@@ -274,7 +274,7 @@ describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
     const s1NonExpiring = { ...issued(["capture"]), subjectId: "s1" };
     expectNotAuthorized(validateGrantIssuance(granter, GRANTEE, SPACE, NOW, s1NonExpiring));
 
-    // Context-disjoint expiring admin(c1) must not bound a c2 issuance.
+    // note: context-disjoint expiring admin(c1) must not bound a c2 issuance.
     const contextGranter = [
       makeGrant({ capabilities: ["admin"], context_ids: ["c2"] }),
       makeGrant({
@@ -298,23 +298,23 @@ describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
   });
 
   it("fails closed on malformed grant timestamps", () => {
-    // Malformed expires_at → treated as expired → coverage denied.
+    // note: malformed expires_at → treated as expired → coverage denied.
     const badExpiry = makeGrant({ expires_at: "not-a-date" });
     expect(grantCovers(badExpiry, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
 
-    // Date-only (RFC 3339 requires a full date-time with Z) → invalid.
+    // note: date-only (RFC 3339 requires a full date-time with Z) → invalid.
     const dateOnly = makeGrant({ expires_at: "2027-01-01" });
     expect(grantCovers(dateOnly, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
 
-    // Calendar-invalid date must not be normalized by Date.parse.
+    // note: calendar-invalid date must not be normalized by Date.parse.
     const impossible = makeGrant({ expires_at: "2027-02-30T00:00:00Z" });
     expect(grantCovers(impossible, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
 
-    // Malformed revoked_at → treated as revoked → coverage denied.
+    // note: malformed revoked_at → treated as revoked → coverage denied.
     const badRevoked = makeGrant({ revoked_at: "not-a-date" });
     expect(grantCovers(badRevoked, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
 
-    // Admin grant with malformed expiry is excluded from applicability, so
+    // note: admin grant with malformed expiry is excluded from applicability, so
     // issuance fails NOT_AUTHORIZED (no silent unbounded coverage).
     const malformedAdmin = [makeGrant({ capabilities: ["admin"], expires_at: "garbage" })];
     expectNotAuthorized(
@@ -327,13 +327,13 @@ describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
       }),
     );
 
-    // Date-only expiry on the only admin grant also fails closed.
+    // note: date-only expiry on the only admin grant also fails closed.
     const dateOnlyAdmin = [makeGrant({ capabilities: ["admin"], expires_at: "2027-01-01" })];
     expectNotAuthorized(
       validateGrantIssuance(dateOnlyAdmin, GRANTEE, SPACE, NOW, issued(["capture"])),
     );
 
-    // Malformed revoked_at on the only admin grant also fails closed.
+    // note: malformed revoked_at on the only admin grant also fails closed.
     const revokedAdmin = [makeGrant({ capabilities: ["admin"], revoked_at: "garbage" })];
     expectNotAuthorized(validateGrantIssuance(revokedAdmin, GRANTEE, SPACE, NOW, issued(["capture"])));
   });
@@ -354,7 +354,7 @@ describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
       }),
     );
 
-    // Valid equal and earlier expiries remain accepted.
+    // note: valid equal and earlier expiries remain accepted.
     expect(
       validateGrantIssuance(granter, GRANTEE, SPACE, NOW, {
         ...issued(["capture"]),

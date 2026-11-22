@@ -1,5 +1,6 @@
 /**
- * Knowledge capability split (design §4/§5 acceptance):
+ * note: Knowledge capability split (see
+ * .agents/adr/implemented/feature/2026-11-19-knowledge-capability-split.md):
  *
  * 1. `capabilitySatisfies` — plain membership: `spoke-baseline` never
  *    satisfies `spoke-knowledge` (the knowledge face serves those ops).
@@ -66,8 +67,6 @@ function manifest(hostId: string, capabilities: string[]): HostCapabilityManifes
   };
 }
 
-// ── capabilitySatisfies (design §1) ───────────────────────────────────────
-
 describe("capabilitySatisfies", () => {
   it("is plain membership: no capability satisfies another", () => {
     const baseline = [CAPABILITY_SPOKE_BASELINE];
@@ -77,13 +76,10 @@ describe("capabilitySatisfies", () => {
     expect(capabilitySatisfies(knowledge, CAPABILITY_SPOKE_KNOWLEDGE)).toBe(true);
     expect(capabilitySatisfies(both, CAPABILITY_SPOKE_KNOWLEDGE)).toBe(true);
     expect(capabilitySatisfies(knowledge, CAPABILITY_SPOKE_BASELINE)).toBe(false);
-    // `spoke-knowledge` must be negotiated explicitly.
     expect(capabilitySatisfies(baseline, CAPABILITY_SPOKE_KNOWLEDGE)).toBe(false);
     expect(capabilitySatisfies([], CAPABILITY_SPOKE_KNOWLEDGE)).toBe(false);
   });
 });
-
-// ── Router hard filter (design §5) ────────────────────────────────────────
 
 describe("selectPeerForOp knowledge rows", () => {
   const knowledgeOnlyPeer: SelectablePeer = {
@@ -126,9 +122,6 @@ describe("selectPeerForOp knowledge rows", () => {
   });
 });
 
-// ── Knowledge-only responder serving (design §4) ──────────────────────────
-
-/** In-memory scoped store: entries partitioned by admitted scope_id. */
 function scopedStoreFace(
   admission: (peerId: string) => SpokeResult<Scope>,
   storeCalls: string[] = [],
@@ -184,8 +177,8 @@ function scopedStoreFace(
       },
       async listScopedKnowledgeEntries(scope) {
         storeCalls.push("list");
-        // A pending gate keeps the store call outstanding, so only the serve
-        // deadline can answer.
+        // why: a pending gate keeps the store call outstanding, so only the
+        // serve deadline can answer.
         if (storeGate !== undefined) {
           await storeGate;
         }
@@ -290,7 +283,7 @@ describe("knowledge-only responder", () => {
         expect(listed.value.map((e) => e.entry_id)).toEqual(["kb_a1"]);
       }
 
-      // Core op denial is covered by the raw-wire probe below.
+      // note: core op denial is covered by the raw-wire probe below.
     } finally {
       close();
     }
@@ -349,7 +342,7 @@ describe("knowledge-only responder", () => {
   });
 
   it("isolates same-id entries across two admitted scopes", async () => {
-    // One shared scoped store behind two host instances; each caller is
+    // note: one shared scoped store behind two host instances; each caller is
     // admitted to its own scope by peer id.
     const admitted = new Map<string, Scope>([
       [derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x10))), SCOPE_A],
@@ -405,16 +398,14 @@ describe("knowledge-only responder", () => {
       };
     };
 
-    // Caller A carries ke-ownership so the viewpoint-matching probe below
+    // why: caller A carries ke-ownership so the viewpoint-matching probe below
     // reaches the scope-equality gate rather than the ownership conjunct.
     const callerA = await dial(seed(0x10), ["spoke-knowledge", "ke-ownership"]);
     const callerB = await dial(seed(0x11));
     try {
-      // Caller A writes entry "kb_shared" in scope A.
       const putA = await callerA.client.putKnowledgeEntry(entry("kb_shared"), null);
       expect(putA.ok).toBe(true);
 
-      // Caller B (scope B) sees neither the entry nor the scope A listing.
       const gotByB = await callerB.client.getKnowledgeEntry("kb_shared");
       expect(gotByB.ok).toBe(false);
       const listedByB = await callerB.client.listKnowledgeEntries(SCOPE_B);
@@ -423,7 +414,6 @@ describe("knowledge-only responder", () => {
         expect(listedByB.value).toEqual([]);
       }
 
-      // Caller B's same-id write lands in scope B, never overwriting A's.
       const putByB = await callerB.client.putKnowledgeEntry(
         entry("kb_shared"),
         null,
@@ -436,7 +426,6 @@ describe("knowledge-only responder", () => {
         expect(listedByA.value[0]!.body).toEqual({ summary: "kb_shared" });
       }
 
-      // An unbound caller is refused NOT_AUTHORIZED before any store call.
       const unbound = await dial(unboundSeed);
       try {
         const callsBefore = storeCalls.length;
@@ -450,9 +439,6 @@ describe("knowledge-only responder", () => {
         unbound.close();
       }
 
-      // A scope_id mismatch refuses NOT_AUTHORIZED: caller A admitted to
-      // scope A cannot list scope B even though the store call would have
-      // been scoped.
       const callsBeforeMismatch = storeCalls.length;
       const mismatch = await callerA.client.listKnowledgeEntries(SCOPE_B);
       expect(mismatch.ok).toBe(false);
@@ -461,7 +447,6 @@ describe("knowledge-only responder", () => {
       }
       expect(storeCalls.length).toBe(callsBeforeMismatch);
 
-      // A viewpoint mismatch (admitted viewpoint the request omits) refuses.
       admitted.set(
         derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x10))),
         { scope_id: "scope_a", viewpoint: "holder-a" },
@@ -473,7 +458,6 @@ describe("knowledge-only responder", () => {
         expect(omitted.code).toBe("NOT_AUTHORIZED");
       }
       expect(storeCalls.length).toBe(callsBeforeViewpoint);
-      // The matching viewpoint serves.
       const withViewpoint = await callerA.client.listKnowledgeEntries({
         scope_id: "scope_a",
         viewpoint: "holder-a",
@@ -495,15 +479,12 @@ describe("knowledge-only responder", () => {
       const created = await client.putKnowledgeEntry(entry("kb_stale"), null);
       expect(created.ok).toBe(true);
 
-      // Advance the stored entry to revision 2.
       const bump = await client.putKnowledgeEntry(
         { ...entry("kb_stale"), revision: 2, body: { summary: "updated" } },
         1,
       );
       expect(bump.ok).toBe(true);
 
-      // A put with a non-null expected revision that mismatches the stored
-      // one is refused and the entry is unchanged.
       const stale = await client.putKnowledgeEntry(
         { ...entry("kb_stale"), body: { summary: "overwritten" } },
         1,
@@ -521,7 +502,6 @@ describe("knowledge-only responder", () => {
         expect(got.value.revision).toBe(2);
       }
 
-      // The matching expected revision serves.
       const fresh = await client.putKnowledgeEntry(
         { ...entry("kb_stale"), revision: 3, body: { summary: "v3" } },
         2,
@@ -534,16 +514,16 @@ describe("knowledge-only responder", () => {
 
   it("shares one serve deadline between admission and the list store call", async () => {
     const storeCalls: string[] = [];
-    // Executor form: `Promise.withResolvers` needs the ES2024 lib. The store
-    // call stays outstanding, so only the serve deadline can answer.
+    // why: executor form — `Promise.withResolvers` needs the ES2024 lib. The
+    // store call stays outstanding, so only the serve deadline can answer.
     const storeGate = new Promise<void>(() => {
     });
-    // Only `Date` is faked: admission advances the responder's clock past the
-    // budget instead of sleeping, so no wall-clock bound is asserted and the
-    // outcome does not depend on machine timing.
+    // why: only `Date` is faked — admission advances the responder's clock past
+    // the budget instead of sleeping, so no wall-clock bound is asserted and
+    // the outcome does not depend on machine timing.
     vi.useFakeTimers({ toFake: ["Date"] });
     const { client, close } = await dialKnowledgeOnlyHost({
-      // Admission is synchronous producer work, so it spends the budget in
+      // why: admission is synchronous producer work, so it spends the budget in
       // place (the Rust path parks it on the blocking pool).
       admission: () => {
         vi.setSystemTime(Date.now() + 500);
@@ -562,8 +542,8 @@ describe("knowledge-only responder", () => {
         expect(listed.code).toBe("INTERNAL_ERROR");
         expect(listed.details?.kind).toBe("timeout");
       }
-      // The whole budget went to admission, so the store gets none of it and
-      // is never called — a second full budget would have called it.
+      // why: the whole budget went to admission, so the store gets none of it
+      // and is never called — a second full budget would have called it.
       expect(storeCalls).toEqual([]);
     } finally {
       close();
@@ -591,10 +571,10 @@ describe("knowledge-only responder", () => {
 
   it("answers OUTCOME_UNCERTAIN when the put store call outlives the budget", async () => {
     const storeCalls: string[] = [];
-    // Executor form: `Promise.withResolvers` needs the ES2024 lib. The gate
-    // never settles, so the put is invoked (recorded in `storeCalls`) and the
-    // serve deadline answers while it may have applied — §14.3 uncertain,
-    // not a clean timeout.
+    // why: executor form — `Promise.withResolvers` needs the ES2024 lib. The
+    // gate never settles, so the put is invoked (recorded in `storeCalls`) and
+    // the serve deadline answers while it may have applied — contract §14.3
+    // uncertain, not a clean timeout.
     const storeGate = new Promise<void>(() => {});
     const { client, close } = await dialKnowledgeOnlyHost({
       admission: () => spokeOk(SCOPE_A),
@@ -613,7 +593,6 @@ describe("knowledge-only responder", () => {
         expect(put.details?.retry_class).toBe("uncertain");
         expect(put.message).toContain("outcome is unknown");
       }
-      // The store was invoked before the budget answered.
       expect(storeCalls).toEqual(["put"]);
     } finally {
       close();
@@ -636,7 +615,6 @@ describe("knowledge-only responder", () => {
         expect(put.code).toBe("OUTCOME_UNCERTAIN");
         expect(put.details?.kind).toBe("panic");
         expect(put.details?.retry_class).toBe("uncertain");
-        // The store's own error text stays off the wire.
         expect(put.message).not.toContain("exploded");
         expect(put.message).toContain("outcome is unknown");
       }
@@ -670,8 +648,8 @@ describe("knowledge-only responder", () => {
 
   it("keeps the plain serve timeout when the get store call outlives the budget", async () => {
     const storeCalls: string[] = [];
-    // Same never-settling gate: a read has no store effect to be uncertain
-    // about, so the expiry keeps the plain serve timeout.
+    // why: same never-settling gate — a read has no store effect to be
+    // uncertain about, so the expiry keeps the plain serve timeout.
     const storeGate = new Promise<void>(() => {});
     const { client, close } = await dialKnowledgeOnlyHost({
       admission: () => spokeOk(SCOPE_A),
@@ -718,7 +696,6 @@ describe("knowledge-only responder", () => {
         true,
       );
 
-      // The request omits the admitted narrowing: only the admitted id returns.
       const admittedOnly = await client.listKnowledgeEntries({
         scope_id: "scope_a",
       });
@@ -729,7 +706,6 @@ describe("knowledge-only responder", () => {
         ]);
       }
 
-      // A wider request id set still intersects the admitted one.
       const narrowed = await client.listKnowledgeEntries({
         scope_id: "scope_a",
         entry_ids: ["kb_adm1", "kb_adm2"],
@@ -741,8 +717,6 @@ describe("knowledge-only responder", () => {
         ]);
       }
 
-      // A disjoint admitted id is an empty intersection: no results, no
-      // refusal.
       const disjoint = await client.listKnowledgeEntries({
         scope_id: "scope_a",
         entry_ids: ["kb_adm2"],
@@ -752,8 +726,6 @@ describe("knowledge-only responder", () => {
         expect(disjoint.value).toEqual([]);
       }
 
-      // A scalar the admission does not grant is not a narrowing: refuse
-      // before the store.
       const callsBefore = storeCalls.length;
       const refused = await client.listKnowledgeEntries({
         scope_id: "scope_a",
@@ -794,7 +766,6 @@ describe("knowledge-only responder", () => {
         ).ok,
       ).toBe(true);
 
-      // A subset of the admitted entry_types narrows: only notes are served.
       const narrowed = await client.listKnowledgeEntries({
         scope_id: "scope_a",
         entry_types: ["note"],
@@ -806,8 +777,6 @@ describe("knowledge-only responder", () => {
         ]);
       }
 
-      // A value outside the admitted set is a widening: refuse before the
-      // store.
       const callsBefore = storeCalls.length;
       const widened = await client.listKnowledgeEntries({
         scope_id: "scope_a",
@@ -824,10 +793,7 @@ describe("knowledge-only responder", () => {
   });
 });
 
-// ── Payload pre-validation + refusal branches (QC B2/B3/B4) ───────────────
-
 describe("knowledge dispatch pre-validation and refusals", () => {
-  /** Raw-wire knowledge-only host with admission/store call counters. */
   async function dialRawKnowledgeHost(ports: unknown): Promise<{
     responder: ConnectResponder;
     clientEnd: Transport;
@@ -992,8 +958,9 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(badRevision.error?.code).toBe("INVALID_INPUT");
 
-      // A malformed `entry` object (a required KnowledgeEntry member missing)
-      // is refused like Rust's typed decode, before admission and the store.
+      // note: a malformed `entry` object (a required KnowledgeEntry member
+      // missing) is refused like Rust's typed decode, before admission and the
+      // store.
       const missingName = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1008,8 +975,8 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(missingName.error?.code).toBe("INVALID_INPUT");
 
-      // OCC revisions mirror Rust's `Option<u64>`: negative and fractional
-      // values are invalid, not merely non-numeric ones.
+      // note: OCC revisions mirror Rust's `Option<u64>` — negative and
+      // fractional values are invalid, not merely non-numeric ones.
       const negativeRevision = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1032,8 +999,8 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(fractionalRevision.error?.code).toBe("INVALID_INPUT");
 
-      // `entry.schema_version` is a typed `SchemaVersion` (integer >= 1) in
-      // Rust; a missing or zero version fails decode.
+      // note: `entry.schema_version` is a typed `SchemaVersion` (integer >= 1)
+      // in Rust; a missing or zero version fails decode.
       const missingSchemaVersion = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1062,7 +1029,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(zeroSchemaVersion.error?.code).toBe("INVALID_INPUT");
 
-      // Rust decodes the revision as `Option<u64>`: an integer beyond
+      // note: Rust decodes the revision as `Option<u64>` — an integer beyond
       // `Number.MAX_SAFE_INTEGER` cannot be represented faithfully.
       const unsafeRevision = await rawInvoke(
         clientEnd,
@@ -1078,7 +1045,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       expect(admissionCalls).toHaveLength(0);
       expect(storeCalls).toHaveLength(0);
 
-      // A well-formed put passes validation and reaches admission + store.
       const valid = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1092,8 +1058,8 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       expect(admissionCalls).toHaveLength(1);
       expect(storeCalls).toEqual(["put"]);
 
-      // Rust's `Option<u64>` decodes a missing member as None: a put without
-      // `expected_base_revision` is a create, and the store sees `null`
+      // note: Rust's `Option<u64>` decodes a missing member as None — a put
+      // without `expected_base_revision` is a create, and the store sees `null`
       // (an `undefined` would take the stale-revision branch instead).
       const missingRevision = await rawInvoke(
         clientEnd,
@@ -1122,7 +1088,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       knowledgeOnlyServePorts(face),
     );
     try {
-      // The list scope decodes as a typed Scope (Rust parity): a scalar
+      // note: the list scope decodes as a typed Scope (Rust parity) — a scalar
       // never reaches the list-admission guard or the store.
       const refused = await rawInvoke(
         clientEnd,
@@ -1137,7 +1103,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       expect(admissionCalls).toHaveLength(0);
       expect(storeCalls).toHaveLength(0);
 
-      // A sound scope serves through the same host.
       const served = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1160,7 +1125,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       admissionCalls.push(peerId);
       return spokeOk(SCOPE_A);
     });
-    // No knowledge face (and no baseline face): the absent-face branch.
     const { clientEnd, sessionId, close } = await dialRawKnowledgeHost({});
     try {
       const denied = await rawInvoke(
@@ -1172,7 +1136,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
         "port.knowledge.get",
         { entry_id: "kb_any" },
       );
-      // The dialer maps this dispatch-deny row to CAPABILITY_PORT_MISSING
+      // note: the dialer maps this dispatch-deny row to CAPABILITY_PORT_MISSING
       // (details.wire_code = "op_unsupported"); the wire never carries the
       // application-coded literal.
       expect(denied.error?.code).toBe("op_unsupported");

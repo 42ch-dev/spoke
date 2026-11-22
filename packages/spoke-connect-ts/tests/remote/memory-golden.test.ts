@@ -1,5 +1,5 @@
 /**
- * Cross-language memory invoke vectors (memory protocol §13).
+ * note: Cross-language memory invoke vectors (memory protocol §13).
  *
  * The fixture is shared byte-for-byte with the Rust harness
  * (`crates/spoke-connect/tests/fixtures/memory-invoke-golden.json`), where the
@@ -21,7 +21,7 @@ import { MEMORY_OPS } from "@42ch/spoke-connect/remote";
 
 import { requiredCapability } from "../../src/core/dispatch.js";
 
-/** Ops in the memory family (protocol §7) — 25 core + 3 reflection + 5 transfer. */
+/** note: Ops in the memory family (protocol §7) — 25 core + 3 reflection + 5 transfer. */
 const MEMORY_OP_COUNT = 33;
 
 interface Vector {

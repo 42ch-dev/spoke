@@ -2,7 +2,7 @@
  * Ed25519 sign/verify and key encoding for SPOKE connect hello (raw key
  * bytes, no libp2p Keypair).
  *
- * Normative rules `.agents/specs/connect/spoke-connect.md` §Signature
+ * see `.agents/specs/connect/spoke-connect.md` contract §Signature
  * canonicalization / §Identity binding (mirrors
  * `crates/spoke-connect/src/core/hello_crypto.rs`).
  *
@@ -20,9 +20,9 @@
 import * as nobleEd25519 from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha2.js";
 
-// noble-ed25519 v3 keeps its SHA-512 provider slots caller-owned (the package
-// is dependency-free by default); sync sign/verify/getPublicKey require the
-// wired provider before first use.
+// why: noble-ed25519 v3 keeps its SHA-512 provider slots caller-owned (the
+// package is dependency-free by default); sync sign/verify/getPublicKey
+// require the wired provider before first use.
 nobleEd25519.hashes.sha512 = sha512;
 
 function subtle(): SubtleCrypto | undefined {
@@ -30,7 +30,7 @@ function subtle(): SubtleCrypto | undefined {
 }
 
 /**
- * WebCrypto's `BufferSource` requires `ArrayBuffer`-backed views (TS 5.7+
+ * why: WebCrypto's `BufferSource` requires `ArrayBuffer`-backed views (TS 5.7+
  * typed-array generics). Every buffer this module produces or receives is
  * ArrayBuffer-backed in practice (`Uint8Array` constructors/`from`, noble
  * outputs, DER wrappers); normalize the type at the boundary instead of
@@ -39,8 +39,6 @@ function subtle(): SubtleCrypto | undefined {
 function asBufferSource(bytes: Uint8Array): BufferSource {
   return bytes as unknown as BufferSource;
 }
-
-// ── base64url (no padding) ────────────────────────────────────────────────
 
 /** Encode bytes as base64url without padding. */
 export function base64UrlEncode(bytes: Uint8Array): string {
@@ -60,12 +58,10 @@ export function base64UrlDecode(s: string): Uint8Array {
   return out;
 }
 
-// ── DER wrapping (RFC 8410) ───────────────────────────────────────────────
-
 /** PKCS8 DER wrapping a raw 32-byte Ed25519 seed (RFC 8410). */
 export function ed25519SeedToPkcs8(seed: Uint8Array): Uint8Array {
   if (seed.length !== 32) throw new Error("seed must be 32 bytes");
-  // 30 2e 02 01 00 30 05 06 03 2b 65 70 04 22 04 20 || seed
+  // note: 30 2e 02 01 00 30 05 06 03 2b 65 70 04 22 04 20 || seed
   const header = Uint8Array.of(
     0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70,
     0x04, 0x22, 0x04, 0x20,
@@ -79,7 +75,7 @@ export function ed25519SeedToPkcs8(seed: Uint8Array): Uint8Array {
 /** SPKI DER wrapping a raw 32-byte Ed25519 public key (RFC 8410). */
 export function ed25519PubkeyToSpki(pubkey: Uint8Array): Uint8Array {
   if (pubkey.length !== 32) throw new Error("pubkey must be 32 bytes");
-  // 30 2a 30 05 06 03 2b 65 70 03 21 00 || pubkey
+  // note: 30 2a 30 05 06 03 2b 65 70 03 21 00 || pubkey
   const header = Uint8Array.of(
     0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
   );
@@ -88,8 +84,6 @@ export function ed25519PubkeyToSpki(pubkey: Uint8Array): Uint8Array {
   out.set(pubkey, header.length);
   return out;
 }
-
-// ── backend selection ─────────────────────────────────────────────────────
 
 let probe: Promise<boolean> | null = null;
 
@@ -120,8 +114,6 @@ export function webcryptoEd25519Available(): Promise<boolean> {
   return probe;
 }
 
-// ── key derivation ────────────────────────────────────────────────────────
-
 /**
  * Derive the 32-byte Ed25519 public key for a 32-byte seed.
  *
@@ -134,8 +126,6 @@ export function getPublicKeyEd25519(seed: Uint8Array): Uint8Array {
   if (seed.length !== 32) throw new Error("seed must be 32 bytes");
   return nobleEd25519.getPublicKey(seed);
 }
-
-// ── sign / verify ─────────────────────────────────────────────────────────
 
 /**
  * Sign `message` with a raw 32-byte Ed25519 seed. Returns the raw 64-byte

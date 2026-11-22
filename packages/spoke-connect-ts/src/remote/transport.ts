@@ -18,22 +18,18 @@ export type EnvelopeBytes = Uint8Array;
 
 /** Message-oriented transport: one connect envelope per `send` / `recv` call. */
 export interface Transport {
-  /** Send one envelope. Resolves when the transport has accepted the bytes. */
+  /** note: resolves when the transport has accepted the bytes. */
   send(envelope: EnvelopeBytes): Promise<void>;
   /**
-   * Receive the next inbound envelope. Rejects when the transport closes —
-   * a pending `recv` must fail fast on connection loss so the adapter can
-   * fail its in-flight invokes instead of waiting out their timeout.
+   * note: rejects when the transport closes — a pending `recv` must fail
+   * fast on connection loss so the adapter can fail its in-flight invokes
+   * instead of waiting out their timeout.
    */
   recv(): Promise<EnvelopeBytes>;
-  /** Optional: release resources. Idempotent. */
+  /** note: release resources; idempotent. */
   close?(): void | Promise<void>;
 }
 
-/**
- * FIFO message channel: buffered pushes, awaitable pops. One direction of a
- * loopback connection. Closing rejects every pending and future pop.
- */
 class LoopbackChannel {
   private readonly buffer: EnvelopeBytes[] = [];
   private readonly waiters: Array<{
@@ -42,7 +38,6 @@ class LoopbackChannel {
   }> = [];
   private closed = false;
 
-  /** Push one envelope; resolves the oldest waiting `pop` when one exists. */
   push(bytes: EnvelopeBytes): void {
     if (this.closed) {
       throw new Error("loopback transport is closed");
@@ -56,9 +51,8 @@ class LoopbackChannel {
   }
 
   /**
-   * Pop the next envelope. Resolves immediately when buffered, otherwise
-   * waits for the next push. Rejects when the channel is closed (buffered
-   * messages are lost on close, matching a real connection drop).
+   * note: buffered messages are lost on close (a pop after close rejects),
+   * matching a real connection drop.
    */
   pop(): Promise<EnvelopeBytes> {
     if (this.closed) {
@@ -85,9 +79,9 @@ class LoopbackChannel {
 }
 
 /**
- * Shared bidirectional connection state. Both directions close together:
- * closing one end fails the peer's pending `recv` exactly like a real
- * connection close, so the RemoteAdapter sees transport loss.
+ * why: both directions close together — closing one end fails the peer's
+ * pending `recv` exactly like a real connection close, so the RemoteAdapter
+ * sees transport loss.
  */
 class LoopbackConnection {
   readonly clientToServer = new LoopbackChannel();
@@ -124,7 +118,6 @@ export class LoopbackTransport implements Transport {
   }
 
   async send(envelope: EnvelopeBytes): Promise<void> {
-    // Throws (→ rejected promise) when the connection is closed.
     this.outbound.push(envelope);
   }
 

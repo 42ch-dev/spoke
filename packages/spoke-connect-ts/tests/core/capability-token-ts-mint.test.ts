@@ -19,7 +19,7 @@ import type {
 } from "../../src/core/capability-token.js";
 
 /**
- * TS-minted capability-token golden vector: deterministic proof from the
+ * why: TS-minted capability-token golden vector — deterministic proof from the
  * identity golden seed (`tests/fixtures/golden.ts`, bytes 1..=32),
  * checked in as `tests/fixtures/capability-token-ts-golden.json` (byte-identical
  * registered copy of the SSOT under `crates/spoke-connect/tests/fixtures/`; sync

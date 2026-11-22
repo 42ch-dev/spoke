@@ -41,9 +41,9 @@ import { decrypt, dh, encrypt, getPublicKey, hkdf } from "./crypto.js";
 /** Noise protocol name (initialize symmetric state from this name). */
 export const NOISE_PROTOCOL_NAME = "Noise_XX_25519_ChaChaPoly_SHA256";
 
-const HASHLEN = 32; // SHA-256
-const DHLEN = 32; // X25519 public key
-const TAGLEN = 16; // ChaCha20-Poly1305 tag
+const HASHLEN = 32; // note: SHA-256 digest length
+const DHLEN = 32; // note: X25519 public key length
+const TAGLEN = 16; // note: ChaCha20-Poly1305 tag length
 
 /** Local X25519 keypair (private key; public key is derived). */
 export interface NoiseKeyPair {
@@ -51,14 +51,14 @@ export interface NoiseKeyPair {
 }
 
 export interface NoiseXXOptions {
-  /** `true` = initiator (dialer), `false` = responder (listener). */
+  /** note: `true` = initiator (dialer), `false` = responder (listener). */
   initiator: boolean;
-  /** Local static X25519 keypair carried in the `s` tokens (contract §2.1). */
+  /** note: local static X25519 keypair carried in the `s` tokens (contract §2.1). */
   staticKeyPair: NoiseKeyPair;
-  /** Prologue mixed into the handshake hash; MUST match on both sides. */
+  /** invariant: prologue mixed into the handshake hash; MUST match on both sides. */
   prologue?: Uint8Array;
   /**
-   * Fixed ephemeral keypair (test vectors only — cacophony pins the
+   * note: fixed ephemeral keypair (test vectors only — cacophony pins the
    * ephemeral keys). When omitted, a fresh random ephemeral is generated
    * for every handshake.
    */
@@ -67,46 +67,47 @@ export interface NoiseXXOptions {
 
 /** Post-split transport material (contract §2.2). */
 export interface NoiseXXResult {
-  /** Key for sealing our outgoing transport frames (AAD = empty, nonce 0+). */
+  /** note: key for sealing our outgoing transport frames (AAD = empty, nonce 0+). */
   tx: Uint8Array;
-  /** Key for opening incoming transport frames (AAD = empty, nonce 0+). */
+  /** note: key for opening incoming transport frames (AAD = empty, nonce 0+). */
   rx: Uint8Array;
-  /** Final handshake hash `h` — identical on both parties. */
+  /** invariant: final handshake hash `h` — identical on both parties. */
   handshakeHash: Uint8Array;
-  /** Remote static X25519 public key (always present after a full XX). */
+  /** note: remote static X25519 public key (always present after a full XX). */
   remoteStaticPublic: Uint8Array;
 }
 
 type Token = "e" | "s" | "ee" | "es" | "se";
 
-/** The three XX flights, in wire order (roles alternate around them). */
+/**
+ * note: the three XX flights in wire order — flight 1 I → R, flight 2
+ * R → I, flight 3 I → R (roles alternate around them).
+ */
 const MESSAGE_PATTERNS: Token[][] = [
-  ["e"], // flight 1: I → R
-  ["e", "ee", "s", "es"], // flight 2: R → I
-  ["s", "se"], // flight 3: I → R
+  ["e"],
+  ["e", "ee", "s", "es"],
+  ["s", "se"],
 ];
 
 export class NoiseXX {
   private readonly initiator: boolean;
 
-  // SymmetricState (Noise spec §5.2)
   private ck: Uint8Array;
   private h: Uint8Array;
   private k: Uint8Array | null = null;
   private nonce = 0;
 
-  // HandshakeState (Noise spec §5.3)
   private readonly s: { privateKey: Uint8Array; publicKey: Uint8Array };
   private e: { privateKey: Uint8Array; publicKey: Uint8Array } | null = null;
-  private re: Uint8Array | null = null; // remote ephemeral public key
-  private rs: Uint8Array | null = null; // remote static public key
+  private re: Uint8Array | null = null; // note: remote ephemeral public key
+  private rs: Uint8Array | null = null; // note: remote static public key
 
   private readonly fixedEphemeral: { privateKey: Uint8Array } | null;
 
-  /** 0..2 — which flight the next write/read processes; 3 = finished. */
+  /** note: 0..2 — which flight the next write/read processes; 3 = finished. */
   private phase = 0;
 
-  // Split results, computed on the final flight (Noise spec: Split() is
+  // note: split results, computed on the final flight (Noise spec: Split() is
   // called once the message patterns are exhausted).
   private tx: Uint8Array | null = null;
   private rx: Uint8Array | null = null;
@@ -119,12 +120,12 @@ export class NoiseXX {
     if (name.length > HASHLEN) {
       this.h = sha256(name);
     } else {
-      // protocol_name ≤ HASHLEN: h = name zero-padded (exactly HASHLEN here).
+      // note: protocol_name ≤ HASHLEN — h = name zero-padded (exactly HASHLEN here).
       this.h = new Uint8Array(HASHLEN);
       this.h.set(name);
     }
     this.ck = this.h.slice();
-    // MixHash(prologue) — empty prologue leaves h = SHA-256(protocol_name).
+    // note: MixHash(prologue) — empty prologue leaves h = SHA-256(protocol_name).
     this.h = sha256(concatBytes(this.h, options.prologue ?? new Uint8Array(0)));
 
     this.s = {
@@ -133,7 +134,7 @@ export class NoiseXX {
     };
   }
 
-  // ── Symmetric operations (Noise spec §5.2) ─────────────────────────────
+  // see contract §2 — Noise spec §5.2 symmetric operations
 
   private mixHash(data: Uint8Array): void {
     this.h = sha256(concatBytes(this.h, data));
@@ -146,7 +147,6 @@ export class NoiseXX {
     this.nonce = 0;
   }
 
-  /** EncryptAndHash: seal under AAD = h (or copy when k is empty), then mix. */
   private encryptAndHash(plaintext: Uint8Array): Uint8Array {
     const out = this.k
       ? encrypt(this.k, this.nonce++, this.h, plaintext)
@@ -155,7 +155,6 @@ export class NoiseXX {
     return out;
   }
 
-  /** DecryptAndHash: open under AAD = h (or copy when k is empty), then mix. */
   private decryptAndHash(ciphertext: Uint8Array): Uint8Array {
     let plaintext: Uint8Array;
     if (this.k) {
@@ -173,7 +172,7 @@ export class NoiseXX {
     return plaintext;
   }
 
-  // ── Token processing (Noise spec §5.3) ──────────────────────────────────
+  // see contract §2 — Noise spec §5.3 token processing
 
   private writeToken(token: Token): Uint8Array {
     switch (token) {
@@ -187,8 +186,8 @@ export class NoiseXX {
         return pub;
       }
       case "s":
-        // EncryptAndHash(s.public_key); in XX, k is always set when `s`
-        // appears (flights 2–3 follow a MixKey), so this is AEAD-sealed.
+        // invariant: EncryptAndHash(s.public_key); in XX, k is always set when
+        // `s` appears (flights 2–3 follow a MixKey), so this is AEAD-sealed.
         return this.encryptAndHash(this.s.publicKey);
       case "ee":
         this.mixKey(dh(this.e!.privateKey, this.re!));
@@ -210,7 +209,6 @@ export class NoiseXX {
     }
   }
 
-  /** Bytes a `token` consumes from an incoming message at the current state. */
   private readTokenLength(token: Token): number {
     switch (token) {
       case "e":
@@ -218,7 +216,7 @@ export class NoiseXX {
       case "s":
         return this.k ? DHLEN + TAGLEN : DHLEN;
       default:
-        return 0; // DH tokens consume no message bytes
+        return 0;
     }
   }
 
@@ -254,12 +252,10 @@ export class NoiseXX {
     }
   }
 
-  // ── Public API ───────────────────────────────────────────────────────────
-
   /**
-   * Write the next handshake flight with `payload` (opaque bytes; the
-   * libp2p `NoiseHandshakePayload` encoding is Task 3's concern). Returns
-   * the full wire message for this flight. Call in order: initiator
+   * note: writes the next handshake flight with `payload` (opaque bytes; the
+   * libp2p `NoiseHandshakePayload` encoding lives in `payload.ts`). Returns
+   * the full wire message for this flight; call in order — initiator
    * writes flights 1 and 3, responder writes flight 2.
    */
   writeMessage(payload: Uint8Array): Uint8Array {
@@ -276,9 +272,9 @@ export class NoiseXX {
   }
 
   /**
-   * Read the next handshake flight. Returns the plaintext payload (opaque
-   * bytes). Throws on truncated messages and on AEAD authentication
-   * failure — a failed read aborts the handshake.
+   * note: returns the plaintext payload (opaque bytes); throws on truncated
+   * messages and on AEAD authentication failure — a failed read aborts the
+   * handshake.
    */
   readMessage(message: Uint8Array): Uint8Array {
     this.assertCanRead();
@@ -297,9 +293,9 @@ export class NoiseXX {
   }
 
   /**
-   * Complete the handshake: returns the split transport keys, the final
-   * handshake hash, and the remote static public key. Callable only after
-   * all three flights have been processed by this party.
+   * note: callable only after all three flights have been processed by this
+   * party; returns the split transport keys, the final handshake hash, and
+   * the remote static public key.
    */
   finish(): NoiseXXResult {
     if (this.phase !== 3) {
@@ -318,10 +314,8 @@ export class NoiseXX {
     };
   }
 
-  // ── Internals ────────────────────────────────────────────────────────────
-
-  /** Split(): HKDF(ck, empty) → (c1, c2); initiator seals with c1, opens
-   *  with c2, the responder mirrors (Noise spec §5.2). */
+  /** invariant: Split() = HKDF(ck, empty) → (c1, c2); initiator seals with c1,
+   *  opens with c2, the responder mirrors (Noise spec §5.2). */
   private split(): void {
     const { chainingKey: c1, key: c2 } = hkdf(this.ck, new Uint8Array(0));
     if (this.initiator) {

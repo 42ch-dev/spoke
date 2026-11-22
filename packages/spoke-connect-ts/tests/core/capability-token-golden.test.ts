@@ -24,7 +24,7 @@ import {
 import type { CapabilityTokenProof } from "../../src/core/capability-token.js";
 
 /**
- * Cross-language golden vector: a capability token minted by the **Rust**
+ * why: cross-language golden vector: a capability token minted by the **Rust**
  * reference (`crates/spoke-connect`) from the identity golden seed
  * (`tests/fixtures/golden.ts`, bytes 1..=32), checked in as
  * `tests/fixtures/capability-token-golden.json`.
@@ -58,7 +58,7 @@ const goldenProof = JSON.parse(
 describe("Rust-minted capability-token golden vector", () => {
   it("verifies the Rust-produced proof (JCS + signature parity)", async () => {
     expect(goldenProof.v).toBe(TOKEN_VERSION);
-    // The fixture issuer derives from the identity golden seed; sub/aud from
+    // note: the fixture issuer derives from the identity golden seed; sub/aud from
     // the deterministic role seeds [7u8; 32] / [8u8; 32] (same roles as the
     // Rust and TS unit tests).
     expect(goldenProof.claims.iss).toBe(GOLDEN_PEER_ID);
@@ -81,10 +81,10 @@ describe("Rust-minted capability-token golden vector", () => {
   });
 
   it("carries a canonical unpadded base64url signature over the normative claim set", async () => {
-    // 64 raw signature bytes → 86 base64url chars, no padding.
+    // why: 64 raw signature bytes → 86 base64url chars, no padding.
     expect(goldenProof.sig).toHaveLength(86);
     expect(base64UrlEncode(base64UrlDecode(goldenProof.sig))).toBe(goldenProof.sig);
-    // iat / jti present in the fixture — the optional fields must survive
+    // why: iat / jti present in the fixture — the optional fields must survive
     // the Rust → TS round trip (omit-vs-null parity).
     const claimKeys = Object.keys(goldenProof.claims).sort();
     expect(claimKeys).toEqual([

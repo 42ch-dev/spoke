@@ -60,15 +60,15 @@ describe("rust-libp2p Noise XX golden transcript (interop)", () => {
   it("records the contract wire sizes (u16-BE prefix, empty flight-1 payload)", () => {
     expect(fixture.protocol).toBe("Noise_XX_25519_ChaChaPoly_SHA256");
     expect(fixture.prologue).toBe("");
-    // flight1 = 2 + 32 (e.pub, payload rides in the clear), flight2 =
+    // why: flight1 = 2 + 32 (e.pub, payload rides in the clear), flight2 =
     // 2 + 32 + 48 + 104 + 16 (e, ee, s, es + identity payload + tag),
     // flight3 = 2 + 48 + 104 + 16 (s, se + identity payload + tag).
     expect(fromHex(fixture.flights.flight1)).toHaveLength(2 + 32);
     expect(fromHex(fixture.flights.flight2)).toHaveLength(2 + 32 + 48 + 104 + 16);
     expect(fromHex(fixture.flights.flight3)).toHaveLength(2 + 48 + 104 + 16);
-    // Flight 1 rides in the clear with an empty payload (§5).
+    // note: flight 1 rides in the clear with an empty payload (§5).
     expect(fixture.payloads.flight1).toBe("");
-    // Flights 2–3 carry the 104-byte NoiseHandshakePayload.
+    // note: flights 2–3 carry the 104-byte NoiseHandshakePayload.
     expect(fixture.payloads.flight2).toHaveLength(104 * 2);
     expect(fixture.payloads.flight3).toHaveLength(104 * 2);
   });
@@ -100,32 +100,32 @@ describe("rust-libp2p Noise XX golden transcript (interop)", () => {
         ephemeralKeyPair: { privateKey: fromHex(k.responder.ephemeralPrivate) },
       });
 
-      // Flight 1 (initiator → responder): read; must carry an empty payload.
+      // note: flight 1 (initiator → responder): read; must carry an empty payload.
       await responder.readMessage(fromHex(fixture.flights.flight1));
 
-      // Flight 2 (responder → initiator): byte-for-byte match with the
+      // why: flight 2 (responder → initiator): byte-for-byte match with the
       // recorded rust-libp2p responder flight.
       const flight2 = await responder.writeMessage();
       expect(toHex(flight2)).toBe(fixture.flights.flight2);
 
-      // Flight 3 (initiator → responder): read + parse identity payload.
+      // note: flight 3 (initiator → responder): read + parse identity payload.
       await responder.readMessage(fromHex(fixture.flights.flight3));
 
-      // finish() verifies the remote identity signature over the remote
+      // why: finish() verifies the remote identity signature over the remote
       // static key and splits the transport keys.
       const result = await responder.finish();
 
-      // Handshake hash identical to the recording.
+      // note: handshake hash identical to the recording.
       expect(toHex(result.handshakeHash)).toBe(fixture.handshake.handshakeHash);
-      // Remote static X25519 key = the initiator's pinned static public key.
+      // note: remote static X25519 key = the initiator's pinned static public key.
       expect(toHex(result.remoteStaticPublic)).toBe(k.initiator.staticPublic);
-      // Remote identity = the initiator's pinned Ed25519 public key.
+      // note: remote identity = the initiator's pinned Ed25519 public key.
       expect(toHex(result.remoteIdentityPublicKey)).toBe(
         k.initiator.identityPublic,
       );
       expect(result.remotePeerId).toBe(k.initiator.peerId);
 
-      // Transport keys are identical to the Rust recording: the recorded
+      // why: transport keys are identical to the Rust recording: the recorded
       // initiator→responder frame (sealed under c1, nonce 0) decrypts under
       // the responder RX key…
       const opened = result.transport.readFrame(
@@ -133,7 +133,7 @@ describe("rust-libp2p Noise XX golden transcript (interop)", () => {
       );
       expect(toHex(opened)).toBe(fixture.transport.initiatorToResponder.plaintext);
 
-      // …and the responder TX key re-seals the recorded plaintext to the
+      // why: …and the responder TX key re-seals the recorded plaintext to the
       // recorded responder→initiator frame byte-for-byte.
       const resealed = result.transport.writeFrame(
         fromHex(fixture.transport.responderToInitiator.plaintext),

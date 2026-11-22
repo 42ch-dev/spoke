@@ -1,8 +1,9 @@
 /**
  * Pure session-core error types (local, not wire).
  *
- * Mirrors `crates/spoke-connect/src/core/error.rs` variants as string-code
- * discriminators on two error classes:
+ * see `docs/reference/connect.md`; variants mirror
+ * `crates/spoke-connect/src/core/error.rs` as string-code discriminators on
+ * two error classes:
  * - `CoreError` — hello-gate / identity / capability-token failures (hello
  *   verify, nonce, handshake, crypto, JCS, token invalid).
  * - `CoreInvokeError` — invoke path (sequence, correlation).
@@ -53,7 +54,7 @@ const CORE_INVOKE_ERROR_MESSAGES: Record<CoreInvokeErrorCode, string> = {
 /** Hello-gate / identity failure (mirrors `CoreError`). */
 export class CoreError extends Error {
   readonly code: CoreErrorCode;
-  /** Optional structured context (e.g. handshake reason strings). */
+  /** note: optional structured context (e.g. handshake reason strings). */
   readonly details?: Record<string, unknown>;
 
   constructor(code: CoreErrorCode, message?: string, details?: Record<string, unknown>) {
@@ -67,7 +68,7 @@ export class CoreError extends Error {
 /** Invoke-path failure over an established session (mirrors `CoreInvokeError`). */
 export class CoreInvokeError extends Error {
   readonly code: CoreInvokeErrorCode;
-  /** Optional structured context (e.g. `{ expected, actual }` for sequence mismatch). */
+  /** note: optional structured context (e.g. `{ expected, actual }` for sequence mismatch). */
   readonly details?: Record<string, unknown>;
 
   constructor(code: CoreInvokeErrorCode, message?: string, details?: Record<string, unknown>) {

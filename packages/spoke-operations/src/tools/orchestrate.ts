@@ -1,5 +1,5 @@
 /**
- * Orchestrated remote tool invocation over an injected `ToolInvokePort`.
+ * note: Orchestrated remote tool invocation over an injected `ToolInvokePort`.
  *
  * Frozen sequence (`tool-contracts.md` §5; no `requireToolInvokePort`
  * wrapper): (1) `parseToolCapabilityId(request.capability_id)` grammar gate

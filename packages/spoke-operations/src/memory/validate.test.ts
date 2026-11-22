@@ -361,7 +361,7 @@ describe("per-op conditionals", () => {
     } as MemoryRecordsUpdateRequest;
     expect(validateMemoryRecordsUpdate(contentOnly, 1024).ok).toBe(true);
 
-    // Neither present (runtime bypass of the generated oneOf) → reject.
+    // note: neither present (runtime bypass of the generated oneOf) → reject.
     const neither = {
       space_id: "sp_1",
       record_id: "r1",
@@ -370,7 +370,7 @@ describe("per-op conditionals", () => {
     } as unknown as MemoryRecordsUpdateRequest;
     expectInvalid(validateMemoryRecordsUpdate(neither, 1024), "content");
 
-    // Content still rides the provider byte limit on the combined shape.
+    // note: content still rides the provider byte limit on the combined shape.
     const oversize = {
       ...combined,
       content: { text: "x".repeat(2048) },
@@ -398,25 +398,25 @@ describe("per-op conditionals", () => {
 
 describe("content byte limits (§7.1)", () => {
   it("contentSerializedBytes pins the shared known vectors", () => {
-    // Same explicit byte values are pinned by the Rust parity test.
+    // note: same explicit byte values are pinned by the Rust parity test.
     expect(contentSerializedBytes({ text: "héllo" })).toBe(17);
     expect(contentSerializedBytes({ text: "ab", structured: { nested: [true, null] } })).toBe(49);
     expect(contentSerializedBytes({ text: "" })).toBe(11);
   });
 
   it("contentSerializedBytes canonicalizes explicit null like Rust", () => {
-    // Rust deserializes `structured: null` to `None` and skips it; both
+    // note: Rust deserializes `structured: null` to `None` and skips it; both
     // languages measure `{"text":""}` = 11.
     expect(contentSerializedBytes({ text: "", structured: null })).toBe(11);
   });
 
   it("contentSerializedBytes pins the ECMAScript number form like Rust", () => {
-    // Rust measures through RFC 8785 JCS: `1.0` → `1`, `1e2` → `100`.
+    // note: Rust measures through RFC 8785 JCS — `1.0` → `1`, `1e2` → `100`.
     expect(contentSerializedBytes({ text: "", structured: { n: 1.0, e: 1e2 } })).toBe(40);
   });
 
   it("capture admits explicit null content at the exact boundary", () => {
-    // `{"text":"","structured":null}` canonicalizes to `{"text":""}`,
+    // note: `{"text":"","structured":null}` canonicalizes to `{"text":""}`,
     // 11 bytes; the Rust parity test pins the same pair.
     const request = {
       space_id: "sp_1",
@@ -448,7 +448,7 @@ describe("content byte limits (§7.1)", () => {
   });
 
   it("capture accepts the exact content byte boundary", () => {
-    // `{"text":"fine"}` is exactly 15 bytes under the serialized measure.
+    // note: `{"text":"fine"}` is exactly 15 bytes under the serialized measure.
     const request = {
       space_id: "sp_1",
       subject_id: "s1",
@@ -473,7 +473,7 @@ describe("content byte limits (§7.1)", () => {
   });
 });
 
-// Shared cross-language C8 lifecycle vectors: the TS measure and validators
+// note: Shared cross-language C8 lifecycle vectors — the TS measure and validators
 // must observe the same exact canonical admission bytes and the same
 // accept/reject outcome as the Rust suite for every content-admission vector.
 const lifecycleVectors = JSON.parse(
@@ -500,7 +500,7 @@ describe("cognition lifecycle shared admission vectors (C8)", () => {
   const admission = lifecycleVectors.vectors.filter(
     (vector) => vector.shape === "content-admission",
   );
-  // The handoff from P1/T1 L2 requires a valid non-empty recorded-at-time
+  // note: the handoff from P1/T1 L2 requires a valid non-empty recorded-at-time
   // carrier: every admission vector must exercise the real boundary.
   expect(admission.length).toBeGreaterThanOrEqual(5);
   const valid = admission.find((vector) => vector.id === "lifecycle-admission-cognition-valid");
@@ -533,7 +533,7 @@ describe("cognition lifecycle shared admission vectors (C8)", () => {
       if (vector.reason === "max_content_bytes") {
         expect(result.details?.limit).toBe("max_content_bytes");
       } else {
-        // The cognition guard runs before byte admission: even when the same
+        // note: the cognition guard runs before byte admission — even when the same
         // content is over budget, the malformed carrier rejects on the field
         // with the contract's invalid_cognition_record identity.
         expect(vector.canonical_bytes).toBeGreaterThan(vector.max_content_bytes);
@@ -544,7 +544,7 @@ describe("cognition lifecycle shared admission vectors (C8)", () => {
   );
 
   it("guard wins over an over-budget admission on create and update", () => {
-    // Structurally complete record, only the view is wrong, and the same
+    // note: structurally complete record, only the view is wrong, and the same
     // content exceeds the supplied budget: the cognition rejection must win.
     const complete = valid!.content.cognition![0] as Record<string, unknown>;
     const malformed = {
@@ -574,16 +574,16 @@ describe("cognition lifecycle shared admission vectors (C8)", () => {
   });
 
   it("explicit empty cognition is measured as supplied", () => {
-    // The admission budget bounds the complete caller wire value: an
+    // note: the admission budget bounds the complete caller wire value — an
     // explicitly present empty array is 32 bytes, distinct from omission.
     expect(contentSerializedBytes({ text: "Memory" })).toBe(17);
     expect(contentSerializedBytes({ text: "Memory", cognition: [] })).toBe(32);
   });
 
   it("undefined cognition is absence; null, malformed and duplicate still reject", () => {
-    // Real recorded-at-time carrier from these shared admission vectors.
+    // note: real recorded-at-time carrier from these shared admission vectors.
     const populated = valid!.content;
-    // Ordinary optional-spread output keeps the key with `undefined`.
+    // note: ordinary optional-spread output keeps the key with `undefined`.
     const spread = { ...populated, cognition: undefined };
 
     expect(validateCognitionContent(populated)).toBe(true);

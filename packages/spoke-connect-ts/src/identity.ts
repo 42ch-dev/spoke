@@ -2,7 +2,7 @@
  * Ed25519 → peer_id derivation and inversion (SPOKE connect identity
  * binding).
  *
- * Normative formula `.agents/specs/connect/spoke-connect.md` §Identity
+ * see `.agents/specs/connect/spoke-connect.md` contract §Identity
  * binding (mirrors
  * `crates/spoke-connect/src/core/peer_id.rs`). Do not invent a second
  * derivation — byte parity with the Rust/libp2p path is locked by the golden
@@ -25,20 +25,21 @@
  * public key.
  */
 
-/** Bitcoin alphabet (base58btc), as used by libp2p's `bs58` encoding. */
+/** note: Bitcoin alphabet (base58btc), as used by libp2p's `bs58` encoding. */
 const BITCOIN_ALPHABET =
   "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 /**
  * base58btc encode (Bitcoin alphabet). Leading zero bytes map to leading
- * `1` characters (base58 convention). Pure integer arithmetic, ported from
- * `peer_id.rs::base58_encode` / `proof.mjs::base58Encode`.
+ * `1` characters (base58 convention). Pure integer arithmetic; contract §Identity
+ * binding. Ported from `crates/spoke-connect/src/core/peer_id.rs`
+ * (`base58_encode`) / `proof.mjs::base58Encode`.
  */
 function base58Encode(input: Uint8Array): string {
   let zeros = 0;
   while (zeros < input.length && input[zeros] === 0) zeros++;
 
-  // Little-endian base-58 digits (least significant first) — the classic
+  // note: little-endian base-58 digits (least significant first) — the classic
   // base-256 → base-58 conversion.
   const digits: number[] = [];
   for (let i = 0; i < input.length; i++) {
@@ -61,13 +62,7 @@ function base58Encode(input: Uint8Array): string {
   return out;
 }
 
-/**
- * base58btc decode (inverse of `base58Encode`). Returns `undefined` on any
- * character outside the Bitcoin alphabet.
- */
 function base58Decode(input: string): Uint8Array | undefined {
-  // Accumulate little-endian base-256 digits: multiply the running number
-  // by 58 and add the new digit (inverse of the encoder).
   const bytes: number[] = [];
   for (const character of input) {
     const digit = BITCOIN_ALPHABET.indexOf(character);
@@ -84,7 +79,6 @@ function base58Decode(input: string): Uint8Array | undefined {
     }
   }
   bytes.reverse();
-  // Leading `1` characters encode leading zero bytes (base58 convention).
   let zeros = 0;
   while (zeros < input.length && input[zeros] === "1") zeros++;
   for (let i = 0; i < zeros; i++) bytes.unshift(0);
@@ -100,7 +94,7 @@ export function derivePeerIdFromEd25519Pubkey(pubkey: Uint8Array): string {
     throw new Error("pubkey must be 32 bytes");
   }
 
-  // Protobuf PublicKey message, hand-encoded (fixed layout):
+  // note: protobuf PublicKey message, hand-encoded (fixed layout):
   //   field 1, varint Type = 1 (Ed25519):  tag 0x08, value 0x01
   //   field 2, bytes Data (32-byte key):   tag 0x12, length 0x20, key
   // 36 bytes total — always ≤ 42, so the identity multihash branch applies.
@@ -111,7 +105,7 @@ export function derivePeerIdFromEd25519Pubkey(pubkey: Uint8Array): string {
   pkBytes[3] = 0x20;
   pkBytes.set(pubkey, 4);
 
-  // Identity multihash: code-varint 0x00, length-varint 36 (0x24) — both
+  // note: identity multihash: code-varint 0x00, length-varint 36 (0x24) — both
   // single-byte varints for this digest size — then the protobuf bytes.
   const multihash = new Uint8Array(38);
   multihash[0] = 0x00;
@@ -134,18 +128,18 @@ export function derivePeerIdFromEd25519Pubkey(pubkey: Uint8Array): string {
  * signature.
  */
 export function ed25519PubkeyFromPeerId(peerId: string): Uint8Array | undefined {
-  // base58 decoding is O(n²) in input length; valid Ed25519 peer ids are
+  // why: base58 decoding is O(n²) in input length; valid Ed25519 peer ids are
   // ≤ 52 chars (38 bytes → base58btc). Cap the decode input so an over-long
   // adversarial `iss` fails closed in O(1) instead of burning CPU.
   if (peerId.length > 128) return undefined;
   const bytes = base58Decode(peerId);
   if (bytes === undefined) return undefined;
-  // Identity multihash (code 0x00, length 0x24 = 36) with the protobuf
+  // note: identity multihash (code 0x00, length 0x24 = 36) with the protobuf
   // `PublicKey` message as the digest (38 bytes total).
   if (bytes.length !== 38 || bytes[0] !== 0x00 || bytes[1] !== 0x24) {
     return undefined;
   }
-  // Protobuf `PublicKey`: field 1 varint Type = 1 (Ed25519): 0x08 0x01;
+  // note: protobuf `PublicKey`: field 1 varint Type = 1 (Ed25519): 0x08 0x01;
   // field 2 bytes, length 0x20 (32): 0x12 0x20, then the raw key.
   const message = bytes.subarray(2);
   if (

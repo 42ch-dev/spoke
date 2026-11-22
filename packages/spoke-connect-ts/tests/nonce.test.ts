@@ -7,7 +7,6 @@ describe("NonceStore (port of nonce.rs)", () => {
     const store = new NonceStore();
     expect(store.checkAndRecord("peer-a", "nonce-1")).toBe(true);
     expect(store.checkAndRecord("peer-a", "nonce-1")).toBe(false);
-    // A different nonce from the same peer is fresh.
     expect(store.checkAndRecord("peer-a", "nonce-2")).toBe(true);
   });
 

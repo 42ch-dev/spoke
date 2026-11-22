@@ -2,8 +2,8 @@
  * Response correlation: echo checks for `session_id`, `sequence`, and
  * `request_id`.
  *
- * Ported from `crates/spoke-connect/src/core/correlate.rs`; normative rule
- * `.agents/specs/connect/spoke-connect.md` §Ordering semantics: a response MUST echo
+ * Ported from `crates/spoke-connect/src/core/correlate.rs`; see
+ * `.agents/specs/connect/spoke-connect.md` contract §Ordering semantics: a response MUST echo
  * `session_id`, `sequence`, and `request_id` from the request; any mismatch
  * is a correlation failure (local error).
  */

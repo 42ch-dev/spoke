@@ -19,11 +19,11 @@ describe("OutboundSequence (port of sequence.rs)", () => {
   it("throws sequence_exhausted past 2^53-1 without wrapping", () => {
     const seq = new OutboundSequence();
     seq.setNext(MAX_SEQUENCE);
-    expect(seq.allocate()).toBe(MAX_SEQUENCE); // last valid allocation
+    expect(seq.allocate()).toBe(MAX_SEQUENCE); // note: last valid allocation
     expect(() => seq.allocate()).toThrowError(
       expect.objectContaining({ code: "sequence_exhausted" }),
     );
-    // Still exhausted — no wrap-around.
+    // why: still exhausted — no wrap-around.
     expect(() => seq.allocate()).toThrowError(
       expect.objectContaining({ code: "sequence_exhausted" }),
     );
@@ -48,7 +48,7 @@ describe("InboundSequence (port of sequence.rs)", () => {
     const inbound = new InboundSequence();
     expect(inbound.advance(0)).toBe(1);
 
-    // Replay of an already-consumed sequence.
+    // why: replay of an already-consumed sequence.
     expect(() => inbound.advance(0)).toThrowError(
       expect.objectContaining({
         code: "inbound_sequence_mismatch",
@@ -56,7 +56,7 @@ describe("InboundSequence (port of sequence.rs)", () => {
       }),
     );
 
-    // Out-of-order (skipping ahead).
+    // why: out-of-order (skipping ahead).
     expect(() => inbound.advance(2)).toThrowError(
       expect.objectContaining({
         code: "inbound_sequence_mismatch",
@@ -64,7 +64,7 @@ describe("InboundSequence (port of sequence.rs)", () => {
       }),
     );
 
-    // The expectation is unchanged after rejections.
+    // why: the expectation is unchanged after rejections.
     expect(inbound.nextExpected()).toBe(1);
   });
 
@@ -85,13 +85,13 @@ describe("InboundSequence (port of sequence.rs)", () => {
 
   it("peek validates the wire position WITHOUT advancing (auth-before-advance)", () => {
     const inbound = new InboundSequence();
-    // Wire-position check passes at 0...
+    // note: wire-position check passes at 0...
     inbound.peek(0);
     // ...but the expectation is unchanged — the counter only advances after
     // envelope-auth verify passes (contract §7 amendment).
     expect(inbound.nextExpected()).toBe(0);
 
-    // Mismatch rejects exactly like advance, and still does not advance.
+    // why: mismatch rejects exactly like advance, and still does not advance.
     expect(() => inbound.peek(1)).toThrowError(
       expect.objectContaining({
         code: "inbound_sequence_mismatch",
@@ -106,7 +106,7 @@ describe("InboundSequence (port of sequence.rs)", () => {
     );
     expect(inbound.nextExpected()).toBe(0);
 
-    // After auth passes, advance commits the position, then peek tracks it.
+    // note: after auth passes, advance commits the position, then peek tracks it.
     expect(inbound.advance(0)).toBe(1);
     inbound.peek(1);
     expect(inbound.nextExpected()).toBe(1);

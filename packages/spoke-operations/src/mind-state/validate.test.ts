@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { validateMindState } from "./validate.js";
 
-// Shared cross-language timestamp parity contract (TS validateMindState ↔ Rust
+// note: Shared cross-language timestamp parity contract (TS validateMindState ↔ Rust
 // validate_mind_state is_parseable_date_time): both suites assert the exact
 // same accept/reject verdicts against this single fixture.
 const timestampParityCases = JSON.parse(
@@ -20,7 +20,7 @@ const timestampParityCases = JSON.parse(
   ),
 ) as { accept: string[]; reject: string[] };
 
-// Shared cross-language mental-field contract (schema MindDelta pattern ↔ TS
+// note: Shared cross-language mental-field contract (schema MindDelta pattern ↔ TS
 // validateMindState ↔ Rust validate_mind_state): the same accept/reject path
 // lists are asserted by all three layers.
 const mentalFieldCases = JSON.parse(

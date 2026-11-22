@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsup'
 
-// Four isolated entries:
+// note: four isolated entries:
 //   - src/index.ts          -> dist/index.{mjs,js} + .d.{mts,ts}  (browser-safe; no `ws`)
 //   - src/node/connect-client.ts -> dist/node/connect-client.{mjs,js} + .d.*  (Node; imports `ws`)
 //   - src/noise/index.ts    -> dist/noise/index.{mjs,js} + .d.{mts,ts}  (opt-in Noise XX subpath;

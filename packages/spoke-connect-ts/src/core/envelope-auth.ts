@@ -110,9 +110,8 @@ export type InvokeResponseSignInput =
   | Omit<Extract<ConnectInvokeResponse, { payload: unknown }>, "signature" | "extensions">
   | Omit<Extract<ConnectInvokeResponse, { error: object }>, "signature" | "extensions">;
 
-// ── wire key sets (runtime whitelists, mirror the locked field tables) ─────
+// invariant: wire key sets are runtime whitelists, mirroring the locked field tables
 
-/** Allowed wire keys of a `ConnectSession` envelope. */
 const SESSION_WIRE_KEYS: readonly string[] = [
   "session_id",
   "initiator_peer_id",
@@ -124,7 +123,7 @@ const SESSION_WIRE_KEYS: readonly string[] = [
   "extensions",
 ];
 
-/** Signed fields of a `ConnectSession` (exactly these keys, no others). */
+/** invariant: signed fields of a `ConnectSession` (exactly these keys, no others). */
 const SESSION_SIGNED_KEYS: readonly string[] = [
   "session_id",
   "initiator_peer_id",
@@ -134,7 +133,6 @@ const SESSION_SIGNED_KEYS: readonly string[] = [
   "initial_sequence",
 ];
 
-/** Allowed wire keys of a `ConnectInvokeRequest` envelope (`auth` optional). */
 const INVOKE_REQUEST_WIRE_KEYS: readonly string[] = [
   "session_id",
   "sequence",
@@ -146,7 +144,7 @@ const INVOKE_REQUEST_WIRE_KEYS: readonly string[] = [
   "extensions",
 ];
 
-/** Signed fields of a `ConnectInvokeRequest` (`auth` conditional, checked separately). */
+/** note: signed fields of a `ConnectInvokeRequest` (`auth` conditional, checked separately). */
 const INVOKE_REQUEST_SIGNED_KEYS: readonly string[] = [
   "session_id",
   "sequence",
@@ -155,7 +153,6 @@ const INVOKE_REQUEST_SIGNED_KEYS: readonly string[] = [
   "payload",
 ];
 
-/** Allowed wire keys of a `ConnectInvokeResponse` success branch. */
 const INVOKE_RESPONSE_SUCCESS_WIRE_KEYS: readonly string[] = [
   "session_id",
   "sequence",
@@ -165,7 +162,6 @@ const INVOKE_RESPONSE_SUCCESS_WIRE_KEYS: readonly string[] = [
   "extensions",
 ];
 
-/** Allowed wire keys of a `ConnectInvokeResponse` error branch. */
 const INVOKE_RESPONSE_ERROR_WIRE_KEYS: readonly string[] = [
   "session_id",
   "sequence",
@@ -175,16 +171,15 @@ const INVOKE_RESPONSE_ERROR_WIRE_KEYS: readonly string[] = [
   "extensions",
 ];
 
-/** Signed fields common to both `ConnectInvokeResponse` branches (branch key checked separately). */
+/** note: signed fields common to both `ConnectInvokeResponse` branches (branch key checked separately). */
 const INVOKE_RESPONSE_SIGNED_KEYS: readonly string[] = [
   "session_id",
   "sequence",
   "request_id",
 ];
 
-// ── signed-object construction (exact keys, no others) ─────────────────────
+// invariant: signed-object construction uses exact keys, no others
 
-/** The session signed object: exactly the six locked session fields. */
 function sessionSignedObject(session: SessionSignInput): Record<string, unknown> {
   return {
     session_id: session.session_id,
@@ -196,7 +191,6 @@ function sessionSignedObject(session: SessionSignInput): Record<string, unknown>
   };
 }
 
-/** The invoke-request signed object: five locked fields + `auth` when present. */
 function invokeRequestSignedObject(
   request: InvokeRequestSignInput,
 ): Record<string, unknown> {
@@ -214,7 +208,7 @@ function invokeRequestSignedObject(
 }
 
 /**
- * Fail-closed wire-shape guard: every wire key must be in the allowed set
+ * note: fail-closed wire-shape guard: every wire key must be in the allowed set
  * (unknown keys = field-set drift ⇒ `envelope_auth_invalid`) and every
  * signed field must be present (a missing signed field is a malformed
  * signed object ⇒ `envelope_auth_invalid`).
@@ -242,9 +236,6 @@ function assertWireKeys(
   }
 }
 
-// ── JCS + signature primitives ─────────────────────────────────────────────
-
-/** RFC 8785 JCS-canonicalize the signed object to UTF-8 bytes. */
 function jcsBytes(signedObject: Record<string, unknown>): Uint8Array {
   const jcs = canonicalize(signedObject);
   if (jcs === undefined) {
@@ -256,7 +247,6 @@ function jcsBytes(signedObject: Record<string, unknown>): Uint8Array {
   return new TextEncoder().encode(jcs);
 }
 
-/** Sign the JCS bytes with a raw 32-byte Ed25519 seed → canonical base64url. */
 async function signEnvelope(
   secret: Uint8Array,
   signedObject: Record<string, unknown>,
@@ -269,7 +259,7 @@ async function signEnvelope(
 }
 
 /**
- * Verify steps 1–2 (locked order): the `signature` field must be present
+ * why: verify steps 1–2 (locked order): the `signature` field must be present
  * and non-empty (`envelope_auth_missing`), then it must decode and
  * round-trip through `encode(decode(sig)) === sig` — the unique canonical
  * RFC 4648 base64url no-padding encoding, rejecting alternate encodings of
@@ -308,7 +298,7 @@ function requireSignature(signatureField: unknown): Uint8Array {
 }
 
 /**
- * Verify steps 4–5 (locked order): JCS-canonicalize the signed object and
+ * note: verify steps 4–5 (locked order): JCS-canonicalize the signed object and
  * Ed25519-verify the decoded signature against the peer's hello public key.
  * A non-32-byte public key is adapter-supplied misuse → `CoreError("crypto")`
  * (mirrors `verifyHelloEd25519`), not a wire rejection.
@@ -329,8 +319,6 @@ async function verifyCanonicalSignature(
     );
   }
 }
-
-// ── ConnectSession ─────────────────────────────────────────────────────────
 
 /**
  * Sign a `ConnectSession` snapshot with a raw 32-byte Ed25519 secret key,
@@ -379,8 +367,6 @@ export async function verifySessionAuth(
   }
 }
 
-// ── ConnectInvokeRequest ───────────────────────────────────────────────────
-
 /**
  * Sign a `ConnectInvokeRequest` with a raw 32-byte Ed25519 secret key,
  * producing the full wire envelope (`spoke-connect-invoke-request-jcs-v1`).
@@ -425,8 +411,6 @@ export async function verifyInvokeRequestAuth(
     );
   }
 }
-
-// ── ConnectInvokeResponse ──────────────────────────────────────────────────
 
 /**
  * Sign a `ConnectInvokeResponse` with a raw 32-byte Ed25519 secret key,

@@ -1,8 +1,8 @@
 /**
  * Single-use `(peer_id, nonce)` replay store + hello nonce generator.
  *
- * Ported from `crates/spoke-connect/src/core/nonce.rs`; normative rules
- * `.agents/specs/connect/spoke-connect.md` §Nonce / replay protection: nonce
+ * Ported from `crates/spoke-connect/src/core/nonce.rs`; see
+ * `.agents/specs/connect/spoke-connect.md` contract §Nonce / replay protection: nonce
  * uniqueness is scoped per **sender** `peer_id`; a receiver MUST reject a
  * hello whose `(peer_id, nonce)` pair was already accepted. An in-memory set
  * for the life of the process is sufficient for protocol v1.
@@ -23,7 +23,7 @@ export class NonceStore {
   private readonly seen = new Set<string>();
 
   /**
-   * Records `(peerId, nonce)` unless it was already accepted; returns
+   * note: records `(peerId, nonce)` unless it was already accepted; returns
    * `false` on replay. Call only after the hello passed every earlier gate
    * (allowlist, signature) so a rejected hello is not burned.
    */

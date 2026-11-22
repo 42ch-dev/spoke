@@ -8,17 +8,10 @@ on:
     branches:
       - main
       - iteration/**
-    paths:
-      - crates/spoke-connect/src/**
-      - crates/spoke-connect/uniffi-bindgen.rs
-      - crates/spoke-connect/Cargo.toml
-      - Cargo.lock
-      - tooling/connect/build-swift-xcframework.sh
-      - tooling/connect/xcframework-manifest.sh
-      - crates/spoke-connect/bindings/swift/generated/**
-      - crates/spoke-connect/bindings/swift/Smoke/**
-      - Package.swift
-      - .github/workflows/xcframework.yml
+    paths-ignore:
+      - 'docs/**'
+      - 'tooling/docs/**'
+      - '**/*.md'
   workflow_dispatch:
 
 concurrency:
@@ -34,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.detect.outputs.code }}
+      rebuild: ${{ steps.detect.outputs.rebuild }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
@@ -42,31 +36,80 @@ jobs:
           fetch-depth: 0
       - name: Detect code changes
         id: detect
+        env:
+          # Source and recipe files whose change invalidates the committed
+          # xcframework. Prefix alternatives have no `$`; exact files do.
+          REBUILD_PATTERN: >-
+            ^(Cargo\.toml$|Cargo\.lock$|\.cargo/|rust-toolchain(\.toml)?$|crates/spoke-connect/|crates/spoke-schemas/|crates/spoke-operations/|tooling/connect/build-swift-xcframework\.sh$|tooling/connect/normalize-cargo-version\.mjs$|tooling/release/lockstep-surfaces\.mjs$|\.github/workflows/xcframework\.yml$)
         run: |
+          code=false
+          rebuild=false
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD || true)
-          if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
+            code=true
+            rebuild=true
+          elif ! files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD); then
+            # Fail closed: a diff failure must never be read as "docs only".
+            code=true
+            rebuild=true
           else
-            echo "code=false" >> "$GITHUB_OUTPUT"
+            if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
+              code=true
+            fi
+            if printf '%s\n' "$files" | grep -qE "$REBUILD_PATTERN"; then
+              rebuild=true
+            fi
           fi
+          # Rebuild implies code: a Markdown file inside a rebuild prefix
+          # (for example crates/spoke-connect/README.md) matches the rebuild
+          # pattern while the code regex classifies it as docs.
+          if [[ "$rebuild" == "true" ]]; then
+            code=true
+          fi
+          echo "code=$code"       >> "$GITHUB_OUTPUT"
+          echo "rebuild=$rebuild" >> "$GITHUB_OUTPUT"
+          echo "code=$code rebuild=$rebuild" >> "$GITHUB_STEP_SUMMARY"
 
   xcframework:
     needs: changes
     name: xcframework
+    # Never a condition that can evaluate false: a skipped required job
+    # satisfies the required check without proving anything.
+    if: ${{ always() }}
     runs-on: macos-15
     steps:
+      - name: Assert changes gate inputs
+        id: assert
+        shell: bash
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          REBUILD: ${{ needs.changes.outputs.rebuild }}
+        run: |
+          problems=()
+          [[ "${CHANGES}" == "success" ]] || problems+=("changes job result=${CHANGES}")
+          [[ "${CODE}"    == "true" || "${CODE}"    == "false" ]] || problems+=("missing/empty code output '${CODE}'")
+          [[ "${REBUILD}" == "true" || "${REBUILD}" == "false" ]] || problems+=("missing/empty rebuild output '${REBUILD}'")
+          if [[ "${REBUILD}" == "true" && "${CODE}" != "true" ]]; then
+            problems+=("illegal combination rebuild=true code=${CODE}")
+          fi
+          if (( ${#problems[@]} )); then
+            printf 'assert: %s\n' "${problems[@]}" >&2
+            { echo "### Required-check assertion failed"; printf -- '- %s\n' "${problems[@]}"; } >> "$GITHUB_STEP_SUMMARY"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         # actions/checkout@v4.2.2 — fetch the committed LFS libraries.
+        if: steps.assert.outputs.ok == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           lfs: true
 
       - name: Setup Rust toolchain (pinned exact stable + Apple targets)
         # dtolnay/rust-toolchain@stable (2026-07-16), pinned for the build.
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.98.1
@@ -74,13 +117,14 @@ jobs:
 
       - name: Cache Rust dependencies
         # Swatinem/rust-cache@v2.9.1
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
           shared-key: spoke-rust-xcframework
           workspaces: .
 
       - name: Run committed Swift consumer smoke
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         id: committed_smoke
         continue-on-error: true
         run: |
@@ -97,7 +141,7 @@ jobs:
           "${RUNNER_TEMP}/swift-smoke"
 
       - name: Build Swift xcframework (staged, locked)
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         # Preserve the committed consumer package; --locked pins Cargo.lock.
         env:
           XCFRAMEWORK_LOCKED: "1"
@@ -105,7 +149,7 @@ jobs:
         run: ./tooling/connect/build-swift-xcframework.sh
 
       - name: Write xcframework hash manifest
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         # The apply script verifies the transferred artifact against this manifest.
         run: |
           ./tooling/connect/xcframework-manifest.sh \
@@ -113,7 +157,7 @@ jobs:
             > "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework.sha256"
 
       - name: Record xcframework build provenance
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         env:
           SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
@@ -130,7 +174,7 @@ jobs:
 
       - name: Upload xcframework artifact
         # actions/upload-artifact@v4.6.2
-        if: always() && needs.changes.outputs.code == 'true'
+        if: always() && steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spoke-connect-xcframework

@@ -4,25 +4,17 @@ name: C++ connect (Windows + macOS)
 # carriers, exported symbols, and shared C++ smoke on both platforms.
 on:
   # Unfiltered on pull requests: windows-smoke / macos-smoke are required
-  # checks, so every PR schedules both carrier lanes. The push filter below is
-  # unchanged, so pushes outside those paths still skip them.
+  # checks, so every PR schedules both carrier lanes. Pushes rebuild on every
+  # non-docs change so a merge is never validated only by the PR path list.
   pull_request:
   push:
     branches:
       - main
-    paths:
-      - Cargo.toml
-      - Cargo.lock
-      - crates/spoke-connect-capi/**
-      - crates/spoke-connect/src/**
-      - crates/spoke-connect/Cargo.toml
-      - crates/spoke-connect/bindings/cpp/include/**
-      - crates/spoke-connect/bindings/cpp/Smoke/**
-      - crates/spoke-connect/bindings/cpp/native/**
-      - tooling/connect/cpp-build.mjs
-      - tooling/connect/cpp-symbol-check.mjs
-      - tooling/connect/cpp-smoke.mjs
-      - .github/workflows/cpp-connect.yml
+      - iteration/**
+    paths-ignore:
+      - 'docs/**'
+      - 'tooling/docs/**'
+      - '**/*.md'
   workflow_dispatch:
 
 concurrency:
@@ -38,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.detect.outputs.code }}
+      rebuild: ${{ steps.detect.outputs.rebuild }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
@@ -46,21 +39,45 @@ jobs:
           fetch-depth: 0
       - name: Detect code changes
         id: detect
+        env:
+          # Source and recipe files whose change invalidates the committed
+          # C carriers. Prefix alternatives have no `$`; exact files do.
+          REBUILD_PATTERN: >-
+            ^(Cargo\.toml$|Cargo\.lock$|\.cargo/|rust-toolchain(\.toml)?$|crates/spoke-connect/|crates/spoke-connect-capi/|crates/spoke-schemas/|crates/spoke-operations/|tooling/connect/cpp-build\.mjs$|\.github/workflows/cpp-connect\.yml$)
         run: |
+          code=false
+          rebuild=false
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD || true)
-          if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
+            code=true
+            rebuild=true
+          elif ! files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD); then
+            # Fail closed: a diff failure must never be read as "docs only".
+            code=true
+            rebuild=true
           else
-            echo "code=false" >> "$GITHUB_OUTPUT"
+            if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
+              code=true
+            fi
+            if printf '%s\n' "$files" | grep -qE "$REBUILD_PATTERN"; then
+              rebuild=true
+            fi
           fi
+          # Rebuild implies code: a Markdown file inside a rebuild prefix
+          # (for example crates/spoke-connect/README.md) matches the rebuild
+          # pattern while the code regex classifies it as docs.
+          if [[ "$rebuild" == "true" ]]; then
+            code=true
+          fi
+          echo "code=$code"       >> "$GITHUB_OUTPUT"
+          echo "rebuild=$rebuild" >> "$GITHUB_OUTPUT"
+          echo "code=$code rebuild=$rebuild" >> "$GITHUB_STEP_SUMMARY"
 
   windows-smoke:
     needs: changes
     name: windows-smoke
+    # Never a condition that can evaluate false: a skipped required job
+    # satisfies the required check without proving anything.
+    if: ${{ always() }}
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -70,8 +87,32 @@ jobs:
       RUSTFLAGS: ""
       CARGO_ENCODED_RUSTFLAGS: ""
     steps:
+      - name: Assert changes gate inputs
+        id: assert
+        shell: bash
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          REBUILD: ${{ needs.changes.outputs.rebuild }}
+        run: |
+          problems=()
+          [[ "${CHANGES}" == "success" ]] || problems+=("changes job result=${CHANGES}")
+          [[ "${CODE}"    == "true" || "${CODE}"    == "false" ]] || problems+=("missing/empty code output '${CODE}'")
+          [[ "${REBUILD}" == "true" || "${REBUILD}" == "false" ]] || problems+=("missing/empty rebuild output '${REBUILD}'")
+          if [[ "${REBUILD}" == "true" && "${CODE}" != "true" ]]; then
+            problems+=("illegal combination rebuild=true code=${CODE}")
+          fi
+          if (( ${#problems[@]} )); then
+            printf 'assert: %s\n' "${problems[@]}" >&2
+            { echo "### Required-check assertion failed"; printf -- '- %s\n' "${problems[@]}"; } >> "$GITHUB_STEP_SUMMARY"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         # actions/checkout@v4.2.2 — fetch the committed LFS carrier.
+        if: steps.assert.outputs.ok == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           lfs: true
@@ -80,12 +121,14 @@ jobs:
       - name: Setup MSVC developer environment
         # x64 selects the release MSVC toolchain used by the C++ smoke.
         # ilammy/msvc-dev-cmd@v1
+        if: steps.assert.outputs.ok == 'true'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
         with:
           arch: x64
 
       - name: Setup Node.js
         # actions/setup-node@v4.4.0 — Node 24
+        if: steps.assert.outputs.ok == 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
@@ -93,6 +136,7 @@ jobs:
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16) — exact stable pin for
         # the Windows carrier and its x86_64-pc-windows-msvc target.
+        if: steps.assert.outputs.ok == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.98.1
@@ -100,13 +144,14 @@ jobs:
 
       - name: Cache Rust dependencies
         # Swatinem/rust-cache@v2.9.1
+        if: steps.assert.outputs.ok == 'true'
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
           shared-key: spoke-rust-cpp-win
           workspaces: .
 
       - name: Check Rust flag precedence
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         shell: pwsh
         run: |
           if (-not [string]::IsNullOrEmpty($env:RUSTFLAGS)) {
@@ -118,7 +163,7 @@ jobs:
           Write-Output "RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS are controlled empty; target-scoped CRT flags remain authoritative."
 
       - name: Report compiler and toolchain
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         shell: pwsh
         run: |
           rustc +1.98.1 -Vv
@@ -129,35 +174,37 @@ jobs:
           }
 
       - name: Check committed C ABI symbols
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         id: committed_symbols
         continue-on-error: true
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test
 
       - name: Run committed C++ smoke
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         id: committed_smoke
         continue-on-error: true
         run: node tooling/connect/cpp-smoke.mjs --rid win-x64
 
       - name: Build Windows carrier
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.98.1
 
       - name: Show native provenance
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         shell: pwsh
         run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
       - name: Check C ABI symbols
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        id: rebuilt_symbols
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test
 
       - name: Run C++ smoke
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        id: rebuilt_smoke
         run: node tooling/connect/cpp-smoke.mjs --rid win-x64
 
       - name: Stage Windows native refresh artifact
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         shell: pwsh
         run: |
           $stage = Join-Path $env:RUNNER_TEMP "spoke-connect-win-x64"
@@ -168,7 +215,7 @@ jobs:
 
       - name: Upload Windows native refresh artifact
         # actions/upload-artifact@v4.6.2
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spoke-connect-win-x64
@@ -184,6 +231,9 @@ jobs:
   macos-smoke:
     needs: changes
     name: macos-smoke
+    # Never a condition that can evaluate false: a skipped required job
+    # satisfies the required check without proving anything.
+    if: ${{ always() }}
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -192,8 +242,32 @@ jobs:
       RUSTFLAGS: ""
       CARGO_ENCODED_RUSTFLAGS: ""
     steps:
+      - name: Assert changes gate inputs
+        id: assert
+        shell: bash
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          REBUILD: ${{ needs.changes.outputs.rebuild }}
+        run: |
+          problems=()
+          [[ "${CHANGES}" == "success" ]] || problems+=("changes job result=${CHANGES}")
+          [[ "${CODE}"    == "true" || "${CODE}"    == "false" ]] || problems+=("missing/empty code output '${CODE}'")
+          [[ "${REBUILD}" == "true" || "${REBUILD}" == "false" ]] || problems+=("missing/empty rebuild output '${REBUILD}'")
+          if [[ "${REBUILD}" == "true" && "${CODE}" != "true" ]]; then
+            problems+=("illegal combination rebuild=true code=${CODE}")
+          fi
+          if (( ${#problems[@]} )); then
+            printf 'assert: %s\n' "${problems[@]}" >&2
+            { echo "### Required-check assertion failed"; printf -- '- %s\n' "${problems[@]}"; } >> "$GITHUB_STEP_SUMMARY"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         # actions/checkout@v4.2.2 — fetch the committed LFS carrier.
+        if: steps.assert.outputs.ok == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           lfs: true
@@ -201,6 +275,7 @@ jobs:
 
       - name: Setup Node.js
         # actions/setup-node@v4.4.0 — Node 24
+        if: steps.assert.outputs.ok == 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
@@ -208,6 +283,7 @@ jobs:
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16) — exact stable pin for
         # the macOS carrier's aarch64-apple-darwin target.
+        if: steps.assert.outputs.ok == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.98.1
@@ -215,13 +291,14 @@ jobs:
 
       - name: Cache Rust dependencies
         # Swatinem/rust-cache@v2.9.1
+        if: steps.assert.outputs.ok == 'true'
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
           shared-key: spoke-rust-cpp-macos
           workspaces: .
 
       - name: Check Rust flag precedence
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           if [[ -n "${RUSTFLAGS}" ]]; then
@@ -235,7 +312,7 @@ jobs:
           echo "RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS are controlled empty."
 
       - name: Report compiler and toolchain
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           node -v
@@ -245,31 +322,33 @@ jobs:
 
 
       - name: Check C ABI symbols
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         id: committed_symbols
         continue-on-error: true
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test
 
       - name: Run C++ smoke
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         id: committed_smoke
         continue-on-error: true
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
       - name: Build macOS carrier
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         run: node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.98.1
 
       - name: Check rebuilt C ABI symbols
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        id: rebuilt_symbols
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test
 
       - name: Run rebuilt C++ smoke
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        id: rebuilt_smoke
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
       - name: Stage macOS native refresh artifact
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         run: |
           mkdir -p "${RUNNER_TEMP}/spoke-connect-osx-arm64"
           cp crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib "${RUNNER_TEMP}/spoke-connect-osx-arm64/"
@@ -277,7 +356,7 @@ jobs:
 
       - name: Upload macOS native refresh artifact
         # actions/upload-artifact@v4.6.2
-        if: needs.changes.outputs.code == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spoke-connect-osx-arm64

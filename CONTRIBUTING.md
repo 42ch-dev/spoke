@@ -100,6 +100,8 @@ Every pull request must pass the required checks bound to the `main` ruleset: th
 
 Two maintenance rules follow. When a new PR validation check is added, register it in the `main` ruleset required checks in the same round; an unregistered check gates nothing. And a PR is ready only once every required check has finished successfully — a pending CodeQL or Greptile run is not a pass, and "no review comments" is not the same as a green review.
 
+A green `xcframework`, `macos-smoke` or `windows-smoke` check can mean either that the lane rebuilt the artifact from the PR's sources or that it validated the committed artifact without rebuilding; the two are different evidence. Every run writes `code=…` and `rebuild=…` into the job's step summary: `rebuild=true` means the lane compiled and tested the artifact from the PR sources, while `rebuild=false` (the ordinary case) means it exercised the committed artifact through the committed-artifact checks. The `Build …` step in the job shows the same thing step by step — `skipped` for a validated-only run, `success` for a rebuild.
+
 ## Integrator docs site
 
 The integrator-facing VitePress site lives in `docs/` (config: `docs/.vitepress/config.mts`).
@@ -114,7 +116,7 @@ Pages summarize each topic and link the normative body in `.agents/specs/` — t
 
 ## Refreshing the Swift xcframework
 
-The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-15` from the checkout's Rust sources — pinned toolchain 1.98.1, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. Every pull request runs it; pushes run it when the FFI surface changes. The job builds the committed Swift package and runs the functional smoke against its macOS library. The built xcframework and its hash manifest are uploaded as a refresh artifact.
+The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-15` from the checkout's Rust sources — pinned toolchain 1.98.1, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. Every pull request runs it; pushes run it on every non-docs change. The job builds the committed Swift package and runs the functional smoke against its macOS library. The built xcframework and its hash manifest are uploaded as a refresh artifact.
 
 Refresh the committed artifact from a run in one command (requires the `gh` CLI, `rsync`, `python3`, and `shasum`):
 

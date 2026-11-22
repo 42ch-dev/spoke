@@ -15,7 +15,6 @@ import { toHex } from "./hex.js";
 
 describe("base64url (no padding)", () => {
   it("encodes without '=' padding or url-unsafe characters", () => {
-    // 0xfb 0xff → base64 "+/8=" → base64url "-_8" (padding stripped).
     const encoded = base64UrlEncode(Uint8Array.of(0xfb, 0xff));
     expect(encoded).toBe("-_8");
     expect(encoded).not.toMatch(/[+/=]/);
@@ -84,7 +83,7 @@ describe("WebCrypto Ed25519 path (when the runtime supports it)", () => {
   });
 
   it("probe is true iff an Ed25519 importKey succeeds on this runtime", async () => {
-    // `importKey` presence is not the contract — it exists yet rejects
+    // why: `importKey` presence is not the contract — it exists yet rejects
     // Ed25519 on Node 20.0–20.18 / 21 / 22.0–22.3. Assert the probe's
     // contract directly: true iff an actual Ed25519 importKey succeeds.
     const s = globalThis.crypto?.subtle;
@@ -108,7 +107,7 @@ describe("WebCrypto Ed25519 path (when the runtime supports it)", () => {
 
   it("sign → verify round-trip via crypto.subtle directly", async (ctx) => {
     if (!webcryptoOk) ctx.skip();
-    // BufferSource requires ArrayBuffer-backed views under TS 5.7+ generics;
+    // why: BufferSource requires ArrayBuffer-backed views under TS 5.7+ generics;
     // these test buffers are ArrayBuffer-backed by construction.
     const s = globalThis.crypto.subtle;
     const key = await s.importKey(

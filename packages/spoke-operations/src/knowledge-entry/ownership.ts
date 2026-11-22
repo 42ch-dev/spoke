@@ -1,7 +1,7 @@
 import type { KnowledgeEntry } from "@42ch/spoke-schemas";
 
 /**
- * Sole core disclosure value: the entry is visible only to its own holder.
+ * note: Sole core disclosure value — the entry is visible only to its own holder.
  * Additional disclosure strings are Domain Profile vocabulary and stay open.
  */
 const OWNER_PRIVATE_DISCLOSURE = "owner-private";

@@ -48,7 +48,7 @@ function makeRequest(overrides: Partial<ExtractRequest> = {}): ExtractRequest {
   };
 }
 
-/** Port double that records the requests handed to the loader. */
+/** note: Port double that records the requests handed to the loader. */
 function createExtractionPort(
   load: (request: ExtractRequest) => Promise<SpokeResult<unknown>>,
 ): ExtractionPort & { loadCalls: ExtractRequest[] } {
@@ -62,7 +62,7 @@ function createExtractionPort(
   };
 }
 
-/** Narrow the closed success branch so candidates/run are observable. */
+/** note: Narrow the closed success branch so candidates/run are observable. */
 function expectSuccess(result: SpokeResult<ExtractResponse>): ExtractSuccess {
   expect(result.ok).toBe(true);
   if (!result.ok || !("candidates" in result.value)) {
@@ -154,7 +154,7 @@ describe("orchestrateExtract", () => {
     });
 
     await started;
-    // The callback is still blocked on its own await, so an orchestrator that
+    // note: The callback is still blocked on its own await, so an orchestrator that
     // did not await it would already have settled by now.
     expect(settled).toBe(false);
 

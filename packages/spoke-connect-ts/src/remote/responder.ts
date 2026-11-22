@@ -1,5 +1,5 @@
 /**
- * `connectResponder` — productized connect responder (frozen contract
+ * note: `connectResponder` — productized connect responder (frozen contract
  * `tool-contracts.md` §6, ported from the demo-server recipe
  * `examples/connect-demo/server/src/host/connect-host.ts`).
  *
@@ -119,7 +119,7 @@ import type { EnvelopeBytes, Transport } from "./transport.js";
 
 const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
 
-/** Session id prefix — deterministic per dialing peer (opaque, not schema-enforced). */
+/** note: session id prefix — deterministic per dialing peer (opaque, not schema-enforced). */
 const SESSION_ID_PREFIX = "connect-responder-session-";
 
 const textEncoder = new TextEncoder();
@@ -129,7 +129,7 @@ function encodeEnvelope(doc: unknown): EnvelopeBytes {
 }
 
 /**
- * Internal invoke-failure classes. Consumers only ever observe these mapped
+ * note: internal invoke-failure classes — consumers only ever observe these mapped
  * to `SpokeResult` `INTERNAL_ERROR` rejects with `details.kind`.
  */
 type ResponderErrorKind =
@@ -159,24 +159,23 @@ function internalError(kind: ResponderErrorKind, message: string): SpokeReject {
 }
 
 /**
- * Sentinel rejection marking local serve-budget expiry, so the timed-await
+ * note: sentinel rejection marking local serve-budget expiry, so the timed-await
  * helper can tell the budget from a provider failure.
  */
 const SERVE_BUDGET_EXPIRED = Symbol("serve-budget-expired");
 
 /**
- * Sentinel rejection marking close-driven serve-budget cancellation, so
+ * note: sentinel rejection marking close-driven serve-budget cancellation, so
  * `#withServeBudget` can settle its race without answering the invoke.
  */
 const SERVE_BUDGET_CLOSED = Symbol("serve-budget-closed");
 
 /**
- * Dispatch-deny wire codes (D7): the peer answered that the op or its
+ * note: dispatch-deny wire codes (D7) — the peer answered that the op or its
  * required capability is not available → `CAPABILITY_PORT_MISSING`.
  */
 const DISPATCH_DENY_CODES = new Set(["op_unsupported", "capability_missing"]);
 
-/** Map an error-branch envelope to a `SpokeResult` reject (D7 mapping). */
 function mapErrorEnvelope(error: ErrorEnvelope): SpokeReject {
   if (DISPATCH_DENY_CODES.has(error.code)) {
     return spokeReject(SpokeRejectCode.CAPABILITY_PORT_MISSING, error.message, {
@@ -184,7 +183,7 @@ function mapErrorEnvelope(error: ErrorEnvelope): SpokeReject {
       wire_code: error.code,
     });
   }
-  // Envelope-auth rejection: `auth_failed` is not a SpokeRejectCode, so
+  // why: `auth_failed` is not a SpokeRejectCode, so
   // `fromErrorEnvelope` would map it to INVALID_INPUT; the locked mapping
   // is `INTERNAL_ERROR` with the envelope-auth `details.kind` verbatim.
   if (error.code === "auth_failed") {
@@ -226,7 +225,7 @@ export const PORT_OP_CAPABILITY_REQUIREMENTS: Readonly<Record<string, string>> =
   "port.finding.put": "spoke-baseline",
   "port.rule.list": "spoke-baseline",
   "port.host.list_peer_manifests": "spoke-baseline",
-  // Optional families (D4 catalogue): project / compute require the
+  // note: optional families (D4 catalogue) — project / compute require the
   // `l2-computable` family capability; the fork timeline query requires
   // `l5-fork` — all evaluated against `negotiated_capabilities` (the
   // both-hello intersection) by `#gateAllows`.
@@ -252,7 +251,7 @@ export function portDispatchAllowed(op: string, negotiated: readonly string[]): 
 }
 
 /**
- * Optional-family op → method on the injected `ports` object (D4
+ * note: optional-family op → method on the injected `ports` object (D4
  * catalogue). Serving order is gate → probe → serve/deny: after the
  * capability gate passes, the responder structurally probes the injected
  * ports object for these methods (the `requirePortMethod` pattern from
@@ -336,7 +335,7 @@ function unsupportedCognitionRequirement(
       : isJsonObject(scope)
         ? scope.cognition
         : undefined;
-  // C5 is the single grammar and names the failing member relative to the
+  // why: C5 is the single grammar and names the failing member relative to the
   // validated value; this boundary only prefixes the carrier location.
   const validated =
     location === "cognition_filter"
@@ -424,7 +423,7 @@ function isStringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-/** Structural decode/validate for a declared Scope (mirrors Rust `Scope::deserialize`). */
+/** note: structural decode/validate for a declared Scope (mirrors Rust `Scope::deserialize`). */
 function validateDeclaredScope(scope: Record<string, unknown>): string | null {
   for (const key of Object.keys(scope)) {
     if (!SCOPE_WIRE_KEYS.has(key)) {
@@ -518,7 +517,7 @@ export function validateScopeOpPayload(
 }
 
 /**
- * Required `KnowledgeEntry` members of a `port.knowledge.put` payload. Rust
+ * note: required `KnowledgeEntry` members of a `port.knowledge.put` payload. Rust
  * decodes the typed struct, so a missing or mistyped member is `INVALID_INPUT`
  * before admission; these are the members that decode enforces.
  */
@@ -779,7 +778,7 @@ export function withKnowledge(ports: RemoteServePorts, face: RemoteKnowledgeFace
   return { ...ports, knowledge: face };
 }
 
-/** The three remote knowledge ops — served only through the knowledge face. */
+/** note: the three remote knowledge ops — served only through the knowledge face. */
 const KNOWLEDGE_OPS: Readonly<Record<string, true>> = {
   "port.knowledge.get": true,
   "port.knowledge.put": true,
@@ -787,9 +786,9 @@ const KNOWLEDGE_OPS: Readonly<Record<string, true>> = {
 };
 
 /**
- * Scope equality between the requested and the admitted scope: same
- * `scope_id` AND the same `viewpoint` (both absent or equal strings). Any
- * mismatch — including an admitted viewpoint the request omits — refuses.
+ * invariant: scope equality — same `scope_id` AND the same `viewpoint`
+ * (both absent or equal strings). Any mismatch — including an admitted
+ * viewpoint the request omits — refuses.
  */
 function scopeMatchesAdmission(
   requested: Scope,
@@ -804,7 +803,7 @@ function scopeMatchesAdmission(
 const WIDENING = Symbol("widening");
 
 /**
- * Adopt one admitted constraint: the admitted value when the request omits or
+ * note: adopt one admitted constraint — the admitted value when the request omits or
  * repeats it, the request's value when admission omits it, `WIDENING` when the
  * request names a different value (a widening, never a narrowing).
  */
@@ -823,7 +822,7 @@ function adoptedConstraint<T>(
 }
 
 /**
- * Adopt an admitted set-valued constraint: a requested set that is a subset of
+ * note: adopt an admitted set-valued constraint — a requested set that is a subset of
  * the admitted one narrows the query and is used as given; a requested set
  * naming any value outside the admitted one is a widening (`WIDENING`).
  */
@@ -840,7 +839,7 @@ function adoptedSetConstraint(
   return requested.every((value) => admitted.includes(value)) ? requested : WIDENING;
 }
 
-/** Admitted ∩ requested ids: an empty intersection stays an empty filter. */
+/** note: admitted ∩ requested ids — an empty intersection stays an empty filter. */
 function intersectedIds(
   admitted: string[] | undefined,
   requested: string[] | undefined,
@@ -854,7 +853,7 @@ function intersectedIds(
 }
 
 /**
- * The scope passed to the store for a list: the admitted `scope_id` /
+ * note: the scope passed to the store for a list — the admitted `scope_id` /
  * `viewpoint` are authoritative (equal to the request — the caller checked)
  * and every other admitted constraint bounds the request. `null` refuses: the
  * request named a scalar value the admission does not grant, and honouring it
@@ -895,7 +894,6 @@ function effectiveScope(requested: Scope, admitted: Scope): Scope | null {
     fork_id: forkId,
   };
   if (admitted.extensions !== undefined) {
-    // Admitted namespaces win on conflict.
     scope.extensions = { ...requested.extensions, ...admitted.extensions };
   }
   if (scope.viewpoint === undefined) {
@@ -911,7 +909,7 @@ const OPTIONAL_PORT_METHODS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Structural probe (the `requirePortMethod` pattern): return the missing
+ * note: structural probe (the `requirePortMethod` pattern) — return the missing
  * optional-port method name when the injected `ports` object lacks it, or
  * null when present / the op is not an optional-family op. Called AFTER
  * the capability gate.
@@ -922,7 +920,7 @@ function probeOptionalPortMethod(
 ): string | null {
   const method = OPTIONAL_PORT_METHODS[op];
   if (method === undefined) {
-    return null; // baseline op — always present on BaselinePorts
+    return null; // note: baseline op — always present on BaselinePorts
   }
   return typeof (ports as unknown as Record<string, unknown>)[method] ===
     "function"
@@ -931,7 +929,7 @@ function probeOptionalPortMethod(
 }
 
 /**
- * Map a `port.*` op + payload to the injected adapter method per the D4
+ * note: map a `port.*` op + payload to the injected adapter method per the D4
  * catalogue. The dispatch gate (capability check) and the optional-method
  * probe (gate → probe → serve/deny) have already run when this is called;
  * unknown ops reject `CAPABILITY_PORT_MISSING` as a safety net for host
@@ -958,7 +956,7 @@ function dispatchPortOp(
       return ports.listRules(payload.rule_refs as string[]);
     case "port.host.list_peer_manifests":
       return ports.listPeerHostCapabilityManifests();
-    // Optional families (D4 catalogue). The serving method
+    // note: optional families (D4 catalogue). The serving method
     // (`#dispatchPortInvoke`) structurally probed the injected ports
     // object BEFORE dispatch (gate → probe → serve/deny), so these cases
     // are reachable only when the method exists on the provider.
@@ -975,7 +973,7 @@ function dispatchPortOp(
         payload.scope as unknown as Scope & { fork_id: ForkId },
       );
     default:
-      // Unreachable when the dispatch gate denies unknown ops first; kept
+      // note: unreachable when the dispatch gate denies unknown ops first; kept
       // as a safety net for host misconfiguration (mirrors the demo).
       return Promise.resolve(
         spokeReject(
@@ -994,23 +992,23 @@ export type ConnectResponderState =
   | "Closed";
 
 export interface ConnectResponderOptions {
-  /** Message-oriented transport (consumer-provided; loopback ships in-repo). */
+  /** note: message-oriented transport (consumer-provided; loopback ships in-repo). */
   transport: Transport;
-  /** This responder's raw Ed25519 seed (hello + envelope-auth identity). */
+  /** note: this responder's raw Ed25519 seed (hello + envelope-auth identity). */
   identity: RemoteIdentity;
-  /** Host manifest advertised in the responder's signed hello. */
+  /** note: host manifest advertised in the responder's signed hello. */
   manifest: HostCapabilityManifest;
-  /** Trusted dialer peer ids (fail-closed allowlist). */
+  /** note: trusted dialer peer ids (fail-closed allowlist). */
   allowlist: readonly string[];
   /**
-   * Preconfigured dialer Ed25519 public keys by peer_id. Key distribution
+   * note: preconfigured dialer Ed25519 public keys by peer_id — key distribution
    * is transport-adapter-owned per the spec; the responder knows its
    * trusted identities statically. A dialing peer on `allowlist` without a
    * preconfigured key fails the handshake (fail-closed).
    */
   peerKeys: Readonly<Record<string, Uint8Array>>;
   /**
-   * Local serving faces (D4 catalogue + knowledge face). Absent `ports`
+   * note: local serving faces (D4 catalogue + knowledge face) — absent `ports`
    * still answers `port.*` invokes with the dispatch-deny branch
    * (documented behavior). Baseline ops require `ports.baseline`; the
    * three knowledge ops require `ports.knowledge` — a knowledge-only host
@@ -1018,7 +1016,7 @@ export interface ConnectResponderOptions {
    */
   ports?: RemoteServePorts & Partial<RemoteExtractService> & Partial<RemoteMemoryService>;
   /**
-   * Bounded-wait deadline for each reverse-invoke waiter AND the local
+   * note: bounded-wait deadline for each reverse-invoke waiter AND the local
    * serve-wait budget bounding every served `port.*` provider call and the
    * whole `extract` service call, ms (default 5000). One value, two uses —
    * a host setting zero for immediate serve-timeout semantics also collapses
@@ -1038,7 +1036,6 @@ interface PendingReverseInvoke {
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** Gate-phase outcome for an inbound invoke (see `#runGate`). */
 type ServeGateResult =
   | { ok: true }
   | {
@@ -1067,27 +1064,27 @@ export class ConnectResponder {
   readonly #invokeTimeoutMs: number;
   readonly #nonceStore = new NonceStore();
 
-  // Verification-gating state. All of it is ECMAScript `#`-private: no JS
+  // invariant: verification-gating state — all of it is ECMAScript `#`-private: no JS
   // consumer can write a `#`-slot from outside the class — a forged
   // `Established` / forged `session` / forged remote-manifest cache is
   // unreachable even through an `any` cast or a subclass.
   #stateInternal: ConnectResponderState = "Disconnected";
   #session: Session | null = null;
-  /** The verified dialer's hello public key (set at handshake). */
+  /** note: the verified dialer's hello public key (set at handshake). */
   #clientPubkey: Uint8Array | null = null;
   #remoteManifestInternal: HostCapabilityManifest | null = null;
   #serveLoopRunning = false;
   #pending = new Map<string, PendingReverseInvoke>();
   /**
-   * Armed serve-budget disarms. Tracked so `#close` cancels every serve wait
+   * note: armed serve-budget disarms — tracked so `#close` cancels every serve wait
    * it still owns: no serve wait's timer outlives the session it was armed
    * for. An entry removes itself when it fires or when its provider settles.
    */
   #serveDisarms = new Set<() => void>();
-  /** In-flight `#withServeBudget` waits (test observable via export below). */
+  /** note: in-flight `#withServeBudget` waits (test observable via export below). */
   #activeServeBudgetWaits = 0;
   /**
-   * Tool-handler registry for `tools.*` invokes (frozen contract §6):
+   * note: tool-handler registry for `tools.*` invokes (frozen contract §6) —
    * `registerToolHandler` fills it; the serving path looks it up by exact
    * capability id. The local manifest's `tools[]` (carried through hello)
    * is the discovery source — this registry MUST NOT mutate the manifest;
@@ -1098,7 +1095,7 @@ export class ConnectResponder {
    */
   #toolHandlers = new Map<string, ToolHandler>();
   /**
-   * Outbound send serialization tail. Sequences are allocated synchronously
+   * invariant: outbound send serialization tail — sequences are allocated synchronously
    * in call order, but the Ed25519 sign is async (WebCrypto) — without a
    * chain, signs complete out of order and requests hit the wire
    * out of sequence, which the peer's strict inbound gate rejects. Every
@@ -1121,18 +1118,18 @@ export class ConnectResponder {
     return this.#stateInternal;
   }
 
-  /** The assigned session id (empty before establishment). */
+  /** note: the assigned session id (empty before establishment). */
   get sessionId(): string {
     return this.#session?.session_id ?? "";
   }
 
-  /** The verified dialing peer id (empty before establishment). */
+  /** note: the verified dialing peer id (empty before establishment). */
   get remotePeerId(): string {
     return this.#session?.initiator_peer_id ?? "";
   }
 
   /**
-   * The dialing peer's `HostCapabilityManifest`, from the authenticated
+   * note: the dialing peer's `HostCapabilityManifest`, from the authenticated
    * hello `host` (discovery after auth). Throws when accessed before
    * establishment (programmer misuse — a handshaken responder always has
    * one).
@@ -1149,7 +1146,7 @@ export class ConnectResponder {
   // ── Tool serving + reverse invoke (frozen contract §6) ──────────────────
 
   /**
-   * Register a handler for a `tools.<ns>.<tool_id>` capability served on
+   * note: register a handler for a `tools.<ns>.<tool_id>` capability served on
    * this responder. Grammar-asserted: a non-`tools.` id throws (programmer
    * misuse, like the generated-type ergonomics of `toolCapabilityId`).
    * Duplicate registration for the same id OVERWRITES the previous handler
@@ -1166,7 +1163,7 @@ export class ConnectResponder {
   }
 
   /**
-   * Reverse tool-invoke face (frozen contract §6): issue a
+   * note: reverse tool-invoke face (frozen contract §6) — issue a
    * `ConnectInvokeRequest` with `op = capabilityId` toward the dialer and
    * resolve with the tool's `result` (extracted from the success
    * `payload = { result: <opaque JSON> }`). Deny answers map via the
@@ -1177,7 +1174,7 @@ export class ConnectResponder {
     capabilityId: string,
     args: Record<string, unknown>,
   ): Promise<SpokeResult<unknown>> {
-    // Fail fast on a non-tool capability id (the op string IS the
+    // why: fail fast on a non-tool capability id — the op string IS the
     // capability string; a non-`tools.` id is a programming error).
     const parsed = parseToolCapabilityId(capabilityId);
     if (!parsed.ok) {
@@ -1188,7 +1185,7 @@ export class ConnectResponder {
       if ("error" in response) {
         return mapErrorEnvelope(response.error);
       }
-      // Tool success-payload gate (frozen §4): success is
+      // note: tool success-payload gate (frozen §4) — success is
       // `payload = { "result": <opaque JSON> }`; a success payload without
       // a `result` key rejects with `INTERNAL_ERROR` `details.kind =
       // "transport"` (mirrors the adapter's `#invokeMapped` shape gate).
@@ -1215,27 +1212,27 @@ export class ConnectResponder {
   }
 
   /**
-   * @internal Responder.test.ts only — in-flight `#withServeBudget` waits.
+   * note: @internal Responder.test.ts only — in-flight `#withServeBudget` waits.
    */
   activeServeBudgetWaitsForTest(): number {
     return this.#activeServeBudgetWaits;
   }
 
-  /** Release the session and transport. Idempotent. */
+  /** note: release the session and transport. Idempotent. */
   close(): void {
     this.#close("local shutdown");
   }
 
-  // ── Session lifecycle (hard-private — only `connectResponder` starts) ───
+  // note: session lifecycle (hard-private — only `connectResponder` starts)
 
-  /** Factory-only: start the handshake + serve loop in the background. */
+  /** note: factory-only — start the handshake + serve loop in the background. */
   #begin(): void {
     this.#stateInternal = "Handshaking";
     void this.#run();
   }
 
   /**
-   * All failure paths that make the session unusable. Transitions to
+   * note: all failure paths that make the session unusable — transitions to
    * `Closed`, settles every pending waiter, and releases the transport
    * (fire-and-forget).
    */
@@ -1252,14 +1249,14 @@ export class ConnectResponder {
     }
     if (closeResult !== undefined) {
       void Promise.resolve(closeResult).catch(() => {
-        // Transport close failure is intentionally swallowed: the session
+        // why: transport close failure is intentionally swallowed — the session
         // is unusable either way and the responder already settled waiters.
       });
     }
     this.#failAllPending(
       new ResponderError("session_closed", `connect session closed: ${reason}`),
     );
-    // Serve waits owned by this session: cancel their armed budgets and
+    // why: serve waits owned by this session — cancel their armed budgets and
     // settle the `Promise.race` so fire-and-forget dispatches do not hang
     // when the provider never settles. A pending provider completion that
     // arrives afterwards is discarded by the closed-state check in the serve
@@ -1278,15 +1275,15 @@ export class ConnectResponder {
     this.#pending.clear();
   }
 
-  // ── Handshake (allowlist-first → hello verify → nonce → dial-bound
-  // ── responder hello → signed session snapshot) ──────────────────────────
+  // note: handshake (allowlist-first → hello verify → nonce → dial-bound
+  // responder hello → signed session snapshot)
 
   async #handshake(): Promise<void> {
     const helloDoc: unknown = decodeJsonMessage(await this.#transport.recv());
     if (!isConnectHello(helloDoc)) {
       throw new Error("expected ConnectHello from client");
     }
-    // Allowlist fail-closed check FIRST: an untrusted peer is rejected
+    // safety: allowlist fail-closed check FIRST — an untrusted peer is rejected
     // before any signature work.
     if (!isAllowlisted(this.#allowlist, helloDoc.peer_id)) {
       throw new Error(`peer ${helloDoc.peer_id} not on allowlist`);
@@ -1320,8 +1317,7 @@ export class ConnectResponder {
     });
     this.#session = session;
 
-    // Answer with our signed hello (responder role — dial binding): the
-    // hello signs the 5-field object incl. `peer_nonce` = the initiator's
+    // why: the responder hello signs the 5-field object incl. `peer_nonce` = the initiator's
     // nonce, so a captured responder hello cannot be replayed into a fresh
     // dial. Then the signed session snapshot.
     await this.#sendEnvelope(
@@ -1332,7 +1328,7 @@ export class ConnectResponder {
         helloDoc.nonce,
       ),
     );
-    // The session snapshot is signed with the responder identity
+    // note: the session snapshot is signed with the responder identity
     // (`spoke-connect-session-jcs-v1`) — the dialer verifies it against
     // this responder's hello public key. The wire snapshot requires ≥1
     // negotiated capability; the dialer derives its own set from the
@@ -1352,7 +1348,7 @@ export class ConnectResponder {
     await this.#sendEnvelope(snapshot);
   }
 
-  // ── Serve loop (request-first classification) ───────────────────────────
+  // note: serve loop (request-first classification)
 
   async #run(): Promise<void> {
     try {
@@ -1360,7 +1356,7 @@ export class ConnectResponder {
       this.#stateInternal = "Established";
       this.#runServeLoop();
     } catch (error) {
-      // Handshake failure (or responder misconfiguration): fail the peer's
+      // why: handshake failure (or responder misconfiguration) fails the peer's
       // pending recv like a connection drop.
       this.#close(
         `handshake failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1386,7 +1382,7 @@ export class ConnectResponder {
         try {
           doc = decodeJsonMessage(bytes);
         } catch (error) {
-          // Unparseable inbound: closes the connection per the carried-over
+          // why: unparseable inbound closes the connection per the carried-over
           // demo semantics — a bare return would leave the socket open
           // while the responder stops recv'ing, and the dialer's
           // established session would hang on its next invoke.
@@ -1396,24 +1392,24 @@ export class ConnectResponder {
           return;
         }
       } catch {
-        // Transport closed — the session is unusable; fail pending waiters.
+        // why: transport closed — the session is unusable; fail pending waiters.
         this.#close("transport loss");
         return;
       }
 
-      // Classify request shape FIRST (normative `spoke-connect.md`
+      // invariant: classify request shape FIRST (normative `spoke-connect.md`
       // §Request / response classification): an inbound envelope carrying
       // `op` is a `ConnectInvokeRequest` — never a response, even though a
       // reverse request carries the same correlation echo fields + payload
       // as the response success branch.
       if (isConnectInvokeRequest(doc)) {
-        // Gate serialization: await peek → verify → advance inline; the
+        // invariant: gate serialization — await peek → verify → advance inline; the
         // loop reads the next envelope only after this gate completes.
         // Dispatch fires without blocking the loop.
         try {
           await this.#serveInvoke(doc);
         } catch (error) {
-          // Unexpected serving failure (local key misconfiguration /
+          // why: unexpected serving failure (local key misconfiguration /
           // internal bug): fail closed like transport loss — a live
           // session must not silently drop invokes.
           this.#close(
@@ -1428,19 +1424,19 @@ export class ConnectResponder {
         try {
           await this.#demuxResponse(doc);
         } catch {
-          // Demux failures are contained per-waiter; nothing here should
+          // why: demux failures are contained per-waiter; nothing here should
           // escape, but never crash the loop.
         }
         continue;
       }
 
-      // Post-handshake stray envelope (hello / session / unknown shape):
+      // note: post-handshake stray envelope (hello / session / unknown shape) is
       // ignored.
     }
   }
 
   /**
-   * Serve one inbound invoke per the canonical order (frozen §4):
+   * invariant: serve one inbound invoke per the canonical order (frozen §4) —
    * classify (caller) → stray → sequence peek → envelope-auth verify →
    * advance → gate → handler → signed response. The caller (serve loop)
    * awaits this method inline so peek → verify → advance are serialized;
@@ -1449,7 +1445,7 @@ export class ConnectResponder {
   async #serveInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const gate = await this.#runGate(doc);
     if (gate === null) {
-      return; // stray — ignored
+      return;
     }
     if (!gate.ok) {
       await this.#sendReverseErrorEnvelope(doc, {
@@ -1464,7 +1460,7 @@ export class ConnectResponder {
   }
 
   /**
-   * Gate phase — sequence peek (non-mutating) → envelope-auth verify →
+   * invariant: gate phase — sequence peek (non-mutating) → envelope-auth verify →
    * advance. Fail-closed (auth-before-advance, spec §Verify rules): a
    * forged/tampered/stripped signature answers `auth_failed` and leaves the
    * inbound counter unchanged. Returns `null` for stray requests (ignored),
@@ -1475,7 +1471,7 @@ export class ConnectResponder {
     const session = this.#session;
     const clientPubkey = this.#clientPubkey;
     if (session === null || clientPubkey === null) {
-      return null; // stray — no established session
+      return null;
     }
     try {
       session.peekInboundSequence(doc.sequence);
@@ -1497,32 +1493,33 @@ export class ConnectResponder {
           details: { kind: error.kind },
         };
       }
-      throw error; // wrong-length key is responder misconfiguration — fail loudly
+      // why: a wrong-length key is responder misconfiguration — fail loudly.
+      throw error;
     }
-    // Advance the inbound counter only after envelope-auth verify passed.
+    // safety: advance the inbound counter only after envelope-auth verify passed.
     session.acceptInboundSequence(doc.sequence);
     return { ok: true };
   }
 
   /**
-   * Dispatch phase — runs after the serialized gate; may interleave with
+   * note: dispatch phase — runs after the serialized gate; may interleave with
    * other invokes. Fully contained: a throwing handler answers the error
    * branch and never crashes the loop.
    */
   async #dispatchInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const session = this.#session;
     if (session === null) {
-      return; // stray — belt-and-braces; the gate checked
+      return;
     }
     try {
-      // Dispatch gate — `Session.dispatchAllowed`-level logic (frozen §3):
+      // note: dispatch gate — `Session.dispatchAllowed`-level logic (frozen §3) —
       // `tools.*` ops require the op string itself; baseline `port.*` ops
       // require `spoke-baseline`; optional families route via the same
       // product map to `l2-computable` / `l5-fork`. All evaluate against
       // `negotiated_capabilities` (never a raw requirements-map composition,
       // which would deny the self-describing tools family).
       if (!this.#gateAllows(doc.op, session)) {
-        // A known `memory.*` op is a capability gap (protocol §4.1): the gate
+        // note: a known `memory.*` op is a capability gap (protocol §4.1) — the gate
         // evaluates negotiated capabilities only, so an op with a dispatch row
         // that was not negotiated answers `capability_missing`. An op with no
         // row at all stays `op_unsupported`.
@@ -1533,13 +1530,13 @@ export class ConnectResponder {
           code: memoryDeny ? "capability_missing" : "op_unsupported",
           message: `op ${doc.op} is not authorized by this session`,
           extensions: {},
-          // §14.2: every memory-boundary denial — known or unknown op — is
+          // note: §14.2 — every memory-boundary denial (known or unknown op) is
           // classified `terminal`, so the code choice never drops the metadata.
           ...(memoryBoundary ? { details: { retry_class: "terminal" } } : {}),
         });
         return;
       }
-      // The payload-dependent cognition gate lives inside the two
+      // note: the payload-dependent cognition gate lives inside the two
       // cognition-carrying branches (`#dispatchPortInvoke` /
       // `#dispatchMemoryInvoke`), after their own op/ownership denials and
       // before any typed decode, provider probe or handler call: a tool's
@@ -1558,7 +1555,7 @@ export class ConnectResponder {
       }
       await this.#dispatchPortInvoke(doc);
     } catch (error) {
-      // Unexpected serving failure (e.g. non-JSON-serializable handler
+      // why: unexpected serving failure (e.g. non-JSON-serializable handler
       // result): answer the error branch so the invoker never hangs, and
       // never crash the loop.
       try {
@@ -1568,12 +1565,12 @@ export class ConnectResponder {
           extensions: {},
         });
       } catch {
-        // Peer gone — responses are fire-and-forget.
+        // note: peer gone — responses are fire-and-forget.
       }
     }
   }
 
-  /** Dispatch gate: the named combined gate (core table incl. `tools.*`, then the port product map). */
+  /** note: dispatch gate — the named combined gate (core table incl. `tools.*`, then the port product map). */
   #gateAllows(op: string, session: Session): boolean {
     return portDispatchAllowed(op, session.negotiated_capabilities);
   }
@@ -1622,9 +1619,9 @@ export class ConnectResponder {
     return true;
   }
 
-  /** Serve a `tools.*` invoke through the registered handler (or deny). */
+  /** note: serve a `tools.*` invoke through the registered handler (or deny). */
   async #dispatchToolInvoke(doc: ConnectInvokeRequest): Promise<void> {
-    // Handler or deny — fail-closed serving (frozen deny matrix): a gate
+    // invariant: handler or deny — fail-closed serving (frozen deny matrix) — a gate
     // pass with no registered handler answers `op_unsupported`.
     const handler = this.#toolHandlers.get(doc.op);
     if (handler === undefined) {
@@ -1635,7 +1632,7 @@ export class ConnectResponder {
       });
       return;
     }
-    // The request payload carries the tool arguments as
+    // note: the request payload carries the tool arguments as
     // `{ "arguments": <opaque JSON> }` (frozen §4). A non-object
     // arguments field is a malformed provider request — serve `{}`
     // (the structural argument gate is caller-side). The unchecked cast is
@@ -1653,7 +1650,7 @@ export class ConnectResponder {
     try {
       result = await handler(handlerArgs);
     } catch (error) {
-      // Handler threw → error branch via toErrorEnvelope (INTERNAL_ERROR
+      // why: a handler throw answers the error branch via toErrorEnvelope (INTERNAL_ERROR
       // for a crash); never crashes the loop (frozen §6).
       result = spokeReject(
         SpokeRejectCode.INTERNAL_ERROR,
@@ -1661,7 +1658,7 @@ export class ConnectResponder {
       );
     }
     if (result.ok) {
-      // Success branch: `payload = { "result": <opaque JSON> }` (frozen §4).
+      // note: success branch — `payload = { "result": <opaque JSON> }` (frozen §4).
       this.#sendReverseResponse(
         await authenticateInvokeResponse(this.#secret, {
           session_id: doc.session_id,
@@ -1677,10 +1674,10 @@ export class ConnectResponder {
     }
   }
 
-  // ── serve-wait bound (B1/B2) ─────────────────────────────────────────────
+  // note: serve-wait bound (B1/B2)
 
   /**
-   * Await one serve-side provider call under the responder's local
+   * note: await one serve-side provider call under the responder's local
    * bounded-wait budget: the configured `invokeTimeoutMs` (default 5000),
    * which is also the reverse-invoke waiter deadline. The budget is local —
    * it does not inherit the dialer's budget and does not promise the reply
@@ -1722,10 +1719,10 @@ export class ConnectResponder {
     }
     this.#activeServeBudgetWaits += 1;
     try {
-      // Asynchronously invoked thunk: a synchronous provider throw is captured
+      // why: asynchronously invoked thunk — a synchronous provider throw is captured
       // as a rejection instead of escaping the timer setup.
       const pending = Promise.resolve().then(() => work());
-      // Executor form: the project's TS lib target predates
+      // why: executor form — the project's TS lib target predates
       // `Promise.withResolvers` (ES2024).
       let rejectExpired: ((reason: unknown) => void) | undefined;
       const expired = new Promise<never>((_resolve, reject) => {
@@ -1762,7 +1759,7 @@ export class ConnectResponder {
         return await Promise.race([pending, expired]);
       } catch (error) {
         if (error === SERVE_BUDGET_CLOSED) {
-          // Close settled the race: consume the late provider settlement so
+          // why: close settled the race — consume the late provider settlement so
           // it cannot surface as an unhandled rejection or a late response.
           void pending.then(
             () => undefined,
@@ -1773,7 +1770,7 @@ export class ConnectResponder {
         if (error !== SERVE_BUDGET_EXPIRED) {
           throw error;
         }
-        // Observation-only cancellation: consume the late settlement so it
+        // why: observation-only cancellation — consume the late settlement so it
         // cannot surface as an unhandled rejection or a late second response.
         void pending.then(
           () => undefined,
@@ -1786,7 +1783,7 @@ export class ConnectResponder {
     }
   }
 
-  /** Serve the `extract` core op through the optional extract service (F3). */
+  /** note: serve the `extract` core op through the optional extract service (F3). */
   async #dispatchExtractInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const ports = this.#ports;
     const extract = ports?.extract;
@@ -1806,7 +1803,7 @@ export class ConnectResponder {
     const request = doc.payload as ExtractRequest;
     let result: SpokeResult<ExtractResponse>;
     try {
-      // B1/B2 serve bound: the complete extraction service (loader +
+      // note: B1/B2 serve bound — the complete extraction service (loader +
       // extractor) shares ONE local budget — the wait starts at provider
       // invocation, not per stage. A zero budget answers the signed timeout
       // without starting the service; expiry stops awaiting it.
@@ -1817,7 +1814,7 @@ export class ConnectResponder {
         error instanceof Error ? error.message : String(error),
       );
     }
-    // The bounded wait is the only thing the close can interrupt: once the
+    // note: the bounded wait is the only thing the close can interrupt — once the
     // session is Closed, neither a late service success nor a late (or
     // second) error may be answered.
     if (this.#stateInternal === "Closed") {
@@ -1843,7 +1840,7 @@ export class ConnectResponder {
   }
 
   /**
-   * Serve a `memory.*` invoke through the optional memory service seam
+   * note: serve a `memory.*` invoke through the optional memory service seam
    * (protocol §13). The capability gate already passed: a known memory op that
    * was not negotiated never reaches here (`capability_missing`). An absent
    * face is the documented dispatch-deny branch.
@@ -1872,15 +1869,15 @@ export class ConnectResponder {
         code: "op_unsupported",
         message: `no memory service configured for op ${doc.op}`,
         extensions: {},
-        // §14.2: a memory-boundary denial is classified `terminal`.
+        // note: §14.2 — a memory-boundary denial is classified `terminal`.
         details: { retry_class: "terminal" },
       });
       return;
     }
-    // The admitted principal derives from the authenticated session peer
+    // invariant: the admitted principal derives from the authenticated session peer
     // (MEM-R003), never from the payload.
     const peerId = this.remotePeerId;
-    // A zero budget rejects before the service is invoked (baseline
+    // note: a zero budget rejects before the service is invoked (baseline
     // serve-timeout rejection stands). A non-zero budget that expires AFTER
     // invocation means the mutation may have committed: that is
     // `OUTCOME_UNCERTAIN`/`uncertain` (§14.2/§14.3), not a clean internal error.
@@ -1901,7 +1898,7 @@ export class ConnectResponder {
         uncertainOnExpiry,
       );
     } catch (error) {
-      // The provider threw or rejected AFTER admission, so the transport has
+      // why: the provider threw or rejected AFTER admission, so the transport has
       // no evidence that nothing committed (§14.3): answer uncertain, never a
       // clean internal error. The Rust path answers the same when the
       // detached invoke panics.
@@ -1913,7 +1910,7 @@ export class ConnectResponder {
         { retry_class: "uncertain", kind: "panic" },
       );
     }
-    // A close during the bounded wait answers nothing afterwards.
+    // note: a close during the bounded wait answers nothing afterwards.
     if (this.#stateInternal === "Closed") {
       return;
     }
@@ -1924,7 +1921,7 @@ export class ConnectResponder {
     await this.#sendOkResponse(doc, result.value);
   }
 
-  /** Serve a `port.*` invoke through the D4 catalogue (or dispatch-deny). */
+  /** note: serve a `port.*` invoke through the D4 catalogue (or dispatch-deny). */
   async #dispatchPortInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const session = this.#session;
     if (session === null) {
@@ -1932,7 +1929,7 @@ export class ConnectResponder {
     }
     const payload = doc.payload as Record<string, unknown>;
     const negotiated = session.negotiated_capabilities;
-    // Declared Scope shape keeps its original first-denial position, before
+    // note: declared Scope shape keeps its original first-denial position, before
     // the F2 ownership conjunct. It validates the baseline Scope wire keys
     // only — the cognition subtree is judged by the §2.2 diagnosis below — so
     // a malformed baseline Scope still answers its existing input failure
@@ -1942,7 +1939,7 @@ export class ConnectResponder {
       await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(scopeReject));
       return;
     }
-    // F2 ownership conjunct next: the original first-denial wins over a
+    // note: F2 ownership conjunct next — the original first-denial wins over a
     // delivered cognition requirement, and the router filters the same way
     // before it considers the family.
     if (
@@ -1971,7 +1968,7 @@ export class ConnectResponder {
     }
     const ports = this.#ports;
     if (ports === undefined) {
-      // Absent `ports` (documented): the capability gate passes but there
+      // note: absent `ports` (documented) — the capability gate passes but there
       // is no face to serve — answer the dispatch-deny branch.
       await this.#sendReverseErrorEnvelope(doc, {
         code: "op_unsupported",
@@ -1980,12 +1977,12 @@ export class ConnectResponder {
       });
       return;
     }
-    // Knowledge ops (three-row catalogue): served only through the
+    // note: knowledge ops (three-row catalogue) — served only through the
     // knowledge face. Absent face → CAPABILITY_PORT_MISSING (gate → probe
     // → serve/deny); the admitted scope comes from the face's admission
     // callback keyed by the authenticated peer id, never from the wire.
     if (KNOWLEDGE_OPS[doc.op]) {
-      // B2: mirror Rust decode_knowledge_call — a malformed get/put payload
+      // note: B2 — mirror Rust decode_knowledge_call; a malformed get/put payload
       // answers INVALID_INPUT before the face probe, admission, and any
       // store call. The list op's Scope shape validated earlier.
       const payloadReject = validateKnowledgeOpPayload(doc.op, payload);
@@ -1995,7 +1992,7 @@ export class ConnectResponder {
       }
       const face = ports.knowledge;
       if (face === undefined) {
-        // B4: an absent knowledge face is the dispatch-deny branch — the
+        // note: B4 — an absent knowledge face is the dispatch-deny branch; the
         // same wire row as absent ports/baseline; the dialer maps it to
         // CAPABILITY_PORT_MISSING (wire_code preserved), never an
         // application-coded literal on the wire.
@@ -2006,7 +2003,7 @@ export class ConnectResponder {
         });
         return;
       }
-      // B3: an empty authenticated peer id (session not established) refuses
+      // note: B3 — an empty authenticated peer id (session not established) refuses
       // NOT_AUTHORIZED before admission, matching Rust's `remote_peer_id()`
       // None arm. One refusal shape, no existence detail.
       const peerId = this.remotePeerId;
@@ -2018,12 +2015,12 @@ export class ConnectResponder {
         });
         return;
       }
-      // One deadline per knowledge op: admission spends part of the local
+      // note: one deadline per knowledge op — admission spends part of the local
       // budget, so the store call only gets what remains of it.
       const deadlineMs = Date.now() + this.#invokeTimeoutMs;
       const admitted = face.admission(peerId);
       if (!admitted.ok) {
-        // No existence detail: the refusal names only the scope verdict.
+        // note: no existence detail — the refusal names only the scope verdict.
         await this.#sendReverseErrorEnvelope(doc, {
           code: SpokeRejectCode.NOT_AUTHORIZED,
           message: "knowledge scope not authorized",
@@ -2038,7 +2035,7 @@ export class ConnectResponder {
           !isJsonObject(requestedScope) ||
           !scopeMatchesAdmission(requestedScope, admitted.value))
       ) {
-        // List requires an exact scope match; get/put carry no wire scope.
+        // note: list requires an exact scope match; get/put carry no wire scope.
         await this.#sendReverseErrorEnvelope(doc, {
           code: SpokeRejectCode.NOT_AUTHORIZED,
           message: "knowledge scope not authorized",
@@ -2046,7 +2043,7 @@ export class ConnectResponder {
         });
         return;
       }
-      // The admitted scope owns scope_id/viewpoint and bounds every other
+      // note: the admitted scope owns scope_id/viewpoint and bounds every other
       // constraint; a request naming a scalar the admission does not grant
       // refuses here, before the store.
       let listedScope: Scope = admitted.value;
@@ -2062,7 +2059,7 @@ export class ConnectResponder {
         }
         listedScope = effective;
       }
-      // Only a put mutates: an expiry after the store was invoked may have
+      // why: only a put mutates — an expiry after the store was invoked may have
       // applied it, so that expiry reports an unknown outcome (matching
       // Rust's `knowledge_uncertain_reject`). Reads have no store effect to
       // be uncertain about and keep the plain timeout; a budget spent by
@@ -2087,7 +2084,7 @@ export class ConnectResponder {
                   payload.entry_id as string,
                 );
               case "port.knowledge.put":
-                // Rust decodes `Option<u64>`: a missing member is None (create),
+                // note: Rust decodes `Option<u64>` — a missing member is None (create),
                 // so the store must never receive `undefined` here.
                 return face.store.putScopedKnowledgeEntry(
                   admitted.value,
@@ -2102,14 +2099,14 @@ export class ConnectResponder {
           remainingMs,
         );
       } catch (error) {
-        // A store that threw or rejected was already invoked, so a put may
+        // why: a store that threw or rejected was already invoked, so a put may
         // have applied: answer an unknown outcome (matching Rust's
         // `knowledge_uncertain_reject` and the memory provider path) instead of
         // the generic internal error. Reads keep the internal-error mapping.
         if (doc.op !== "port.knowledge.put") {
           throw error;
         }
-        // The store error stays local: its text may describe entry existence,
+        // why: the store error stays local — its text may describe entry existence,
         // so the wire answer is fixed and carries only what the caller can act on.
         knowledgeResult = spokeReject(
           SpokeRejectCode.OUTCOME_UNCERTAIN,
@@ -2132,7 +2129,7 @@ export class ConnectResponder {
     }
     const baselinePorts = ports.baseline;
     if (baselinePorts === undefined) {
-      // Absent baseline face (documented dispatch-deny branch): knowledge
+      // note: absent baseline face (documented dispatch-deny branch) — knowledge
       // hosts serve no baseline op — this answer precedes any probe.
       await this.#sendReverseErrorEnvelope(doc, {
         code: "op_unsupported",
@@ -2141,7 +2138,7 @@ export class ConnectResponder {
       });
       return;
     }
-    // Optional-family probe (gate → probe → serve/deny serving order): the
+    // note: optional-family probe (gate → probe → serve/deny serving order) — the
     // capability gate passed, so a missing optional method means the host
     // declared a family it does not provide (misconfiguration) — answer
     // the same dispatch-deny branch as absent ports.
@@ -2154,7 +2151,7 @@ export class ConnectResponder {
       });
       return;
     }
-    // B1/B2 serve bound: the local budget starts immediately before the
+    // note: B1/B2 serve bound — the local budget starts immediately before the
     // provider is dispatched and covers the whole wait. A zero budget answers
     // the signed timeout without ever invoking the provider (zero provider
     // calls); expiry stops awaiting it — a bounded wait, never forced
@@ -2162,14 +2159,14 @@ export class ConnectResponder {
     const result = await this.#withServeBudget(() =>
       dispatchPortOp(doc.op, doc.payload as Record<string, unknown>, baselinePorts),
     );
-    // The bounded wait is the only thing the close can interrupt: once the
+    // note: the bounded wait is the only thing the close can interrupt — once the
     // session is Closed, neither a late provider success nor a late (or
     // second) error may be answered.
     if (this.#stateInternal === "Closed") {
       return;
     }
     if (result.ok) {
-      // Success payload carries the raw success value `T` (D4), NOT the
+      // note: success payload carries the raw success value `T` (D4), NOT the
       // `{ result }` tool shape — the dialer's `#invokeMapped` validates it.
       await this.#sendOkResponse(doc, "value" in result ? result.value : {});
     } else {
@@ -2177,12 +2174,12 @@ export class ConnectResponder {
     }
   }
 
-  // ── response helpers ─────────────────────────────────────────────────────
+  // note: response helpers
 
-  /** Send one signed response envelope, fire-and-forget. */
+  /** note: send one signed response envelope, fire-and-forget. */
   #sendReverseResponse(doc: unknown): void {
     void this.#transport.send(encodeEnvelope(doc)).catch(() => {
-      // Peer gone — responses are fire-and-forget at the serving boundary.
+      // note: peer gone — responses are fire-and-forget at the serving boundary.
     });
   }
 
@@ -2218,12 +2215,12 @@ export class ConnectResponder {
     );
   }
 
-  // ── Reverse-invoke response demux (request_id → waiter) ─────────────────
+  // note: reverse-invoke response demux (request_id → waiter)
 
   /**
-   * Demux a response envelope to its pending reverse-invoke waiter.
-   * Correlation echo check first (non-mutating wire-position validation),
-   * then envelope-auth verify against the dialer's hello public key. A
+   * invariant: demux a response envelope to its pending reverse-invoke waiter —
+   * correlation echo check first (non-mutating wire-position validation), then
+   * envelope-auth verify against the dialer's hello public key. A
    * forged/tampered response fails closed — only this waiter, never a
    * session-state mutation.
    */
@@ -2232,7 +2229,7 @@ export class ConnectResponder {
     const clientPubkey = this.#clientPubkey;
     const entry = this.#pending.get(doc.request_id);
     if (entry === undefined) {
-      return; // unknown/duplicate response — dropped
+      return; // note: unknown/duplicate response — dropped
     }
     clearTimeout(entry.timer);
     this.#pending.delete(doc.request_id);
@@ -2247,7 +2244,7 @@ export class ConnectResponder {
       if (error instanceof EnvelopeAuthError) {
         entry.reject(new ResponderError(error.kind, error.message));
       } else if (error instanceof CoreError && error.code === "crypto") {
-        // Crypto verify failure (wrong-length / invalid key bytes — local
+        // why: crypto verify failure (wrong-length / invalid key bytes — local
         // key misuse, no envelope-auth kind): still a verification failure
         // of the response's authenticator → `envelope_auth_invalid`.
         entry.reject(new ResponderError("envelope_auth_invalid", error.message));
@@ -2264,10 +2261,10 @@ export class ConnectResponder {
     }
   }
 
-  // ── Reverse invoke path (outbound counter → sign → send tail → waiter) ──
+  // note: reverse invoke path (outbound counter → sign → send tail → waiter)
 
   /**
-   * Send one reverse invoke and resolve with its correlated response
+   * note: send one reverse invoke and resolve with its correlated response
    * envelope. Rejects with `ResponderError` on timeout / transport failure
    * / session close / correlation mismatch / sequence exhaustion.
    */
@@ -2286,7 +2283,7 @@ export class ConnectResponder {
     try {
       sequence = session.allocateOutboundSequence();
     } catch (error) {
-      // Outbound sequence exhaustion: the session is unusable (no wrap);
+      // why: outbound sequence exhaustion makes the session unusable (no wrap) —
       // close it and fail this invoke with `sequence_exhausted`.
       this.#close("outbound sequence exhausted");
       throw new ResponderError(
@@ -2304,7 +2301,7 @@ export class ConnectResponder {
       op,
       payload,
     };
-    // The waiter is registered SYNCHRONOUSLY, before the async sign: from
+    // invariant: the waiter is registered SYNCHRONOUSLY, before the async sign — from
     // the caller's perspective the invoke is in flight immediately, so a
     // transport close during signing fails it with `session_closed`.
     return new Promise<ConnectInvokeResponse>((resolve, reject) => {
@@ -2327,7 +2324,7 @@ export class ConnectResponder {
         reject,
         timer,
       });
-      // Outbound wire-order serialization: the tail entry is created HERE,
+      // invariant: outbound wire-order serialization — the tail entry is created HERE,
       // synchronously, so the wire order matches the allocation order even
       // though the Ed25519 sign completes asynchronously.
       const prevSend = this.#sendTail;
@@ -2339,7 +2336,7 @@ export class ConnectResponder {
         (signed) => {
           void prevSend
             .then(() => {
-              // The invoke may have settled while this send waited behind
+              // why: the invoke may have settled while this send waited behind
               // the tail (timeout fired → entry deleted; session closed →
               // `#failAllPending` cleared the map). Do NOT transmit late:
               // the caller already observed the failure, and a retry would
@@ -2360,7 +2357,7 @@ export class ConnectResponder {
               try {
                 return this.#transport.send(encodeEnvelope(signed));
               } catch (error) {
-                // Synchronous encode failure (e.g. non-JSON-serializable
+                // why: synchronous encode failure (e.g. non-JSON-serializable
                 // payload): same cleanup, same mapping.
                 throw new ResponderError(
                   "transport",
@@ -2373,7 +2370,7 @@ export class ConnectResponder {
                 releaseSend();
               },
               (sendError) => {
-                // Async send failure (transport closed between setup and
+                // why: async send failure (transport closed between setup and
                 // send): settle this invoke now — no dead entry waits out
                 // the timeout.
                 releaseSend();
@@ -2406,7 +2403,7 @@ export class ConnectResponder {
   }
 
   /**
-   * Start a responder over `transport`: the signed-hello handshake runs in
+   * note: start a responder over `transport` — the signed-hello handshake runs in
    * the background (the dialer's hello is the synchronization point), then
    * the serve loop. Handshake failures close the transport so the dialer's
    * dial fails fast instead of waiting out its timeout.

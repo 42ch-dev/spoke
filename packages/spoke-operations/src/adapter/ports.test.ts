@@ -115,7 +115,7 @@ describe("adapter port exports", () => {
     expect(SpokeRejectCode.CAPABILITY_PORT_MISSING).toBe(
       "CAPABILITY_PORT_MISSING",
     );
-    // 23 baseline codes + the 14 §14.1 memory codes.
+    // note: 23 baseline codes + the 14 §14.1 memory codes.
     expect(Object.keys(SpokeRejectCode)).toHaveLength(37);
   });
 
@@ -138,7 +138,7 @@ describe("adapter port exports", () => {
       putRelation: async (r, _expectedBaseRevision) => spokeOk(r),
     };
 
-    // The port requires a two-arg putRelation (OCC expectedBaseRevision) and a
+    // note: The port requires a two-arg putRelation (OCC expectedBaseRevision) and a
     // getRelation reader — parity with KnowledgeEntryPort and the Rust trait.
     expect(typeof relation.getRelation).toBe("function");
     expect(typeof relation.putRelation).toBe("function");

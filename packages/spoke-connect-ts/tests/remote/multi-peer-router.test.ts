@@ -1,5 +1,5 @@
 /**
- * Unit tests for the multi-peer capability router (`multi-peer-router.ts`):
+ * note: Unit tests for the multi-peer capability router (`multi-peer-router.ts`):
  * registry semantics (§7.4), the locked §3 selection algorithm (match,
  * no-match, namespace / authority hard filters, role soft partition,
  * deterministic UTF-8 `peer_id` tie-break), the §5 no-capable-peer reject,
@@ -55,11 +55,9 @@ import {
   type SelectablePeer,
 } from "../../src/remote/multi-peer-router.js";
 
-/** Delegate-call dummy values — routing tests never inspect the payloads. */
+/** why: delegate-call dummy values — routing tests never inspect the payloads. */
 const FAKE_ENTRY = { entry_id: "e1" } as KnowledgeEntry;
 const FAKE_RELATION = { relation_id: "r1" } as Relation;
-
-// ── Tool fixtures (frozen §2: op === capability_id, namespaces owned) ─────
 
 const ADD_DESCRIPTOR: ToolDescriptor = {
   schema_version: 1,
@@ -88,7 +86,6 @@ const BOOM_DESCRIPTOR: ToolDescriptor = {
   output: {},
 };
 
-/** Descriptor lookup by capability id (the fixture set above). */
 const DESCRIPTOR_BY_ID: Readonly<Record<string, ToolDescriptor>> = {
   "tools.math.add": ADD_DESCRIPTOR,
   "tools.echo.echo": ECHO_DESCRIPTOR,
@@ -96,9 +93,9 @@ const DESCRIPTOR_BY_ID: Readonly<Record<string, ToolDescriptor>> = {
 };
 
 /**
- * Tool-carrying manifest: namespaces own the tool namespaces; every tool
- * capability ∈ capabilities[] (the router's hard filter keys on
- * `capabilities`, the composed view unions `tools`).
+ * note: namespaces own the tool namespaces; every tool capability ∈
+ * capabilities[] (the router's hard filter keys on `capabilities`, the
+ * composed view unions `tools`).
  */
 function toolManifest(hostId: string, toolIds: readonly string[]): HostCapabilityManifest {
   const descriptors = toolIds.map((capabilityId) => DESCRIPTOR_BY_ID[capabilityId]);
@@ -116,17 +113,16 @@ function toolManifest(hostId: string, toolIds: readonly string[]): HostCapabilit
 }
 
 /**
- * Loopback pair for the dual-peer proof: a locally-dialed `RemoteAdapter`
- * (initiator) against a tool-serving minimal responder double (the peer).
- * The RESPONDER's manifest (the peer's cached hello manifest) carries only
- * `tools` — the router's hard filter sees exactly what each responder
- * serves. The client (dialer) advertises the full fixture tool set so the
- * negotiated intersection includes every tool under test.
+ * why: a loopback pair for the dual-peer proof — a locally-dialed
+ * `RemoteAdapter` (initiator) against a tool-serving minimal responder double
+ * (the peer). The RESPONDER's manifest (the peer's cached hello manifest)
+ * carries only `tools`, so the router's hard filter sees exactly what each
+ * responder serves. The client (dialer) advertises the full fixture tool set
+ * so the negotiated intersection includes every tool under test.
  */
 async function dialToolPeer(options: {
-  /** Responder Ed25519 seed base (distinct per peer → distinct peer ids). */
+  /** note: Responder Ed25519 seed base (distinct per peer → distinct peer ids). */
   responderSeedBase: number;
-  /** Tools the responder advertises + serves. */
   tools: string[];
 }): Promise<{ client: RemoteAdapter; responder: MinimalResponder; peerId: string }> {
   const seedResponder = seed(options.responderSeedBase);
@@ -142,7 +138,8 @@ async function dialToolPeer(options: {
     "tools.echo.echo",
     "tools.echo.boom",
   ]);
-  // Fixture hygiene: both manifests satisfy the manifest-tools rules.
+  // why: both manifests must satisfy the manifest-tools rules for the
+  // loopback fixtures to prove real negotiation.
   for (const manifest of [responderManifest, clientManifest]) {
     const validated = validateManifestTools(manifest);
     expect(validated.ok, `manifest tools must validate: ${manifest.host_id}`).toBe(true);
@@ -166,19 +163,19 @@ async function dialToolPeer(options: {
   return { client, responder, peerId: peerIdResponder };
 }
 
-/** Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
+/** note: Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
 function seed(base: number): Uint8Array {
   return Uint8Array.from({ length: 32 }, (_, i) => base + i);
 }
 
-/** Schema-shaped manifest builder; defaults to a baseline data-store peer. */
+/** note: schema-shaped manifest builder; defaults to a baseline data-store peer. */
 function manifest(
   overrides: Partial<HostCapabilityManifest> & { host_id: string },
 ): HostCapabilityManifest {
   return {
     schema_version: 1,
     roles: ["data-store"],
-    // The fixture data-store peers serve the knowledge catalogue, so the
+    // why: the fixture data-store peers serve the knowledge catalogue, so the
     // session negotiates `spoke-knowledge` explicitly (no flag implies it).
     capabilities: ["spoke-baseline", "spoke-knowledge"],
     namespaces: ["toy_world"],
@@ -188,8 +185,8 @@ function manifest(
 }
 
 /**
- * Test double for the per-peer adapter surface (`RoutedRemoteAdapter`): a
- * plain-property `state` / `remotePeerId` / `remoteManifest` plus the ten
+ * why: a test double for the per-peer adapter surface (`RoutedRemoteAdapter`)
+ * — a plain-property `state` / `remotePeerId` / `remoteManifest` plus the ten
  * async `BaselinePorts` methods that record the delegated method name and
  * return `downReject` when a mid-op failure is being simulated (§7.2).
  */
@@ -197,9 +194,9 @@ class FakePeer implements RoutedRemoteAdapter {
   readonly remotePeerId: string;
   readonly remoteManifest: HostCapabilityManifest;
   state: RemoteAdapterState;
-  /** Delegated BaselinePorts method names, in call order. */
+  /** note: Delegated BaselinePorts method names, in call order. */
   readonly calls: string[] = [];
-  /** When set, every delegate method returns this reject (peer-down sim). */
+  /** note: when set, every delegate method returns this reject (peer-down sim). */
   downReject: SpokeReject | null = null;
 
   constructor(
@@ -268,7 +265,6 @@ class FakePeer implements RoutedRemoteAdapter {
     return this.#recordAndFail("listPeerHostCapabilityManifests") ?? spokeOk([]);
   }
 
-  /** Forward tool-invoke face (§6) — records the delegation, returns the peer id. */
   async invokeTool(
     _capabilityId: string,
     _args: Record<string, unknown>,
@@ -284,10 +280,8 @@ describe("MultiPeerRouter registry (§7.4)", () => {
 
     expect(router.registerPeer(peer)).toBe("peer-a");
     expect(router.listPeers()).toEqual(["peer-a"]);
-    // Idempotent on peer_id: re-registering the same adapter returns the same id.
     expect(router.registerPeer(peer)).toBe("peer-a");
     expect(router.listPeers()).toEqual(["peer-a"]);
-    // A second adapter with the same peer_id replaces the stored one.
     const replacement = new FakePeer("peer-a", manifest({ host_id: "host-a" }));
     expect(router.registerPeer(replacement)).toBe("peer-a");
     expect(router.listPeers()).toEqual(["peer-a"]);
@@ -319,8 +313,8 @@ describe("MultiPeerRouter registry (§7.4)", () => {
 
 describe("MultiPeerRouter concurrent interleaving (W-001)", () => {
   it("survives interleaved register/unregister with in-flight port calls — all calls complete, registry stays consistent", async () => {
-    // W-001: registry mutations interleaved with in-flight port calls. In
-    // the single-threaded TS event loop the interleaving happens at await
+    // why: W-001 — registry mutations interleaved with in-flight port calls.
+    // In the single-threaded TS event loop the interleaving happens at await
     // boundaries: wave-1 delegates are pending while registration churn
     // runs, then wave-2 calls select against the mutated registry. Proves
     // no corruption (registry ends exactly consistent) and that every call
@@ -332,29 +326,25 @@ describe("MultiPeerRouter concurrent interleaving (W-001)", () => {
     registered.add("peer-seed");
 
     const inflight: Promise<SpokeResult<KnowledgeEntry[]>>[] = [];
-    // Wave 1: fire port calls (selection runs synchronously, delegates await).
+    // note: wave 1 fires port calls (selection runs synchronously, delegates
+    // await).
     for (let i = 0; i < 16; i++) {
       inflight.push(router.listKnowledgeEntries({ scope_id: "s1" }));
     }
-    // Registry churn while wave 1 awaits delegates.
     const extra = new FakePeer("peer-late", manifest({ host_id: "h-late" }));
     router.registerPeer(extra);
     registered.add("peer-late");
     router.unregisterPeer("peer-seed");
     registered.delete("peer-seed");
-    // Wave 2: more port calls against the mutated registry.
     for (let i = 0; i < 16; i++) {
       inflight.push(router.listKnowledgeEntries({ scope_id: "s1" }));
     }
 
     const results = await Promise.all(inflight);
     expect(results).toHaveLength(32);
-    // Wave-1 calls selected peer-seed before the unregister; wave-2 calls
-    // selected peer-late after the churn — every delegate succeeds.
     for (const result of results) {
       expect(result.ok).toBe(true);
     }
-    // Registry stayed consistent: exactly the registered ids remain.
     expect([...router.listPeers()].sort()).toEqual([...registered].sort());
   });
 });
@@ -396,7 +386,6 @@ describe("MultiPeerRouter selection (§3)", () => {
       expect(result.details?.wire_code).toBe("no_capable_peer");
       expect(result.details?.kind).toBe("no_capable_peer");
     }
-    // Terminal: no peer delegate ran (no wrong-peer fallback).
     expect(computable.calls).toEqual([]);
   });
 
@@ -471,8 +460,8 @@ describe("MultiPeerRouter selection (§3)", () => {
 
 describe("MultiPeerRouter dynamic peer-down (§7.4)", () => {
   it("reroutes to the surviving peer when the selected peer leaves Established between calls — no proactive eviction", async () => {
-    // W-002: two Established peers; the first call routes to the tie-break
-    // winner (peer-a); the winner's session drops to Closed WITHOUT
+    // why: W-002 — two Established peers; the first call routes to the
+    // tie-break winner (peer-a); the winner's session drops to Closed WITHOUT
     // unregister; the next call excludes it from the candidate set and
     // routes to peer-b — reactive exclusion, no proactive eviction (the
     // registry still lists peer-a).
@@ -487,9 +476,8 @@ describe("MultiPeerRouter dynamic peer-down (§7.4)", () => {
     expect(peerA.calls).toEqual(["listKnowledgeEntries"]);
     expect(peerB.calls).toEqual([]);
 
-    // The selected peer's session closes mid-session (no unregister).
     peerA.state = "Closed";
-    expect(router.listPeers()).toEqual(["peer-b", "peer-a"]); // still registered
+    expect(router.listPeers()).toEqual(["peer-b", "peer-a"]);
 
     const second = await router.listKnowledgeEntries({ scope_id: "s1" });
     expect(second.ok).toBe(true);
@@ -498,16 +486,15 @@ describe("MultiPeerRouter dynamic peer-down (§7.4)", () => {
   });
 
   it("rejects with no_capable_peer when every Established peer leaves Established between calls", async () => {
-    // W-002 terminal: when ALL Established peers drop out between calls, the
-    // next selection rejects with the locked §5 reject — no delegate runs,
-    // no wrong-peer fallback.
+    // why: W-002 terminal — when ALL Established peers drop out between
+    // calls, the next selection rejects with the locked §5 reject; no
+    // delegate runs, no wrong-peer fallback.
     const router = connectMultiPeerRouter();
     const peerA = new FakePeer("peer-a", manifest({ host_id: "h-a" }));
     const peerB = new FakePeer("peer-b", manifest({ host_id: "h-b" }));
     router.registerPeer(peerB);
     router.registerPeer(peerA);
 
-    // First call succeeds on the tie-break winner.
     const first = await router.listKnowledgeEntries({ scope_id: "s1" });
     expect(first.ok).toBe(true);
     expect(peerA.calls).toEqual(["listKnowledgeEntries"]);
@@ -522,7 +509,6 @@ describe("MultiPeerRouter dynamic peer-down (§7.4)", () => {
       expect(second.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
       expect(second.details?.kind).toBe("no_capable_peer");
     }
-    // No delegate ran on the second call.
     expect(peerA.calls).toEqual(["listKnowledgeEntries"]);
     expect(peerB.calls).toEqual([]);
   });
@@ -558,7 +544,7 @@ describe("selectPeerForOp namespace filter (§2/§3)", () => {
     );
     expect(selection.ok).toBe(true);
     if (selection.ok) {
-      expect(selection.value.peerId).toBe("peer-alpha"); // tie-break
+      expect(selection.value.peerId).toBe("peer-alpha");
     }
   });
 
@@ -631,8 +617,9 @@ describe("selectPeerForOp fork gate row (port.fork.list_timeline_events → l5-f
       expect(selection.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
       expect(selection.details?.kind).toBe("no_capable_peer");
       expect(selection.details?.op).toBe("port.fork.list_timeline_events");
-      // Capability-gate reason — proves the op resolved through the gate
-      // table (pre-fill it was rejected as an unknown op with no mapping).
+      // why: the capability-gate reason proves the op resolved through the
+      // gate table (pre-fill it was rejected as an unknown op with no
+      // mapping).
       expect(selection.message).toContain(
         'no peer advertises capability "l5-fork"',
       );
@@ -660,8 +647,8 @@ describe("selectPeerForOp fork gate row (port.fork.list_timeline_events → l5-f
 
 describe("selectPeerForOp host peer-manifest row (port.host.list_peer_manifests → spoke-baseline)", () => {
   it("selects the baseline-capable peer instead of rejecting the op as unknown", () => {
-    // The responder serves this op and `RemoteAdapter` forwards it, so the
-    // selection row must resolve through the same product catalogue. The
+    // why: the responder serves this op and `RemoteAdapter` forwards it, so
+    // the selection row must resolve through the same product catalogue. The
     // router's own `listPeerHostCapabilityManifests` aggregates locally, so
     // the row is inert for that method — a consumer uses the pure selector
     // before reaching a peer's adapter (same shape as the `extract` row).
@@ -719,13 +706,12 @@ describe("selectPeerForOp role preference (§3 step 5)", () => {
     const selection = selectPeerForOp([plain, checker], "check", {});
     expect(selection.ok).toBe(true);
     if (selection.ok) {
-      expect(selection.value.peerId).toBe("peer-z"); // role partition beats tie-break
+      expect(selection.value.peerId).toBe("peer-z");
     }
   });
 
   it("falls back to the role-unmatched partition when no candidate has the preferred role (soft)", () => {
     const selection = selectPeerForOp([plain, checker], "assemble", {});
-    // Neither peer has "assembler" → tie-break decides.
     expect(selection.ok).toBe(true);
     if (selection.ok) {
       expect(selection.value.peerId).toBe("peer-a");
@@ -736,7 +722,7 @@ describe("selectPeerForOp role preference (§3 step 5)", () => {
     const selection = selectPeerForOp([plain, checker], "port.knowledge.put", {});
     expect(selection.ok).toBe(true);
     if (selection.ok) {
-      expect(selection.value.peerId).toBe("peer-a"); // tie-break wins; checker role ignored
+      expect(selection.value.peerId).toBe("peer-a");
     }
   });
 });
@@ -779,7 +765,6 @@ describe("selectPeerForOp authority filter (§3 step 4)", () => {
       "port.scope.list_knowledge_entries",
       { scope_key: "scope-K" },
     );
-    // peer-a declares nothing → filter skipped for it; peer-mismatch excluded.
     expect(selection.ok).toBe(true);
     if (selection.ok) {
       expect(selection.value.peerId).toBe("peer-a");
@@ -794,14 +779,14 @@ describe("selectPeerForOp authority filter (§3 step 4)", () => {
     );
     expect(selection.ok).toBe(true);
     if (selection.ok) {
-      expect(selection.value.peerId).toBe("peer-match"); // tie-break
+      expect(selection.value.peerId).toBe("peer-match");
     }
   });
 });
 
 describe("selectPeerForOp tie-break byte order (§4)", () => {
   it("orders peer_ids by UTF-8 byte order, not UTF-16 code-unit order", () => {
-    // U+E000 encodes as UTF-8 EE 80 80; U+10000 encodes as F0 90 80 80.
+    // note: U+E000 encodes as UTF-8 EE 80 80; U+10000 encodes as F0 90 80 80.
     // UTF-16 code units: 0xE000 > 0xD800 (surrogate), so code-unit order
     // would pick U+10000 first; UTF-8 byte order picks U+E000 first.
     const bmp: SelectablePeer = {
@@ -827,7 +812,6 @@ describe("failure policy (§7.2)", () => {
     const peerB = new FakePeer("peer-b", manifest({ host_id: "h-b" }));
     router.registerPeer(peerB);
     router.registerPeer(peerA);
-    // peer-a is selected (tie-break) and its session dies mid-op.
     peerA.downReject = {
       ok: false,
       code: SpokeRejectCode.INTERNAL_ERROR,
@@ -838,7 +822,6 @@ describe("failure policy (§7.2)", () => {
     const result = await router.listKnowledgeEntries({ scope_id: "s1" });
 
     expect(result).toEqual(peerA.downReject);
-    // No retry on the alternate capable peer.
     expect(peerB.calls).toEqual([]);
   });
 
@@ -901,7 +884,6 @@ describe("HostManifest aggregation (§6)", () => {
       ]);
       expect([...result.value.roles].sort()).toEqual(["checker", "data-store"]);
       expect([...result.value.namespaces].sort()).toEqual(["alpha", "beta"]);
-      // §6: authority.scope_key omitted; extensions.router.peers sorted.
       expect(result.value.authority).toBeUndefined();
       expect(result.value.extensions.router).toEqual({
         peers: ["peer-a", "peer-b"],
@@ -916,7 +898,8 @@ describe("HostManifest aggregation (§6)", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      // §8 constructor options: empty string defaults like null/undefined.
+      // note: §8 constructor options — empty string defaults like
+      // null/undefined.
       expect(result.value.host_id).toBe("multi-peer-router");
     }
   });
@@ -984,16 +967,12 @@ describe("HostManifest aggregation (§6)", () => {
       ),
     );
 
-    // Per-peer array: only the Established peer's cached manifest.
     const perPeer = await router.listPeerHostCapabilityManifests();
     expect(perPeer.ok).toBe(true);
     if (perPeer.ok) {
       expect(perPeer.value.map((entry) => entry.host_id)).toEqual(["h-live"]);
     }
 
-    // Composed view (§6 "connected peers"): the Closed peer's unique unions
-    // are absent — only the Established peer contributes, and
-    // extensions.router.peers lists only it.
     const composed = await router.getHostCapabilityManifest();
     expect(composed.ok).toBe(true);
     if (composed.ok) {
@@ -1046,7 +1025,7 @@ describe("HostManifest aggregation (§6)", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      // tools.echo.echo is shared → deduped; the union is ordered by
+      // note: tools.echo.echo is shared → deduped; the union is ordered by
       // capability_id lexicographically (§6 stability, not first-seen).
       expect(result.value.tools?.map((descriptor) => descriptor.capability_id)).toEqual([
         "tools.echo.boom",
@@ -1079,7 +1058,7 @@ describe("MultiPeerRouter tool routing (§6 frozen contract)", () => {
 
     const add = await router.invokeTool("tools.math.add", { a: 1, b: 2 });
     expect(add.ok).toBe(true);
-    // The selected peer's adapter invokeTool ran — the router delegates,
+    // why: the selected peer's adapter invokeTool ran — the router delegates,
     // never crafts envelopes itself (§6).
     expect(addPeer.calls).toEqual(["invokeTool"]);
     expect(echoPeer.calls).toEqual([]);
@@ -1110,7 +1089,6 @@ describe("MultiPeerRouter tool routing (§6 frozen contract)", () => {
       expect(result.details?.kind).toBe("no_capable_peer");
       expect(result.details?.op).toBe("tools.echo.boom");
     }
-    // Terminal: no delegate ran (no wrong-peer fallback).
     expect(addPeer.calls).toEqual([]);
   });
 
@@ -1154,7 +1132,7 @@ describe("MultiPeerRouter tool routing (§6 frozen contract)", () => {
     );
     router.registerPeer(addPeer);
 
-    // "upsert" is a baseline op — without the grammar gate the router
+    // why: "upsert" is a baseline op — without the grammar gate the router
     // would select the baseline peer and delegate (or surface it as
     // no_capable_peer). The D13/D14 parity row promises a fail-fast
     // INVALID_INPUT with details.capability_id and no peer selection.
@@ -1164,10 +1142,8 @@ describe("MultiPeerRouter tool routing (§6 frozen contract)", () => {
     if (!result.ok) {
       expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
       expect(result.details?.capability_id).toBe("upsert");
-      // NOT the no_capable_peer / CAPABILITY_PORT_MISSING path.
       expect(result.details?.wire_code).not.toBe("no_capable_peer");
     }
-    // Terminal: no peer was selected, no delegate ran.
     expect(addPeer.calls).toEqual([]);
   });
 
@@ -1192,15 +1168,14 @@ describe("MultiPeerRouter tool routing (§6 frozen contract)", () => {
         expect(result.details?.wire_code).not.toBe("no_capable_peer");
       }
     }
-    // Terminal: no peer was selected, no delegate ran.
     expect(addPeer.calls).toEqual([]);
   });
 });
 
 describe("MultiPeerRouter tool routing over loopback responders (§6 topology)", () => {
-  // Router-registered adapters are LOCALLY-DIALED: router tool invokes
+  // why: router-registered adapters are LOCALLY-DIALED — router tool invokes
   // travel initiator→responder and are served by the PEER's responder-side
-  // tool serving — the proof drives tool-serving responder doubles (the
+  // tool serving; the proof drives tool-serving responder doubles (the
   // minimal responder with the frozen §4 pipeline), not dialer-side
   // registerToolHandler alone.
   it("routes invokeTool to the serving responder by exact tool capability (disjoint tools)", async () => {
@@ -1225,13 +1200,11 @@ describe("MultiPeerRouter tool routing over loopback responders (§6 topology)",
       router.registerPeer(clientA);
       router.registerPeer(clientB);
 
-      // tools.math.add is advertised + served only by responder A.
       const add = await router.invokeTool("tools.math.add", { a: 2, b: 3 });
       expect(add).toEqual({ ok: true, value: { sum: 5 } });
       expect(addCalls).toEqual([{ args: { a: 2, b: 3 } }]);
       expect(echoCalls).toEqual([]);
 
-      // tools.echo.echo is advertised + served only by responder B.
       const echo = await router.invokeTool("tools.echo.echo", { v: 1 });
       expect(echo).toEqual({ ok: true, value: { v: 1 } });
       expect(echoCalls).toEqual([{ args: { v: 1 } }]);
@@ -1267,7 +1240,6 @@ describe("MultiPeerRouter tool routing over loopback responders (§6 topology)",
         expect(result.details?.kind).toBe("no_capable_peer");
         expect(result.details?.op).toBe("tools.echo.boom");
       }
-      // Terminal: neither responder served anything.
       expect(responderA.stats.handlersRun).toBe(0);
       expect(responderB.stats.handlersRun).toBe(0);
     } finally {
@@ -1279,7 +1251,6 @@ describe("MultiPeerRouter tool routing over loopback responders (§6 topology)",
   }, 15000);
 });
 
-/** The add handler used by loopback fixtures. */
 function addHandler(calls: { args: Record<string, unknown> }[]): TestToolHandler {
   return async (args) => {
     calls.push({ args });
@@ -1377,8 +1348,9 @@ describe("ke remote", () => {
       expect(served.value.peerId).toBe("peer-cognition");
     }
 
-    // Ownership is filtered before the family: a viewpoint-bearing request
-    // with a cognition selection names ke-ownership as the missing capability.
+    // note: ownership is filtered before the family — a viewpoint-bearing
+    // request with a cognition selection names ke-ownership as the missing
+    // capability.
     const ownershipFirst = selectPeerForOp(
       [cognitionPeer],
       "port.scope.list_knowledge_entries",
@@ -1389,7 +1361,7 @@ describe("ke remote", () => {
       expect(ownershipFirst.message).toContain("ke-ownership");
     }
 
-    // Unrelated payload data is ordinary: a tool request carrying a
+    // note: unrelated payload data is ordinary — a tool request carrying a
     // top-level `cognition` member routes to a peer without the family.
     const toolPeer: SelectablePeer = {
       peerId: "peer-tool",

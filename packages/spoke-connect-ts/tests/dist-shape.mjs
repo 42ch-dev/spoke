@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Built-package published-shape smoke (connect-ts-noise-stack QC wave, W2;
+ * why: built-package published-shape smoke (connect-ts-noise-stack QC wave, W2;
  * remote surface added with the RemoteAdapter module).
  *
  * Resolves `@42ch/spoke-connect`, `@42ch/spoke-connect/noise` and
@@ -19,16 +19,14 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 
-/** Root (default bundle) symbols that must resolve in both module systems. */
 const DEFAULT_SESSION_SYMBOLS = ["derivePeerIdFromEd25519Pubkey"];
-/** Noise symbols that must NOT leak into the default root bundle. */
 const NOISE_FORBIDDEN_IN_ROOT = [
   "NoiseXX",
   "NoiseHandshake",
   "NoiseTransport",
   "NOISE_PROTOCOL_ID",
 ];
-/** `./noise` barrel symbols (src/noise/index.ts re-export table). */
+/** note: `./noise` barrel symbols (src/noise/index.ts re-export table). */
 const NOISE_BARREL_SYMBOLS = [
   "NOISE_PROTOCOL_ID",
   "NOISE_PROTOCOL_NAME",
@@ -46,9 +44,9 @@ const NOISE_BARREL_SYMBOLS = [
   "NoiseHandshake",
   "NoiseTransport",
 ];
-/** Internal raw-crypto wrappers that must stay out of the public barrel. */
+/** note: internal raw-crypto wrappers that must stay out of the public barrel. */
 const NOISE_FORBIDDEN_IN_BARREL = ["encrypt", "decrypt", "dh", "hkdf"];
-/** `./remote` barrel symbols (src/remote/index.ts re-export table). */
+/** note: `./remote` barrel symbols (src/remote/index.ts re-export table). */
 const REMOTE_BARREL_SYMBOLS = [
   "connectRemoteAdapter",
   "RemoteAdapter",
@@ -59,15 +57,12 @@ const REMOTE_BARREL_SYMBOLS = [
   "isConnectInvokeResponse",
   "isConnectSession",
 ];
-/** RemoteAdapter symbols that must NOT leak into the default root bundle. */
 const REMOTE_FORBIDDEN_IN_ROOT = ["connectRemoteAdapter", "RemoteAdapter"];
 
-// ── ESM self-reference ("import" conditions) ───────────────────────────────
 const rootEsm = await import("@42ch/spoke-connect");
 const noiseEsm = await import("@42ch/spoke-connect/noise");
 const remoteEsm = await import("@42ch/spoke-connect/remote");
 
-// ── CJS self-reference ("require" conditions) ──────────────────────────────
 const rootCjs = require("@42ch/spoke-connect");
 const noiseCjs = require("@42ch/spoke-connect/noise");
 const remoteCjs = require("@42ch/spoke-connect/remote");

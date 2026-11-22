@@ -1,5 +1,5 @@
 /**
- * Reverse tool invocation + RemoteAdapter tool-serving mode (Task 1 of
+ * note: Reverse tool invocation + RemoteAdapter tool-serving mode (Task 1 of
  * tools-connect-reverse-invoke) — loopback pair: a tool-serving
  * `RemoteAdapter` (dialer) ↔ a `MinimalResponder` (responder) that issues
  * reverse invokes and serves the dialer's forward invokes.
@@ -50,7 +50,7 @@ import {
   type TestToolHandler,
 } from "./minimal-responder.js";
 
-/** Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
+/** note: Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
 function seed(base: number): Uint8Array {
   return Uint8Array.from({ length: 32 }, (_, i) => base + i);
 }
@@ -82,7 +82,7 @@ const BOOM_DESCRIPTOR: ToolDescriptor = {
   output: {},
 };
 
-/** Tool-carrying manifest: namespaces own the tool namespaces; every tool capability ∈ capabilities[]. */
+/** invariant: namespaces own the tool namespaces; every tool capability ∈ capabilities[]. */
 function toolManifest(hostId: string): HostCapabilityManifest {
   return {
     ...schemaConformantManifest(),
@@ -98,7 +98,6 @@ function toolManifest(hostId: string): HostCapabilityManifest {
   };
 }
 
-/** The add handler used by most fixtures. */
 function addHandler(calls: { args: Record<string, unknown> }[]): TestToolHandler {
   return async (args) => {
     calls.push({ args });
@@ -134,8 +133,9 @@ async function dialWithTools(
   const clientManifest = options.clientManifest ?? toolManifest("test-client");
   const responderManifest =
     options.responderManifest ?? toolManifest("test-responder");
-  // Fixture hygiene: both manifests satisfy the manifest-tools rules
-  // (descriptor validity, capability membership, namespace ownership).
+  // why: both manifests must satisfy the manifest-tools rules
+  // (descriptor validity, capability membership, namespace ownership), or the
+  // loopback fixtures would prove nothing about real negotiation.
   for (const manifest of [clientManifest, responderManifest]) {
     const validated = validateManifestTools(manifest);
     expect(validated.ok, `manifest tools must validate: ${manifest.host_id}`).toBe(true);
@@ -162,12 +162,10 @@ async function dialWithTools(
   return { client, responder, pair, peerIdResponder, peerIdClient };
 }
 
-/** Decode wire bytes to a JSON document (wire-level injector fixtures). */
 function decodeWire(bytes: EnvelopeBytes): Record<string, unknown> {
   return decodeJsonMessage(bytes) as Record<string, unknown>;
 }
 
-/** Re-encode a mutated document as wire bytes (wire-level injector fixtures). */
 function encodeWire(doc: unknown): EnvelopeBytes {
   return new TextEncoder().encode(encodeJsonMessage(doc));
 }
@@ -186,12 +184,9 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
           b: 3,
         });
         expect(result).toEqual({ ok: true, value: { sum: 5 } });
-        // The dialer-side registered handler is what ran (not a responder
-        // side effect), with the request's arguments object passed through.
         expect(calls).toEqual([{ args: { a: 2, b: 3 } }]);
         expect(responder.stats.reverseInvokesIssued).toBe(1);
         expect(responder.stats.responsesVerified).toBe(1);
-        // The session stays Established on both ends.
         expect(client.state).toBe("Established");
       } finally {
         client.close();
@@ -204,9 +199,9 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
   it(
     "classifies request shape before response shape — an op-bearing doc is never a response",
     async () => {
-      // Guard level: a reverse request carries the same correlation echo
-      // fields + payload as a response success branch; the hardened
-      // response discriminator must reject ANY op-bearing doc.
+      // why: a reverse request carries the same correlation echo fields +
+      // payload as a response success branch; the hardened response
+      // discriminator must reject ANY op-bearing doc.
       const requestShaped: Record<string, unknown> = {
         session_id: "s",
         sequence: 0,
@@ -238,11 +233,11 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
       const { client, responder } = await dialWithTools();
       try {
         client.registerToolHandler("tools.math.add", addHandler(calls));
-        // The responder serves the dialer's forward invoke; the dialer
+        // why: the responder serves the dialer's forward invoke, the dialer
         // serves the responder's reverse invoke. Under the pre-fix
         // discriminator the reverse request (op-bearing, response-shaped)
-        // would be swallowed by the request_id demux and the responder
-        // would time out.
+        // would be swallowed by the request_id demux and the responder would
+        // time out.
         responder.registerToolHandler("tools.echo.echo", async (args) =>
           spokeOk(args),
         );
@@ -266,8 +261,8 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
     async () => {
       const { client, responder } = await dialWithTools();
       try {
-        // The tool IS negotiated (both manifests list it) but no handler
-        // is registered — gate passes, serving fails closed.
+        // why: the tool IS negotiated (both manifests list it) but no handler
+        // is registered — the gate passes, serving fails closed.
         const result = await responder.issueInvoke("tools.math.add", {
           a: 1,
           b: 2,
@@ -278,8 +273,6 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
           message: expect.stringContaining("no handler registered"),
           details: { wire_code: "op_unsupported" },
         });
-        // The session stays usable: a registered handler serves the next
-        // reverse invoke.
         client.registerToolHandler("tools.math.add", async (args) =>
           spokeOk({ sum: (args.a as number) + (args.b as number) }),
         );
@@ -300,8 +293,8 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
   it(
     "denies a reverse invoke with op_unsupported when the tool is not negotiated (dispatch gate)",
     async () => {
-      // The client manifest carries no tools: the negotiated set lacks the
-      // tool capability, so the client's dispatch gate denies the invoke
+      // why: the client manifest carries no tools, so the negotiated set lacks
+      // the tool capability and the client's dispatch gate denies the invoke
       // (frozen deny matrix: gate fail → op_unsupported).
       const noTools: HostCapabilityManifest = {
         ...schemaConformantManifest(),
@@ -336,10 +329,10 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
     async () => {
       const calls: { args: Record<string, unknown> }[] = [];
       let tampered = false;
-      // Wire-level injector on the responder end: mutate the FIRST outbound
-      // reverse request's payload after signing (the view an active
-      // transport attacker has on the client end). The handshake hellos
-      // pass through unchanged.
+      // why: wire-level injector on the responder end — mutate the FIRST
+      // outbound reverse request's payload after signing (the view an active
+      // transport attacker has on the client end). The handshake hellos pass
+      // through unchanged.
       const { client, responder } = await dialWithTools({
         responderTransport: (serverEnd) => ({
           send: async (envelope) => {
@@ -359,9 +352,9 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
       try {
         client.registerToolHandler("tools.math.add", addHandler(calls));
 
-        // Tampered request (sequence 0): envelope-auth verify fails BEFORE
-        // advance — the error branch is auth_failed with the locked
-        // details.kind, and no handler side effect runs.
+        // invariant: envelope-auth verify fails BEFORE advance — the error
+        // branch is auth_failed with the locked details.kind, and no handler
+        // side effect runs.
         const tamperedResult = await responder.issueInvoke("tools.math.add", {
           a: 1,
           b: 2,
@@ -374,10 +367,10 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
         });
         expect(calls).toEqual([]);
 
-        // Auth-before-advance: the client's inbound counter is UNCHANGED
-        // (still expects 0), so re-issuing with the same sequence succeeds
-        // and the handler runs — the session stayed usable and no state
-        // was mutated by the forged envelope.
+        // invariant: the client's inbound counter is UNCHANGED (still expects
+        // 0), so re-issuing with the same sequence succeeds and the handler
+        // runs — the session stayed usable and no state was mutated by the
+        // forged envelope.
         const retry = await responder.issueInvoke("tools.math.add", {
           a: 20,
           b: 22,
@@ -401,8 +394,8 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
       try {
         client.registerToolHandler("tools.math.add", addHandler(calls));
 
-        // The responder jumps to sequence 5; the client expects 0. The
-        // peek fails — error branch invalid_sequence, counter unchanged,
+        // why: the responder jumps to sequence 5 while the client expects 0.
+        // The peek fails — error branch invalid_sequence, counter unchanged,
         // no handler side effect.
         const gap = await responder.issueInvoke("tools.math.add", { a: 1, b: 1 }, 5);
         expect(gap.ok).toBe(false);
@@ -412,8 +405,6 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
         });
         expect(calls).toEqual([]);
 
-        // The inbound counter is still at 0: the next expected sequence
-        // succeeds.
         const retry = await responder.issueInvoke("tools.math.add", { a: 40, b: 2 }, 0);
         expect(retry).toEqual({ ok: true, value: { sum: 42 } });
         expect(calls).toEqual([{ args: { a: 40, b: 2 } }]);
@@ -439,7 +430,7 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
           spokeOk({ sum: (args.a as number) + (args.b as number) }),
         );
 
-        // A throwing handler answers the error branch (mapped via
+        // why: a throwing handler answers the error branch (mapped via
         // toErrorEnvelope → INTERNAL_ERROR) instead of crashing the loop.
         const thrown = await responder.issueInvoke("tools.echo.boom", {});
         expect(thrown).toEqual({
@@ -449,8 +440,6 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
         });
         expect(boomCalls).toEqual(["boom"]);
 
-        // Loop damage check: the receive loop survived the throw — a
-        // different reverse invoke for a healthy handler still succeeds.
         const healthy = await responder.issueInvoke("tools.math.add", { a: 40, b: 2 });
         expect(healthy).toEqual({ ok: true, value: { sum: 42 } });
         expect(client.state).toBe("Established");
@@ -513,8 +502,8 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
     async () => {
       const { client, responder } = await dialWithTools();
       try {
-        // tools.echo.boom is negotiated but the responder serves no handler
-        // for it — fail-closed deny → op_unsupported → D7 mapping.
+        // why: tools.echo.boom is negotiated but the responder serves no
+        // handler for it — fail-closed deny → op_unsupported → D7 mapping.
         const result = await client.invokeTool("tools.echo.boom", {});
         expect(result).toEqual({
           ok: false,
@@ -533,7 +522,7 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
   it(
     "rejects a forward invokeTool whose success payload lacks a result key (INTERNAL_ERROR kind transport)",
     async () => {
-      // The responder answers a success envelope whose payload is not
+      // why: the responder answers a success envelope whose payload is not
       // `{ result: <opaque JSON> }` — the frozen tool success-payload gate
       // must reject instead of surfacing spokeOk(garbage).
       const { client, responder } = await dialWithTools({
@@ -553,8 +542,6 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
           message: expect.stringContaining("payload decode failed"),
           details: { kind: "transport" },
         });
-        // The malformed payload fails only this waiter — the session stays
-        // usable.
         expect(client.state).toBe("Established");
       } finally {
         client.close();
@@ -576,7 +563,6 @@ describe("RemoteAdapter tool serving over reverse invokes", () => {
           message: expect.stringContaining('must start with "tools." prefix'),
           details: { capability_id: "spoke-baseline" },
         });
-        // No wire traffic: the grammar gate is local.
         expect(responder.stats.reverseInvokesIssued).toBe(0);
       } finally {
         client.close();

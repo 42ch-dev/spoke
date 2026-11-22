@@ -91,7 +91,7 @@ interface ServedCase {
   payload: Record<string, unknown>;
   expect: ExpectedOutcome;
   expect_provider_calls: number;
-  /** Entry ids the conformant KE source must return, in source order. */
+  /** note: Entry ids the conformant KE source must return, in source order. */
   expect_entry_ids?: string[];
 }
 
@@ -133,7 +133,7 @@ function manifestFor(hostId: string, host: FixtureHost): HostCapabilityManifest 
   };
 }
 
-/** The memory seam principal — the op mapping derives the real one. */
+/** note: The memory seam principal — the op mapping derives the real one. */
 const TEST_PRINCIPAL: Principal = {
   principal_id: "principal_t3",
   extensions: {},
@@ -147,9 +147,9 @@ interface ProviderCalls {
 }
 
 /**
- * The `modules.cognition.records` a fixture entry carries. The module bag is
- * open (`modules.*` is opaque to the wire), so each record is validated once
- * with the C5 record gate and only then read as a typed record.
+ * why: the `modules.cognition.records` a fixture entry carries. The module bag
+ * is open (`modules.*` is opaque to the wire), so each record is validated
+ * once with the C5 record gate and only then read as a typed record.
  */
 function entryCognitionRecords(entry: KnowledgeEntry): CognitionRecord[] {
   const cognition = entry.modules?.["cognition"];
@@ -163,12 +163,12 @@ function entryCognitionRecords(entry: KnowledgeEntry): CognitionRecord[] {
     if (!validateCognitionRecord(record)) {
       throw new Error("fixture cognition record failed C5 validation");
     }
-    return record; // narrowed by the C5 record gate above
+    return record;
   });
 }
 
 /**
- * The conformant KE-only source: it applies the requested current-view
+ * why: the conformant KE-only source applies the requested current-view
  * cognition selection through the shared C6 matcher, so a served selection
  * returns the discriminating fixture entries (multi-context, forked,
  * no-fork and explicit-zero variants included) instead of an unconditional
@@ -191,8 +191,8 @@ function selectEntries(scope: Scope, calls: ProviderCalls): KnowledgeEntry[] {
 }
 
 /**
- * Serve ports for one served case: the provider double as the baseline face
- * plus a knowledge face admitting the case's own wire scope, so the
+ * note: serve ports for one served case — the provider double as the baseline
+ * face plus a knowledge face admitting the case's own wire scope, so the
  * knowledge list reaches the store with the selection intact.
  */
 function servePortsFor(
@@ -265,8 +265,8 @@ function providerPorts(
       _payload: Record<string, unknown>,
     ): Promise<SpokeResult<unknown>> {
       calls.memoryInvokes += 1;
-      // A decodable `memory.records.list` success body: the served case must
-      // reach the service and return through the real client mapping.
+      // why: a decodable `memory.records.list` success body — the served case
+      // must reach the service and return through the real client mapping.
       return spokeOk({ records: [], total_authorized: 0 });
     },
   };
@@ -275,14 +275,14 @@ function providerPorts(
 interface ServedResult {
   result: SpokeResult<unknown>;
   calls: ProviderCalls;
-  /** Every inbound envelope the client received, in arrival order. */
+  /** note: Every inbound envelope the client received, in arrival order. */
   frames: Record<string, unknown>[];
 }
 
 /**
- * Pass-through transport that records each inbound envelope, so the suite
- * asserts the host's exact wire rejection, not only the client's mapping of
- * it.
+ * why: pass-through transport that records each inbound envelope, so the
+ * suite asserts the host's exact wire rejection, not only the client's mapping
+ * of it.
  */
 function recordingTransport(
   transport: Transport,
@@ -304,7 +304,7 @@ function recordingTransport(
 const textEncoder = new TextEncoder();
 
 /**
- * A payload the typed `listKnowledgeEntries` path can carry: that method
+ * why: a payload the typed `listKnowledgeEntries` path can carry — that method
  * forwards exactly `{ scope }`, so any other top-level member would be
  * dropped before the wire. Such payloads take the raw signed session.
  */
@@ -314,13 +314,13 @@ function isTypedScopeRequest(payload: Record<string, unknown>): boolean {
 }
 
 /**
- * Send the WHOLE fixture payload over a real signed session (initiator hello,
- * responder hello bound to our nonce, session snapshot, signed invoke)
- * against the same responder, then decode the received response with the
- * op's own success-shape gate — the gate the `RemoteAdapter` applies to the
- * same response. The typed scope method cannot forward the discriminating
- * top-level `cognition` member, so this is the consumer's only faithful path
- * for that vector.
+ * why: send the WHOLE fixture payload over a real signed session (initiator
+ * hello, responder hello bound to our nonce, session snapshot, signed invoke)
+ * against the same responder, then decode the received response with the op's
+ * own success-shape gate — the gate the `RemoteAdapter` applies to the same
+ * response. The typed scope method cannot forward the discriminating top-level
+ * `cognition` member, so this is the consumer's only faithful path for that
+ * vector.
  */
 async function rawScopeServe(
   testCase: ServedCase,
@@ -404,7 +404,7 @@ async function serveCase(testCase: ServedCase): Promise<ServedResult> {
       testCase.op === SCOPE_LIST_OP &&
       !isTypedScopeRequest(testCase.payload)
     ) {
-      // The typed method forwards only `payload.scope`; the top-level
+      // why: the typed method forwards only `payload.scope`; the top-level
       // `cognition` member is discriminating data, so the whole payload
       // rides the raw signed session instead.
       return await rawScopeServe(
@@ -428,9 +428,10 @@ async function serveCase(testCase: ServedCase): Promise<ServedResult> {
     });
     try {
       if (testCase.op === SCOPE_LIST_OP) {
-        // The fixture deliberately carries out-of-schema predicates on some
-        // cases: the typed port method is the real wire path and forwards the
-        // payload verbatim, which is exactly what the raw boundary must judge.
+        // why: the fixture deliberately carries out-of-schema predicates on
+        // some cases — the typed port method is the real wire path and forwards
+        // the payload verbatim, which is exactly what the raw boundary must
+        // judge.
         const scope = testCase.payload.scope as Scope;
         return { result: await client.listKnowledgeEntries(scope), calls, frames };
       }
@@ -448,9 +449,9 @@ async function serveCase(testCase: ServedCase): Promise<ServedResult> {
 }
 
 /**
- * The client-decoded success payload. Every success assertion reads this
- * value — what a consumer actually receives — never only the provider's
- * record of what it returned.
+ * why: the client-decoded success payload. Every success assertion reads this
+ * value — what a consumer actually receives — never only the provider's record
+ * of what it returned.
  */
 function decodedEntries(
   result: SpokeResult<unknown>,
@@ -494,8 +495,8 @@ function rejectDetails(result: SpokeResult<unknown>): Record<string, unknown> {
 }
 
 /**
- * The single error branch the host put on the wire, so the suite asserts the
- * exact wire code/reason/field instead of inferring them from the client's
+ * why: the single error branch the host put on the wire, so the suite asserts
+ * the exact wire code/reason/field instead of inferring them from the client's
  * mapping.
  */
 function wireError(
@@ -538,8 +539,9 @@ describe("spoke-cognition negotiation (both-sided signed-hello intersection)", (
 
 describe("spoke-cognition served boundary (actual responder/RemoteAdapter round trips)", () => {
   it("keeps the load-bearing escaped-field negatives by case identity", () => {
-    // The two C7 field-path negatives are the only machine-checked proof of
-    // the escaped §2.2 field contract; a dropped row must fail by identity.
+    // why: the two C7 field-path negatives are the only machine-checked proof
+    // of the escaped contract §2.2 field path; a dropped row must fail by
+    // identity.
     for (const [id, field] of [
       [
         "scope_carrier_empty_member_keeps_its_path",
@@ -574,13 +576,11 @@ describe("spoke-cognition served boundary (actual responder/RemoteAdapter round 
       if (testCase.expect.status === "ok") {
         expect(result.ok, `${testCase.id}: expected success`).toBe(true);
         if (testCase.op === SCOPE_LIST_OP) {
-          // The valid selection reaches the source unchanged: no added or
-          // dropped context/filter member.
           expect(calls.receivedScopes, testCase.id).toEqual([
             testCase.payload.scope,
           ]);
-          // The consumer-visible result is the client-decoded entry list; the
-          // source's own counter is a supporting control only.
+          // why: the consumer-visible result is the client-decoded entry list;
+          // the source's own counter is a supporting control only.
           expect(
             decodedEntries(result, testCase.id).map((entry) => entry.entry_id),
             `${testCase.id}: client-decoded entry ids`,
@@ -590,8 +590,8 @@ describe("spoke-cognition served boundary (actual responder/RemoteAdapter round 
             `${testCase.id}: source selection (control)`,
           ).toEqual(testCase.expect_entry_ids ?? []);
         } else {
-          // `memory.records.list` success: assert the decoded page, so an
-          // absent cursor stays absent while an explicit zero stays zero.
+          // why: `memory.records.list` success must assert the decoded page, so
+          // an absent cursor stays absent while an explicit zero stays zero.
           const page = decodedMemoryPage(result, testCase.id);
           expect(page.records, `${testCase.id}: client-decoded records`).toEqual(
             [],
@@ -616,8 +616,8 @@ describe("spoke-cognition served boundary (actual responder/RemoteAdapter round 
         testCase.expect.code === "capability_missing" ||
         testCase.expect.code === "op_unsupported"
       ) {
-        // The D7 row maps a dispatch deny to CAPABILITY_PORT_MISSING and
-        // preserves the wire code.
+        // note: the design D7 row maps a dispatch deny to
+        // CAPABILITY_PORT_MISSING and preserves the wire code.
         expect(result.ok).toBe(false);
         if (!result.ok) {
           expect(result.code, testCase.id).toBe(
@@ -638,7 +638,6 @@ describe("spoke-cognition served boundary (actual responder/RemoteAdapter round 
       expect(rawDetails?.field, `${testCase.id}: wire field`).toBe(
         testCase.expect.field,
       );
-      // The adapter mapping preserves the same verdict for consumers.
       expect(details.reason, `${testCase.id}: reason`).toBe(
         testCase.expect.reason,
       );
@@ -655,7 +654,6 @@ describe("spoke-cognition served boundary (actual responder/RemoteAdapter round 
     expect(result.ok).toBe(true);
     expect(calls.scopeLists).toBe(1);
     expect(calls.receivedScopes).toEqual([{ scope_id: "world_1" }]);
-    // The consumer receives every source entry decoded, in source order.
     expect(
       decodedEntries(result, ordinary!.id).map((entry) => entry.entry_id),
     ).toEqual(FIXTURE.ke_entries.map((entry) => entry.entry_id));
@@ -670,7 +668,6 @@ describe("spoke-cognition served boundary (actual responder/RemoteAdapter round 
     const { result, calls } = await serveCase(wildcard);
     expect(result.ok).toBe(true);
     expect(calls.scopeLists).toBe(1);
-    // Read the records a consumer receives, not the source's return log.
     const entries = decodedEntries(result, wildcard.id);
     expect(entries.map((entry) => entry.entry_id)).toEqual([
       "kb_mira_fork",
@@ -681,29 +678,29 @@ describe("spoke-cognition served boundary (actual responder/RemoteAdapter round 
     expect(noForkEntry?.entry_id).toBe("kb_mira_nofork");
     const forked = entryCognitionRecords(forkedEntry!)[0]!;
     const noFork = entryCognitionRecords(noForkEntry!)[0]!;
-    // Fixture records are belief records: the discriminator selects the
+    // why: fixture records are belief records — the discriminator selects the
     // member that carries the assessment context and the optional metrics.
     expect(forked.kind).toBe("belief");
     expect(noFork.kind).toBe("belief");
     const forkedBelief = forked.kind === "belief" ? forked : undefined;
     const noForkBelief = noFork.kind === "belief" ? noFork : undefined;
-    // Distinct assessment contexts are retained side by side.
     expect(forkedBelief?.assessment_context).toEqual({
       context_id: "ctx_main",
       fork_id: "fork_alpha",
     });
     expect(noForkBelief?.assessment_context).toEqual({ context_id: "ctx_main" });
-    // Absent optional record data stays absent; an explicit zero stays zero.
+    // invariant: absent optional record data stays absent; an explicit zero
+    // stays zero.
     expect(forkedBelief?.metrics).toBeUndefined();
     expect(noForkBelief?.metrics?.b?.value).toBe(0);
   });
 
   it("keeps the original shape denial ahead of ownership and the cognition gate", async () => {
-    // Pre-cognition baseline (`b6bfdc1` #dispatchPortInvoke) validates the
-    // declared Scope shape BEFORE the `ke-ownership` conjunct, and both run
+    // why: the pre-cognition baseline (`b6bfdc1` #dispatchPortInvoke) validates
+    // the declared Scope shape BEFORE the `ke-ownership` conjunct, and both run
     // before the cognition gate. A malformed Scope that also carries a
     // viewpoint is therefore the original shape denial — never an ownership
-    // or §2.2 verdict.
+    // or contract §2.2 verdict.
     const malformedWithViewpoint: ServedCase = {
       id: "malformed_scope_shape_before_ownership",
       kind: "served",
@@ -724,8 +721,9 @@ describe("spoke-cognition served boundary (actual responder/RemoteAdapter round 
       "the baseline shape denial carries no §2.2 verdict",
     ).toBeUndefined();
 
-    // The shape denial also precedes the cognition diagnosis: delivering an
-    // unsupported filter does not preempt the malformed baseline Scope.
+    // invariant: the shape denial also precedes the cognition diagnosis —
+    // delivering an unsupported filter does not preempt the malformed baseline
+    // Scope.
     const withCognition: ServedCase = {
       ...malformedWithViewpoint,
       id: "shape_first_with_cognition",
@@ -746,7 +744,7 @@ describe("spoke-cognition served boundary (actual responder/RemoteAdapter round 
       "an unsupported cognition requirement never preempts the shape denial",
     ).toBeUndefined();
 
-    // A sound shape keeps ownership precedence: the shared fixture's
+    // why: a sound shape keeps ownership precedence — the shared fixture's
     // ownership vector carries a valid `scope_id`, so the shape gate passes
     // and the missing `ke-ownership` still denies with the original code (see
     // `ownership_denial_precedes_the_cognition_denial` in the loop above).

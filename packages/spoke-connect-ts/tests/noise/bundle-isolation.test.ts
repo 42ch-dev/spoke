@@ -1,5 +1,5 @@
 /**
- * Bundle-isolation gate for the opt-in `./noise` subpath (plan "Global
+ * why: bundle-isolation gate for the opt-in `./noise` subpath (plan "Global
  * Constraints" — no default-dep drift; noise-subpath rationale §Bundle
  * isolation guarantee).
  *
@@ -30,9 +30,9 @@ import { describe, expect, it } from "vitest";
 const PKG_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../..");
 
 interface Trace {
-  /** Every bundled (non-external) module path in the entry's graph. */
+  /** note: every bundled (non-external) module path in the entry's graph. */
   files: Set<string>;
-  /** Bare specifiers of every external import in the entry's graph. */
+  /** note: bare specifiers of every external import in the entry's graph. */
   externals: Set<string>;
 }
 
@@ -44,7 +44,7 @@ async function traceDeps(entry: string): Promise<Trace> {
     metafile: true,
     format: "esm",
     platform: "neutral",
-    // Every node_modules package stays external: we only need the import
+    // why: every node_modules package stays external: we only need the import
     // graph, not bundled output.
     packages: "external",
   });
@@ -86,7 +86,7 @@ describe("bundle isolation: `./noise` subpath vs default `.` entry", () => {
     const trace = await traceDeps("noise/index.ts");
     expect(hasExternalPrefix(trace, "@noble/ciphers")).toBe(true);
     expect(hasExternalPrefix(trace, "@noble/curves")).toBe(true);
-    // The subpath shares the src-root helpers already in the default
+    // why: the subpath shares the src-root helpers already in the default
     // bundle (allowed by plan Global Constraints), but never reaches
     // the session-core parity surface.
     expect(hasFileSegment(trace, "noise")).toBe(true);

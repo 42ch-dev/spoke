@@ -9,7 +9,7 @@ import { PROTOCOL_VERSION } from "../src/core/version.js";
 import { fromHex } from "./hex.js";
 
 /**
- * Cross-language golden vector: the golden identity advertising
+ * why: cross-language golden vector: the golden identity advertising
  * `protocol_version` 2 while the core `PROTOCOL_VERSION` is 1 is a
  * mixed-version hello — the version gate is `verifyHelloEd25519` step 1,
  * BEFORE signature verification, so the wire hello MUST reject with
@@ -43,7 +43,7 @@ const fixture: GoldenHelloVersionMismatchFixture = JSON.parse(
 
 describe("golden-hello-version-mismatch (cross-language golden vector)", () => {
   it("rejects the pinned mixed-version hello with protocol_version_mismatch", async () => {
-    // The fixture must actually be a mismatch — the golden vector is only
+    // why: the fixture must actually be a mismatch — the golden vector is only
     // meaningful while the core stays at version 1.
     expect(fixture.hello.protocol_version).not.toBe(PROTOCOL_VERSION);
 

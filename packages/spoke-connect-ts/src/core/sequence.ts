@@ -1,8 +1,8 @@
 /**
  * Per-direction session sequence counters (pure; no atomics).
  *
- * Ported from `crates/spoke-connect/src/core/sequence.rs`; normative rules
- * `.agents/specs/connect/spoke-connect.md` §Ordering semantics / §Session-core state
+ * Ported from `crates/spoke-connect/src/core/sequence.rs`; see
+ * `.agents/specs/connect/spoke-connect.md` contract §Ordering semantics / §Session-core state
  * machine: each peer maintains its **own** outbound counter per session
  * starting at 0; inbound invokes are accepted iff
  * `sequence == next_expected_inbound` (start 0) and then advance by 1. When
@@ -22,13 +22,12 @@ export const MAX_SEQUENCE: number = 2 ** 53 - 1;
 export class OutboundSequence {
   private nextValue: number;
 
-  /** Creates a counter starting at 0 (the first allocate returns 0). */
   constructor() {
     this.nextValue = 0;
   }
 
   /**
-   * Assign the next outbound sequence.
+   * note: assign the next outbound sequence.
    *
    * The counter starts at 0; on exhaustion (past the JSON-safe wire maximum)
    * `sequence_exhausted` is thrown and the counter is left exhausted —
@@ -43,13 +42,12 @@ export class OutboundSequence {
     return sequence;
   }
 
-  /** The next sequence that will be assigned by `allocate`. */
   next(): number {
     return this.nextValue;
   }
 
   /**
-   * Test-only: position the counter at `value` so transport tests can
+   * note: test-only — position the counter at `value` so transport tests can
    * exercise exhaustion without 2⁵³ allocations (mirrors Rust
    * `#[cfg(test)] set_next`).
    *
@@ -66,14 +64,13 @@ export class OutboundSequence {
 export class InboundSequence {
   private nextExpectedValue: number;
 
-  /** Creates an expectation starting at 0 (the first accepted sequence). */
   constructor() {
     this.nextExpectedValue = 0;
   }
 
   /**
-   * Accept `sequence` iff it equals the next expected inbound sequence; on
-   * acceptance the expectation advances by 1 and the new expectation is
+   * note: accept `sequence` iff it equals the next expected inbound sequence;
+   * on acceptance the expectation advances by 1 and the new expectation is
    * returned. A replayed or out-of-order sequence throws
    * `inbound_sequence_mismatch` and the expectation is left unchanged — the
    * caller must reject the invoke without dispatching it.
@@ -115,7 +112,6 @@ export class InboundSequence {
     }
   }
 
-  /** The next inbound sequence that will be accepted. */
   nextExpected(): number {
     return this.nextExpectedValue;
   }

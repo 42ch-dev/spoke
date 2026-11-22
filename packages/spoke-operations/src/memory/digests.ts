@@ -1,5 +1,5 @@
 /**
- * JCS / SHA-256 digest helpers (§6.7 `content_digest`, §6.10
+ * note: JCS / SHA-256 digest helpers (§6.7 `content_digest`, §6.10
  * `payload_digest`, §6.11 bundle `digest`, §6.13 `chunk_digest`):
  * RFC 8785 canonicalization → SHA-256 → 64 lowercase hex.
  *

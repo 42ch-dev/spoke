@@ -1,5 +1,5 @@
 /**
- * libp2p Noise wire framing gates (Task 3, connect-ts-noise-stack) —
+ * why: libp2p Noise wire framing gates (Task 3, connect-ts-noise-stack) —
  * frozen contract `.agents/specs/connect/noise-xx-libp2p-contract.md`
  * §3 (u16-BE length-prefix codec, max sizes) and §5 (role handshake
  * sequence), plus the `NoiseTransport` post-split AEAD frame codec and the
@@ -34,7 +34,7 @@ import { NoiseXX } from "../../src/noise/xx.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 import { fromHex, toHex } from "../hex.js";
 
-// ── Fixtures (cacophony vector keys, xx.test.ts) ───────────────────────────
+// note: fixtures (cacophony vector keys, xx.test.ts)
 
 const INIT_STATIC_PRIV = fromHex(
   "e61ef9919cde45dd5f82166404bd08e38bceb5dfdfded0a34c8df7ed542214d1",
@@ -48,38 +48,38 @@ const INIT_EPH_PRIV = fromHex(
 const RESP_EPH_PRIV = fromHex(
   "bbdb4cdbd309f1a1f2e1456967fe288cadd6f712d65dc7b7793d5e63da6b375b",
 );
-/** Flight-1 message of the vector (48 bytes): e.pub || "Ludwig von Mises". */
+/** note: flight-1 message of the vector (48 bytes): e.pub || "Ludwig von Mises". */
 const VECTOR_FLIGHT1 = fromHex(
   "ca35def5ae56cec33dc2036731ab14896bc4c75dbb07a61f879f8e3afa4c79444c756477696720766f6e204d69736573",
 );
-/** The vector's initiator ephemeral public key (first 32 bytes). */
+/** note: the vector's initiator ephemeral public key (first 32 bytes). */
 const FLIGHT1_E_PUB = VECTOR_FLIGHT1.subarray(0, 32);
-/** "John Galt" — the cacophony vector prologue. */
+/** note: "John Galt" — the cacophony vector prologue. */
 const PROLOGUE = fromHex("4a6f686e2047616c74");
 
 const SEED_A = fromHex(
   "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
-); // golden-hello seed
+); // note: golden-hello seed
 const SEED_B = fromHex(
   "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
 );
-/** golden-hello.json peer_id for SEED_A. */
+/** note: golden-hello.json peer_id for SEED_A. */
 const PEER_ID_A = "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf";
 
 const EMPTY = new Uint8Array(0);
 
-// ── §3 constants ────────────────────────────────────────────────────────────
+// note: §3 constants
 
 describe("framing constants", () => {
   it("match the frozen contract table", () => {
     expect(MAX_NOISE_MSG_LEN).toBe(65535);
     expect(EXTRA_ENCRYPT_SPACE).toBe(1024);
-    expect(MAX_FRAME_LEN).toBe(65535 - 1024); // 64511
+    expect(MAX_FRAME_LEN).toBe(65535 - 1024);
     expect(NOISE_PROTOCOL_ID).toBe("/noise");
   });
 });
 
-// ── §3 u16-BE length-prefix codec ───────────────────────────────────────────
+// note: §3 u16-BE length-prefix codec
 
 describe("encodeLengthPrefixed / decodeLengthPrefixed", () => {
   it("encodes the empty payload as a zero-length frame (00 00)", () => {
@@ -141,7 +141,7 @@ describe("encodeLengthPrefixed / decodeLengthPrefixed", () => {
   });
 });
 
-// ── §3.1 NoiseTransport (post-split AEAD frames) ────────────────────────────
+// note: §3.1 NoiseTransport (post-split AEAD frames)
 
 function makeTransportPair() {
   const initiator = new NoiseXX({
@@ -185,7 +185,7 @@ describe("NoiseTransport", () => {
     const payload = new TextEncoder().encode("same-plaintext");
     const frame1 = init.writeFrame(payload);
     const frame2 = init.writeFrame(payload);
-    expect(toHex(frame1)).not.toBe(toHex(frame2)); // nonce 0 vs 1
+    expect(toHex(frame1)).not.toBe(toHex(frame2)); // why: nonce 0 vs 1
     expect(toHex(resp.readFrame(frame1))).toBe(toHex(payload));
     expect(toHex(resp.readFrame(frame2))).toBe(toHex(payload));
   });
@@ -193,14 +193,14 @@ describe("NoiseTransport", () => {
   it("rejects a tampered frame", () => {
     const { init, resp } = makeTransportPair();
     const frame = init.writeFrame(new TextEncoder().encode("integrity"));
-    frame[frame.length - 1] ^= 0x01; // inside the Poly1305 tag
+    frame[frame.length - 1] ^= 0x01; // note: inside the Poly1305 tag
     expect(() => resp.readFrame(frame)).toThrow();
   });
 
   it("rejects opening a frame with the wrong key", () => {
     const { init } = makeTransportPair();
     const frame = init.writeFrame(new TextEncoder().encode("own-key"));
-    expect(() => init.readFrame(frame)).toThrow(); // rx ≠ tx
+    expect(() => init.readFrame(frame)).toThrow(); // note: rx ≠ tx
   });
 
   it("splits cleartext above MAX_FRAME_LEN across length-prefixed frames", () => {
@@ -228,7 +228,7 @@ describe("NoiseTransport", () => {
   });
 });
 
-// ── §5 NoiseHandshake driver ────────────────────────────────────────────────
+// note: §5 NoiseHandshake driver
 
 async function makeDriverPair() {
   const initiator = new NoiseHandshake({
@@ -263,29 +263,29 @@ describe("NoiseHandshake", () => {
     const init = await initiator.finish();
     const resp = await responder.finish();
 
-    // Both parties agree on the handshake hash.
+    // note: both parties agree on the handshake hash.
     expect(toHex(init.handshakeHash)).toBe(toHex(resp.handshakeHash));
-    // Remote static X25519 key comes from the `s` tokens.
+    // note: remote static X25519 key comes from the `s` tokens.
     expect(toHex(init.remoteStaticPublic)).toBe(
       toHex(getPublicKey(RESP_STATIC_PRIV)),
     );
     expect(toHex(resp.remoteStaticPublic)).toBe(
       toHex(getPublicKey(INIT_STATIC_PRIV)),
     );
-    // Remote identity comes from the payload `identity_key` (Ed25519).
+    // note: remote identity comes from the payload `identity_key` (Ed25519).
     expect(toHex(init.remoteIdentityPublicKey)).toBe(
       toHex(getPublicKeyEd25519(SEED_B)),
     );
     expect(toHex(resp.remoteIdentityPublicKey)).toBe(
       toHex(getPublicKeyEd25519(SEED_A)),
     );
-    // peer_id = the SPOKE derivation over the remote identity key.
+    // note: peer_id = the SPOKE derivation over the remote identity key.
     expect(init.remotePeerId).toBe(
       derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(SEED_B)),
     );
-    expect(resp.remotePeerId).toBe(PEER_ID_A); // pinned by golden-hello.json
+    expect(resp.remotePeerId).toBe(PEER_ID_A); // note: pinned by golden-hello.json
 
-    // Post-handshake frames open across the pair in both directions.
+    // note: post-handshake frames open across the pair in both directions.
     const payload = new TextEncoder().encode("spoke-over-noise");
     expect(toHex(resp.transport.readFrame(init.transport.writeFrame(payload)))).toBe(
       toHex(payload),
@@ -316,7 +316,7 @@ describe("NoiseHandshake", () => {
     await initiator.readMessage(f2);
     const f3 = await initiator.writeMessage();
     await responder.readMessage(f3);
-    // payload = 104 bytes (2+36 identity_key, 2+64 identity_sig); handshake
+    // why: payload = 104 bytes (2+36 identity_key, 2+64 identity_sig); handshake
     // wires: f1 = 32, f2 = 32+48+payload+16, f3 = 48+payload+16 (xx.test.ts).
     expect(f1).toHaveLength(2 + 32);
     expect(f2).toHaveLength(2 + 32 + 48 + 104 + 16);
@@ -340,7 +340,7 @@ describe("NoiseHandshake", () => {
         prologue,
       }),
     });
-    // Deterministic runs (pinned ephemerals): the only difference is the
+    // why: deterministic runs (pinned ephemerals): the only difference is the
     // prologue, so differing handshake hashes prove it is mixed in.
     const plain = opts(undefined);
     await runDriverHandshake(plain.initiator, plain.responder);
@@ -371,7 +371,7 @@ describe("NoiseHandshake", () => {
     await responder.readMessage(f1);
     const f2 = await responder.writeMessage();
     const tampered = new Uint8Array(f2);
-    tampered[40] ^= 0x01; // inside the sealed `s` token (offset 2 + 32 e)
+    tampered[40] ^= 0x01; // note: inside the sealed `s` token (offset 2 + 32 e)
     await expect(initiator.readMessage(tampered)).rejects.toThrow();
   });
 
@@ -389,7 +389,7 @@ describe("NoiseHandshake", () => {
     rawResponder.readMessage(decodeLengthPrefixed(f1));
     const f2 = encodeLengthPrefixed(rawResponder.writeMessage(EMPTY));
     await initiator.readMessage(f2);
-    await initiator.writeMessage(); // flight 3 — verification happens at finish
+    await initiator.writeMessage(); // why: flight 3 — verification happens at finish
     await expect(initiator.finish()).rejects.toThrow(/identity/);
   });
 
@@ -408,7 +408,7 @@ describe("NoiseHandshake", () => {
       staticKeyPair: { privateKey: RESP_STATIC_PRIV },
     });
     rawResponder.readMessage(decodeLengthPrefixed(f1));
-    // Forged flight 2: claims identity A, but the signature over the
+    // why: forged flight 2: claims identity A, but the signature over the
     // responder static key is made by identity C → must not verify.
     const forged = encodeHandshakePayload({
       identityKey: encodeIdentityPublicKey(getPublicKeyEd25519(SEED_A)),
@@ -416,9 +416,9 @@ describe("NoiseHandshake", () => {
     });
     const f2 = encodeLengthPrefixed(rawResponder.writeMessage(forged));
     await initiator.readMessage(f2);
-    await initiator.writeMessage(); // flight 3 — verification happens at finish
+    await initiator.writeMessage(); // why: flight 3 — verification happens at finish
     await expect(initiator.finish()).rejects.toThrow(/signature/);
-    // Single-shot: a failed completion is terminal — a retry observes the
+    // why: single-shot: a failed completion is terminal — a retry observes the
     // same rejection instead of starting a fresh attempt.
     await expect(initiator.finish()).rejects.toThrow(/signature/);
   });
@@ -430,15 +430,15 @@ describe("NoiseHandshake", () => {
     const second = await initiator.finish();
     const resp = await responder.finish();
 
-    // One shared transport — no second transport with reset nonces.
+    // why: one shared transport — no second transport with reset nonces.
     expect(second.transport).toBe(first.transport);
-    // The shared nonce counter advances, so identical plaintext seals to
+    // why: the shared nonce counter advances, so identical plaintext seals to
     // different ciphertext (a fresh nonce-0 transport would collide).
     const plaintext = new TextEncoder().encode("nonce-reset-probe");
     const frame1 = first.transport.writeFrame(plaintext);
     const frame2 = second.transport.writeFrame(plaintext);
     expect(toHex(frame1)).not.toBe(toHex(frame2));
-    // The pair still opens both frames in order.
+    // note: the pair still opens both frames in order.
     expect(toHex(resp.transport.readFrame(frame1))).toBe(toHex(plaintext));
     expect(toHex(resp.transport.readFrame(frame2))).toBe(toHex(plaintext));
   });

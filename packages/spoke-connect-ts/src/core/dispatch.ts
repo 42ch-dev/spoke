@@ -1,8 +1,8 @@
 /**
  * Op dispatch gate: required capability ⊆ negotiated capabilities.
  *
- * Ported from `crates/spoke-connect/src/core/dispatch.rs`; normative rule
- * `.agents/specs/connect/spoke-connect.md` §Op dispatch gate (MUST): before executing
+ * Ported from `crates/spoke-connect/src/core/dispatch.rs`; see
+ * `.agents/specs/connect/spoke-connect.md` contract §Op dispatch gate (MUST): before executing
  * or forwarding a `ConnectInvokeRequest`, a host that performs op dispatch
  * MUST ensure the capability required by `op` is present in the session's
  * `negotiated_capabilities`. If absent, the host MUST NOT run the op handler
@@ -92,7 +92,7 @@ export function requiredCapability(op: string): string | undefined {
       return CAPABILITY_L2_COMPUTABLE;
     case "extract":
       return CAPABILITY_KE_EXTRACTION;
-    // Memory family (SPOKE memory protocol §4.1/§13): 33 rows, each mapping
+    // note: memory family (SPOKE memory protocol §4.1/§13): 33 rows, each mapping
     // its op to the flag that gates it. Sub-flag rows stay literal —
     // negotiating a sub-flag never authorizes core ops.
     case "memory.describe":
@@ -185,7 +185,7 @@ export function tokenAuthorizesOp(
 }
 
 /**
- * Ops whose registered request carries a `Scope` and therefore the
+ * note: ops whose registered request carries a `Scope` and therefore the
  * `Scope.cognition` selection slot (`common.schema.json` → `Scope`,
  * referenced by `assemble-request` / `check-request` and the three remote
  * Scope ops).
@@ -199,7 +199,7 @@ const SCOPE_COGNITION_OPS: Record<string, true> = {
 };
 
 /**
- * Memory ops whose registered request declares the `cognition_filter` slot
+ * note: memory ops whose registered request declares the `cognition_filter` slot
  * (`memory-recall-request`, `memory-records-list-request`,
  * `memory-reflections-{generate,list,state}-request`).
  */

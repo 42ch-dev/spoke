@@ -1,10 +1,10 @@
-// Strict RFC 3339 with mandatory offset — mirrors the first two arms of the
+// why: strict RFC 3339 with mandatory offset — mirrors the first two arms of the
 // Rust `is_parseable_date_time` chain (`DateTime::parse_from_rfc3339` /
 // `DateTime<Utc>` FromStr). Unlike `Date.parse`, it rejects date-only,
 // slash-separated, RFC 2822, and space-separated strings.
 const RFC3339_TIMESTAMP_RE =
   /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:[Zz]|([+-])(\d{2}):(\d{2}))$/;
-// NaiveDateTime fallback: "YYYY-MM-DDTHH:MM:SS[.fraction]" without timezone.
+// note: NaiveDateTime fallback — "YYYY-MM-DDTHH:MM:SS[.fraction]" without timezone.
 const NAIVE_TIMESTAMP_RE =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/;
 
@@ -22,7 +22,7 @@ export function isParseableDateTime(value: string): boolean {
   }
   const rfc3339 = RFC3339_TIMESTAMP_RE.exec(trimmed);
   if (rfc3339 !== null) {
-    // Groups: 1 year, 2 month, 3 day, 4 hour, 5 minute, 6 second,
+    // note: Groups — 1 year, 2 month, 3 day, 4 hour, 5 minute, 6 second,
     // 7 fraction, 8 offset sign, 9 offset hour, 10 offset minute.
     // A `Z`/`z` offset (sign group undefined) is always in range.
     return (
@@ -53,7 +53,7 @@ export function isParseableDateTime(value: string): boolean {
 }
 
 /**
- * Calendar/clock validity on UTC parts. Seconds may be 60 (leap second), which
+ * note: Calendar/clock validity on UTC parts. Seconds may be 60 (leap second), which
  * chrono accepts; JS Date cannot represent it, so it is checked separately.
  * Round-trip through Date catches rollovers (Feb 30, month 13, hour 24, ...).
  */

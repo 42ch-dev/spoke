@@ -1,5 +1,5 @@
 /**
- * Pure grant-coverage evaluation (§6.5, MEM-R006/R017) and the
+ * note: Pure grant-coverage evaluation (§6.5, MEM-R006/R017) and the
  * non-amplification checks for `memory.grants.grant` (§7.9) — TS parity
  * with `crates/spoke-operations/src/memory/grants.rs`, including the
  * fix-round semantics (space-wide scope matching, admin-only single-grant
@@ -15,22 +15,21 @@ import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 
 /** What one op needs from a single grant (§6.5, §7 tables). */
 export interface GrantRequirement {
-  /** Required capability from the §7 grant table (`admin` implies all within coverage). */
+  /** note: Required capability from the §7 grant table (`admin` implies all within coverage). */
   capability: string;
-  /** Subject the op names; `null` for space-wide ops. */
+  /** note: Subject the op names; `null` for space-wide ops. */
   subjectId: string | null;
-  /** Placement contexts the op names; empty = the op names no contexts. */
+  /** note: Placement contexts the op names; empty = the op names no contexts. */
   contextIds: string[];
-  /** The op reads shared visibility. */
   readsShared: boolean;
-  /** The op uses a `subject_all` selection — only unrestricted grants pass. */
+  /** note: The op uses a `subject_all` selection — only unrestricted grants pass. */
   subjectAll: boolean;
 }
 
 interface GrantView {
   capabilities: string[];
   subjectId: string | null;
-  /** Empty = unrestricted within the grant's subject/space scope (§6.5). */
+  /** note: Empty = unrestricted within the grant's subject/space scope (§6.5). */
   contextIds: string[];
   sharedAccess: boolean;
   expiresAt: number | null;
@@ -43,7 +42,7 @@ const RFC3339_UTC =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/;
 
 /**
- * `null` = absent; `NaN` = present but invalid. Invalid means it fails the
+ * note: `null` = absent; `NaN` = present but invalid. Invalid means it fails the
  * strict RFC 3339 UTC grammar (date-only and offset forms are rejected) or
  * the calendar round-trip (`2027-02-30` must not normalize). Malformed
  * values fail closed: an invalid `expires_at` is treated as already expired
@@ -63,7 +62,7 @@ function parseTimestamp(value: string | undefined): number | null {
   if (!Number.isFinite(parsed)) {
     return Number.NaN;
   }
-  // Calendar validity: Date.parse normalizes impossible dates (e.g. Feb 30),
+  // note: Calendar validity — Date.parse normalizes impossible dates (e.g. Feb 30),
   // so the UTC components must round-trip exactly.
   const date = new Date(parsed);
   const sameInstant =
@@ -77,11 +76,11 @@ function parseTimestamp(value: string | undefined): number | null {
 }
 
 function isLive(view: GrantView, now: number): boolean {
-  // Revoked (incl. malformed `revoked_at`) → never live.
+  // note: Revoked (incl. malformed `revoked_at`) → never live.
   if (view.revokedAt !== null) {
     return false;
   }
-  // Expired (incl. malformed `expires_at`) → never live.
+  // note: Expired (incl. malformed `expires_at`) → never live.
   return view.expiresAt === null || view.expiresAt > now;
 }
 
@@ -116,7 +115,7 @@ export function grantCovers(
   if (!isLive(view, now)) {
     return false;
   }
-  // Subject scope (§6.5): a subject-scoped grant never covers another
+  // note: Subject scope (§6.5) — a subject-scoped grant never covers another
   // subject, and never covers space-wide ops.
   if (requirement.subjectId !== null) {
     if (view.subjectId !== null && view.subjectId !== requirement.subjectId) {
@@ -150,15 +149,15 @@ export function grantCovers(
 
 /** The grant being issued via `memory.grants.grant`. */
 export interface IssuedGrant {
-  /** Requested capabilities (§7.9 `minItems: 1`, `uniqueItems: true` — callers validate). */
+  /** note: Requested capabilities (§7.9 `minItems: 1`, `uniqueItems: true` — callers validate). */
   capabilities: string[];
-  /** `null` = space-wide issuance; otherwise the subject scope. */
+  /** note: `null` = space-wide issuance; otherwise the subject scope. */
   subjectId: string | null;
-  /** Requested placement-context restriction; empty = unrestricted. */
+  /** note: Requested placement-context restriction; empty = unrestricted. */
   contextIds: string[];
-  /** Requested shared visibility access (meaningful only when restricted). */
+  /** note: Requested shared visibility access (meaningful only when restricted). */
   sharedAccess: boolean;
-  /** Requested expiry (epoch ms); `null` = non-expiring. */
+  /** note: Requested expiry (epoch ms); `null` = non-expiring. */
   expiresAt: number | null;
 }
 
@@ -188,7 +187,7 @@ export function validateGrantIssuance(
   now: number,
   issued: IssuedGrant,
 ): SpokeResult<void> {
-  // Stage 1: applicable admin grants.
+  // note: Stage 1 — applicable admin grants.
   const applicable = granterGrants
     .map(viewOf)
     .filter(
@@ -219,13 +218,13 @@ export function validateGrantIssuance(
     );
   }
 
-  // A present but non-finite issued expiry cannot be bounded — reject before
+  // why: a present but non-finite issued expiry cannot be bounded — reject before
   // any comparison (NaN comparisons are all false and would slip through).
   if (issued.expiresAt !== null && !Number.isFinite(issued.expiresAt)) {
     return notAuthorized("issued expires_at is not a finite timestamp");
   }
 
-  // Stage 2: expiry bound over the applicable set only (malformed expiries
+  // note: Stage 2 — expiry bound over the applicable set only (malformed expiries
   // were already excluded from applicability by `isLive`).
   const expiries = applicable
     .map((view) => view.expiresAt)

@@ -3,7 +3,8 @@
  *
  * Holds the per-direction sequence counters, `session_id`,
  * `negotiated_capabilities`, and the two session peer ids bound to the
- * authenticated hellos (spec §Session-core state machine: Established ⇒
+ * authenticated hellos (see `.agents/specs/connect/spoke-connect.md`
+ * contract §Session-core state machine: Established ⇒
  * outbound counter = 0, inbound expected = 0). This is the optional thin
  * helper, not a full `Disconnected→…→Closed` state-machine class — the
  * guards it wraps (sequence, dispatch gate) are the pure core port; the
@@ -27,13 +28,10 @@ export function negotiatedCapabilities(
 }
 
 export interface SessionOptions {
-  /** A-assigned or agreed session id (wire snapshot `session_id`). */
   session_id: string;
-  /** Peer that dialed / sent first hello. */
   initiator_peer_id: string;
-  /** Peer that accepted. */
   responder_peer_id: string;
-  /** Agreed subset of both hosts' capabilities (spec §Session-core state machine). */
+  /** note: agreed subset of both hosts' capabilities (spec §Session-core state machine). */
   negotiated_capabilities: readonly string[];
 }
 
@@ -52,23 +50,20 @@ export class Session {
     this.initiator_peer_id = options.initiator_peer_id;
     this.responder_peer_id = options.responder_peer_id;
     this.negotiated_capabilities = options.negotiated_capabilities;
-    // Established state: outbound counter = 0, inbound expected = 0.
     this.outbound = new OutboundSequence();
     this.inbound = new InboundSequence();
   }
 
-  /** The next outbound sequence that `allocateOutboundSequence` will assign. */
   get nextOutboundSequence(): number {
     return this.outbound.next();
   }
 
-  /** The next inbound sequence `acceptInboundSequence` will accept. */
   get nextExpectedInboundSequence(): number {
     return this.inbound.nextExpected();
   }
 
   /**
-   * Atomically-in-spirit assign the next outbound sequence (first = 0).
+   * note: atomically-in-spirit assign the next outbound sequence (first = 0).
    * Throws `sequence_exhausted` past 2⁵³−1 — sequences never wrap; the
    * caller must close the session.
    */
@@ -77,7 +72,7 @@ export class Session {
   }
 
   /**
-   * Accept an inbound invoke sequence iff it is the next expected one;
+   * note: accept an inbound invoke sequence iff it is the next expected one;
    * throws `inbound_sequence_mismatch` otherwise and leaves the expectation
    * unchanged (the caller must reject the invoke without dispatching it).
    */
@@ -97,7 +92,6 @@ export class Session {
     this.inbound.peek(sequence);
   }
 
-  /** Dispatch gate: does this session's negotiated capabilities authorize `op`? */
   dispatchAllowed(op: string): boolean {
     return coreDispatchAllowed(op, this.negotiated_capabilities);
   }

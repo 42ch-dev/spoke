@@ -1,5 +1,5 @@
 /**
- * Reviewer-round regression: the per-op committed receipt branch must keep
+ * why: reviewer-round regression: the per-op committed receipt branch must keep
  * `idempotency_key` REQUIRED in the TypeScript output.
  *
  * Mechanism: COMPILE-LEVEL. The schema pins the key through a flattened
@@ -14,14 +14,12 @@ import type { MemoryCaptureResponse } from "@42ch/spoke-schemas";
 
 type CommittedBranch = Extract<MemoryCaptureResponse, { status: "committed" }>;
 
-/** `true` when `K` is optional (or undefined-accepting) on `T`. */
 type IsOptional<T, K extends keyof T> = {} extends Pick<T, K> ? true : false;
 
-/** `true` only while `idempotency_key` stays required on the committed branch. */
 type IdempotencyKeyRequired =
   IsOptional<CommittedBranch, "idempotency_key"> extends false ? true : never;
 
-// Compile-level assertion — tsc fails here if the generator regresses.
+// why: compile-level assertion — tsc fails here if the generator regresses.
 const idempotencyKeyIsRequired: IdempotencyKeyRequired = true;
 void idempotencyKeyIsRequired;
 

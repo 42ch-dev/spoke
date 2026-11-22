@@ -61,7 +61,7 @@ import {
   type LoopbackHost,
 } from "./loopback-host.js";
 
-/** Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
+/** note: Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
 function seed(base: number): Uint8Array {
   return Uint8Array.from({ length: 32 }, (_, i) => base + i);
 }
@@ -87,7 +87,6 @@ function peerManifest(
   };
 }
 
-/** Minimal schema-valid provisional KnowledgeEntry for the upsert path. */
 function freshEntry(entryId: string, canonicalName: string): KnowledgeEntry {
   return {
     schema_version: 1,
@@ -100,7 +99,6 @@ function freshEntry(entryId: string, canonicalName: string): KnowledgeEntry {
   };
 }
 
-/** One dialed loopback peer: client adapter + host + host-side store. */
 interface LoopbackPeer {
   client: RemoteAdapter;
   host: LoopbackHost;
@@ -109,11 +107,10 @@ interface LoopbackPeer {
 }
 
 /**
- * Dial one peer: a loopback host advertising `hostManifest` in its signed
- * hello, and a `RemoteAdapter` client that caches it as `remoteManifest`
- * (the router's §2 selection input). The client manifest offers both
- * baseline capabilities so each host's negotiated set covers the ops its
- * own manifest advertises.
+ * why: a loopback host advertising `hostManifest` in its signed hello, and a
+ * `RemoteAdapter` client that caches it as `remoteManifest` (the router's §2
+ * selection input). The client manifest offers both baseline capabilities so
+ * each host's negotiated set covers the ops its own manifest advertises.
  */
 async function dialPeer(
   hostSeed: Uint8Array,
@@ -140,7 +137,7 @@ async function dialPeer(
     localManifest: {
       ...schemaConformantManifest(),
       host_id: "test-client",
-      // The toy host serves the knowledge ports, so both hellos carry
+      // why: the toy host serves the knowledge ports, so both hellos carry
       // `spoke-knowledge` (the negotiated set is their intersection).
       capabilities: ["spoke-baseline", "l2-computable", "spoke-knowledge"],
     },
@@ -150,7 +147,6 @@ async function dialPeer(
   return { client, host, adapter, peerId: peerIdHost };
 }
 
-/** Close a peer pair (client + host) deterministically. */
 function closePeer(peer: LoopbackPeer): void {
   peer.client.close();
   peer.host.close();
@@ -159,11 +155,10 @@ function closePeer(peer: LoopbackPeer): void {
 const textEncoder = new TextEncoder();
 
 /**
- * Lexicographic UTF-8 byte order on strings — the same comparison the
- * router applies for its §4 deterministic tie-break and §6 peer_id
- * ordering. (Peer ids are base58btc ASCII, so byte order and code-unit
- * order coincide; the explicit byte compare keeps the mirror faithful to
- * the contract.)
+ * note: lexicographic UTF-8 byte order on strings — the same comparison the
+ * router applies for its §4 deterministic tie-break and §6 peer_id ordering.
+ * (Peer ids are base58btc ASCII, so byte order and code-unit order coincide;
+ * the explicit byte compare keeps the mirror faithful to the contract.)
  */
 function compareUtf8Strings(a: string, b: string): number {
   const aBytes = textEncoder.encode(a);
@@ -227,11 +222,8 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
             "kb_router_baseline_1",
           );
         }
-        // Capability hard filter: A served both port calls (get + put);
-        // B received ZERO invokes.
         expect(peerA.host.stats.invokesDispatched).toBe(2);
         expect(peerB.host.stats.invokesDispatched).toBe(0);
-        // The write physically landed in peer A's host-side store.
         expect(peerA.adapter.store.entries.has("kb_router_baseline_1")).toBe(true);
         expect(peerB.adapter.store.entries.has("kb_router_baseline_1")).toBe(false);
 
@@ -246,7 +238,7 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
         const checker = () => ({ ok: true as const, value: [] as never[] });
         const check = await orchestrateCheck(router, checkRequest, checker);
         expect(check.ok).toBe(true);
-        // check = listKnowledgeEntries + listTimelineEvents + putFindings;
+        // note: check = listKnowledgeEntries + listTimelineEvents + putFindings;
         // all three landed on A (2 + 3 = 5 invokes total), none on B.
         expect(peerA.host.stats.invokesDispatched).toBe(5);
         expect(peerB.host.stats.invokesDispatched).toBe(0);
@@ -261,9 +253,9 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
   it(
     "rejects with no_capable_peer when no registered peer advertises the required capability (terminal, deterministic, no wrong-peer fallback)",
     async () => {
-      // Neither peer can serve baseline ops — both advertise l2-computable
-      // only, so the first upsert port call (port.knowledge.get →
-      // spoke-baseline) has no capable peer.
+      // why: neither peer can serve baseline ops — both advertise
+      // l2-computable only, so the first upsert port call
+      // (port.knowledge.get → spoke-baseline) has no capable peer.
       const peerX = await dialPeer(
         seed(0xc0),
         seed(0x30),
@@ -284,8 +276,8 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
             freshEntry("kb_router_none_1", "Router No Peer"),
           ],
         };
-        // The reject is stable (§5): repeated calls produce the identical
-        // terminal reject, and no invoke ever reaches a host.
+        // invariant: the reject is stable (§5) — repeated calls produce the
+        // identical terminal reject, and no invoke ever reaches a host.
         const first = await orchestrateUpsert(router, upsertRequest);
         const second = await orchestrateUpsert(router, upsertRequest);
 
@@ -311,9 +303,9 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
   it(
     "deterministic tie-break: the lowest peer_id serves both orchestrated families when three peers match",
     async () => {
-      // Three peers, all baseline-capable — every one matches the upsert AND
-      // check requirements (DoD: "a third peer that matches both"). Selection
-      // must collapse to the lexicographically-lowest peer_id (§4).
+      // why: three peers, all baseline-capable — every one matches the upsert
+      // AND check requirements (DoD: "a third peer that matches both").
+      // Selection must collapse to the lexicographically-lowest peer_id (§4).
       const peers = [
         await dialPeer(
           seed(0xa1),
@@ -370,7 +362,7 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
         const check = await orchestrateCheck(router, checkRequest, checker);
         expect(check.ok).toBe(true);
 
-        // upsert = 2 invokes (get + put), check = 3 (two scope queries +
+        // note: upsert = 2 invokes (get + put), check = 3 (two scope queries +
         // putFindings) — all on the same lowest peer_id, none elsewhere.
         for (const peer of peers) {
           expect(peer.host.stats.invokesDispatched).toBe(
@@ -378,8 +370,8 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
           );
         }
 
-        // Stability (§4): a repeat upsert (fresh entry) re-selects the same
-        // peer — 2 more invokes on the winner, still zero elsewhere.
+        // note: stability (§4) — a repeat upsert (fresh entry) re-selects the
+        // same peer, 2 more invokes on the winner, still zero elsewhere.
         const repeatRequest: UpsertRequest = {
           knowledge_entries: [
             freshEntry("kb_router_tie_2", "Router Tie Two"),
@@ -404,7 +396,7 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
   it(
     "aggregates a composed view and a per-peer manifest list over real loopback peers (§6)",
     async () => {
-      // Overlapping capabilities with distinct roles/namespaces: the
+      // note: overlapping capabilities with distinct roles/namespaces — the
       // composed view unions + dedups the real signed-hello manifests,
       // carries the ROUTER's own host_id (never a peer's), omits
       // authority, and lists contributing peer ids sorted; the per-peer
@@ -438,9 +430,7 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
         const composed = await router.getHostCapabilityManifest();
         expect(composed.ok).toBe(true);
         if (composed.ok) {
-          // §6: the router's own identity, not a peer's host_id.
           expect(composed.value.host_id).toBe("test-router");
-          // Set-union, deduplicated across the two peers.
           expect([...composed.value.capabilities].sort()).toEqual([
             "l2-computable",
             "spoke-baseline",
@@ -455,9 +445,7 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
             "beta",
             "gamma",
           ]);
-          // §6: the composed view synthesizes no authority scope.
           expect(composed.value.authority).toBeUndefined();
-          // Contributing peer ids, lexicographic UTF-8 byte order.
           expect(composed.value.extensions.router).toEqual({
             peers: [peerA.peerId, peerB.peerId].sort(compareUtf8Strings),
           });
@@ -466,7 +454,7 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
         const perPeer = await router.listPeerHostCapabilityManifests();
         expect(perPeer.ok).toBe(true);
         if (perPeer.ok) {
-          // Each entry is one peer's cached hello manifest (per-peer, not
+          // note: each entry is one peer's cached hello manifest (per-peer, not
           // the union), ordered by peer_id.
           expect(perPeer.value.map((entry) => entry.host_id).sort()).toEqual([
             "host-a",

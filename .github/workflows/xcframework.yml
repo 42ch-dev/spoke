@@ -301,8 +301,11 @@ jobs:
       XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/xc-out
     steps:
       - name: Checkout
-        # actions/checkout@v4.2.2 — recipe + manifest tool, no LFS.
+        # actions/checkout@v4.2.2 — recipe + manifest tool, no LFS. Full
+        # history so the provenance git-log baselines resolve real commits.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
 
       - name: Validate worker attempts
         id: attempts

@@ -42,7 +42,16 @@ function runFixture({
     mkdirSync(dirname(script), { recursive: true });
     copyFileSync(fileURLToPath(new URL("./apply-xcframework-artifact.sh", import.meta.url)), script);
     put(".gitattributes", `${bundle}/**/*.a filter=lfs diff=lfs merge=lfs -text\n`);
-    put(".github/workflows/xcframework.yml", 'toolchain: 1.98.1\ntargets: aarch64-apple-darwin\nXCFRAMEWORK_LOCKED: "1"\n');
+    put(".github/workflows/xcframework.yml", [
+      "toolchain: 1.98.1",
+      "targets: aarch64-apple-darwin",
+      "targets: aarch64-apple-ios",
+      "targets: aarch64-apple-ios-sim",
+      "targets: x86_64-apple-ios",
+      "targets: aarch64-apple-darwin",
+      'XCFRAMEWORK_LOCKED: "1"',
+      "",
+    ].join("\n"));
     put(`${bundle}/Info.plist`, "old plist\n");
     put(`${bundle}/macos-arm64/libspoke_connect.a`, "old native\n");
     git("init", "-q");
@@ -154,6 +163,7 @@ function runFixture({
       put(`artifact/${finalName}/spoke_connectFFI.xcframework.sha256`, manifest);
       put(`artifact/${finalName}/provenance.json`, JSON.stringify({
         sourceHead: producerSha, checkoutRevision, manifest, rustcVersion: "rustc fixture",
+        sourceRevision: producerSha, recipeRevision: producerSha,
       }));
     }
     put("metadata", `Xcframework|${invalidSource ? "0".repeat(40) : producerSha}|${status}|${conclusion}`);
@@ -218,6 +228,8 @@ describe("workflow gate jobs beside the producer", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(contents, "new native\n");
     assert.equal(record.xcframework.headSha, producerSha);
+    assert.equal(record.xcframework.sourceRevision, "unknown");
+    assert.equal(record.xcframework.recipeRevision, "unknown");
   });
 
   it("refuses a gate job that did not succeed", () => {
@@ -350,6 +362,18 @@ describe("split producer graph", () => {
     assert.equal(contents, "new native\n");
     assert.equal(record.xcframework.headSha, producerSha);
     assert.equal(record.xcframework.artifact, "spoke-connect-xcframework-123-1");
+    assert.equal(record.xcframework.sourceRevision, producerSha);
+    assert.equal(record.xcframework.recipeRevision, producerSha);
+    assert.deepEqual(record.xcframework.declaredRecipe.targets,
+      ["aarch64-apple-darwin", "aarch64-apple-ios", "aarch64-apple-ios-sim", "x86_64-apple-ios"]);
+  });
+
+  it("applies a rebuild artifact when only the committed smoke failed", () => {
+    const { result, contents, record, producerSha } = runFixture({ graph: {}, conclusion: "failure", failures: [] });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(contents, "new native\n");
+    assert.equal(record.xcframework.headSha, producerSha);
+    assert.equal(record.xcframework.runConclusion, "failure");
   });
 
   it("refuses mixed worker attempts", () => {

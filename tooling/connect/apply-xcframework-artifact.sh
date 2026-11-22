@@ -158,7 +158,7 @@ try:
             raise ValueError("job '%s' is not completed" % name)
         return job
 
-    def check_steps(job, required, allowed_failures):
+    def check_steps(job, required, allowed_failures, expected_failures):
         steps = job["steps"]
         step_names = [step["name"] for step in steps]
         if len(step_names) != len(set(step_names)):
@@ -169,7 +169,7 @@ try:
         if any(outcomes.get(name) != "success" for name in required):
             raise ValueError("a required step did not succeed in '%s'" % job["name"])
         failures = {name for name, conclusion in outcomes.items() if conclusion == "failure"}
-        if failures - allowed_failures or bool(failures) != (run_conclusion == "failure"):
+        if failures - allowed_failures or bool(failures) != expected_failures:
             raise ValueError("failure is not limited to the consumer smoke")
 
     LEGACY = {"changes", "xcframework"}
@@ -204,6 +204,7 @@ try:
             allowed_failures={
                 "Fail on committed Swift consumer smoke",
             },
+            expected_failures=run_conclusion == "failure",
         )
     else:
         check_steps(
@@ -212,6 +213,7 @@ try:
             allowed_failures={
                 "Fail on committed Swift consumer smoke",
             },
+            expected_failures=run_conclusion == "failure",
         )
         workers = [by_name[name] for name in sorted(GRAPH - {"changes", "assemble", "xcframework"})]
         for job in workers:
@@ -240,6 +242,9 @@ try:
                     "Upload xcframework artifact",
                 },
                 allowed_failures=set(),
+                # A green assemble is valid on a failure run: the only
+                # tolerated failure lives in the aggregate consumer smoke.
+                expected_failures=False,
             )
         elif assemble["conclusion"] != "skipped":
             raise ValueError("assemble job is '%s' beside skipped workers" % assemble["conclusion"])
@@ -445,7 +450,7 @@ PY
   exit 1
 fi
 
-PRODUCER_CHECKOUT="$(
+PRODUCER_FIELDS="$(
   PRODUCER_RECORD="${PRODUCER_RECORD}" python3 - <<'PY'
 import json
 import os
@@ -453,8 +458,14 @@ import os
 with open(os.environ["PRODUCER_RECORD"], encoding="utf-8") as handle:
     record = json.load(handle)
 print(record["checkoutRevision"])
+# Freshness baselines: copied verbatim from the producer record (never
+# recomputed in the apply checkout, whose history may differ). Records that
+# predate the baseline fields carry "unknown".
+print(record.get("sourceRevision") or "unknown")
+print(record.get("recipeRevision") or "unknown")
 PY
 )"
+{ IFS= read -r PRODUCER_CHECKOUT; IFS= read -r SOURCE_REVISION; IFS= read -r RECIPE_REVISION; } <<< "${PRODUCER_FIELDS}"
 
 # A pull-request run builds GitHub's virtual merge commit, not the PR head, so
 # an exact-hash compare would refuse every PR artifact. Accept a differing
@@ -538,12 +549,14 @@ import re
 
 text = os.environ["RECIPE_YAML"]
 toolchain = re.search(r"^\s*toolchain:\s*(\S+)\s*$", text, re.M)
-targets = re.search(r"^\s*targets:\s*(.+?)\s*$", text, re.M)
+# The split producer declares targets on every worker job; collect them all,
+# deduplicated in file order.
+targets = list(dict.fromkeys(re.findall(r"^\s*targets:\s*(.+?)\s*$", text, re.M)))
 locked = re.search(r'^\s*XCFRAMEWORK_LOCKED:\s*"?([01])"?\s*$', text, re.M)
 if not (toolchain and targets and locked):
     raise SystemExit(1)
 print(toolchain.group(1))
-print(targets.group(1))
+print(",".join(targets))
 print(locked.group(1))
 PY
 )"; then
@@ -563,6 +576,7 @@ ARTIFACT_NAME="${ARTIFACT_NAME}" WF_NAME="${WF_NAME}" RECIPE_SOURCE="${RECIPE_SO
 MANIFEST_NAME="${MANIFEST_NAME}" MANIFEST_SHA="${MANIFEST_SHA}" \
 DECLARED_TOOLCHAIN="${DECLARED_TOOLCHAIN}" DECLARED_TARGETS="${DECLARED_TARGETS}" \
 DECLARED_LOCKED="${DECLARED_LOCKED}" OBSERVED_RUSTC="${OBSERVED_RUSTC}" \
+SOURCE_REVISION="${SOURCE_REVISION}" RECIPE_REVISION="${RECIPE_REVISION}" \
 PRODUCER_CHECKOUT="${PRODUCER_CHECKOUT}" python3 - "${RECORD}" <<'PY'
 import json
 import os
@@ -589,6 +603,8 @@ record = {
         "observedRustc": env["OBSERVED_RUSTC"],
         "manifest": env["MANIFEST_NAME"],
         "manifestSha256": env["MANIFEST_SHA"],
+        "sourceRevision": env["SOURCE_REVISION"],
+        "recipeRevision": env["RECIPE_REVISION"],
     },
 }
 with open(sys.argv[1], "w", encoding="utf-8") as handle:

@@ -1,0 +1,140 @@
+{
+  "id": "canonical-parity",
+  "title": "RFC 8785 producer parity — two independently serialized envelopes with identical content produce byte-identical canonical output on both stacks",
+  "protocol_refs": [
+    "§Canonical JSON",
+    "§verdict core and detail"
+  ],
+  "cases": [
+    {
+      "id": "full-envelope-member-order",
+      "invariant": "§Canonical JSON",
+      "what": "a fully populated judgment serialized with different member order yields the same canonical bytes",
+      "left": {
+        "schema_version": 1,
+        "judgment_id": "jd_canonical_001",
+        "judgment_kind": "consistency",
+        "target": {
+          "kind": "knowledge_entry",
+          "id": "ke_mira_harbor",
+          "namespace": "toy-world",
+          "revision": 7
+        },
+        "evidence": [
+          { "kind": "knowledge_entry", "id": "ke_mira_harbor", "revision": 3 },
+          { "kind": "rule", "id": "rule_customs_gate", "namespace": "toy-world", "revision": 1 }
+        ],
+        "verdict": {
+          "outcome": "consistent",
+          "confidence": 0.9,
+          "detail": {
+            "agree": ["ke_mira_harbor", "rule_customs_gate"],
+            "disagreements": []
+          }
+        },
+        "basis": "All evidence agrees on the declared name.",
+        "created_at": "2026-11-22T10:00:00Z",
+        "extensions": {}
+      },
+      "right": {
+        "extensions": {},
+        "created_at": "2026-11-22T10:00:00Z",
+        "basis": "All evidence agrees on the declared name.",
+        "verdict": {
+          "detail": {
+            "disagreements": [],
+            "agree": ["ke_mira_harbor", "rule_customs_gate"]
+          },
+          "confidence": 0.9,
+          "outcome": "consistent"
+        },
+        "evidence": [
+          { "revision": 3, "id": "ke_mira_harbor", "kind": "knowledge_entry" },
+          { "revision": 1, "namespace": "toy-world", "id": "rule_customs_gate", "kind": "rule" }
+        ],
+        "target": {
+          "revision": 7,
+          "namespace": "toy-world",
+          "id": "ke_mira_harbor",
+          "kind": "knowledge_entry"
+        },
+        "judgment_kind": "consistency",
+        "judgment_id": "jd_canonical_001",
+        "schema_version": 1
+      },
+      "expected_canonical": "{\"basis\":\"All evidence agrees on the declared name.\",\"created_at\":\"2026-11-22T10:00:00Z\",\"evidence\":[{\"id\":\"ke_mira_harbor\",\"kind\":\"knowledge_entry\",\"revision\":3},{\"id\":\"rule_customs_gate\",\"kind\":\"rule\",\"namespace\":\"toy-world\",\"revision\":1}],\"extensions\":{},\"judgment_id\":\"jd_canonical_001\",\"judgment_kind\":\"consistency\",\"schema_version\":1,\"target\":{\"id\":\"ke_mira_harbor\",\"kind\":\"knowledge_entry\",\"namespace\":\"toy-world\",\"revision\":7},\"verdict\":{\"confidence\":0.9,\"detail\":{\"agree\":[\"ke_mira_harbor\",\"rule_customs_gate\"],\"disagreements\":[]},\"outcome\":\"consistent\"}}"
+    },
+    {
+      "id": "minimal-envelope-member-order",
+      "invariant": "§Canonical JSON",
+      "what": "a required-only judgment with a product-namespaced kind is byte-significant only in content",
+      "left": {
+        "schema_version": 2,
+        "judgment_id": "jd_min_2",
+        "judgment_kind": "acme:belief-check",
+        "target": { "kind": "thing", "id": "t_1" },
+        "evidence": [],
+        "verdict": { "outcome": "unknown" },
+        "extensions": {}
+      },
+      "right": {
+        "extensions": {},
+        "verdict": { "outcome": "unknown" },
+        "evidence": [],
+        "target": { "id": "t_1", "kind": "thing" },
+        "judgment_kind": "acme:belief-check",
+        "judgment_id": "jd_min_2",
+        "schema_version": 2
+      },
+      "expected_canonical": "{\"evidence\":[],\"extensions\":{},\"judgment_id\":\"jd_min_2\",\"judgment_kind\":\"acme:belief-check\",\"schema_version\":2,\"target\":{\"id\":\"t_1\",\"kind\":\"thing\"},\"verdict\":{\"outcome\":\"unknown\"}}"
+    },
+    {
+      "id": "unicode-detail-extensions",
+      "invariant": "§Canonical JSON",
+      "what": "unescaped UTF-8, nested detail and namespaced extensions canonicalize identically under RFC 8785",
+      "left": {
+        "schema_version": 1,
+        "judgment_id": "jd_unicode_3",
+        "judgment_kind": "support",
+        "target": { "kind": "knowledge_entry", "id": "ke_café_大字" },
+        "evidence": [{ "kind": "note", "id": "n_1", "revision": 12 }],
+        "verdict": {
+          "outcome": "supported",
+          "confidence": 0.5,
+          "detail": {
+            "scores": { "lexical": 0.25, "semantic": 1 },
+            "tags": ["été", "日本語"],
+            "nested": { "deep": { "ok": true } }
+          }
+        },
+        "created_at": "2026-06-30T23:59:59Z",
+        "extensions": {
+          "acme_audit": { "reviewer": "résumé-bot", "pass": true },
+          "acme_trace": { "hops": [1, 2, 3] }
+        }
+      },
+      "right": {
+        "extensions": {
+          "acme_trace": { "hops": [1, 2, 3] },
+          "acme_audit": { "pass": true, "reviewer": "résumé-bot" }
+        },
+        "created_at": "2026-06-30T23:59:59Z",
+        "verdict": {
+          "detail": {
+            "tags": ["été", "日本語"],
+            "nested": { "deep": { "ok": true } },
+            "scores": { "semantic": 1, "lexical": 0.25 }
+          },
+          "confidence": 0.5,
+          "outcome": "supported"
+        },
+        "evidence": [{ "revision": 12, "id": "n_1", "kind": "note" }],
+        "target": { "id": "ke_café_大字", "kind": "knowledge_entry" },
+        "judgment_kind": "support",
+        "judgment_id": "jd_unicode_3",
+        "schema_version": 1
+      },
+      "expected_canonical": "{\"created_at\":\"2026-06-30T23:59:59Z\",\"evidence\":[{\"id\":\"n_1\",\"kind\":\"note\",\"revision\":12}],\"extensions\":{\"acme_audit\":{\"pass\":true,\"reviewer\":\"résumé-bot\"},\"acme_trace\":{\"hops\":[1,2,3]}},\"judgment_id\":\"jd_unicode_3\",\"judgment_kind\":\"support\",\"schema_version\":1,\"target\":{\"id\":\"ke_café_大字\",\"kind\":\"knowledge_entry\"},\"verdict\":{\"confidence\":0.5,\"detail\":{\"nested\":{\"deep\":{\"ok\":true}},\"scores\":{\"lexical\":0.25,\"semantic\":1},\"tags\":[\"été\",\"日本語\"]},\"outcome\":\"supported\"}}"
+    }
+  ]
+}

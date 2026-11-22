@@ -1,0 +1,159 @@
+{
+  "id": "valid",
+  "title": "Valid Judgment envelopes — required-only, fully populated, presence-edge and vocabulary-open cases",
+  "protocol_refs": [
+    "§Judgment",
+    "§JudgmentRef",
+    "§judgment_kind vocabulary",
+    "§verdict core and detail",
+    "§Pure validation"
+  ],
+  "cases": [
+    {
+      "id": "minimal-required-fields",
+      "invariant": "§Judgment required members",
+      "what": "a judgment carrying only the required members validates",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_min_1",
+        "judgment_kind": "consistency",
+        "target": { "kind": "knowledge_entry", "id": "ke_mira_harbor" },
+        "evidence": [
+          { "kind": "knowledge_entry", "id": "ke_mira_harbor", "revision": 3 }
+        ],
+        "verdict": { "outcome": "consistent" },
+        "extensions": {}
+      }
+    },
+    {
+      "id": "fully-populated",
+      "invariant": "§Judgment optional members",
+      "what": "every optional member present validates: basis, created_at, target.revision, namespace, confidence, detail",
+      "judgment": {
+        "schema_version": 2,
+        "judgment_id": "jd_full_2",
+        "judgment_kind": "review",
+        "target": {
+          "kind": "knowledge_entry",
+          "id": "ke_mira_harbor",
+          "namespace": "toy-world",
+          "revision": 7
+        },
+        "evidence": [
+          { "kind": "knowledge_entry", "id": "ke_mira_harbor", "revision": 3 },
+          { "kind": "rule", "id": "rule_customs_gate", "namespace": "toy-world", "revision": 1 }
+        ],
+        "verdict": {
+          "outcome": "accepted",
+          "confidence": 0.9,
+          "detail": {
+            "reviewer": "operator-7",
+            "checklist": { "evidence_read": true, "duplicates_checked": false },
+            "notes": ["name verified", "revision pinned"]
+          }
+        },
+        "basis": "Human review confirmed the declared canonical name.",
+        "created_at": "2026-11-22T10:00:00Z",
+        "extensions": {}
+      }
+    },
+    {
+      "id": "empty-evidence-array",
+      "invariant": "§Judgment evidence",
+      "what": "evidence must be present but the empty array is valid",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_empty_ev",
+        "judgment_kind": "acceptance",
+        "target": { "kind": "knowledge_entry", "id": "ke_dock_manifest" },
+        "evidence": [],
+        "verdict": { "outcome": "rejected" },
+        "extensions": {}
+      }
+    },
+    {
+      "id": "namespaced-judgment-kind",
+      "invariant": "§judgment_kind vocabulary",
+      "what": "product-namespaced kinds validate without a registry update",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_namespaced",
+        "judgment_kind": "acme:belief-assessment",
+        "target": { "kind": "belief", "id": "b_harbor_safe" },
+        "evidence": [
+          { "kind": "note", "id": "n_survey_12", "revision": 12 }
+        ],
+        "verdict": { "outcome": "weakly-supported", "confidence": 0.5 },
+        "extensions": {}
+      }
+    },
+    {
+      "id": "extensions-preserved",
+      "invariant": "§Judgment extensions",
+      "what": "namespaced extensions members validate and round-trip",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_ext",
+        "judgment_kind": "support",
+        "target": { "kind": "knowledge_entry", "id": "ke_gate_schedule" },
+        "evidence": [
+          { "kind": "ledger", "id": "l_44", "revision": 2 }
+        ],
+        "verdict": { "outcome": "supported" },
+        "extensions": {
+          "acme_audit": { "reviewer": "operator-7", "pass": true },
+          "acme_trace": { "hops": [1, 2, 3] }
+        }
+      }
+    },
+    {
+      "id": "non-utc-offset-created-at",
+      "invariant": "§Judgment created_at",
+      "what": "an RFC 3339 timestamp with a non-UTC offset validates",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_offset",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_tide_table" },
+        "evidence": [
+          { "kind": "instrument", "id": "tide_gauge_2", "revision": 9 }
+        ],
+        "verdict": { "outcome": "accepted" },
+        "created_at": "2026-06-30T23:59:59+08:00",
+        "extensions": {}
+      }
+    },
+    {
+      "id": "confidence-lower-bound",
+      "invariant": "§verdict core and detail",
+      "what": "confidence exactly 0 is inside [0, 1]",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_conf_zero",
+        "judgment_kind": "consistency",
+        "target": { "kind": "knowledge_entry", "id": "ke_manifest_a" },
+        "evidence": [
+          { "kind": "knowledge_entry", "id": "ke_manifest_b", "revision": 1 }
+        ],
+        "verdict": { "outcome": "contradictory", "confidence": 0 },
+        "extensions": {}
+      }
+    },
+    {
+      "id": "confidence-upper-bound",
+      "invariant": "§verdict core and detail",
+      "what": "confidence exactly 1 is inside [0, 1]",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_conf_one",
+        "judgment_kind": "consistency",
+        "target": { "kind": "knowledge_entry", "id": "ke_manifest_a" },
+        "evidence": [
+          { "kind": "knowledge_entry", "id": "ke_manifest_b", "revision": 1 }
+        ],
+        "verdict": { "outcome": "consistent", "confidence": 1 },
+        "extensions": {}
+      }
+    }
+  ]
+}

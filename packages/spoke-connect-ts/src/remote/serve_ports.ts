@@ -280,17 +280,30 @@ export interface RemoteHistoryService {
 }
 
 /**
- * Every integer member of `value` is inside the JCS exact-integer range
- * (Rust parity: `payload_integers_jcs_exact`). The dedup digest is SHA-256
- * over the RFC 8785 encoding of the whole request payload; an integer
- * beyond 2^53 − 1 would collapse to the same canonical number as a
- * distinct neighbor, so a different request could replay a recorded
- * outcome under its own key. The serving boundary refuses such payloads
- * with `INVALID_INPUT` instead of rounding.
+ * The JCS exact-integer range: largest magnitude `serde_jcs` can
+ * serialize back to an integer literal under RFC 8785 (Rust
+ * `JCS_EXACT_INTEGER_MAX`). A non-integral f64 member carries no integer
+ * identity to lose, and an f64 beyond the u64 range is a float on both
+ * stacks — only a number that parses as an integer literal inside the
+ * u64 range yet exceeds the exact range is refused (Rust parity:
+ * `payload_integers_jcs_exact` — `1e20` arrives as a float and passes,
+ * an integer literal like 9007199254740993 is refused).
  */
+const JCS_EXACT_INTEGER_MAX = 9_007_199_254_740_991;
+const U64_RANGE_BOUND = 18_446_744_073_709_551_616; // 2^64
+
 function payloadIntegersJcsExact(value: unknown): boolean {
   if (typeof value === "number") {
-    return !Number.isInteger(value) || Number.isSafeInteger(value);
+    if (!Number.isInteger(value)) {
+      return true;
+    }
+    // shortcut: JS cannot tell a 9e15 integer literal from a 9e15 float
+    // literal after parse; refusing any unsafe integral value inside the
+    // u64 range is the shared predicate — the only overlap is a float
+    // literal in (2^53, 2^64) that happens to be integral.
+    return (
+      Math.abs(value) <= JCS_EXACT_INTEGER_MAX || Math.abs(value) >= U64_RANGE_BOUND
+    );
   }
   if (Array.isArray(value)) {
     return value.every(payloadIntegersJcsExact);
@@ -965,12 +978,17 @@ export class AdoptionPortService implements RemoteAdoptionService {
       effectiveScope,
       request,
     );
+
     // note: validate the provider's success — a malformed adopt response
     // is a transport decode reject, never `Ok`. Either settled outcome —
     // refusal, validated success, or the malformed-success reject — is
-    // recorded: a same-digest replay returns the recorded outcome
-    // verbatim and never re-executes.
-    const outcome = result.ok ? validServedAdoptResult(result.value) : result;
+    // snapshotted before it is recorded: a same-digest replay returns the
+    // recorded outcome verbatim and never re-executes, and a later
+    // provider-side mutation of its own result object can never change
+    // what a replay observes (contract §Repeat and idempotency).
+    const outcome = result.ok
+      ? validServedAdoptResult(result.value)
+      : (JSON.parse(JSON.stringify(result)) as SpokeResult<unknown>);
     await this.#dedup.record(dedupKey, payloadDigest, outcome);
     return outcome;
   }
@@ -1012,10 +1030,10 @@ function validServedAdoptResult(value: unknown): SpokeResult<unknown> {
       { kind: "transport" },
     );
   }
-  if (!isJsonObject(value.entry.adoption_anchor)) {
+  if (!isWellFormedAdoptionAnchor(value.entry.adoption_anchor)) {
     return spokeReject(
       SpokeRejectCode.INTERNAL_ERROR,
-      "adoption provider returned a success entry without adoption_anchor",
+      "adoption provider returned a success entry without a well-formed adoption_anchor",
       { kind: "transport" },
     );
   }
@@ -1027,3 +1045,48 @@ function validServedAdoptResult(value: unknown): SpokeResult<unknown> {
     ) as { outcome: string; entry: unknown },
   );
 }
+
+/** note: closed `AdoptionAnchor` member set (additionalProperties: false). */
+const ADOPTION_ANCHOR_WIRE_KEYS: Record<string, true> = {
+  schema_version: true,
+  source_scope_id: true,
+  source_entry_id: true,
+  source_revision: true,
+  extensions: true,
+};
+
+/**
+ * The `AdoptionAnchor` schema check the contract demands of a served
+ * success entry (§KnowledgeAdoptRequest and response: "a success entry
+ * always carries `adoption_anchor` as a well-formed `AdoptionAnchor`
+ * object — one satisfying the `AdoptionAnchor` schema"): the closed
+ * member set, an integer `schema_version >= 1`, non-empty
+ * `source_scope_id` / `source_entry_id`, a non-negative integer
+ * `source_revision`, and a shared-`ExtensionMap` `extensions` member.
+ */
+function isWellFormedAdoptionAnchor(value: unknown): boolean {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  for (const key of Object.keys(value)) {
+    if (ADOPTION_ANCHOR_WIRE_KEYS[key] !== true) {
+      return false;
+    }
+  }
+  if (
+    typeof value.schema_version !== "number" ||
+    !Number.isSafeInteger(value.schema_version) ||
+    value.schema_version < 1 ||
+    typeof value.source_scope_id !== "string" ||
+    value.source_scope_id.length === 0 ||
+    typeof value.source_entry_id !== "string" ||
+    value.source_entry_id.length === 0 ||
+    typeof value.source_revision !== "number" ||
+    !Number.isSafeInteger(value.source_revision) ||
+    value.source_revision < 0
+  ) {
+    return false;
+  }
+  return isValidExtensionMap(value.extensions);
+}
+

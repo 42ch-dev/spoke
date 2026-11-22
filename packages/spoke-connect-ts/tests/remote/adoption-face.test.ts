@@ -94,12 +94,13 @@ type JsonObject = Record<string, unknown>;
 
 interface SeededSource {
   entryId: string;
+  scopeId: string;
   successors: string[] | undefined;
   entry: KnowledgeEntry & JsonObject;
 }
 
 interface CaseInput {
-  sources?: Array<{ entry_id: string; successors?: string[]; entry: KnowledgeEntry & JsonObject }>;
+  sources?: Array<{ entry_id: string; scope_id?: string; successors?: string[]; entry: KnowledgeEntry & JsonObject }>;
   destinations?: KnowledgeEntry[];
   admitted_viewpoint?: string;
   admitted_scopes?: string[];
@@ -120,8 +121,12 @@ interface CaseInput {
 function fixtureState(input: CaseInput): FixtureState {
   const sources = new Map<string, SeededSource>();
   for (const source of input.sources ?? []) {
-    sources.set(`${SOURCE_SCOPE}|${source.entry_id}`, {
+    // note: an optional per-source `scope_id` seeds the entry under a
+    // scope other than `SOURCE_SCOPE` so a case can resolve a retirement
+    // terminal that lives outside the admitted scopes.
+    sources.set(`${source.scope_id ?? SOURCE_SCOPE}|${source.entry_id}`, {
       entryId: source.entry_id,
+      scopeId: source.scope_id ?? SOURCE_SCOPE,
       successors: source.successors,
       entry: source.entry,
     });
@@ -260,29 +265,51 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
       // Retirement-chain resolution via the shared helper (cycle /
       // ambiguous / deleted terminal / 33rd edge answers SOURCE_RETIRED
       // with details.retirement_chain).
-      const chainNode = (entry: KnowledgeEntry & JsonObject) => ({
-        entry_id: entry.entry_id,
-        scope_id: sourceScopeId,
-        status: entry.status,
-        revision: entry.revision,
+      const chainNode = (seeded: SeededSource) => ({
+        entry_id: seeded.entry.entry_id,
+        scope_id: seeded.scopeId,
+        status: seeded.entry.status,
+        revision: seeded.entry.revision,
       });
       const terminal = await resolveRetirementChain(
-        chainNode(requested),
+        chainNode({ entryId: "", scopeId: sourceScopeId, successors: undefined, entry: requested }),
         async (node) =>
-          state.sources.get(`${sourceScopeId}|${node.entry_id}`)?.successors,
+          state.sources.get(`${node.scope_id}|${node.entry_id}`)?.successors,
         async (entryId) => {
-          const loaded = state.sources.get(`${sourceScopeId}|${entryId}`);
-          return loaded === undefined ? undefined : chainNode(loaded.entry);
+          // note: a successor id resolves against the whole seeded table —
+          // successor references are storage-owned names, and a chain may
+          // legitimately reach a node stored under another scope.
+          for (const key of [
+            `${sourceScopeId}|${entryId}`,
+            ...[...state.sources.keys()].filter(
+              (k) => k.endsWith(`|${entryId}`) && k !== `${sourceScopeId}|${entryId}`,
+            ),
+          ]) {
+            const loaded = state.sources.get(key);
+            if (loaded !== undefined) {
+              return chainNode(loaded);
+            }
+          }
+          return undefined;
         },
       );
       if (!terminal.ok) {
         return terminal;
       }
-      const terminalEntry = state.sources.get(
+      const terminalSeeded = state.sources.get(
+        `${terminal.value.source_scope_id}|${terminal.value.source_entry_id}`,
+      ) ?? state.sources.get(
         `${sourceScopeId}|${terminal.value.source_entry_id}`,
-      )?.entry;
+      );
+      const terminalEntry = terminalSeeded?.entry;
       if (terminalEntry === undefined) {
         return spokeReject("INTERNAL_ERROR", "resolved terminal is not stored");
+      }
+      // note: a resolved terminal outside the admitted scopes is the same
+      // generic absence as a missing source (contract §Admission and
+      // owner-private absence).
+      if (!state.admittedScopes.includes(terminal.value.source_scope_id)) {
+        return genericNotFound();
       }
 
       // note: the entry adoption actually copies must satisfy the same
@@ -909,4 +936,196 @@ describe("adoption wire conformance (fixtures/adoption-conformance)", () => {
       });
     }
   }
+});
+
+// ── Dedup store invariants (B3 single-flight, recorded-outcome snapshots) ──
+
+const DEDUP_ADMISSION = (peerId: string) =>
+  spokeOk({
+    principal: { principal_id: `prn_${peerId}`, extensions: {} },
+    scope: { scope_id: DESTINATION_SCOPE, extensions: {} },
+  });
+
+function adoptPayload(idempotencyKey: string): JsonObject {
+  return {
+    source_scope_id: SOURCE_SCOPE,
+    source_entry_id: "ke_shared",
+    source_revision: 1,
+    destination_scope_id: DESTINATION_SCOPE,
+    idempotency_key: idempotencyKey,
+    extensions: {},
+  };
+}
+
+function adoptedResponse(): KnowledgeAdoptResponse & JsonObject {
+  return {
+    outcome: "adopted",
+    entry: {
+      schema_version: 1,
+      entry_id: "ke_shared",
+      entry_type: "note",
+      canonical_name: "shared",
+      status: "confirmed",
+      revision: 1,
+      body: {},
+      extensions: {},
+      adoption_anchor: {
+        schema_version: 1,
+        source_scope_id: SOURCE_SCOPE,
+        source_entry_id: "ke_shared",
+        source_revision: 1,
+        extensions: {},
+      },
+    },
+  } as KnowledgeAdoptResponse & JsonObject;
+}
+
+describe("adoption dedup single-flight (contract §Repeat and idempotency)", () => {
+  it("one store shared by two services yields at most one in-flight invocation per retry identity; unrelated keys stay independent", async () => {
+    const shared = new InMemoryHistoryDedupStore();
+    const calls: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const makePort = (): AdoptionPort => ({
+      adoptKnowledgeEntry: async () => {
+        calls.push("call");
+        // only the first invocation is held — the unrelated key must
+        // finish while the held call is still in flight.
+        if (calls.length === 1) {
+          await gate;
+        }
+        return spokeOk(adoptedResponse());
+      },
+    });
+    const serviceA = new AdoptionPortService(makePort(), DEDUP_ADMISSION, {
+      dedupStore: shared,
+    });
+    const serviceB = new AdoptionPortService(makePort(), DEDUP_ADMISSION, {
+      dedupStore: shared,
+    });
+    const first = serviceA.invoke("peer_a", "knowledge.adopt", adoptPayload("k1"));
+    const second = serviceB.invoke("peer_a", "knowledge.adopt", adoptPayload("k1"));
+    // The same key on a second service sharing the store waits; an
+    // unrelated key never blocks behind the held invocation.
+    const third = await serviceA.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("k2"),
+    );
+    expect(third.ok).toBe(true);
+    // the held k1 call plus the independent k2 call — no third
+    // invocation for the still-in-flight k1 replay.
+    expect(calls.length).toBe(2);
+    release();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult.ok).toBe(true);
+    expect(secondResult.ok).toBe(true);
+    // note: at most one provider invocation per retry identity across
+    // both services; the replay returns the recorded outcome.
+    expect(calls.length).toBe(2);
+  });
+
+  it("a provider invocation that throws releases the single-flight claim — the next same-key call invokes again", async () => {
+    let calls = 0;
+    const port: AdoptionPort = {
+      adoptKnowledgeEntry: async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("provider crashed before settling");
+        }
+        return spokeOk(adoptedResponse());
+      },
+    };
+    const service = new AdoptionPortService(port, DEDUP_ADMISSION, {
+      dedupStore: new InMemoryHistoryDedupStore(),
+    });
+    await expect(
+      service.invoke("peer_a", "knowledge.adopt", adoptPayload("k3")),
+    ).rejects.toThrow("provider crashed");
+    // note: the unsettled invocation released its claim — no stale
+    // recorded outcome, and the retry reaches the provider again (B3:
+    // recorded-outcome dedup covers settled outcomes only).
+    const retry = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("k3"),
+    );
+    expect(retry.ok).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it("a recorded provider refusal is snapshotted — mutating the provider's object never changes the replay", async () => {
+    const mutableDetails: JsonObject = { nested: { count: 1 } };
+    const port: AdoptionPort = {
+      adoptKnowledgeEntry: async () =>
+        spokeReject("REVISION_CONFLICT", "conflict", {
+          nested: mutableDetails.nested as Record<string, unknown>,
+        }),
+    };
+    const service = new AdoptionPortService(port, DEDUP_ADMISSION, {
+      dedupStore: new InMemoryHistoryDedupStore(),
+    });
+    const first = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("k4"),
+    );
+    expect(first.ok).toBe(false);
+    (mutableDetails.nested as Record<string, unknown>).count = 999;
+    const replay = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("k4"),
+    );
+    expect(replay.ok).toBe(false);
+    if (!replay.ok) {
+      expect(pathGet(replay.details, "nested.count")).toBe(1);
+    }
+  });
+});
+
+describe("adoption request extensions and numeric parity", () => {
+  it("an extension float member that Rust parses as f64 digests identically on both stacks (extension-number parity)", async () => {
+    // note: qc1 F-013 — `1e20` in an extension value arrives at Rust as
+    // f64 and passes its integer-identity gate; TS must accept it the
+    // same way and refuse only an integer-literal member beyond the
+    // JCS exact-integer range.
+    const port: AdoptionPort = {
+      adoptKnowledgeEntry: async () => spokeOk(adoptedResponse()),
+    };
+    const service = new AdoptionPortService(port, DEDUP_ADMISSION, {
+      dedupStore: new InMemoryHistoryDedupStore(),
+    });
+    const withFloat = await service.invoke("peer_a", "knowledge.adopt", {
+      ...adoptPayload("k5"),
+      extensions: { product: { magnitude: 1e20 } },
+    });
+    expect(withFloat.ok).toBe(true);
+    const badKey = await service.invoke("peer_a", "knowledge.adopt", {
+      ...adoptPayload("k6"),
+      extensions: { "Bad-Namespace": { v: 1 } },
+    });
+    expect(badKey.ok).toBe(false);
+    if (!badKey.ok) {
+      expect(badKey.code).toBe("INVALID_INPUT");
+    }
+    const scalarValue = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      { ...adoptPayload("k7"), extensions: { product: 5 } },
+    );
+    expect(scalarValue.ok).toBe(false);
+    if (!scalarValue.ok) {
+      expect(scalarValue.code).toBe("INVALID_INPUT");
+    }
+    const tooBigInteger = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      { ...adoptPayload("k8"), extensions: { product: { v: 9007199254740993 } } },
+    );
+    expect(tooBigInteger.ok).toBe(false);
+    if (!tooBigInteger.ok) {
+      expect(tooBigInteger.code).toBe("INVALID_INPUT");
+    }
+  });
 });

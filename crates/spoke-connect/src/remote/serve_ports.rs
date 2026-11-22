@@ -341,7 +341,14 @@ pub trait HistoryDedupStore: Send + Sync {
     /// lookup → provider call → `record` sequence: same-key callers
     /// serialize on the returned guard, unrelated keys never block.
     /// Cross-process atomicity is a store-implementation obligation.
-    async fn claim_key(&self, key: &str) -> tokio::sync::OwnedMutexGuard<()>;
+    ///
+    /// The default is a no-claim guard for stores predating the
+    /// single-flight ownership rule — a pre-existing `lookup`/`record`
+    /// store keeps compiling, and keyed exclusion comes only from stores
+    /// that implement this method.
+    async fn claim_key(&self, _key: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        Arc::new(tokio::sync::Mutex::new(())).lock_owned().await
+    }
 
     /// Persist the digest and settled outcome for one executed key.
     async fn record(&self, key: &str, record: HistoryDedupRecord);
@@ -1251,15 +1258,18 @@ fn valid_served_adopt_result(response: KnowledgeAdoptResponse) -> SpokeResult<Va
             "adoption provider returned a missing or malformed entry member",
         );
     };
-    // A success entry always carries `adoption_anchor` (contract
-    // §`KnowledgeAdoptResponse`): a provider result whose entry lacks the
-    // anchor is malformed — a serving refusal, never `Ok`.
+    // A success entry always carries `adoption_anchor`, and it must
+    // satisfy the `AdoptionAnchor` schema — presence alone is malformed
+    // (contract §`KnowledgeAdoptResponse`): a provider result whose entry
+    // lacks a well-formed anchor is a serving refusal, never `Ok`.
     let anchor_ok = entry
         .get("adoption_anchor")
-        .is_some_and(|anchor| anchor.is_object());
+        .is_some_and(|anchor| {
+            serde_json::from_value::<spoke_schemas::data::AdoptionAnchor>(anchor.clone()).is_ok()
+        });
     if !anchor_ok {
         return history_transport_reject(
-            "adoption provider returned an entry without an adoption_anchor member",
+            "adoption provider returned an entry without a well-formed adoption_anchor member",
         );
     }
     // The emitted success is `{outcome, entry}` — the contract's exact
@@ -2050,5 +2060,88 @@ mod history_tests {
         ));
         // The recorded reject replays verbatim.
         assert_eq!(first, second);
+    }
+
+    // ── `spoke-knowledge-adoption` serving-face tests ──────────────────
+
+    /// Provider stub for request-validation tests: valid `invoke` calls
+    /// never reach the port (validation answers first), so the port
+    /// panics if it does.
+    struct PanicAdoptionPort;
+
+    #[async_trait]
+    impl AdoptionPort for PanicAdoptionPort {
+        async fn adopt_knowledge_entry(
+            &self,
+            _principal: &Principal,
+            _scope: &Scope,
+            _request: &KnowledgeAdoptRequest,
+        ) -> SpokeResult<KnowledgeAdoptResponse> {
+            panic!("a malformed request must refuse before the port runs")
+        }
+    }
+
+    /// A dedup store implementing only `lookup`/`record` — the
+    /// pre-single-flight surface — keeps compiling unchanged now that
+    /// `claim_key` carries a default no-claim implementation.
+    struct LookupOnlyDedupStore;
+
+    #[async_trait]
+    impl HistoryDedupStore for LookupOnlyDedupStore {
+        async fn lookup(&self, _key: &str) -> HistoryDedupLookup {
+            HistoryDedupLookup::Unseen
+        }
+
+        async fn record(&self, _key: &str, _record: HistoryDedupRecord) {}
+    }
+
+    fn adopt_payload(extensions: Option<Value>) -> Value {
+        let mut payload = json!({
+            "source_scope_id": "src-scope",
+            "source_entry_id": "src-entry",
+            "source_revision": 3,
+            "destination_scope_id": "dst-scope",
+            "idempotency_key": "key-1",
+        });
+        if let Some(extensions) = extensions {
+            payload["extensions"] = extensions;
+        }
+        payload
+    }
+
+    /// The shared `ExtensionMap` constraints bind at request validation:
+    /// a key outside `^[a-z][a-z0-9_-]*$` or a non-object value answers
+    /// `INVALID_INPUT` before admission or any provider call.
+    #[tokio::test]
+    async fn adopt_extensions_enforces_extension_map() {
+        let service = AdoptionPortService::new(
+            Arc::new(PanicAdoptionPort),
+            Arc::new(|_peer| {
+                spoke_reject(SpokeRejectCode::InternalError, "unused", None)
+            }),
+        )
+        .with_dedup_store(Arc::new(LookupOnlyDedupStore));
+        for extensions in [
+            json!({"Bad-Key": {}}),
+            json!({"ns": 5}),
+            json!({"ns": "scalar"}),
+            json!("scalar"),
+            json!([1]),
+            json!(5),
+        ] {
+            let result = service
+                .invoke("peer-a", KNOWLEDGE_OP_ADOPT, adopt_payload(Some(extensions.clone())))
+                .await;
+            assert!(
+                matches!(
+                    result,
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::InvalidInput,
+                        ..
+                    })
+                ),
+                "extensions {extensions} must refuse INVALID_INPUT: {result:?}"
+            );
+        }
     }
 }

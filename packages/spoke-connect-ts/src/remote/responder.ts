@@ -63,6 +63,7 @@ import type {
 } from "@42ch/spoke-schemas";
 import {
   fromErrorEnvelope,
+  assertAdoptionAnchorPreserved,
   parseToolCapabilityId,
   SpokeRejectCode,
   spokeOk,
@@ -2326,13 +2327,45 @@ export class ConnectResponder {
                   payload.entry_id as string,
                 );
               case "port.knowledge.put":
-                // note: Rust decodes `Option<u64>` — a missing member is None (create),
-                // so the store must never receive `undefined` here.
-                return face.store.putScopedKnowledgeEntry(
-                  admitted.value,
-                  payload.entry as KnowledgeEntry,
-                  (payload.expected_base_revision ?? null) as number | null,
-                );
+                // note: the scoped put path owns the same anchor-immutability
+                // obligation as the upsert/promote orchestrations
+                // (spoke-knowledge-adoption contract §Anchor immutability): a
+                // stored `adoption_anchor` is preserved byte-identically or
+                // the write refuses `ADOPTION_ANCHOR_IMMUTABLE` with
+                // `details.entry_id` — before the put, never after (Rust
+                // parity: `call_knowledge_op` →
+                // `assert_adoption_anchor_preserved`).
+                return (async (): Promise<SpokeResult<unknown>> => {
+                  const candidate = payload.entry as KnowledgeEntry;
+                  const storedResult = await face.store.getScopedKnowledgeEntry(
+                    admitted.value,
+                    candidate.entry_id,
+                  );
+                  let stored: KnowledgeEntry | undefined;
+                  if (storedResult.ok) {
+                    stored = storedResult.value;
+                  } else if (
+                    storedResult.code !== SpokeRejectCode.NOT_FOUND &&
+                    storedResult.code !==
+                      SpokeRejectCode.KNOWLEDGE_ENTRY_NOT_FOUND
+                  ) {
+                    // A missing destination is a create — no anchor to
+                    // preserve; every other read failure stops the write.
+                    return storedResult;
+                  }
+                  const gate = assertAdoptionAnchorPreserved(candidate, stored);
+                  if (!gate.ok) {
+                    return gate;
+                  }
+                  // note: Rust decodes `Option<u64>` — a missing member is
+                  // None (create), so the store must never receive
+                  // `undefined` here.
+                  return face.store.putScopedKnowledgeEntry(
+                    admitted.value,
+                    candidate,
+                    (payload.expected_base_revision ?? null) as number | null,
+                  );
+                })();
               default:
                 return face.store.listScopedKnowledgeEntries(listedScope);
             }

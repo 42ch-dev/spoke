@@ -159,14 +159,18 @@ where
             visited.push(successor_id);
             return source_retired("retirement chain cycle: a visited entry id repeats", &visited);
         }
-        visited.push(successor_id.clone());
-        seen.insert(successor_id.clone());
+        // The successor must resolve before it is listed: a missing or
+        // unresolvable target refuses with the chain ending at the last
+        // resolved node — the unresolvable target stays unlisted
+        // (contract §Retirement-chain resolution).
         let Some(successor) = load_entry(&successor_id).await else {
             return source_retired(
                 "retirement chain is broken: the successor entry is missing",
                 &visited,
             );
         };
+        visited.push(successor_id.clone());
+        seen.insert(successor_id);
         current = successor;
     }
     if current.status == "deleted" {

@@ -127,6 +127,7 @@ function scopedStoreFace(
   storeCalls: string[] = [],
   storeGate?: Promise<void>,
   storeRejectOn?: "put" | "get",
+  storeGateOn?: "put" | "get",
 ): RemoteKnowledgeFace {
   const entries = new Map<string, Map<string, KnowledgeEntry>>();
   const bucket = (scopeId: string): Map<string, KnowledgeEntry> => {
@@ -144,7 +145,7 @@ function scopedStoreFace(
         if (storeRejectOn === "get") {
           throw new Error("store get exploded");
         }
-        if (storeGate !== undefined) {
+        if (storeGate !== undefined && (storeGateOn ?? "put") === "get") {
           await storeGate;
         }
         const found = bucket(scope.scope_id).get(entryId);
@@ -157,7 +158,7 @@ function scopedStoreFace(
         if (storeRejectOn === "put") {
           throw new Error("store put exploded");
         }
-        if (storeGate !== undefined) {
+        if (storeGate !== undefined && (storeGateOn ?? "put") === "put") {
           await storeGate;
         }
         const store = bucket(scope.scope_id);
@@ -214,6 +215,7 @@ async function dialKnowledgeOnlyHost(options: {
   storeGate?: Promise<void>;
   storeRejectOn?: "put" | "get";
   invokeTimeoutMs?: number;
+  storeGateOn?: "put" | "get";
 }): Promise<DialedKnowledgeHost> {
   const hostSeed = seed(0xa0);
   const hostPubkey = getPublicKeyEd25519(hostSeed);
@@ -233,6 +235,7 @@ async function dialKnowledgeOnlyHost(options: {
         options.storeCalls,
         options.storeGate,
         options.storeRejectOn,
+        options.storeGateOn,
       ),
     ),
     invokeTimeoutMs: options.invokeTimeoutMs,
@@ -593,7 +596,7 @@ describe("knowledge-only responder", () => {
         expect(put.details?.retry_class).toBe("uncertain");
         expect(put.message).toContain("outcome is unknown");
       }
-      expect(storeCalls).toEqual(["put"]);
+      expect(storeCalls).toEqual(["get", "put"]);
     } finally {
       close();
     }
@@ -618,7 +621,7 @@ describe("knowledge-only responder", () => {
         expect(put.message).not.toContain("exploded");
         expect(put.message).toContain("outcome is unknown");
       }
-      expect(storeCalls).toEqual(["put"]);
+      expect(storeCalls).toEqual(["get", "put"]);
     } finally {
       close();
     }
@@ -657,6 +660,7 @@ describe("knowledge-only responder", () => {
       clientCapabilities: ["spoke-knowledge"],
       storeCalls,
       storeGate,
+      storeGateOn: "get",
       invokeTimeoutMs: 60,
     });
     try {
@@ -1056,7 +1060,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(valid.error).toBeUndefined();
       expect(admissionCalls).toHaveLength(1);
-      expect(storeCalls).toEqual(["put"]);
+      expect(storeCalls).toEqual(["get", "put"]);
 
       // note: Rust's `Option<u64>` decodes a missing member as None — a put
       // without `expected_base_revision` is a create, and the store sees `null`
@@ -1071,7 +1075,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
         { entry: entry("kb_put_no_revision") },
       );
       expect(missingRevision.error).toBeUndefined();
-      expect(storeCalls).toEqual(["put", "put"]);
+      expect(storeCalls).toEqual(["get", "put", "get", "put"]);
     } finally {
       close();
     }

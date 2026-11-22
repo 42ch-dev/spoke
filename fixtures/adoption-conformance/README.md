@@ -44,10 +44,11 @@ face admission path, and the refusal's wire round-trip.
 | `idempotent-repeat.json` | 4 | same-key recorded-outcome replay normalized to `already_present`, same-key different-digest `IDEMPOTENCY_CONFLICT`, anchor-repeat `already_present` under a different key, `RECEIPT_EXPIRED` after bounded-store eviction |
 | `revision-conflict.json` | 2 | `REVISION_CONFLICT` + `details.adopted_revision` on a different `source_revision`, unrelated-occupant create-only refusal without `adopted_revision` |
 | `private-source.json` | 4 | owner-private mismatched-viewpoint `NOT_FOUND` (recorded and re-executed repeats produce the same absence), missing-source identical absence, out-of-admitted-scope identical absence, owner-private visible to its owner |
-| `retirement-chain.json` | 8 | merged→live terminal resolution (anchor records the terminal triple + fresh-key repeat on the resolved tuple), cycle, zero/multiple successors, deleted terminal, exact-32-edge success, 33rd-edge limit (visited ids only), owner-private resolved terminal generic `NOT_FOUND` — each `SOURCE_RETIRED` with the exact `details.retirement_chain` |
+| `retirement-chain.json` | 10 | merged→live terminal resolution (anchor records the terminal triple + fresh-key repeat on the resolved tuple), cycle, zero/multiple successors, missing successor target, deleted terminal, exact-32-edge success, 33rd-edge limit (visited ids only), owner-private resolved terminal generic `NOT_FOUND`, out-of-admitted-scope resolved terminal generic `NOT_FOUND` — each `SOURCE_RETIRED` with the exact `details.retirement_chain` |
 | `anchor-immutable.json` | 3 | `put` mutating a stored `adoption_anchor` → `ADOPTION_ANCHOR_IMMUTABLE` + `details.entry_id` (replace and remove), identical-anchor put passes |
 
-Totals: 28 cases — 26 wire, 2 service.
+
+Totals: 30 cases — 28 wire, 2 service.
 
 ## Case envelope
 
@@ -105,6 +106,9 @@ Totals: 28 cases — 26 wire, 2 service.
   has no adoption service (the documented dispatch-deny branch).
 - `input.dedup_capacity` injects a bounded `InMemoryHistoryDedupStore`
   (the adoption dedup seam reuses the history store shape).
+- `input.sources[].scope_id` seeds that source under a scope other than
+  `spc_shared` (e.g. an out-of-admitted-scope retirement terminal); the
+  successor resolver searches the whole seeded table.
 - `surface: "service"` runs the steps through `AdoptionPortService::invoke`
   directly (requests the typed client cannot emit, like an absent
   `idempotency_key`).

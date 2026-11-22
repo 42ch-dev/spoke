@@ -177,16 +177,19 @@ export async function resolveRetirementChain(
         { retirement_chain: visited },
       );
     }
-    visited.push(successorId);
-    seen.add(successorId);
     const successor = await loadEntry(successorId);
     if (successor === undefined) {
+      // note: `retirement_chain` ends at the last resolved node — the
+      // unresolvable successor stays unlisted (contract §Retirement-chain
+      // resolution).
       return spokeReject(
         "SOURCE_RETIRED",
         "retirement chain is broken: the successor entry is missing",
         { retirement_chain: visited },
       );
     }
+    visited.push(successorId);
+    seen.add(successorId);
     current = successor;
   }
   if (current.status === "deleted") {

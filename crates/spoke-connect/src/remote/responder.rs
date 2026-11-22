@@ -458,7 +458,7 @@ async fn call_knowledge_op(
                 .get_scoped_knowledge_entry(admitted, &entry_id)
                 .await,
         ),
-        KnowledgeCall::PutKnowledgeEntry(entry, expected) => {
+        KnowledgeCall::PutKnowledgeEntry(entry, _) => {
             // The scoped put path serving `port.knowledge.put` owns the
             // same anchor-immutability obligation as the upsert/promote
             // orchestrations (spoke-knowledge-adoption contract §Anchor
@@ -472,9 +472,15 @@ async fn call_knowledge_op(
                 .await
             {
                 SpokeResult::Ok(stored) => Some(stored),
-                // A missing destination is a create — no anchor to preserve.
+                // A missing destination is a create — no anchor to
+                // preserve. `KNOWLEDGE_ENTRY_NOT_FOUND` is the scoped
+                // store's established entry-specific absence code; a
+                // generic `NOT_FOUND` means the same.
                 SpokeResult::Reject(reject)
-                    if reject.code == SpokeRejectCode::NotFound =>
+                    if matches!(
+                        reject.code,
+                        SpokeRejectCode::NotFound | SpokeRejectCode::KnowledgeEntryNotFound
+                    ) =>
                 {
                     None
                 }
@@ -485,9 +491,15 @@ async fn call_knowledge_op(
             {
                 return SpokeResult::Reject(reject);
             }
+            // §Anchor immutability's CAS binding: the write carries the
+            // loaded entry's revision as its compare-and-swap base so the
+            // provider's CAS covers exactly the snapshot the anchor check
+            // inspected — a missing entry CASes against absence
+            // (create-only OCC).
+            let cas_base = stored.as_ref().and_then(|stored| stored.revision);
             map_result(
                 face.store
-                    .put_scoped_knowledge_entry(admitted, entry, expected)
+                    .put_scoped_knowledge_entry(admitted, entry, cas_base)
                     .await,
             )
         }
@@ -3254,5 +3266,173 @@ mod tests {
             "{response}"
         );
         responder.close();
+    }
+    // ── Scoped put: anchor pre-read regression (QC2-11 / F-012) + CAS
+    //    binding (contract §Anchor immutability) ─────────────────────────
+
+    /// Minimal scoped store: `get` answers the injected absence code or a
+    /// stored entry; `put` records the CAS base it was called with.
+    struct ScopedPutStore {
+        stored: Option<KnowledgeEntry>,
+        get_code: SpokeRejectCode,
+        cas_bases: Mutex<Vec<Option<u64>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl spoke_operations::ScopedKnowledgePort for ScopedPutStore {
+        async fn get_scoped_knowledge_entry(
+            &self,
+            _scope: &Scope,
+            _entry_id: &str,
+        ) -> SpokeResult<KnowledgeEntry> {
+            match &self.stored {
+                Some(entry) => spoke_ok(entry.clone()),
+                None => spoke_reject(self.get_code, "entry absent", None),
+            }
+        }
+
+        async fn put_scoped_knowledge_entry(
+            &self,
+            _scope: &Scope,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
+            self.cas_bases
+                .lock()
+                .expect("cas_bases")
+                .push(expected_base_revision);
+            spoke_ok(entry)
+        }
+
+        async fn list_scoped_knowledge_entries(
+            &self,
+            _scope: &Scope,
+        ) -> SpokeResult<Vec<KnowledgeEntry>> {
+            spoke_ok(Vec::new())
+        }
+    }
+
+    fn put_face(store: Arc<ScopedPutStore>) -> crate::remote::RemoteKnowledgeFace {
+        crate::remote::RemoteKnowledgeFace {
+            store,
+            admission: Arc::new(|_peer| {
+                spoke_reject(SpokeRejectCode::InternalError, "unused", None)
+            }),
+        }
+    }
+
+    fn put_entry(entry_id: &str, anchor: Option<Value>) -> KnowledgeEntry {
+        let mut entry = json!({
+            "schema_version": 1,
+            "entry_id": entry_id,
+            "canonical_name": "fixture",
+            "entry_type": "note",
+            "status": "active",
+            "body": {},
+            "extensions": {},
+        });
+        if let Some(anchor) = anchor {
+            entry["adoption_anchor"] = anchor;
+        }
+        serde_json::from_value(entry).expect("valid KnowledgeEntry")
+    }
+
+    fn put_anchor() -> Value {
+        json!({
+            "schema_version": 1,
+            "source_scope_id": "src-scope",
+            "source_entry_id": "src-entry",
+            "source_revision": 3,
+            "extensions": {},
+        })
+    }
+
+    fn put_scope() -> Scope {
+        serde_json::from_value(json!({"scope_id": "s1", "extensions": {}}))
+            .expect("valid Scope")
+    }
+
+    /// QC2-11 / qc1 F-012 regression: a scoped `get` answering
+    /// `KNOWLEDGE_ENTRY_NOT_FOUND` is an absent destination — the put
+    /// proceeds as a create-only write (CAS base `None`), not a refusal.
+    #[tokio::test]
+    async fn scoped_put_creates_when_the_store_answers_entry_not_found() {
+        let store = Arc::new(ScopedPutStore {
+            stored: None,
+            get_code: SpokeRejectCode::KnowledgeEntryNotFound,
+            cas_bases: Mutex::new(Vec::new()),
+        });
+        let face = put_face(store.clone());
+        let result = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(put_entry("new-entry", None), Some(7)),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        let SpokeResult::Ok(entry) = result else {
+            panic!("expected create success, got {result:?}")
+        };
+        assert_eq!(entry["entry_id"], "new-entry");
+        assert_eq!(
+            *store.cas_bases.lock().expect("cas_bases"),
+            vec![None],
+            "a create carries no CAS base"
+        );
+    }
+
+    /// §Anchor immutability CAS binding: the write's compare-and-swap base
+    /// is the loaded stored revision — the snapshot the anchor check
+    /// inspected — never the wire-supplied `expected_base_revision`.
+    #[tokio::test]
+    async fn scoped_put_cas_base_is_the_checked_stored_revision() {
+        let mut stored_entry = put_entry("anchored-entry", Some(put_anchor()));
+        stored_entry.revision = Some(5);
+        let store = Arc::new(ScopedPutStore {
+            stored: Some(stored_entry),
+            get_code: SpokeRejectCode::KnowledgeEntryNotFound,
+            cas_bases: Mutex::new(Vec::new()),
+        });
+        let face = put_face(store.clone());
+        // Anchor preserved byte-identically + a stale wire base: the put
+        // CASes against the inspected revision 5, not 2.
+        let result = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(
+                put_entry("anchored-entry", Some(put_anchor())),
+                Some(2),
+            ),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
+        assert_eq!(
+            *store.cas_bases.lock().expect("cas_bases"),
+            vec![Some(5)],
+            "the CAS base is the checked stored revision"
+        );
+
+        // Mutate-then-put still refuses ADOPTION_ANCHOR_IMMUTABLE before
+        // any store write.
+        let mutated = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", None), Some(5)),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(matches!(
+            mutated,
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::AdoptionAnchorImmutable,
+                ..
+            })
+        ));
+        assert_eq!(
+            store.cas_bases.lock().expect("cas_bases").len(),
+            1,
+            "the immutable-anchor refusal happened before the write"
+        );
     }
 }

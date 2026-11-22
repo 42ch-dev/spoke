@@ -1,14 +1,14 @@
 {
   "id": "retirement-chain",
-  "title": "Retirement-chain resolution \u2014 terminal live source, cycle, ambiguity, deleted terminal, 32-edge limit",
+  "title": "Retirement-chain resolution — terminal live source, cycle, ambiguity, deleted terminal, 32-edge limit",
   "protocol_refs": [
-    "\u00a7Retirement-chain resolution",
-    "\u00a7Refusal vocabulary"
+    "§Retirement-chain resolution",
+    "§Refusal vocabulary"
   ],
   "cases": [
     {
       "id": "merged-source-resolves-to-live-terminal",
-      "invariant": "\u00a7Retirement-chain resolution",
+      "invariant": "§Retirement-chain resolution",
       "surface": "wire",
       "outcome": "identical",
       "what": "a merged source resolves through its retirement chain; the anchor records the terminal live source scope/id/revision and the default destination id is the terminal id",
@@ -133,7 +133,7 @@
     },
     {
       "id": "retirement-cycle-source-retired",
-      "invariant": "\u00a7Retirement-chain resolution",
+      "invariant": "§Retirement-chain resolution",
       "surface": "wire",
       "outcome": "identical",
       "what": "a cycle in the retirement chain refuses SOURCE_RETIRED with details.retirement_chain listing every visited id including the repeated one",
@@ -213,7 +213,7 @@
     },
     {
       "id": "retirement-ambiguous-no-successor",
-      "invariant": "\u00a7Retirement-chain resolution",
+      "invariant": "§Retirement-chain resolution",
       "surface": "wire",
       "outcome": "identical",
       "what": "a merged entry with zero successors refuses SOURCE_RETIRED with the chain ending at the ambiguous node",
@@ -256,7 +256,7 @@
     },
     {
       "id": "retirement-ambiguous-multiple-successors",
-      "invariant": "\u00a7Retirement-chain resolution",
+      "invariant": "§Retirement-chain resolution",
       "surface": "wire",
       "outcome": "identical",
       "what": "a merged entry with multiple successors refuses SOURCE_RETIRED with the chain ending at the ambiguous node",
@@ -328,7 +328,7 @@
     },
     {
       "id": "retirement-deleted-terminal",
-      "invariant": "\u00a7Retirement-chain resolution",
+      "invariant": "§Retirement-chain resolution",
       "surface": "wire",
       "outcome": "identical",
       "what": "a chain that ends at a deleted entry refuses SOURCE_RETIRED with the deleted terminal in the chain",
@@ -387,7 +387,7 @@
     },
     {
       "id": "retirement-limit-33-edges",
-      "invariant": "\u00a7Retirement-chain resolution",
+      "invariant": "§Retirement-chain resolution",
       "surface": "wire",
       "outcome": "identical",
       "what": "a chain that requires a 33rd edge refuses SOURCE_RETIRED; the chain lists all 33 visited ids plus the edge that would exceed the limit",
@@ -992,10 +992,10 @@
     },
     {
       "id": "retirement-success-32-edges",
-      "invariant": "\u00a7Retirement-chain resolution",
+      "invariant": "§Retirement-chain resolution",
       "surface": "wire",
       "outcome": "identical",
-      "what": "a chain that resolves to a live terminal at exactly 32 edges succeeds \u2014 the last accepted depth, one edge below the refusal bound",
+      "what": "a chain that resolves to a live terminal at exactly 32 edges succeeds — the last accepted depth, one edge below the refusal bound",
       "input": {
         "sources": [
           {
@@ -1562,7 +1562,7 @@
     },
     {
       "id": "retirement-private-terminal-not-found",
-      "invariant": "\u00a7Admission and owner-private absence",
+      "invariant": "§Admission and owner-private absence",
       "surface": "wire",
       "outcome": "identical",
       "what": "a merged source resolving to an owner-private terminal invisible to the admitted viewpoint refuses the same generic NOT_FOUND and writes no destination copy",
@@ -1625,6 +1625,121 @@
           "op": "port.knowledge.get",
           "request": {
             "entry_id": "ke_p_secret"
+          },
+          "expect": {
+            "error_code": "KNOWLEDGE_ENTRY_NOT_FOUND"
+          }
+        }
+      ]
+    },
+    {
+      "id": "retirement-missing-successor-source-retired",
+      "invariant": "§Retirement-chain resolution",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a merged entry whose successor resolves to a missing or unresolvable entry refuses SOURCE_RETIRED; the chain ends at the last resolved node and the unresolvable target stays unlisted",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_x_mid",
+            "successors": [
+              "ke_x_ghost"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_mid",
+              "entry_type": "note",
+              "canonical_name": "ke_x_mid",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_x_mid",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "chain-miss-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "SOURCE_RETIRED",
+        "details": {
+          "retirement_chain": [
+            "ke_x_mid"
+          ]
+        },
+        "provider_calls": 1
+      }
+    },
+    {
+      "id": "retirement-out-of-scope-terminal-not-found",
+      "invariant": "§Admission and owner-private absence",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a merged source resolving to a terminal stored outside the admitted scopes refuses the same generic NOT_FOUND and writes no destination copy",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_o_mid",
+            "successors": [
+              "ke_o_far"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_o_mid",
+              "entry_type": "note",
+              "canonical_name": "ke_o_mid",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_o_far",
+            "scope_id": "spc_other",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_o_far",
+              "entry_type": "note",
+              "canonical_name": "ke_o_far",
+              "status": "confirmed",
+              "revision": 7,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_o_mid",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "chain-outscope-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "NOT_FOUND",
+        "absent_details": [
+          "source_entry_id",
+          "entry_id",
+          "retirement_chain"
+        ],
+        "provider_calls": 1
+      },
+      "then": [
+        {
+          "op": "port.knowledge.get",
+          "request": {
+            "entry_id": "ke_o_far"
           },
           "expect": {
             "error_code": "KNOWLEDGE_ENTRY_NOT_FOUND"

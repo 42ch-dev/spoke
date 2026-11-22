@@ -71,11 +71,11 @@ fn corpus_root() -> PathBuf {
 
 /// Shared state between the scripted `AdoptionPort` and the fixture
 /// scoped store: the source table (keyed `(scope_id, entry_id)`, each
-/// seeded under `SOURCE_SCOPE` with a storage-owned successor map), the
-/// destination map (the same map `RemoteKnowledgeFace` reads/writes, so
-/// the written copy is observable through `port.knowledge.get`), the
-/// provider call counter, and the destination governance the copy rules
-/// reset to.
+/// seeded under `SOURCE_SCOPE` unless the source carries its own
+/// `scope_id`, with a storage-owned successor map), the destination map
+/// (the same map `RemoteKnowledgeFace` reads/writes, so the written copy
+/// is observable through `port.knowledge.get`), the provider call
+/// counter, and the destination governance the copy rules reset to.
 struct FixtureState {
     sources: Mutex<BTreeMap<String, SeededSource>>,
     destinations: Mutex<BTreeMap<String, Value>>,
@@ -84,13 +84,16 @@ struct FixtureState {
     destination_governance: Value,
 }
 
-/// One seeded source: the `KnowledgeEntry` wire object plus the
-/// storage-owned successor list `resolve_retirement_chain`'s
+/// One seeded source: the `KnowledgeEntry` wire object, the scope it is
+/// stored under (`scope_id` seeds a source outside `SOURCE_SCOPE` so a
+/// case can resolve a terminal that lives outside the admitted scopes),
+/// plus the storage-owned successor list `resolve_retirement_chain`'s
 /// `successors_of` reads (absent = the provider cannot identify
 /// successors → ambiguous).
 #[derive(Clone)]
 struct SeededSource {
     entry: Value,
+    scope_id: String,
     successors: Option<Vec<String>>,
 }
 
@@ -105,12 +108,27 @@ impl FixtureState {
                 Some(id.as_str()),
                 "source entry_id must match its key"
             );
+            // An optional per-source `scope_id` seeds the entry under a
+            // scope other than `SOURCE_SCOPE` so a case can resolve a
+            // retirement terminal that lives outside the admitted scopes.
+            let scope_id = source
+                .get("scope_id")
+                .and_then(Value::as_str)
+                .unwrap_or(SOURCE_SCOPE)
+                .to_string();
             let successors = source["successors"].as_array().map(|list| {
                 list.iter()
                     .map(|s| s.as_str().expect("successor id").to_string())
                     .collect::<Vec<String>>()
             });
-            sources.insert(format!("{SOURCE_SCOPE}|{id}"), SeededSource { entry, successors });
+            sources.insert(
+                format!("{scope_id}|{id}"),
+                SeededSource {
+                    entry,
+                    scope_id,
+                    successors,
+                },
+            );
         }
         let mut destinations = BTreeMap::new();
         for entry in input["destinations"].as_array().into_iter().flatten() {
@@ -276,26 +294,40 @@ impl AdoptionPort for ScriptedAdoptionPort {
         // !Send across the resolver's await, and the seeded table never
         // mutates during a case.
         let sources = self.state.sources.lock().expect("sources lock").clone();
-        let chain_node = |entry: &Value| -> Option<RetirementChainEntry> {
+        let chain_node = |seeded: &SeededSource| -> Option<RetirementChainEntry> {
             Some(RetirementChainEntry {
-                entry_id: entry["entry_id"].as_str()?.to_string(),
-                scope_id: source_scope_id.to_string(),
-                status: entry["status"].as_str()?.to_string(),
-                revision: entry["revision"].as_u64(),
+                entry_id: seeded.entry["entry_id"].as_str()?.to_string(),
+                scope_id: seeded.scope_id.clone(),
+                status: seeded.entry["status"].as_str()?.to_string(),
+                revision: seeded.entry["revision"].as_u64(),
             })
         };
-        let requested_node = chain_node(&requested).expect("chain node");
+        let requested_node = chain_node(&SeededSource {
+            entry: requested.clone(),
+            scope_id: source_scope_id.to_string(),
+            successors: None,
+        })
+        .expect("chain node");
         let terminal = match resolve_retirement_chain(
             requested_node,
             |node| {
-                let seeded = sources.get(&format!("{source_scope_id}|{}", node.entry_id));
+                let seeded = sources.get(&format!("{}|{}", node.scope_id, node.entry_id));
                 std::future::ready(seeded.and_then(|s| s.successors.clone()))
             },
             |entry_id| {
-                let loaded = sources
-                    .get(&format!("{source_scope_id}|{entry_id}"))
-                    .and_then(|s| chain_node(&s.entry));
-                std::future::ready(loaded)
+                // A successor id resolves against the whole seeded table —
+                // successor references are storage-owned names, and a
+                // chain may legitimately reach a node stored under
+                // another scope.
+                let primary = format!("{source_scope_id}|{entry_id}");
+                let loaded = sources.get(&primary).or_else(|| {
+                    let wanted_suffix = format!("|{entry_id}");
+                    sources
+                        .iter()
+                        .find(|(key, _)| key.as_str() != primary && key.ends_with(&wanted_suffix))
+                        .map(|(_, seeded)| seeded)
+                });
+                std::future::ready(loaded.and_then(|seeded| chain_node(seeded)))
             },
         )
         .await
@@ -303,10 +335,32 @@ impl AdoptionPort for ScriptedAdoptionPort {
             SpokeResult::Ok(terminal) => terminal,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
-        let terminal_entry = sources
-            .get(&format!("{source_scope_id}|{}", terminal.source_entry_id))
-            .map(|seeded| seeded.entry.clone())
-            .expect("resolved terminal is stored");
+        let terminal_seeded = sources
+            .get(&format!(
+                "{}|{}",
+                terminal.source_scope_id, terminal.source_entry_id
+            ))
+            .or_else(|| {
+                sources.get(&format!("{source_scope_id}|{}", terminal.source_entry_id))
+            });
+        let Some(terminal_entry) = terminal_seeded.map(|seeded| seeded.entry.clone()) else {
+            return spoke_reject(
+                SpokeRejectCode::InternalError,
+                "resolved terminal is not stored",
+                None,
+            );
+        };
+        // A resolved terminal outside the admitted scopes is the same
+        // generic absence as a missing source (contract §Admission and
+        // owner-private absence).
+        if !self
+            .state
+            .admitted_scopes
+            .iter()
+            .any(|s| s == &terminal.source_scope_id)
+        {
+            return FixtureState::generic_not_found();
+        }
 
         // The entry adoption actually copies must satisfy the same
         // visibility predicate as the requested source (contract

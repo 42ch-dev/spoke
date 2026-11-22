@@ -15,7 +15,13 @@
  * schema package's job and is intentionally not duplicated here.
  */
 
-type FieldKind = "string" | "number" | "object" | "array" | "boolean";
+type FieldKind =
+  | "string"
+  | "number"
+  | "object"
+  | "array"
+  | "boolean"
+  | "datetime";
 
 interface Field {
   name: string;
@@ -93,7 +99,7 @@ const MEMORY_RECEIPT_FIELDS = [
   { name: "requester_principal_id", kind: "string" },
   { name: "payload_digest", kind: "string" },
   { name: "status", kind: "string" },
-  { name: "created_at", kind: "string" },
+  { name: "created_at", kind: "datetime" },
   { name: "extensions", kind: "object" },
 ] as const satisfies readonly Field[];
 
@@ -239,6 +245,8 @@ function matchesFieldKind(value: unknown, kind: FieldKind): boolean {
       return Array.isArray(value);
     case "boolean":
       return typeof value === "boolean";
+    case "datetime":
+      return isRfc3339Timestamp(value);
   }
 }
 
@@ -253,6 +261,25 @@ const EXTRACT_RESPONSE_WIRE_KEYS = new Set(["candidates", "run", "extensions"]);
 
 const EXTRACTION_RUN_WIRE_KEYS = new Set(["run_id", "method", "coverage_hint"]);
 
+/** note: chrono `DateTime<Utc>` serde parity — RFC 3339 (`date-time`):
+ * full date, `T`/`t` separator (chrono's serde impl accepts both cases),
+ * seconds, optional fractional seconds, `Z`/`z` or ±hh:mm offset;
+ * calendar/clock sanity and the ±23:59 offset ceiling come from
+ * `Date.parse` (NaN rejects). */
+const RFC3339_PATTERN =
+  /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+
+function isRfc3339Timestamp(value: unknown): value is string {
+  if (typeof value !== "string" || !RFC3339_PATTERN.test(value)) {
+    return false;
+  }
+  const offset = /([+-])(\d{2}):(\d{2})$/.exec(value);
+  if (offset !== null && (Number(offset[2]) > 23 || Number(offset[3]) > 59)) {
+    return false;
+  }
+  return !Number.isNaN(Date.parse(value));
+}
+
 const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
 function isValidExtensionMap(value: unknown): boolean {
@@ -264,6 +291,25 @@ function isValidExtensionMap(value: unknown): boolean {
       return false;
     }
     if (!isRecord(namespaceValue)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** note: `KnowledgeEntry.modules` (knowledge-entry.schema.json) — Rust
+ * `HashMap<KnowledgeEntryModulesKey, KnowledgeEntryModulesValue>`:
+ * keys match the ExtensionKey pattern; values are object | array only
+ * (scalar module values fail Rust typed decode). */
+function isValidModulesMap(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const [key, moduleValue] of Object.entries(value)) {
+    if (!EXTENSION_MAP_KEY_PATTERN.test(key)) {
+      return false;
+    }
+    if (!isRecord(moduleValue) && !Array.isArray(moduleValue)) {
       return false;
     }
   }
@@ -435,8 +481,8 @@ const RELATION_SHAPE: SuccessShape = {
 const KNOWLEDGE_ENTRY_OPTIONAL_FIELDS = [
   { name: "source_anchor", kind: "object" },
   { name: "revision", kind: "number" },
-  { name: "created_at", kind: "string" },
-  { name: "updated_at", kind: "string" },
+  { name: "created_at", kind: "datetime" },
+  { name: "updated_at", kind: "datetime" },
   { name: "modules", kind: "object" },
   { name: "owner", kind: "string" },
   { name: "disclosure", kind: "string" },
@@ -446,8 +492,8 @@ const RELATION_OPTIONAL_FIELDS = [
   { name: "label", kind: "string" },
   { name: "metadata", kind: "object" },
   { name: "revision", kind: "number" },
-  { name: "created_at", kind: "string" },
-  { name: "updated_at", kind: "string" },
+  { name: "created_at", kind: "datetime" },
+  { name: "updated_at", kind: "datetime" },
 ] as const satisfies readonly Field[];
 
 const SOURCE_ANCHOR_REQUIRED_FIELDS = [
@@ -582,6 +628,12 @@ function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): boolean {
   if (!matchesShape(entity, KNOWLEDGE_ENTRY_SHAPE)) {
     return false;
   }
+  if (!isValidExtensionMap(entity.extensions)) {
+    return false;
+  }
+  if ("modules" in entity && !isValidModulesMap(entity.modules)) {
+    return false;
+  }
   if (!matchesOptionalFields(entity, KNOWLEDGE_ENTRY_OPTIONAL_FIELDS)) {
     return false;
   }
@@ -602,6 +654,7 @@ function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): boolean {
 function isValidRelationDeep(entity: Record<string, unknown>): boolean {
   return (
     matchesShape(entity, RELATION_SHAPE) &&
+    isValidExtensionMap(entity.extensions) &&
     matchesOptionalFields(entity, RELATION_OPTIONAL_FIELDS)
   );
 }

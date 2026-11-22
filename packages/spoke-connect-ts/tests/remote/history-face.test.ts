@@ -575,6 +575,28 @@ describe("RevisionSnapshot — nested entity deep shape", () => {
   const malformed: Array<[string, Record<string, unknown>]> = [
     ["created_at number", { created_at: 123 }],
     ["updated_at number", { updated_at: 42 }],
+    ["created_at not RFC 3339", { created_at: "July 23, 2026" }],
+    ["updated_at date only", { updated_at: "2026-07-23" }],
+    ["created_at offset no colon", { created_at: "2026-07-23T06:15:00+0200" }],
+    ["updated_at no seconds", { updated_at: "2026-07-23T06:15Z" }],
+    ["created_at bad month", { created_at: "2026-13-23T06:15:00Z" }],
+    ["updated_at offset out of range", { updated_at: "2026-07-23T06:15:00+24:00" }],
+    [
+      "extensions bad key",
+      { extensions: { "Bad.Key": {} } },
+    ],
+    [
+      "extensions scalar value",
+      { extensions: { ns: 5 } },
+    ],
+    [
+      "modules bad key",
+      { modules: { "Bad.Key": {} } },
+    ],
+    [
+      "modules scalar value",
+      { modules: { activation: 3 } },
+    ],
     ["owner number", { owner: 42 }],
     ["disclosure number", { disclosure: 7 }],
     ["modules array", { modules: [] }],

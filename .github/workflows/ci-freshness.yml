@@ -96,11 +96,17 @@ jobs:
           CPP_PROVENANCE=crates/spoke-connect/bindings/cpp/native/provenance.json
           cpp_src_rev=$(last_revision "${CPP_SOURCE[@]}")
           cpp_rec_rev=$(last_revision "${CPP_RECIPE[@]}")
-          # Missing or malformed sidecar is a broken record, not an unknown
-          # baseline: fail the lane rather than warning green.
+          # Missing, malformed, empty or non-object sidecar is a broken
+          # record, not an unknown baseline: fail the lane rather than
+          # warning green. `jq -e` also catches the zero-byte file that a
+          # bare parse accepts.
           if [ ! -f "$CPP_PROVENANCE" ]; then
             echo "::error::cpp-carrier: $CPP_PROVENANCE is missing"
             echo "- :x: **cpp-carrier** committed provenance is missing." >> "$GITHUB_STEP_SUMMARY"
+            stale=1
+          elif ! jq -e 'type == "object"' "$CPP_PROVENANCE" > /dev/null; then
+            echo "::error::cpp-carrier: $CPP_PROVENANCE is not a JSON object"
+            echo "- :x: **cpp-carrier** committed provenance is not a JSON object." >> "$GITHUB_STEP_SUMMARY"
             stale=1
           elif ! cpp_rows=$(jq -r '.nativeArtifacts // {} | keys[]' "$CPP_PROVENANCE"); then
             echo "::error::cpp-carrier: $CPP_PROVENANCE is not valid JSON"
@@ -139,9 +145,9 @@ jobs:
             echo "::error::swift-xcframework: $XC_PROVENANCE is missing"
             echo "- :x: **swift-xcframework** committed provenance is missing." >> "$GITHUB_STEP_SUMMARY"
             stale=1
-          elif ! jq . "$XC_PROVENANCE" > /dev/null; then
-            echo "::error::swift-xcframework: $XC_PROVENANCE is not valid JSON"
-            echo "- :x: **swift-xcframework** committed provenance is not valid JSON." >> "$GITHUB_STEP_SUMMARY"
+          elif ! jq -e 'type == "object"' "$XC_PROVENANCE" > /dev/null; then
+            echo "::error::swift-xcframework: $XC_PROVENANCE is not a JSON object"
+            echo "- :x: **swift-xcframework** committed provenance is not a JSON object." >> "$GITHUB_STEP_SUMMARY"
             stale=1
           else
             xc_rec_src=$(jq -r '.xcframework.sourceRevision // empty' "$XC_PROVENANCE")

@@ -79,6 +79,11 @@ jobs:
     name: windows-smoke-committed
     # PR-time ABI proof on the committed carrier; skipped on docs-only PRs.
     if: ${{ needs.changes.outputs.code == 'true' }}
+    outputs:
+      # The build worker downloads exactly this name instead of rebuilding it,
+      # so a re-run of only the failed jobs still resolves the attempt this
+      # worker actually uploaded under.
+      report-name: ${{ steps.report_name.outputs.name }}
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -179,12 +184,20 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
+      - name: Export report artifact name
+        # Published after the upload so the output names an artifact that
+        # exists; the build worker downloads it by this name.
+        id: report_name
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "name=carrier-report-windows-smoke-${{ github.run_id }}-${{ github.run_attempt }}"
+
       - name: Fail on committed carrier errors
         if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
         run: exit 1
 
   windows-smoke-build:
-    needs: changes
+    needs: [changes, windows-smoke-committed]
     name: windows-smoke-build
     # Carrier rebuild plus the rebuilt ABI proof on rebuild-triggering PRs.
     if: ${{ needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true' }}
@@ -256,10 +269,11 @@ jobs:
         run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
 
       - name: Download committed carrier report
-        # actions/download-artifact@v4.3.0
+        # actions/download-artifact@v4.3.0 — the name comes from the committed
+        # worker, which also guarantees its upload finished before this job.
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: carrier-report-windows-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.windows-smoke-committed.outputs.report-name }}
           path: ${{ runner.temp }}/carrier-report
 
       - name: Check rebuilt C ABI symbols
@@ -319,6 +333,11 @@ jobs:
           if [[ "${CODE}" == "true" && "${COMMITTED}" != "success" ]]; then
             problems+=("committed worker result=${COMMITTED}")
           fi
+          # Docs-only runs no carrier work, so both workers must be skipped.
+          if [[ "${CODE}" == "false" ]]; then
+            [[ "${COMMITTED}" == "skipped" ]] || problems+=("committed worker result=${COMMITTED} on a docs-only change (must be skipped)")
+            [[ "${BUILD}" == "skipped" ]] || problems+=("build worker result=${BUILD} on a docs-only change (must be skipped)")
+          fi
           if [[ "${REBUILD}" == "true" ]]; then
             [[ "${BUILD}" == "success" ]] || problems+=("build worker result=${BUILD} (skipped is a failure when a rebuild is required)")
           elif [[ "${REBUILD}" == "false" ]]; then
@@ -341,6 +360,11 @@ jobs:
     name: macos-smoke-committed
     # PR-time ABI proof on the committed carrier; skipped on docs-only PRs.
     if: ${{ needs.changes.outputs.code == 'true' }}
+    outputs:
+      # The build worker downloads exactly this name instead of rebuilding it,
+      # so a re-run of only the failed jobs still resolves the attempt this
+      # worker actually uploaded under.
+      report-name: ${{ steps.report_name.outputs.name }}
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -431,12 +455,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
+      - name: Export report artifact name
+        # Published after the upload so the output names an artifact that
+        # exists; the build worker downloads it by this name.
+        id: report_name
+        shell: bash
+        run: echo "name=carrier-report-macos-smoke-${{ github.run_id }}-${{ github.run_attempt }}" >> "${GITHUB_OUTPUT}"
+
       - name: Fail on committed carrier errors
         if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
         run: exit 1
 
   macos-smoke-build:
-    needs: changes
+    needs: [changes, macos-smoke-committed]
     name: macos-smoke-build
     # Carrier rebuild plus the rebuilt ABI proof on rebuild-triggering PRs.
     if: ${{ needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true' }}
@@ -497,10 +528,11 @@ jobs:
         run: node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.98.1
 
       - name: Download committed carrier report
-        # actions/download-artifact@v4.3.0
+        # actions/download-artifact@v4.3.0 — the name comes from the committed
+        # worker, which also guarantees its upload finished before this job.
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: carrier-report-macos-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.macos-smoke-committed.outputs.report-name }}
           path: ${{ runner.temp }}/carrier-report
 
       - name: Check rebuilt C ABI symbols
@@ -556,6 +588,11 @@ jobs:
           fi
           if [[ "${CODE}" == "true" && "${COMMITTED}" != "success" ]]; then
             problems+=("committed worker result=${COMMITTED}")
+          fi
+          # Docs-only runs no carrier work, so both workers must be skipped.
+          if [[ "${CODE}" == "false" ]]; then
+            [[ "${COMMITTED}" == "skipped" ]] || problems+=("committed worker result=${COMMITTED} on a docs-only change (must be skipped)")
+            [[ "${BUILD}" == "skipped" ]] || problems+=("build worker result=${BUILD} on a docs-only change (must be skipped)")
           fi
           if [[ "${REBUILD}" == "true" ]]; then
             [[ "${BUILD}" == "success" ]] || problems+=("build worker result=${BUILD} (skipped is a failure when a rebuild is required)")

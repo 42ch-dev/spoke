@@ -70,8 +70,9 @@
  * which case cargo is never invoked. The repository's local nightly
  * convention (root `AGENTS.md`: the local `-Zno-embed-metadata` flag is
  * nightly-only) is honored automatically; see `cargoCommand`. The two report
- * flags are mutually exclusive, and a missing or malformed report file fails
- * the gate — it never falls back to running cargo.
+ * flags are mutually exclusive, and a flag with no value, a missing report
+ * file or a malformed one fails the gate — it never falls back to running
+ * cargo.
  *
  * `--self-test` additionally proves fail-closed behavior: temporary header
  * copies with (a) a real declaration removed, (b) an invented declaration
@@ -203,6 +204,20 @@ function cargoCommand() {
   return ["cargo"];
 }
 
+/**
+ * The value following a flag. A flag at the end of the command line or one
+ * followed by another flag has no value: reading the next token would name a
+ * file the caller never asked for, and an empty report flag would silently
+ * fall back to running cargo.
+ */
+function flagValue(argv, index, flag) {
+  const value = argv[index + 1];
+  if (value === undefined || value.startsWith("--")) {
+    fail(`${flag} requires a value`);
+  }
+  return value;
+}
+
 function parseArgs(argv) {
   const args = {
     header: null,
@@ -214,16 +229,16 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === "--header") {
-      args.header = argv[index + 1];
+      args.header = flagValue(argv, index, flag);
       index += 1;
     } else if (flag === "--library") {
-      args.library = argv[index + 1];
+      args.library = flagValue(argv, index, flag);
       index += 1;
     } else if (flag === "--emit-carrier-report") {
-      args.emitCarrierReport = argv[index + 1];
+      args.emitCarrierReport = flagValue(argv, index, flag);
       index += 1;
     } else if (flag === "--carrier-report") {
-      args.carrierReport = argv[index + 1];
+      args.carrierReport = flagValue(argv, index, flag);
       index += 1;
     } else if (flag === "--self-test") {
       args.selfTest = true;

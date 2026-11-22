@@ -91,25 +91,33 @@ jobs:
           )
           CPP_RECIPE=(
             tooling/connect/cpp-build.mjs
-            tooling/connect/cpp-symbol-check.mjs
-            tooling/connect/cpp-smoke.mjs
-            tooling/connect/assemble-csharp-runtimes.sh
-            tooling/connect/cpp-nightly-refresh.mjs
+            .github/workflows/cpp-connect.yml
           )
+          CPP_PROVENANCE=crates/spoke-connect/bindings/cpp/native/provenance.json
           cpp_src_rev=$(last_revision "${CPP_SOURCE[@]}")
           cpp_rec_rev=$(last_revision "${CPP_RECIPE[@]}")
-          cpp_rows=$(jq -r '.nativeArtifacts // {} | keys[]' crates/spoke-connect/bindings/cpp/native/provenance.json 2>/dev/null || true)
-          if [ -z "$cpp_rows" ]; then
+          # Missing or malformed sidecar is a broken record, not an unknown
+          # baseline: fail the lane rather than warning green.
+          if [ ! -f "$CPP_PROVENANCE" ]; then
+            echo "::error::cpp-carrier: $CPP_PROVENANCE is missing"
+            echo "- :x: **cpp-carrier** committed provenance is missing." >> "$GITHUB_STEP_SUMMARY"
+            stale=1
+          elif ! cpp_rows=$(jq -r '.nativeArtifacts // {} | keys[]' "$CPP_PROVENANCE"); then
+            echo "::error::cpp-carrier: $CPP_PROVENANCE is not valid JSON"
+            echo "- :x: **cpp-carrier** committed provenance is not valid JSON." >> "$GITHUB_STEP_SUMMARY"
+            stale=1
+          elif [ -z "$cpp_rows" ]; then
             echo "::warning::cpp-carrier: committed provenance has no nativeArtifacts entries"
             echo "- :warning: **cpp-carrier** committed provenance records no carriers." >> "$GITHUB_STEP_SUMMARY"
+          else
+            while IFS= read -r rid; do
+              [ -z "$rid" ] && continue
+              rec_src=$(jq -r --arg rid "$rid" '.nativeArtifacts[$rid].sourceRevision // empty' "$CPP_PROVENANCE")
+              rec_rec=$(jq -r --arg rid "$rid" '.nativeArtifacts[$rid].recipeRevision // empty' "$CPP_PROVENANCE")
+              compare "cpp-carrier/${rid}" sourceRevision "$rec_src" "$cpp_src_rev" "${CPP_SOURCE[@]}" || stale=1
+              compare "cpp-carrier/${rid}" recipeRevision "$rec_rec" "$cpp_rec_rev" "${CPP_RECIPE[@]}" || stale=1
+            done <<< "$cpp_rows"
           fi
-          while IFS= read -r rid; do
-            [ -z "$rid" ] && continue
-            rec_src=$(jq -r --arg rid "$rid" '.nativeArtifacts[$rid].sourceRevision // empty' crates/spoke-connect/bindings/cpp/native/provenance.json)
-            rec_rec=$(jq -r --arg rid "$rid" '.nativeArtifacts[$rid].recipeRevision // empty' crates/spoke-connect/bindings/cpp/native/provenance.json)
-            compare "cpp-carrier/${rid}" sourceRevision "$rec_src" "$cpp_src_rev" "${CPP_SOURCE[@]}" || stale=1
-            compare "cpp-carrier/${rid}" recipeRevision "$rec_rec" "$cpp_rec_rev" "${CPP_RECIPE[@]}" || stale=1
-          done <<< "$cpp_rows"
 
           # --- Swift xcframework (crates/spoke-connect/bindings/swift/xcframework) ---
           # Source set = the xcframework rebuild pattern minus the four recipe
@@ -127,10 +135,20 @@ jobs:
           )
           xc_src_rev=$(last_revision "${XC_SOURCE[@]}")
           xc_rec_rev=$(last_revision "${XC_RECIPE[@]}")
-          xc_rec_src=$(jq -r '.xcframework.sourceRevision // empty' "$XC_PROVENANCE" 2>/dev/null || true)
-          xc_rec_rec=$(jq -r '.xcframework.recipeRevision // empty' "$XC_PROVENANCE" 2>/dev/null || true)
-          compare "swift-xcframework" sourceRevision "$xc_rec_src" "$xc_src_rev" "${XC_SOURCE[@]}" || stale=1
-          compare "swift-xcframework" recipeRevision "$xc_rec_rec" "$xc_rec_rev" "${XC_RECIPE[@]}" || stale=1
+          if [ ! -f "$XC_PROVENANCE" ]; then
+            echo "::error::swift-xcframework: $XC_PROVENANCE is missing"
+            echo "- :x: **swift-xcframework** committed provenance is missing." >> "$GITHUB_STEP_SUMMARY"
+            stale=1
+          elif ! jq . "$XC_PROVENANCE" > /dev/null; then
+            echo "::error::swift-xcframework: $XC_PROVENANCE is not valid JSON"
+            echo "- :x: **swift-xcframework** committed provenance is not valid JSON." >> "$GITHUB_STEP_SUMMARY"
+            stale=1
+          else
+            xc_rec_src=$(jq -r '.xcframework.sourceRevision // empty' "$XC_PROVENANCE")
+            xc_rec_rec=$(jq -r '.xcframework.recipeRevision // empty' "$XC_PROVENANCE")
+            compare "swift-xcframework" sourceRevision "$xc_rec_src" "$xc_src_rev" "${XC_SOURCE[@]}" || stale=1
+            compare "swift-xcframework" recipeRevision "$xc_rec_rec" "$xc_rec_rev" "${XC_RECIPE[@]}" || stale=1
+          fi
 
           if [ "$stale" -ne 0 ]; then
             echo "::error::stale committed artifact baselines; refresh via the lane's apply tooling"

@@ -135,7 +135,7 @@ describe("dependency source identity", () => {
         put("unrelated.txt", "initial\n");
         // A second recipe path so the fixture can prove a tracked-then-
         // deleted recipe fails the dirty check.
-        put("tooling/connect/cpp-smoke.mjs", "smoke\n");
+        put(".github/workflows/cpp-connect.yml", "workflow\n");
         git("add", ".");
         git("commit", "-qm", "initial");
         // The copied script is the only recipe path present in the fixture,
@@ -163,14 +163,18 @@ describe("dependency source identity", () => {
         assert.equal(revision(), dependencyRevision);
         assert.equal(recipe(), initialRevision);
 
+        // Deleted while the tree is otherwise clean: the dirty check must
+        // still see the tracked recipe, not filter it out.
+        rmSync(join(root, ".github/workflows/cpp-connect.yml"));
+        const deletedRecipe = build();
+        assert.notEqual(deletedRecipe.status, 0);
+        assert.match(deletedRecipe.stderr, /cpp-connect\.yml/);
+        git("checkout", "--", ".github/workflows/cpp-connect.yml");
+
         put(dependency, "dirty change\n");
         const dirty = build();
         assert.notEqual(dirty.status, 0);
         assert.equal(revision(), dependencyRevision);
-
-        rmSync(join(root, "tooling/connect/cpp-smoke.mjs"));
-        const deletedRecipe = build();
-        assert.notEqual(deletedRecipe.status, 0);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

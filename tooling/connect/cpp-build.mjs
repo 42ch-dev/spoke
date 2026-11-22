@@ -70,9 +70,12 @@ const BUILD_SOURCE_PATHS = [
 ];
 
 /**
- * Scripts whose change rebuilds the binary differently; disjoint from
- * BUILD_SOURCE_PATHS. The list is passed to git unfiltered: `git status`
- * and `git log` both accept a path with no working-tree file, and a
+ * Inputs whose change can rebuild the binary differently; disjoint from
+ * BUILD_SOURCE_PATHS. The workflow file selects the toolchain, targets and
+ * flags; the checker/smoke scripts verify the artifact and the runtimes
+ * assembly repacks it — neither changes the emitted bytes, so they are not
+ * recipe inputs. The list is passed to git unfiltered: `git status` and
+ * `git log` both accept a path with no working-tree file, and a
  * tracked-then-deleted recipe must still fail the dirty check rather than
  * be filtered out. The artifact writeback
  * (`crates/spoke-connect/bindings/cpp/native/**`) is a consumer of the
@@ -80,10 +83,7 @@ const BUILD_SOURCE_PATHS = [
  */
 const BUILD_RECIPE_PATHS = [
   "tooling/connect/cpp-build.mjs",
-  "tooling/connect/cpp-symbol-check.mjs",
-  "tooling/connect/cpp-smoke.mjs",
-  "tooling/connect/assemble-csharp-runtimes.sh",
-  "tooling/connect/cpp-nightly-refresh.mjs",
+  ".github/workflows/cpp-connect.yml",
 ];
 
 const TARGETS = {

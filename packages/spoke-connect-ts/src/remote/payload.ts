@@ -343,10 +343,66 @@ function isExactNonNegativeInteger(value: unknown): value is number {
 }
 
 /**
+ * note: strict `RevisionSnapshot` decode (spoke-history contract
+ * §RevisionSnapshot): all six envelope members present and well-formed,
+ * `snapshot` a COMPLETE core shape (`KnowledgeEntry` or `Relation`
+ * required-field set — matching `port.knowledge.get` / `port.relation.get`
+ * strictness), the variant agreeing with `entity_kind` for the core
+ * kinds, and the nested entity's own id and revision equal to the
+ * envelope's. `selectors` — bound at the serving face and each
+ * `RemoteAdapter` — additionally requires the envelope to match the
+ * request (Rust parity: `validate_history_snapshot`). An open product
+ * kind declares its core shape, so the nested member must still decode
+ * under one consistent core shape.
+ */
+export function isValidRevisionSnapshot(
+  value: unknown,
+  selectors?: { entity_kind: string; entity_id: string; revision: number },
+): boolean {
+  if (!isRecord(value) || !isValidRevisionSnapshotEnvelope(value)) {
+    return false;
+  }
+  if (
+    selectors !== undefined &&
+    (value.entity_kind !== selectors.entity_kind ||
+      value.entity_id !== selectors.entity_id ||
+      value.revision !== selectors.revision)
+  ) {
+    return false;
+  }
+  const entity = value.snapshot;
+  const isKnowledgeEntry =
+    isRecord(entity) && matchesShape(entity, KNOWLEDGE_ENTRY_SHAPE);
+  const isRelation = isRecord(entity) && matchesShape(entity, RELATION_SHAPE);
+  if (value.entity_kind === "knowledge_entry" && !isKnowledgeEntry) {
+    return false;
+  }
+  if (value.entity_kind === "relation" && !isRelation) {
+    return false;
+  }
+  if (!isKnowledgeEntry && !isRelation) {
+    return false;
+  }
+  // note: RevisionSnapshot equality rules — the nested entity's own id
+  // equals the envelope `entity_id` and its own `revision` equals the
+  // envelope `revision` (contract §RevisionSnapshot: "equals the selected
+  // entity snapshot's own revision"). The nested revision is required, not
+  // conditional: the authored response example carries them equal.
+  if (isKnowledgeEntry && entity.entry_id !== value.entity_id) {
+    return false;
+  }
+  if (isRelation && entity.relation_id !== value.entity_id) {
+    return false;
+  }
+  return (
+    isExactNonNegativeInteger(entity.revision) &&
+    entity.revision === value.revision
+  );
+}
+
+/**
  * note: strict `RevisionSnapshot` envelope shape (spoke-history contract
  * §RevisionSnapshot): all six required members present and well-formed.
- * Selector equality against the request is enforced by the serving face
- * and the `RemoteAdapter` cross-check (request context lives there).
  */
 function isValidRevisionSnapshotEnvelope(snapshot: unknown): boolean {
   return (
@@ -361,6 +417,16 @@ function isValidRevisionSnapshotEnvelope(snapshot: unknown): boolean {
   );
 }
 
+const KNOWLEDGE_ENTRY_SHAPE: SuccessShape = {
+  kind: "object",
+  fields: KNOWLEDGE_ENTRY_FIELDS,
+};
+
+const RELATION_SHAPE: SuccessShape = {
+  kind: "object",
+  fields: RELATION_FIELDS,
+};
+
 /**
  * note: strict `history.revisions.*` success shapes (spoke-history
  * contract §Connect operations): get requires a present `snapshot` member
@@ -373,7 +439,7 @@ function isValidHistorySuccessPayload(op: string, value: unknown): boolean {
     return (
       isRecord(value) &&
       "snapshot" in value &&
-      isValidRevisionSnapshotEnvelope(value.snapshot)
+      isValidRevisionSnapshot(value.snapshot)
     );
   }
   return (

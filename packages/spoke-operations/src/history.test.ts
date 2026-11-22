@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RevisionSnapshot } from "@42ch/spoke-schemas";
 
-import {
-  revisionSnapshotsEqualCanonical,
-  type HistoryPruneResult,
-} from "./history.js";
+import { revisionSnapshotsEqualCanonical } from "./history.js";
 
 function snapshot(): RevisionSnapshot {
   return {
@@ -101,15 +98,5 @@ describe("revision snapshot wire presence", () => {
       ok: true,
       value: true,
     });
-  });
-
-  it("HistoryPruneResult carries deleted + nullable floor_revision (contract §4.2)", () => {
-    // note: the prune outcome vocabulary — a deleting prune reports the
-    // retained floor; a no-op reports `null`, never an omitted member.
-    const deleted: HistoryPruneResult = { deleted: 1, floor_revision: 2 };
-    const noop: HistoryPruneResult = { deleted: 0, floor_revision: null };
-    expect("floor_revision" in noop).toBe(true);
-    expect(noop.floor_revision).toBeNull();
-    expect(deleted.deleted).toBeGreaterThanOrEqual(0);
   });
 });

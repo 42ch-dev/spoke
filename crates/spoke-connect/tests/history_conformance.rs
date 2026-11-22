@@ -41,16 +41,16 @@ use spoke_connect::core::derive_peer_id_from_ed25519_pubkey;
 use spoke_connect::remote::{
     connect_remote_adapter, connect_responder, loopback_transport_pair, ConnectResponder,
     ConnectResponderOptions, HistoryAdmission, HistoryPortService, InMemoryHistoryDedupStore,
-    RemoteAdapter, RemoteAdapterOptions, RemoteHistoryService,
-    RemoteIdentity, RemoteServePorts, RemoteServePortsComposite,
+    KnowledgeAdmission, RemoteAdapter, RemoteAdapterOptions, RemoteHistoryService,
+    RemoteIdentity, RemoteKnowledgeFace, RemoteServePorts, RemoteServePortsComposite,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
-    jcs_sha256_hex, spoke_ok, spoke_reject, BaselinePorts, HistoryPort, SpokeReject,
-    SpokeRejectCode, SpokeResult,
+    jcs_sha256_hex, spoke_ok, spoke_reject, BaselinePorts, HistoryPort, KnowledgeEntryPort,
+    ScopedKnowledgePort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_operations::HistoryPruneResult;
-use spoke_schemas::{HostCapabilityManifest, Principal, RevisionSnapshot, Scope};
+use spoke_schemas::{HostCapabilityManifest, KnowledgeEntry, Principal, RevisionSnapshot, Scope};
 
 const HOST_CAPABILITIES: [&str; 2] = ["spoke-baseline", "spoke-history"];
 const CLIENT_CAPABILITIES: [&str; 2] = ["spoke-baseline", "spoke-history"];
@@ -296,24 +296,85 @@ fn history_service(
     }
 }
 
+/// Single-scope fixture baseline adapted to the scoped knowledge face —
+/// the same `ScopedBaselineStore` wiring as `memory_loopback`: the
+/// fixture store keeps one scope, so each scoped call delegates to the
+/// matching unscoped baseline method.
+struct ScopedBaselineStore {
+    baseline: Arc<dyn BaselinePorts + Send + Sync>,
+}
+
+#[async_trait]
+impl ScopedKnowledgePort for ScopedBaselineStore {
+    async fn get_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        entry_id: &str,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.baseline.get_knowledge_entry(entry_id).await
+    }
+
+    async fn put_scoped_knowledge_entry(
+        &self,
+        _scope: &Scope,
+        entry: KnowledgeEntry,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.baseline
+            .put_knowledge_entry(entry, expected_base_revision)
+            .await
+    }
+
+    async fn list_scoped_knowledge_entries(
+        &self,
+        scope: &Scope,
+    ) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.baseline.list_knowledge_entries(scope).await
+    }
+}
+
+/// Knowledge face over the fixture store admitting `ADMITTED_SCOPE` for
+/// every authenticated peer — the write path exercised by the
+/// conditional-put conformance steps.
+fn knowledge_face(baseline: Arc<dyn BaselinePorts + Send + Sync>) -> Arc<RemoteKnowledgeFace> {
+    let admission: KnowledgeAdmission =
+        Arc::new(|_peer| spoke_ok(scope(ADMITTED_SCOPE)));
+    Arc::new(RemoteKnowledgeFace {
+        store: Arc::new(ScopedBaselineStore { baseline }),
+        admission,
+    })
+}
+
 struct HistoryHost {
     responder: Arc<ConnectResponder>,
     client: Arc<RemoteAdapter>,
 }
 
 /// Start a responder serving `history` (or no history face) and dial it.
+/// `seed_entries` are KnowledgeEntry wire objects loaded into the host's
+/// write store before dial — the conditional-put steps exercise the
+/// unchanged write path over the same responder.
 async fn dial_host(
     service: Option<Arc<dyn RemoteHistoryService>>,
     host_capabilities: &[&str],
     client_capabilities: &[&str],
     serve_budget_ms: Option<u64>,
     client_timeout_ms: Option<u64>,
+    seed_entries: &[Value],
 ) -> HistoryHost {
     let pair = loopback_transport_pair();
     let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
-    let baseline: Arc<dyn BaselinePorts + Send + Sync> =
-        Arc::new(ToyWorldAdapter::with_committed_fixtures());
-    let mut ports = RemoteServePortsComposite::new(baseline, None, None);
+    let adapter = ToyWorldAdapter::with_committed_fixtures();
+    for entry in seed_entries {
+        let entry: KnowledgeEntry =
+            serde_json::from_value(entry.clone()).expect("seed entry decodes");
+        adapter.with_store_mut(|store| {
+            store.entries.insert(entry.entry_id.clone(), entry);
+        });
+    }
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = Arc::new(adapter);
+    let mut ports = RemoteServePortsComposite::new(Arc::clone(&baseline), None, None)
+        .with_knowledge(knowledge_face(baseline));
     if let Some(service) = service {
         ports = ports.with_history(service);
     }
@@ -381,8 +442,16 @@ fn parse_step(step: &Value, default_op: Option<&str>) -> StepRequest {
         .to_string();
     let request = step["request"].clone();
     StepRequest {
-        entity_kind: request["entity_kind"].as_str().expect("entity_kind").to_string(),
-        entity_id: request["entity_id"].as_str().expect("entity_id").to_string(),
+        // Non-history ops (the conditional `port.knowledge.put` steps)
+        // carry no selectors — absent members normalize to empty.
+        entity_kind: request["entity_kind"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
+        entity_id: request["entity_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
         revision: request["revision"].as_u64(),
         keep: request["keep"].as_u64(),
         idempotency_key: request["idempotency_key"].as_str().map(str::to_string),
@@ -402,6 +471,11 @@ async fn run_step(
     step: &StepRequest,
 ) -> StepOutcome {
     if surface == "service" {
+        assert!(
+            step.op.starts_with("history."),
+            "service surface serves history ops only, got {}",
+            step.op
+        );
         return match service
             .invoke(client_peer, &step.op, step.request.clone())
             .await
@@ -442,6 +516,28 @@ async fn run_step(
                 .await
             {
                 SpokeResult::Ok(result) => StepOutcome::Value(serde_json::to_value(result).expect("prune result serializes")),
+                SpokeResult::Reject(reject) => StepOutcome::Reject(reject),
+            }
+        }
+        // Conditional entity write (contract §Checkpoints: a below-floor
+        // conditional put keeps the entity's existing OCC outcome — the
+        // write path never consults the history floor).
+        "port.knowledge.put" => {
+            let entry: KnowledgeEntry = serde_json::from_value(
+                step.request["entry"].clone(),
+            )
+            .expect("put step entry decodes");
+            match host
+                .client
+                .put_knowledge_entry(
+                    entry,
+                    step.request["expected_base_revision"].as_u64(),
+                )
+                .await
+            {
+                SpokeResult::Ok(entry) => {
+                    StepOutcome::Value(serde_json::to_value(entry).expect("entry serializes"))
+                }
                 SpokeResult::Reject(reject) => StepOutcome::Reject(reject),
             }
         }
@@ -641,11 +737,9 @@ fn corpus_integrity() {
     for required in REQUIRED_SCENARIOS {
         assert!(ids.contains(&required), "scenario {required} missing");
     }
-    let mut case_count = 0;
     let mut seen_ids = std::collections::BTreeSet::new();
     for scenario in &scenarios {
         for case in &scenario.cases {
-            case_count += 1;
             let id = case["id"].as_str().expect("case id");
             assert!(seen_ids.insert(id), "duplicate case id {id}");
             let surface = case["surface"].as_str().expect("surface");
@@ -657,7 +751,10 @@ fn corpus_integrity() {
             assert!(case["request"].is_object(), "case {id} request");
             let op = case["op"].as_str().expect("case op");
             assert!(
-                matches!(op, "history.revisions.get" | "history.revisions.prune"),
+                matches!(
+                    op,
+                    "history.revisions.get" | "history.revisions.prune" | "port.knowledge.put"
+                ),
                 "case {id} op {op}"
             );
             let expect = &case["expect"];
@@ -676,7 +773,10 @@ fn corpus_integrity() {
                 for step in case[step_list].as_array().into_iter().flatten() {
                     let op = step["op"].as_str().expect("step op");
                     assert!(
-                        matches!(op, "history.revisions.get" | "history.revisions.prune"),
+                        matches!(
+                            op,
+                            "history.revisions.get" | "history.revisions.prune" | "port.knowledge.put"
+                        ),
                         "case {id} step op {op}"
                     );
                     assert!(step["request"].is_object(), "case {id} step request");
@@ -706,7 +806,9 @@ fn corpus_integrity() {
             }
         }
     }
-    assert_eq!(case_count, 24, "corpus case total drifted");
+    // No corpus-case count pin: adding a case must not break an aggregate
+    // assertion — per-case id uniqueness and the per-case semantic checks
+    // above carry the corpus contract.
 }
 
 // ── Corpus execution ──────────────────────────────────────────────────────
@@ -765,6 +867,20 @@ async fn run_case(case: &Value) -> Result<(), String> {
                 .collect()
         })
         .unwrap_or_else(|| CLIENT_CAPABILITIES.iter().map(|c| c.to_string()).collect());
+    let host_caps: Vec<String> = input
+        .get("host_capabilities")
+        .and_then(Value::as_array)
+        .map(|caps| {
+            caps.iter()
+                .map(|c| c.as_str().expect("capability").to_string())
+                .collect()
+        })
+        .unwrap_or_else(|| HOST_CAPABILITIES.iter().map(|c| c.to_string()).collect());
+    let seed_entries: Vec<Value> = input
+        .get("seed_entries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let client_peer = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
 
     let body = std::panic::AssertUnwindSafe(async {
@@ -772,13 +888,15 @@ async fn run_case(case: &Value) -> Result<(), String> {
         // service (or not); service surface talks to the service directly.
         let host = if surface == "wire" {
             let caps: Vec<&str> = client_caps.iter().map(String::as_str).collect();
+            let host_caps: Vec<&str> = host_caps.iter().map(String::as_str).collect();
             Some(
                 dial_host(
                     history_face.then(|| Arc::clone(&service)),
-                    &HOST_CAPABILITIES,
+                    &host_caps,
                     &caps,
                     None,
                     None,
+                    &seed_entries,
                 )
                 .await,
             )
@@ -905,6 +1023,7 @@ async fn wrong_target_snapshot_is_transport_decode_error() {
         &CLIENT_CAPABILITIES,
         None,
         None,
+        &[],
     )
     .await;
     let client_peer = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
@@ -1005,6 +1124,7 @@ async fn expired_serve_budget_is_outcome_uncertain_then_replay_recovers() {
         &CLIENT_CAPABILITIES,
         Some(60),
         Some(5000),
+        &[],
     )
     .await;
     let first = host

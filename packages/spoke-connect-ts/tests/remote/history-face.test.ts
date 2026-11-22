@@ -195,6 +195,21 @@ describe("decodeHistoryCall — closed request shape", () => {
         idempotency_key: "k".repeat(128),
       }).ok,
     ).toBe(true);
+    // note: the wire bound is Unicode code points, not UTF-16 code units
+    // (schema `maxLength`; Rust `chars().count()`) — a supplementary-plane
+    // key inside the bound is admitted, one past it is not.
+    expect(
+      decodeHistoryCall("history.revisions.prune", {
+        ...payload,
+        idempotency_key: "\u{1F4A7}".repeat(65),
+      }).ok,
+    ).toBe(true);
+    expect(
+      decodeHistoryCall("history.revisions.prune", {
+        ...payload,
+        idempotency_key: "\u{1F4A7}".repeat(129),
+      }).ok,
+    ).toBe(false);
   });
 
   it("rejects unknown members on prune and malformed scope", () => {
@@ -396,6 +411,51 @@ describe("HistoryPortService — prune dedup", () => {
     await service.invoke("peer-a", "history.revisions.prune", prunePayload("k-2"));
     expect(calls).toHaveLength(2);
   });
+
+  it("overlapping same-key prunes execute the port once", async () => {
+    // note: same-key serialization (Rust parity: `dedup_lock`) — two
+    // concurrent prunes racing on `unseen` run lookup → port → record
+    // exclusively, so the second settles as the same recorded outcome
+    // and the provider mutates exactly once (contract §9.1).
+    let n = 0;
+    // why: executor form — `Promise.withResolvers` needs the ES2024 lib.
+    // A gate the test controls: both invokes are dispatched while the
+    // first holds the dedup section inside the port call, so the second
+    // genuinely races `unseen` without a wall-clock guess.
+    let openPort!: () => void;
+    const portGate = new Promise<void>((resolve) => {
+      openPort = resolve;
+    });
+    const { port } = countingPort({
+      prune: async () => {
+        n += 1;
+        await portGate;
+        return spokeOk({ deleted: 1, floor_revision: 2 });
+      },
+    });
+    const service = new HistoryPortService(port, admission());
+    const first = service.invoke(
+      "peer-a",
+      "history.revisions.prune",
+      prunePayload("k-1"),
+    );
+    const second = service.invoke(
+      "peer-a",
+      "history.revisions.prune",
+      prunePayload("k-1"),
+    );
+    openPort();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult).toEqual({
+      ok: true,
+      value: { deleted: 1, floor_revision: 2 },
+    });
+    expect(secondResult).toEqual({
+      ok: true,
+      value: { deleted: 1, floor_revision: 2 },
+    });
+    expect(n).toBe(1);
+  });
 });
 
 describe("HistoryPortService — served success validation", () => {
@@ -416,23 +476,45 @@ describe("HistoryPortService — served success validation", () => {
     });
   });
 
-  it("a malformed prune result answers INTERNAL_ERROR and is not recorded", async () => {
+  it("a malformed prune result answers INTERNAL_ERROR and the reject is the recorded outcome", async () => {
+    let n = 0;
     const { port } = countingPort({
       // @ts-expect-error — a provider returning a malformed success
-      prune: async () => spokeOk({ deleted: 1 }),
+      prune: async () => {
+        n += 1;
+        return spokeOk({ deleted: 1 });
+      },
     });
     const service = new HistoryPortService(port, admission());
-    const result = await service.invoke("peer-a", "history.revisions.prune", {
+    const payload = {
       entity_kind: "knowledge_entry",
       entity_id: "ke_1",
       keep: 1,
       idempotency_key: "k-1",
-    });
+    };
+    const result = await service.invoke(
+      "peer-a",
+      "history.revisions.prune",
+      payload,
+    );
     expect(result).toMatchObject({
       ok: false,
       code: "INTERNAL_ERROR",
       details: { kind: "transport" },
     });
+    // note: contract §9.1 — the transport decode reject is the recorded
+    // outcome: a same-digest replay returns it and never re-executes.
+    const replay = await service.invoke(
+      "peer-a",
+      "history.revisions.prune",
+      payload,
+    );
+    expect(replay).toMatchObject({
+      ok: false,
+      code: "INTERNAL_ERROR",
+      details: { kind: "transport" },
+    });
+    expect(n).toBe(1);
   });
 
   it("get success wraps the snapshot and preserves present-empty members", async () => {

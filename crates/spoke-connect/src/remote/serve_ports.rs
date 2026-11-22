@@ -537,6 +537,41 @@ fn scope_wire_equal(requested: &Scope, admitted: &Scope) -> bool {
     }
 }
 
+/// Largest integer that survives `serde_jcs`'s RFC 8785 number
+/// formatting: the crate encodes integers through `f64`, so IEEE-754
+/// exact integers (|n| ≤ 2^53 − 1) are the only members whose digest
+/// identity is preserved.
+const JCS_EXACT_INTEGER_MAX: u64 = 9_007_199_254_740_991;
+
+/// Every integer member of `value` is inside the JCS exact-integer
+/// range. The prune dedup digest is SHA-256 over the RFC 8785 encoding
+/// of the whole request payload; an integer beyond 2^53 − 1 would
+/// collapse to the same canonical number as a distinct neighbor, so a
+/// different request could replay a recorded outcome under its own key.
+/// The serving boundary refuses such payloads with `INVALID_INPUT`
+/// instead of rounding (spoke-history contract §`HistoryPort`: the
+/// runtime never rounds an unrepresentable integer).
+fn payload_integers_jcs_exact(value: &Value) -> bool {
+    match value {
+        Value::Number(number) => {
+            if number.is_u64() || number.is_i64() {
+                let magnitude = number
+                    .as_u64()
+                    .or_else(|| number.as_i64().map(i64::unsigned_abs))
+                    .expect("integer number");
+                magnitude <= JCS_EXACT_INTEGER_MAX
+            } else {
+                // A non-integral f64 member carries no integer identity
+                // to lose in canonicalization.
+                true
+            }
+        }
+        Value::Array(items) => items.iter().all(payload_integers_jcs_exact),
+        Value::Object(members) => members.values().all(payload_integers_jcs_exact),
+        _ => true,
+    }
+}
+
 /// Transport-decode reject for a malformed provider success value —
 /// `INTERNAL_ERROR` with `details.kind = "transport"`, never `Ok`
 /// (spoke-history contract §Connect operations).
@@ -603,18 +638,17 @@ pub(crate) fn validate_history_snapshot(
             "provider returned a malformed RevisionSnapshot: nested entity id does not equal the envelope entity_id",
         );
     }
-    // The nested entity's own revision, when present, agrees with the
-    // envelope revision (the authored get-response example carries them
-    // equal; contract §`RevisionSnapshot`: "equals the selected entity
-    // snapshot's own revision").
-    if let Some(nested_revision) = nested_revision {
-        if nested_revision != revision {
-            return history_transport_reject(
-                "provider returned a malformed RevisionSnapshot: nested entity revision does not equal the envelope revision",
-            );
-        }
+    // The nested entity's own revision is REQUIRED and MUST equal the
+    // envelope revision (contract §`RevisionSnapshot`: "The selected
+    // entity snapshot's own `revision` member is required and MUST equal
+    // this envelope value") — an absent member is malformed, never
+    // skipped.
+    match nested_revision {
+        Some(nested_revision) if nested_revision == revision => spoke_ok(()),
+        _ => history_transport_reject(
+            "provider returned a malformed RevisionSnapshot: nested entity revision must be present and equal the envelope revision",
+        ),
     }
-    spoke_ok(())
 }
 
 /// Serving-side get validation: `validate_history_snapshot` on the
@@ -633,7 +667,14 @@ fn valid_served_snapshot(
         return SpokeResult::Reject(reject);
     }
     match serde_json::to_value(snapshot) {
-        Ok(snapshot) => spoke_ok(json!({ "snapshot": snapshot })),
+        Ok(snapshot) => {
+            // Insert the serialized snapshot into the response member
+            // directly — `json!({ "snapshot": snapshot })` would
+            // re-serialize the `Value` tree it already holds.
+            let mut response = Map::new();
+            response.insert("snapshot".into(), snapshot);
+            spoke_ok(Value::Object(response))
+        }
         Err(error) => spoke_reject(
             SpokeRejectCode::InternalError,
             format!("history response serialize failed: {error}"),
@@ -741,6 +782,16 @@ impl RemoteHistoryService for HistoryPortService {
         // (idempotency key included) — compute it before the scope member
         // moves out for decoding.
         let payload_digest = if op == HISTORY_OP_PRUNE {
+            // The digest covers the WHOLE request object under RFC 8785
+            // — refuse any member outside the JCS exact-integer range
+            // before hashing (see `payload_integers_jcs_exact`).
+            if !payload_integers_jcs_exact(&payload) {
+                return spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("invalid {op} payload: integer member outside the exact-integer range"),
+                    None,
+                );
+            }
             match jcs_sha256_hex(&payload) {
                 SpokeResult::Ok(digest) => Some(digest),
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
@@ -870,7 +921,11 @@ impl RemoteHistoryService for HistoryPortService {
                     SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
                 };
                 // The settled outcome is recorded — success or reject —
-                // so a same-key replay never re-executes the prune.
+                // so a same-key replay never re-executes the prune
+                // (contract §9.1: a malformed provider success settles as
+                // the transport decode error; the recorded outcome
+                // replays that error verbatim without a second port
+                // call).
                 self.dedup
                     .record(
                         &dedup_key,
@@ -1550,5 +1605,96 @@ mod history_tests {
             validate_history_prune_success(&json!({"deleted": 1, "floor_revision": "x"})),
             SpokeResult::Reject(_)
         ));
+    }
+
+    /// Contract §`RevisionSnapshot`: the nested entity revision member is
+    /// REQUIRED and must equal the envelope — a provider snapshot that
+    /// omits it is a transport decode error, never `Ok`.
+    #[tokio::test]
+    async fn absent_nested_revision_is_transport_decode_error() {
+        // Decode the stub's snapshot shape, drop the nested revision
+        // member, and re-encode: the generated `Option<u64>` field
+        // tolerates absence, so only the validator can refuse it.
+        let mut doc = snapshot_json("e1", 7);
+        doc["snapshot"].as_object_mut().expect("entity").remove("revision");
+        let snapshot: RevisionSnapshot =
+            serde_json::from_value(doc).expect("absent nested revision still decodes");
+        let result = valid_served_snapshot(snapshot, "knowledge_entry", "e1", 7);
+        assert!(matches!(
+            result,
+            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::InternalError, .. })
+        ));
+    }
+
+    /// The prune dedup digest is SHA-256 over RFC 8785 JSON, which
+    /// encodes integers through f64 — a payload integer beyond
+    /// 2^53 − 1 would merge distinct requests under one digest, so the
+    /// serving boundary answers `INVALID_INPUT` before any port call.
+    #[tokio::test]
+    async fn prune_payload_out_of_range_integer_is_invalid_input() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service = HistoryPortService::new(
+            port.clone(),
+            admission(scope("s1"), principal("peer-p")),
+        );
+        let result = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_PRUNE,
+                prune_payload("k-unsafe", 9_007_199_254_740_993, None),
+            )
+            .await;
+        assert!(matches!(
+            result,
+            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::InvalidInput, .. })
+        ));
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    /// §9.1 recorded-outcome model: a provider reject is a settled
+    /// outcome too — the same-key replay returns it verbatim without
+    /// re-executing the port.
+    #[tokio::test]
+    async fn recorded_reject_replays_without_reexecuting() {
+        struct RejectingPort;
+        #[async_trait]
+        impl HistoryPort for RejectingPort {
+            async fn get_history_snapshot(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _kind: &str,
+                _id: &str,
+                _revision: u64,
+            ) -> SpokeResult<RevisionSnapshot> {
+                spoke_reject(SpokeRejectCode::NotFound, "no such entity", None)
+            }
+            async fn prune_history(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _kind: &str,
+                _id: &str,
+                _keep: u64,
+            ) -> SpokeResult<HistoryPruneResult> {
+                spoke_reject(SpokeRejectCode::NotFound, "no such entity", None)
+            }
+        }
+        let port: Arc<dyn HistoryPort + Send + Sync> = Arc::new(RejectingPort);
+        let service = HistoryPortService::new(
+            port,
+            admission(scope("s1"), principal("peer-p")),
+        );
+        let payload = prune_payload("reject-key", 2, None);
+        let first = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, payload.clone())
+            .await;
+        let second = service.invoke("peer-a", HISTORY_OP_PRUNE, payload).await;
+        assert!(matches!(
+            first,
+            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::NotFound, .. })
+        ));
+        // The recorded reject replays verbatim.
+        assert_eq!(first, second);
     }
 }

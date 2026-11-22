@@ -155,7 +155,7 @@ import {
   isConnectInvokeResponse,
   isConnectSession,
 } from "./guards.js";
-import { isValidSuccessPayload } from "./payload.js";
+import { isValidRevisionSnapshot, isValidSuccessPayload } from "./payload.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
 
 const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
@@ -1013,31 +1013,17 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort {
       return result;
     }
     const snapshot = result.value.snapshot;
-    // note: `#invokeMapped` validated the RevisionSnapshot envelope; the
-    // client boundary also checks the requested selectors and the nested
-    // entity equality rules — a wrong-target success is a transport decode
+    // note: `#invokeMapped` validated the RevisionSnapshot shape; the
+    // client boundary additionally binds the envelope to the requested
+    // selectors (same `isValidRevisionSnapshot` rule as the serving face,
+    // selectors arg) — a wrong-target success is a transport decode
     // error, never `Ok` (spoke-history contract §9).
-    const entity =
-      typeof snapshot === "object" && snapshot !== null
-        ? (snapshot as Record<string, unknown>).snapshot
-        : undefined;
-    const nestedId =
-      typeof entity === "object" && entity !== null
-        ? ((entity as Record<string, unknown>).entry_id ??
-          (entity as Record<string, unknown>).relation_id)
-        : undefined;
-    const nestedRevision =
-      typeof entity === "object" && entity !== null
-        ? (entity as Record<string, unknown>).revision
-        : undefined;
     if (
-      typeof snapshot !== "object" ||
-      snapshot === null ||
-      (snapshot as Record<string, unknown>).entity_kind !== entityKind ||
-      (snapshot as Record<string, unknown>).entity_id !== entityId ||
-      (snapshot as Record<string, unknown>).revision !== revision ||
-      (nestedId !== undefined && nestedId !== entityId) ||
-      (nestedRevision !== undefined && nestedRevision !== revision)
+      !isValidRevisionSnapshot(snapshot, {
+        entity_kind: entityKind,
+        entity_id: entityId,
+        revision,
+      })
     ) {
       return internalError(
         "transport",

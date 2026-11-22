@@ -328,7 +328,9 @@ mod parity_export_checklist {
             Some(SpokeRejectCode::CapabilityPortMissing)
         );
 
-        assert_eq!(TS_RUST_ADAPTER_PARITY.len(), 31);
+        // No table-length pin: a legitimately added twin must not fail an
+        // aggregate count that cannot tell whether a member still works —
+        // the named-row asserts below carry the actual parity contract.
         for (ts, rust) in TS_RUST_ADAPTER_PARITY {
             assert!(!ts.is_empty(), "TS symbol must be non-empty");
             assert!(!rust.is_empty(), "Rust symbol must be non-empty");

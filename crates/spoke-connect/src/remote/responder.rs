@@ -1287,8 +1287,8 @@ impl ConnectResponder {
     /// Dispatch phase — runs after the serialized gate; may interleave with
     /// other invokes. Fully contained: a throwing/panicking handler answers
     /// the error branch and never crashes the loop.
-    async fn dispatch_invoke(self: &Arc<Self>, doc: Value) {
-        if let Err(error) = self.try_dispatch_invoke(&doc).await {
+    async fn dispatch_invoke(self: &Arc<Self>, mut doc: Value) {
+        if let Err(error) = self.try_dispatch_invoke(&mut doc).await {
             // Unexpected serving failure (e.g. non-JSON-serializable handler
             // result): answer the error branch so the invoker never hangs,
             // and never crash the loop.
@@ -1304,7 +1304,7 @@ impl ConnectResponder {
     }
 
     /// Contained dispatch body (see [`ConnectResponder::dispatch_invoke`]).
-    async fn try_dispatch_invoke(&self, doc: &Value) -> Result<(), ResponderError> {
+    async fn try_dispatch_invoke(&self, doc: &mut Value) -> Result<(), ResponderError> {
         let negotiated = {
             let session_guard = self.session.lock().expect("session lock");
             let Some(session) = session_guard.as_ref() else {
@@ -1366,7 +1366,14 @@ impl ConnectResponder {
         // `RemoteHistoryService` face (spoke-history contract): the same
         // gate → probe → serve/deny order as `memory.*`.
         if op.starts_with("history.") {
-            self.dispatch_history_invoke(doc, &negotiated).await?;
+            // The service owns the request Value: extract the payload
+            // member instead of cloning the whole request tree. The
+            // invoke echo never reads `payload` back.
+            let payload = doc
+                .get_mut("payload")
+                .map(Value::take)
+                .unwrap_or_else(|| json!({}));
+            self.dispatch_history_invoke(doc, payload, &negotiated).await?;
             return Ok(());
         }
         // `extract` is a core op served by an optional injected service
@@ -1796,6 +1803,7 @@ impl ConnectResponder {
     async fn dispatch_history_invoke(
         &self,
         doc: &Value,
+        payload: Value,
         negotiated: &[String],
     ) -> Result<(), ResponderError> {
         let Some(op) = doc.get("op").and_then(Value::as_str) else {
@@ -1811,14 +1819,12 @@ impl ConnectResponder {
             .await?;
             return Ok(());
         };
-        // Payload-dependent cognition gate on the raw payload: the history
-        // request `scope` carries the `Scope.cognition` selection slot, so a
-        // declared requirement needs `spoke-cognition` negotiated before the
-        // probe and any provider call.
-        let empty_payload = json!({});
-        let payload = doc.get("payload").unwrap_or(&empty_payload);
+        // Payload-dependent cognition gate on the extracted payload: the
+        // history request `scope` carries the `Scope.cognition` selection
+        // slot, so a declared requirement needs `spoke-cognition`
+        // negotiated before the probe and any provider call.
         if !self
-            .serve_cognition_gate(doc, payload, negotiated, op)
+            .serve_cognition_gate(doc, &payload, negotiated, op)
             .await?
         {
             return Ok(());
@@ -1846,7 +1852,6 @@ impl ConnectResponder {
             .await?;
             return Ok(());
         };
-        let payload = doc.get("payload").cloned().unwrap_or_else(|| json!({}));
         // Same serve bound as `memory.*`: a zero budget rejects before the
         // service is invoked (the baseline serve-timeout rejection
         // stands). A non-zero budget that expires AFTER invocation means

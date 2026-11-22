@@ -1,14 +1,14 @@
 {
   "id": "prune-floor",
-  "title": "Explicit pruning, floor_revision and below-floor refusals — the {1,3,5} + keep=2 worked example",
+  "title": "Explicit pruning, floor_revision and below-floor refusals \u2014 the {1,3,5} + keep=2 worked example",
   "protocol_refs": [
-    "§Checkpoints, pruning, and floor_revision",
-    "§Refusal vocabulary"
+    "\u00a7Checkpoints, pruning, and floor_revision",
+    "\u00a7Refusal vocabulary"
   ],
   "cases": [
     {
       "id": "prune-floor-keep-2-worked-example",
-      "invariant": "§Checkpoints, pruning, and floor_revision",
+      "invariant": "\u00a7Checkpoints, pruning, and floor_revision",
       "surface": "wire",
       "outcome": "identical",
       "what": "checkpoints {1,3,5} pruned with keep=2 delete {1} and answer deleted=1, floor_revision=2",
@@ -17,7 +17,11 @@
           {
             "entity_kind": "knowledge_entry",
             "entity_id": "ke_floor",
-            "checkpoints": [1, 3, 5],
+            "checkpoints": [
+              1,
+              3,
+              5
+            ],
             "stored_snapshot": {
               "schema_version": 1,
               "entity_kind": "knowledge_entry",
@@ -48,15 +52,21 @@
       "expect": {
         "success": true,
         "state": [
-          { "path": "deleted", "equals": 1 },
-          { "path": "floor_revision", "equals": 2 }
+          {
+            "path": "deleted",
+            "equals": 1
+          },
+          {
+            "path": "floor_revision",
+            "equals": 2
+          }
         ],
         "provider_calls": 1
       }
     },
     {
       "id": "get-below-floor-truncated",
-      "invariant": "§Refusal vocabulary",
+      "invariant": "\u00a7Refusal vocabulary",
       "surface": "wire",
       "outcome": "identical",
       "what": "after the worked-example prune a read of revision 1 is below floor 2 and answers HISTORY_TRUNCATED with details.floor_revision",
@@ -65,7 +75,11 @@
           {
             "entity_kind": "knowledge_entry",
             "entity_id": "ke_floor",
-            "checkpoints": [1, 3, 5],
+            "checkpoints": [
+              1,
+              3,
+              5
+            ],
             "stored_snapshot": {
               "schema_version": 1,
               "entity_kind": "knowledge_entry",
@@ -105,12 +119,14 @@
       },
       "expect": {
         "error_code": "HISTORY_TRUNCATED",
-        "details": { "floor_revision": 2 }
+        "details": {
+          "floor_revision": 2
+        }
       }
     },
     {
       "id": "get-at-floor-reconstructable",
-      "invariant": "§Checkpoints, pruning, and floor_revision",
+      "invariant": "\u00a7Checkpoints, pruning, and floor_revision",
       "surface": "wire",
       "outcome": "identical",
       "what": "a read of revision 2 at the floor is answered from retained checkpoint 3, never rejected as truncated",
@@ -119,7 +135,11 @@
           {
             "entity_kind": "knowledge_entry",
             "entity_id": "ke_floor",
-            "checkpoints": [1, 3, 5],
+            "checkpoints": [
+              1,
+              3,
+              5
+            ],
             "stored_snapshot": {
               "schema_version": 1,
               "entity_kind": "knowledge_entry",
@@ -160,15 +180,24 @@
       "expect": {
         "success": true,
         "state": [
-          { "path": "snapshot.revision", "equals": 2 },
-          { "path": "snapshot.snapshot.revision", "equals": 2 },
-          { "path": "snapshot.entity_id", "equals": "ke_floor" }
+          {
+            "path": "snapshot.revision",
+            "equals": 2
+          },
+          {
+            "path": "snapshot.snapshot.revision",
+            "equals": 2
+          },
+          {
+            "path": "snapshot.entity_id",
+            "equals": "ke_floor"
+          }
         ]
       }
     },
     {
       "id": "prune-noop-keep-exceeds-count",
-      "invariant": "§Checkpoints, pruning, and floor_revision",
+      "invariant": "\u00a7Checkpoints, pruning, and floor_revision",
       "surface": "wire",
       "outcome": "identical",
       "what": "keep greater than the checkpoint count is a no-op returning deleted=0, floor_revision=null",
@@ -177,7 +206,11 @@
           {
             "entity_kind": "knowledge_entry",
             "entity_id": "ke_floor",
-            "checkpoints": [1, 3, 5],
+            "checkpoints": [
+              1,
+              3,
+              5
+            ],
             "stored_snapshot": {
               "schema_version": 1,
               "entity_kind": "knowledge_entry",
@@ -208,14 +241,20 @@
       "expect": {
         "success": true,
         "state": [
-          { "path": "deleted", "equals": 0 },
-          { "path": "floor_revision", "equals": null }
+          {
+            "path": "deleted",
+            "equals": 0
+          },
+          {
+            "path": "floor_revision",
+            "equals": null
+          }
         ]
       }
     },
     {
       "id": "prune-keep-zero-deletes-all",
-      "invariant": "§Checkpoints, pruning, and floor_revision",
+      "invariant": "\u00a7Checkpoints, pruning, and floor_revision",
       "surface": "wire",
       "outcome": "identical",
       "what": "keep=0 deletes every checkpoint (the live row never consumes keep) and floors at newest+1",
@@ -224,7 +263,11 @@
           {
             "entity_kind": "knowledge_entry",
             "entity_id": "ke_floor",
-            "checkpoints": [1, 3, 5],
+            "checkpoints": [
+              1,
+              3,
+              5
+            ],
             "stored_snapshot": {
               "schema_version": 1,
               "entity_kind": "knowledge_entry",
@@ -255,14 +298,20 @@
       "expect": {
         "success": true,
         "state": [
-          { "path": "deleted", "equals": 3 },
-          { "path": "floor_revision", "equals": 6 }
+          {
+            "path": "deleted",
+            "equals": 3
+          },
+          {
+            "path": "floor_revision",
+            "equals": 6
+          }
         ]
       }
     },
     {
       "id": "prune-then-history-truncated-below-new-floor",
-      "invariant": "§Checkpoints, pruning, and floor_revision",
+      "invariant": "\u00a7Checkpoints, pruning, and floor_revision",
       "surface": "wire",
       "outcome": "identical",
       "what": "after keep=0 the whole retained history is below floor 6; revision 5 answers HISTORY_TRUNCATED with floor_revision 6",
@@ -271,7 +320,11 @@
           {
             "entity_kind": "knowledge_entry",
             "entity_id": "ke_floor",
-            "checkpoints": [1, 3, 5],
+            "checkpoints": [
+              1,
+              3,
+              5
+            ],
             "stored_snapshot": {
               "schema_version": 1,
               "entity_kind": "knowledge_entry",
@@ -311,7 +364,135 @@
       },
       "expect": {
         "error_code": "HISTORY_TRUNCATED",
-        "details": { "floor_revision": 6 }
+        "details": {
+          "floor_revision": 6
+        }
+      }
+    },
+    {
+      "id": "conditional-put-below-floor-unchanged-occ",
+      "invariant": "\u00a7Checkpoints, pruning, and floor_revision",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "after pruning ke_floor's history to floor 2, a conditional port.knowledge.put with expected_base_revision 1 (below the floor) answers the unchanged OCC refusal STORED_REVISION_STALE against the live revision \u2014 the write path never consults the floor and a put at the live base still commits",
+      "input": {
+        "host_capabilities": [
+          "spoke-baseline",
+          "spoke-history",
+          "spoke-knowledge"
+        ],
+        "client_capabilities": [
+          "spoke-baseline",
+          "spoke-history",
+          "spoke-knowledge"
+        ],
+        "seed_entries": [
+          {
+            "schema_version": 1,
+            "entry_id": "ke_floor",
+            "entry_type": "note",
+            "canonical_name": "floor-fixture",
+            "status": "confirmed",
+            "body": {},
+            "extensions": {},
+            "revision": 5,
+            "created_at": "2025-01-01T00:00:00Z",
+            "updated_at": "2025-01-01T00:00:00Z"
+          }
+        ],
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_floor",
+            "checkpoints": [
+              1,
+              3,
+              5
+            ],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_floor",
+              "revision": 1,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_floor",
+                "entry_type": "note",
+                "canonical_name": "floor-fixture",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "setup": [
+        {
+          "op": "history.revisions.prune",
+          "request": {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_floor",
+            "keep": 2,
+            "idempotency_key": "prune-before-put"
+          }
+        },
+        {
+          "op": "port.knowledge.put",
+          "request": {
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_floor",
+              "entry_type": "note",
+              "canonical_name": "floor-fixture",
+              "status": "confirmed",
+              "body": {},
+              "extensions": {},
+              "revision": 5,
+              "created_at": "2025-01-01T00:00:00Z",
+              "updated_at": "2025-01-01T00:00:00Z"
+            },
+            "expected_base_revision": 1
+          },
+          "expect": {
+            "error_code": "STORED_REVISION_STALE",
+            "details": {
+              "expectedBaseRevision": 1,
+              "storeRevision": 5
+            }
+          }
+        }
+      ],
+      "op": "port.knowledge.put",
+      "request": {
+        "entry": {
+          "schema_version": 1,
+          "entry_id": "ke_floor",
+          "entry_type": "note",
+          "canonical_name": "floor-fixture",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {},
+          "revision": 5,
+          "created_at": "2025-01-01T00:00:00Z",
+          "updated_at": "2025-01-01T00:00:00Z"
+        },
+        "expected_base_revision": 5
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          {
+            "path": "entry_id",
+            "equals": "ke_floor"
+          },
+          {
+            "path": "revision",
+            "equals": 5
+          }
+        ]
       }
     }
   ]

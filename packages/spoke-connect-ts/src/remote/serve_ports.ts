@@ -28,6 +28,7 @@ import {
 } from "@42ch/spoke-operations";
 
 import { isJsonObject, validateDeclaredScope } from "./responder.js";
+import { isValidRevisionSnapshot } from "./payload.js";
 
 /**
  * Admission context: maps the authenticated connect peer to the memory-model
@@ -223,7 +224,15 @@ export function decodeHistoryCall(
         );
       }
       const key = payload.idempotency_key;
-      if (typeof key !== "string" || key.length === 0 || key.length > 128) {
+      // note: the wire bound is 1–128 Unicode code points (schema
+      // `maxLength`; Rust parity: the generated parser's
+      // `chars().count()`), not UTF-16 code units — supplementary-plane
+      // keys that fit the schema bound must be admitted.
+      if (
+        typeof key !== "string" ||
+        [...key].length === 0 ||
+        [...key].length > 128
+      ) {
         return historyInputReject(
           op,
           "idempotency_key is required and must be a 1–128 character string",
@@ -372,6 +381,14 @@ export class HistoryPortService implements RemoteHistoryService {
   readonly #port: HistoryPort;
   readonly #admission: HistoryAdmission;
   readonly #dedup: HistoryDedupStore;
+  /**
+   * note: same-key serialization (Rust parity: `dedup_lock` — one mutex
+   * covers lookup → port call → record so two overlapping same-key
+   * prunes cannot both observe `unseen` and execute twice). One FIFO
+   * promise chain covers the whole dedup section; serialization lives
+   * here in the service, not in the store.
+   */
+  #dedupQueue: Promise<void> = Promise.resolve();
 
   constructor(
     port: HistoryPort,
@@ -451,6 +468,28 @@ export class HistoryPortService implements RemoteHistoryService {
       return scopeDigest;
     }
     const dedupKey = `${scopeDigest.value}|${principal.principal_id}|${op}|${call.idempotencyKey}`;
+    // note: one FIFO queue covers lookup → port call → record (Rust
+    // parity: `dedup_lock`) — overlapping same-key prunes cannot both
+    // observe `unseen` and execute twice.
+    const settled = this.#dedupQueue.then(() =>
+      this.#dedupPrune(principal, effectiveScope, call, dedupKey, digestResult.value),
+    );
+    // The chain only sequences: keep it alive even if plumbing throws —
+    // a task's own result flows through `settled` either way.
+    this.#dedupQueue = settled.then(
+      () => undefined,
+      () => undefined,
+    );
+    return settled;
+  }
+
+  async #dedupPrune(
+    principal: Principal,
+    effectiveScope: Scope,
+    call: Extract<HistoryCall, { kind: "prune" }>,
+    dedupKey: string,
+    payloadDigest: string,
+  ): Promise<SpokeResult<unknown>> {
     const existing = await this.#dedup.lookup(dedupKey);
     if (existing.status === "evicted") {
       return spokeReject(
@@ -459,7 +498,7 @@ export class HistoryPortService implements RemoteHistoryService {
       );
     }
     if (existing.status === "found") {
-      if (existing.payloadDigest !== digestResult.value) {
+      if (existing.payloadDigest !== payloadDigest) {
         return spokeReject(
           SpokeRejectCode.IDEMPOTENCY_CONFLICT,
           "idempotency_key replayed with a different payload digest",
@@ -477,21 +516,14 @@ export class HistoryPortService implements RemoteHistoryService {
       call.entityId,
       call.keep,
     );
-    if (!result.ok) {
-      // note: the settled refusal is a recorded outcome too — a replay
-      // returns it without re-executing.
-      await this.#dedup.record(dedupKey, digestResult.value, result);
-      return result;
-    }
-    // note: validate the provider's success before recording + emitting —
-    // a malformed prune result is a decode error, never `Ok`, and is not
-    // recorded so the retry can re-execute (contract §9).
-    const validated = validServedPruneResult(result.value);
-    if (!validated.ok) {
-      return validated;
-    }
-    await this.#dedup.record(dedupKey, digestResult.value, validated);
-    return validated;
+    // note: validate the provider's success — a malformed prune result
+    // is a transport decode reject, never `Ok` (contract §9). Either
+    // settled outcome — refusal, validated success, or the malformed-
+    // success reject — is recorded: a same-digest replay returns the
+    // recorded outcome verbatim and never re-executes (contract §9.1).
+    const outcome = result.ok ? validServedPruneResult(result.value) : result;
+    await this.#dedup.record(dedupKey, payloadDigest, outcome);
+    return outcome;
   }
 }
 
@@ -500,39 +532,19 @@ function validServedSnapshot(
   value: RevisionSnapshot,
   call: Extract<HistoryCall, { kind: "get" }>,
 ): SpokeResult<unknown> {
-  const snapshot = value as unknown as Record<string, unknown>;
+  // note: one strict `RevisionSnapshot` rule for both boundaries
+  // (`isValidRevisionSnapshot` — Rust parity: `validate_history_snapshot`):
+  // complete core shape, variant agreeing with `entity_kind`, nested
+  // entity id and revision equal to the envelope, and the envelope equal
+  // to the request selectors. Malformed or wrong-target → transport
+  // decode reject, never `Ok`.
   if (
-    !isJsonObject(snapshot) ||
-    typeof snapshot.schema_version !== "number" ||
-    typeof snapshot.entity_kind !== "string" ||
-    typeof snapshot.entity_id !== "string" ||
-    !isExactNonNegativeInteger(snapshot.revision) ||
-    !isJsonObject(snapshot.snapshot) ||
-    snapshot.entity_kind !== call.entityKind ||
-    snapshot.entity_id !== call.entityId ||
-    snapshot.revision !== call.revision
+    !isValidRevisionSnapshot(value, {
+      entity_kind: call.entityKind,
+      entity_id: call.entityId,
+      revision: call.revision,
+    })
   ) {
-    return spokeReject(
-      SpokeRejectCode.INTERNAL_ERROR,
-      "provider returned a malformed or wrong-target RevisionSnapshot",
-      { kind: "transport" },
-    );
-  }
-  const entity = snapshot.snapshot;
-  // note: RevisionSnapshot equality rules (contract §4.1): the nested
-  // entity's own id and revision agree with the envelope. Product kinds
-  // encode under a core shape, so `entry_id` / `relation_id` / `revision`
-  // are checked when the branch declares them.
-  for (const idField of ["entry_id", "relation_id"] as const) {
-    if (idField in entity && entity[idField] !== call.entityId) {
-      return spokeReject(
-        SpokeRejectCode.INTERNAL_ERROR,
-        "provider returned a malformed or wrong-target RevisionSnapshot",
-        { kind: "transport" },
-      );
-    }
-  }
-  if ("revision" in entity && entity.revision !== call.revision) {
     return spokeReject(
       SpokeRejectCode.INTERNAL_ERROR,
       "provider returned a malformed or wrong-target RevisionSnapshot",

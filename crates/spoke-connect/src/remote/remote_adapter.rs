@@ -2037,8 +2037,19 @@ impl AdoptionPort for RemoteAdapter {
         _scope: &Scope,
         request: &KnowledgeAdoptRequest,
     ) -> SpokeResult<KnowledgeAdoptResponse> {
-        self.invoke_mapped("knowledge.adopt", json!(request))
-            .await
+        // The contract's ExtensionMap presence rule: an explicitly empty
+        // `extensions: {}` is a present member and must stay present
+        // (the serving side hashes the whole wire payload) — the
+        // generated typed serializer drops an empty map, so the emitted
+        // object reinstates the member unconditionally. A typed request
+        // always serializes.
+        let mut payload = serde_json::to_value(request)
+            .expect("a typed KnowledgeAdoptRequest always serializes");
+        payload
+            .as_object_mut()
+            .expect("a request serializes to an object")
+            .insert("extensions".into(), json!(request.extensions));
+        self.invoke_mapped("knowledge.adopt", payload).await
     }
 }
 

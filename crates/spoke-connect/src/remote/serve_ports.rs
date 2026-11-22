@@ -30,7 +30,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
@@ -342,12 +342,31 @@ pub trait HistoryDedupStore: Send + Sync {
     /// serialize on the returned guard, unrelated keys never block.
     /// Cross-process atomicity is a store-implementation obligation.
     ///
-    /// The default is a no-claim guard for stores predating the
-    /// single-flight ownership rule — a pre-existing `lookup`/`record`
-    /// store keeps compiling, and keyed exclusion comes only from stores
-    /// that implement this method.
-    async fn claim_key(&self, _key: &str) -> tokio::sync::OwnedMutexGuard<()> {
-        Arc::new(tokio::sync::Mutex::new(())).lock_owned().await
+    /// The default is a process-wide keyed single-flight on the
+    /// four-member retry identity: a store that predates the
+    /// single-flight rule keeps compiling and still cannot
+    /// double-invoke within the process — a `lookup`/`record`-only
+    /// store serves one dedup space per store, and the shared default
+    /// serializes the same key across every such store (F-015). A
+    /// durable store MUST override with its own atomic
+    /// probe-and-record or keyed single-flight (contract §Repeat and
+    /// idempotency).
+    async fn claim_key(&self, key: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        static IN_FLIGHT: LazyLock<Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>> =
+            LazyLock::new(|| Mutex::new(HashMap::new()));
+        let lock = {
+            let mut map = IN_FLIGHT.lock().expect("dedup claim lock");
+            map.retain(|_, weak| weak.strong_count() > 0);
+            match map.get(key).and_then(Weak::upgrade) {
+                Some(lock) => lock,
+                None => {
+                    let lock = Arc::new(tokio::sync::Mutex::new(()));
+                    map.insert(key.to_owned(), Arc::downgrade(&lock));
+                    lock
+                }
+            }
+        };
+        lock.lock_owned().await
     }
 
     /// Persist the digest and settled outcome for one executed key.
@@ -582,6 +601,12 @@ fn scope_wire_equal(requested: &Scope, admitted: &Scope) -> bool {
 /// identity is preserved.
 const JCS_EXACT_INTEGER_MAX: u64 = 9_007_199_254_740_991;
 
+/// One more than the largest u64 — the TypeScript predicate's upper
+/// bound. A number at or beyond it is a float on both stacks and passes;
+/// an integral value strictly inside the u64 range but beyond
+/// [`JCS_EXACT_INTEGER_MAX`] is refused identically.
+const U64_RANGE_BOUND: f64 = 18_446_744_073_709_551_616.0; // 2^64
+
 /// Every integer member of `value` is inside the JCS exact-integer
 /// range. The prune dedup digest is SHA-256 over the RFC 8785 encoding
 /// of the whole request payload; an integer beyond 2^53 − 1 would
@@ -590,6 +615,12 @@ const JCS_EXACT_INTEGER_MAX: u64 = 9_007_199_254_740_991;
 /// The serving boundary refuses such payloads with `INVALID_INPUT`
 /// instead of rounding (spoke-history contract §`HistoryPort`: the
 /// runtime never rounds an unrepresentable integer).
+///
+/// Integral floats follow the VALUE-based TypeScript rule, not the Rust
+/// token's representation (F-013): `1e16` decodes as an integral f64
+/// here and as an unsafe integral `number` there — the same wire
+/// payload must take the same refusal. Non-integral floats and
+/// out-of-u64 integral floats carry no integer identity to lose.
 fn payload_integers_jcs_exact(value: &Value) -> bool {
     match value {
         Value::Number(number) => {
@@ -600,9 +631,14 @@ fn payload_integers_jcs_exact(value: &Value) -> bool {
                     .expect("integer number");
                 magnitude <= JCS_EXACT_INTEGER_MAX
             } else {
-                // A non-integral f64 member carries no integer identity
-                // to lose in canonicalization.
-                true
+                let Some(float) = number.as_f64() else {
+                    return true;
+                };
+                if float.fract() != 0.0 {
+                    return true;
+                }
+                let magnitude = float.abs();
+                magnitude <= JCS_EXACT_INTEGER_MAX as f64 || magnitude >= U64_RANGE_BOUND
             }
         }
         Value::Array(items) => items.iter().all(payload_integers_jcs_exact),
@@ -1184,7 +1220,10 @@ impl RemoteAdoptionService for AdoptionPortService {
             .adopt_knowledge_entry(&principal, &effective_scope, &request)
             .await
         {
-            SpokeResult::Ok(response) => valid_served_adopt_result(response),
+            SpokeResult::Ok(response) => valid_served_adopt_result(
+                response,
+                request.destination_entry_id.as_deref().map(String::as_str),
+            ),
             SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
         };
         // The settled outcome is recorded — success or reject — so a
@@ -1222,12 +1261,19 @@ fn adoption_replay(outcome: SpokeResult<Value>) -> SpokeResult<Value> {
 /// Served-side adopt-response validation (spoke-knowledge-adoption
 /// contract §`KnowledgeAdoptResponse`): the emitted success value is the
 /// success branch `{outcome, entry}` — `outcome` is `"adopted"` or
-/// `"already_present"` and `entry` is a JSON object (the destination
-/// `KnowledgeEntry`). A `Variant1` error branch or any other shape is a
-/// transport decode reject, never `Ok` (parity with TS
-/// `validServedAdoptResult` — the port's expected refusals travel as
-/// `SpokeResult`, not the envelope's error variant).
-fn valid_served_adopt_result(response: KnowledgeAdoptResponse) -> SpokeResult<Value> {
+/// `"already_present"` and `entry` is the destination `KnowledgeEntry`
+/// with every required wire member, not merely a well-formed anchor.
+/// `destination_entry_id` binds the served `entry.entry_id` when the
+/// request supplied one; an absent selector defaults to the entry's own
+/// id (`entry.id` supplies it), so no equality check applies then. A
+/// `Variant1` error branch or any other shape is a transport decode
+/// reject, never `Ok` (parity with TS `validServedAdoptResult` — the
+/// port's expected refusals travel as `SpokeResult`, not the envelope's
+/// error variant).
+fn valid_served_adopt_result(
+    response: KnowledgeAdoptResponse,
+    destination_entry_id: Option<&str>,
+) -> SpokeResult<Value> {
     let value = match serde_json::to_value(response) {
         Ok(value) => value,
         Err(error) => {
@@ -1271,6 +1317,24 @@ fn valid_served_adopt_result(response: KnowledgeAdoptResponse) -> SpokeResult<Va
         return history_transport_reject(
             "adoption provider returned an entry without a well-formed adoption_anchor member",
         );
+    }
+    // A valid anchor does not make an invalid entry a valid adoption
+    // success (QC2-03): the emitted entry decodes as a full
+    // `KnowledgeEntry` — every required wire member must be present and
+    // well-formed.
+    let Ok(decoded_entry) =
+        serde_json::from_value::<spoke_schemas::data::KnowledgeEntry>(entry.clone())
+    else {
+        return history_transport_reject(
+            "adoption provider returned an entry that is not a valid KnowledgeEntry",
+        );
+    };
+    if let Some(destination_entry_id) = destination_entry_id {
+        if decoded_entry.entry_id != destination_entry_id {
+            return history_transport_reject(
+                "adoption provider returned an entry whose entry_id does not match the requested destination_entry_id",
+            );
+        }
     }
     // The emitted success is `{outcome, entry}` — the contract's exact
     // success branch (parity with TS `validServedAdoptResult`, which
@@ -2107,6 +2171,55 @@ mod history_tests {
             payload["extensions"] = extensions;
         }
         payload
+    }
+
+    /// F-013 numeric parity: the predicate is value-based — `1e16`
+    /// (integral f64 inside the u64 range) refuses like the integer
+    /// literal `9007199254740993`, while `1e20`/`1e21` (integral floats
+    /// beyond the u64 range) and non-integral floats pass, matching the
+    /// TypeScript `payloadIntegersJcsExact`.
+    #[test]
+    fn integral_floats_follow_the_shared_exact_range() {
+        for refused in [
+            json!(9_007_199_254_740_993u64),
+            json!(1e16),
+            json!(9.1e15),
+            json!(-1e16),
+        ] {
+            assert!(
+                !payload_integers_jcs_exact(&refused),
+                "{refused} must be refused"
+            );
+        }
+        for accepted in [
+            json!(9_007_199_254_740_991u64),
+            json!(1e20),
+            json!(1e21),
+            json!(1.5),
+            json!(0.0),
+        ] {
+            assert!(
+                payload_integers_jcs_exact(&accepted),
+                "{accepted} must be accepted"
+            );
+        }
+    }
+
+    /// F-013 canonical spelling parity: integral floats the predicate
+    /// admits canonicalize without an exponent — the same bytes the
+    /// TypeScript `canonicalize` (JSON.stringify) emits.
+    #[test]
+    fn integral_floats_canonicalize_without_exponent() {
+        for (value, expected) in [
+            (json!(1e16), "10000000000000000"),
+            (json!(9.1e15), "9100000000000000"),
+            (json!(1e20), "100000000000000000000"),
+        ] {
+            assert_eq!(
+                serde_jcs::to_string(&value).expect("canonical string"),
+                expected
+            );
+        }
     }
 
     /// The shared `ExtensionMap` constraints bind at request validation:

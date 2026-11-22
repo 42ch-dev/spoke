@@ -202,6 +202,7 @@ mod tests {
 
     fn make_knowledge_entry(overrides: impl FnOnce(&mut KnowledgeEntry)) -> KnowledgeEntry {
         let mut entry = KnowledgeEntry {
+            adoption_anchor: None,
             body: KnowledgeEntryBody::default(),
             canonical_name: KnowledgeEntryCanonicalName::try_from("Mira Vale".to_owned()).unwrap(),
             created_at: None,

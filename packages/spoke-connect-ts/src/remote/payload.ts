@@ -521,6 +521,7 @@ const RELATION_SHAPE: SuccessShape = {
  */
 const KNOWLEDGE_ENTRY_OPTIONAL_FIELDS = [
   { name: "source_anchor", kind: "object" },
+  { name: "adoption_anchor", kind: "object" },
   { name: "revision", kind: "number" },
   { name: "created_at", kind: "datetime" },
   { name: "updated_at", kind: "datetime" },
@@ -665,7 +666,7 @@ function isValidKnowledgeEntryBody(value: unknown): boolean {
  * for `body` and `source_anchor`. Unknown extra keys are tolerated; only
  * declared members are type-checked (Rust serde typed-decode parity).
  */
-function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): boolean {
+export function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): boolean {
   if (!matchesShape(entity, KNOWLEDGE_ENTRY_SHAPE)) {
     return false;
   }

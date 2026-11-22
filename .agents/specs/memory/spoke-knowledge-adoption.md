@@ -26,6 +26,18 @@ It does not define physical storage; how a `merged` entry names its successors (
 
 The key words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are to be interpreted as described in RFC 2119. They apply to implementations that claim the `spoke-knowledge-adoption` capability.
 
+### Wire-wide rules
+
+These rules govern the named write paths, serializations, and dispatch decisions on both stacks and sit ahead of the per-section rules.
+
+- **Caller OCC vs anchor binding.** The scoped `knowledge.put` write applies the caller's `expected_base_revision` as the compare-and-swap fence; an absent caller base is create-only, and an existing entry keeps the create-only put refusal — it is never overwritten. The `adoption_anchor` immutability check reads the stored entry and runs inside the same critical section as the fence check. Binding the fence to the stored revision instead of the caller base is a defect.
+- **Injected dedup stores.** A `HistoryDedupStore` that does not implement same-key exclusion inherits a process-wide single-flight claim from the serving layer — the default claim is keyed on the four-member retry identity and held in process memory. Callers that share a store across services get the same guarantee. Cross-process durability stays provider-owned.
+- **Served success shape.** A `knowledge.adopt` success `entry` validates against the published `knowledge-entry` wire shape — all required fields — and does not rest on a well-formed `adoption_anchor` alone; with `destination_entry_id` absent, the success `entry.id` supplies the destination id.
+- **Request `extensions` emission.** The typed Rust request serializer emits `extensions` even when empty; response-side `extensions` stays optional per the published schema.
+- **Canonical numeric spelling.** `payload_digest` and recorded-outcome canonicalization use RFC 8785 number spelling on both stacks; integral floats within `[0, 2^53]` serialize without exponent.
+- **Reserved-prefix ownership.** `knowledge.*` op names not registered in the core dispatch table are refused by the Connect core decision (`op_unsupported`) before any product custom-map lookup.
+- **Destination admission order.** `knowledge.adopt` admission checks destination `space_id` authorization before source-chain resolution begins; an out-of-scope destination refuses `NOT_AUTHORIZED` without touching the source.
+
 ### Capability flags
 
 | Capability ID | Gates | Relation |
@@ -143,7 +155,7 @@ Adoption has both entry-anchor repeat semantics and connect idempotency:
 
 ### Anchor immutability
 
-Every spoke-operations knowledge write orchestration that stores a `KnowledgeEntry` preserves a stored `adoption_anchor` byte-identically or refuses `ADOPTION_ANCHOR_IMMUTABLE` with `details.entry_id` naming the destination entry before the write occurs. The obligation is owned by each write path by name: `orchestrateUpsert` / `orchestrate_upsert`, `orchestratePromote` / `orchestrate_promote` (which loads the stored entry before writing the accepted candidate), and the scoped put path serving `knowledge.put`. Preservation is a two-layer rule: orchestration checks the stored anchor, and the provider port is the atomic backstop. Each named write path loads the stored entry and compares its stored anchor before issuing the write, refusing when the write would change or remove it; the write then carries the loaded entry's revision as its compare-and-swap base, and the provider port's CAS on stored state accepts the write only against that revision. A write that carries the identical stored anchor leaves the anchor unchanged. Anchor equality is RFC 8785 canonical-JSON byte equality; two anchors that cannot be canonicalized compare equal across the language packages.
+Every spoke-operations knowledge write orchestration that stores a `KnowledgeEntry` preserves a stored `adoption_anchor` byte-identically or refuses `ADOPTION_ANCHOR_IMMUTABLE` with `details.entry_id` naming the destination entry before the write occurs. The obligation is owned by each write path by name: `orchestrateUpsert` / `orchestrate_upsert`, `orchestratePromote` / `orchestrate_promote` (which loads the stored entry before writing the accepted candidate), and the scoped put path serving `knowledge.put`. Preservation is a two-layer rule: orchestration checks the stored anchor, and the provider port is the atomic backstop. Each named write path loads the stored entry and compares its stored anchor before issuing the write, refusing when the write would change or remove it; on the scoped put path the write carries the caller's `expected_base_revision` as its compare-and-swap fence, and the anchor check and the fence check resolve against the same stored state (wire-wide rules). A write that carries the identical stored anchor leaves the anchor unchanged. Anchor equality is RFC 8785 canonical-JSON byte equality; two anchors that cannot be canonicalized compare equal across the language packages.
 
 ### Refusal vocabulary
 
@@ -153,9 +165,9 @@ Every spoke-operations knowledge write orchestration that stores a `KnowledgeEnt
 | `SOURCE_RETIRED` | Retirement resolution encounters a cycle, ambiguity, a deleted terminal, or the 32-edge limit. | Exactly `retirement_chain`: the ordered visited source-entry-id array. |
 | `REVISION_CONFLICT` | An existing destination copy anchors a different source revision. | Exactly `adopted_revision`: the integer revision in the existing anchor. |
 | `NOT_FOUND` | The requested source is missing, or the requested or resolved terminal source is outside the admitted scope or owner-private to another viewpoint. | No source-identifying members; one generic absence. |
+| `NOT_AUTHORIZED` | The `knowledge.adopt` destination scope fails destination `space_id` authorization, checked before source-chain resolution begins (Wire-wide rules). | No adoption-specific members; the source stays untouched. |
 | `IDEMPOTENCY_CONFLICT` | A connect request reuses an idempotency key with a different request digest. | No adoption-specific members. |
-
-`ADOPTION_ANCHOR_IMMUTABLE` and `SOURCE_RETIRED` are adoption-family `SpokeRejectCode` members; `REVISION_CONFLICT`, `NOT_FOUND`, and `IDEMPOTENCY_CONFLICT` reuse their existing codes and meanings. `INVALID_INPUT` answers malformed payloads at the serving boundary; `RECEIPT_EXPIRED` answers dedup-record eviction; `OUTCOME_UNCERTAIN` (`details.retry_class: "uncertain"`, `kind: "timeout"` / `"panic"`) answers a serve wait that exceeds the local budget or a service failure after invocation — the outcome is unknown, provider work is neither cancelled nor rolled back, and the caller recovers by replaying the same idempotency key.
+`ADOPTION_ANCHOR_IMMUTABLE` and `SOURCE_RETIRED` are adoption-family `SpokeRejectCode` members; `REVISION_CONFLICT`, `NOT_FOUND`, `NOT_AUTHORIZED`, and `IDEMPOTENCY_CONFLICT` reuse their existing codes and meanings. `INVALID_INPUT` answers malformed payloads at the serving boundary; `RECEIPT_EXPIRED` answers dedup-record eviction; `OUTCOME_UNCERTAIN` (`details.retry_class: "uncertain"`, `kind: "timeout"` / `"panic"`) answers a serve wait that exceeds the local budget or a service failure after invocation — the outcome is unknown, provider work is neither cancelled nor rolled back, and the caller recovers by replaying the same idempotency key.
 
 ### Connect operation and capability gate
 

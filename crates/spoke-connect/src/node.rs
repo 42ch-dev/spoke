@@ -1051,7 +1051,7 @@ impl EventLoop {
                                 // mappings apply only outside reserved
                                 // families.
                                 let reserved_unknown =
-                                    core_required.is_none() && op_str.starts_with("knowledge.");
+                                    crate::core::reserved_prefix_op(op_str);
                                 let required = if reserved_unknown {
                                     None
                                 } else {

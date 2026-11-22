@@ -237,6 +237,7 @@ mod tests {
 
     fn make_candidate(overrides: impl FnOnce(&mut KnowledgeEntry)) -> KnowledgeEntry {
         let mut candidate = KnowledgeEntry {
+            adoption_anchor: None,
             body: KnowledgeEntryBody::default(),
             canonical_name: KnowledgeEntryCanonicalName::try_from("Mira Vale".to_owned()).unwrap(),
             created_at: None,

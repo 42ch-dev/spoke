@@ -34,7 +34,7 @@ import {
 } from "@42ch/spoke-operations";
 
 import { isJsonObject, validateDeclaredScope } from "./responder.js";
-import { isValidRevisionSnapshot } from "./payload.js";
+import { isValidKnowledgeEntryDeep, isValidRevisionSnapshot } from "./payload.js";
 
 /**
  * Admission context: maps the authenticated connect peer to the memory-model
@@ -955,8 +955,13 @@ export class AdoptionPortService implements RemoteAdoptionService {
       // no port call — but the wire `outcome` normalizes to
       // `already_present` (contract §Repeat and idempotency: "the same key
       // and same request digest return the existing copy with outcome
-      // already_present"); recorded refusals replay verbatim.
-      const recorded = existing.outcome as SpokeResult<unknown>;
+      // already_present"); recorded refusals replay verbatim. The replay is
+      // a fresh snapshot of the record: a store lookup returns the stored
+      // reference, and mutating the caller-visible result must never
+      // alter what a later replay observes (qc3 F-009).
+      const recorded = JSON.parse(
+        JSON.stringify(existing.outcome),
+      ) as SpokeResult<unknown>;
       if (
         recorded.ok &&
         isJsonObject(recorded.value) &&
@@ -985,12 +990,14 @@ export class AdoptionPortService implements RemoteAdoptionService {
     // snapshotted before it is recorded: a same-digest replay returns the
     // recorded outcome verbatim and never re-executes, and a later
     // provider-side mutation of its own result object can never change
-    // what a replay observes (contract §Repeat and idempotency).
+    // what a replay observes (contract §Repeat and idempotency). The
+    // returned result is a SECOND snapshot: caller-visible results never
+    // alias the dedup receipt record (qc3 F-009).
     const outcome = result.ok
       ? validServedAdoptResult(result.value)
       : (JSON.parse(JSON.stringify(result)) as SpokeResult<unknown>);
     await this.#dedup.record(dedupKey, payloadDigest, outcome);
-    return outcome;
+    return JSON.parse(JSON.stringify(outcome)) as SpokeResult<unknown>;
   }
 }
 
@@ -1023,10 +1030,13 @@ function validServedAdoptResult(value: unknown): SpokeResult<unknown> {
       { kind: "transport" },
     );
   }
-  if (!isJsonObject(value.entry)) {
+  if (
+    !isJsonObject(value.entry) ||
+    !isValidKnowledgeEntryDeep(value.entry)
+  ) {
     return spokeReject(
       SpokeRejectCode.INTERNAL_ERROR,
-      "adoption provider returned a missing or malformed entry member",
+      "adoption provider returned an entry that is not a complete KnowledgeEntry",
       { kind: "transport" },
     );
   }

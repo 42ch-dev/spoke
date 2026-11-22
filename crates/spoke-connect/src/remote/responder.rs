@@ -458,7 +458,7 @@ async fn call_knowledge_op(
                 .get_scoped_knowledge_entry(admitted, &entry_id)
                 .await,
         ),
-        KnowledgeCall::PutKnowledgeEntry(entry, _) => {
+        KnowledgeCall::PutKnowledgeEntry(entry, expected_base_revision) => {
             // The scoped put path serving `port.knowledge.put` owns the
             // same anchor-immutability obligation as the upsert/promote
             // orchestrations (spoke-knowledge-adoption contract §Anchor
@@ -486,20 +486,64 @@ async fn call_knowledge_op(
                 }
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
+            // Caller OCC: the wire-supplied `expected_base_revision` is
+            // the CAS fence, evaluated against the SAME pre-read
+            // snapshot the anchor check inspects. `None` is create-only
+            // — it refuses an occupied slot; `Some(base)` must equal the
+            // stored revision — a stale base or an update on an absent
+            // entry refuses before any write. The refusal shapes mirror
+            // the baseline `put_knowledge_entry` OCC vocabulary.
+            match (expected_base_revision, stored.as_ref()) {
+                (None, Some(_)) => {
+                    let mut details = Map::new();
+                    details.insert("entry_id".into(), Value::String(entry.entry_id.clone()));
+                    return spoke_reject(
+                        SpokeRejectCode::RevisionConflict,
+                        format!("Entry already exists: {}", entry.entry_id),
+                        Some(details),
+                    );
+                }
+                (Some(expected), existing) => {
+                    let current = existing.and_then(|stored| stored.revision).unwrap_or(0);
+                    let absent = existing.is_none();
+                    if absent || current != expected {
+                        let mut details = Map::new();
+                        details
+                            .insert("entry_id".into(), Value::String(entry.entry_id.clone()));
+                        details.insert("expectedBaseRevision".into(), json!(expected));
+                        if !absent {
+                            details.insert("storeRevision".into(), json!(current));
+                        }
+                        return spoke_reject(
+                            SpokeRejectCode::StoredRevisionStale,
+                            if absent {
+                                format!(
+                                    "KnowledgeEntry not found for update: {}",
+                                    entry.entry_id
+                                )
+                            } else {
+                                format!(
+                                    "Store revision {current} does not match expected base {expected}"
+                                )
+                            },
+                            Some(details),
+                        );
+                    }
+                }
+                (None, None) => {}
+            }
             if let SpokeResult::Reject(reject) =
                 assert_adoption_anchor_preserved(&entry, stored.as_ref())
             {
                 return SpokeResult::Reject(reject);
             }
             // §Anchor immutability's CAS binding: the write carries the
-            // loaded entry's revision as its compare-and-swap base so the
-            // provider's CAS covers exactly the snapshot the anchor check
-            // inspected — a missing entry CASes against absence
-            // (create-only OCC).
-            let cas_base = stored.as_ref().and_then(|stored| stored.revision);
+            // caller base, which now equals the inspected snapshot —
+            // a verified `Some` is the stored revision itself and a
+            // `None` fence stays a create-only CAS against absence.
             map_result(
                 face.store
-                    .put_scoped_knowledge_entry(admitted, entry, cas_base)
+                    .put_scoped_knowledge_entry(admitted, entry, expected_base_revision)
                     .await,
             )
         }
@@ -3353,8 +3397,11 @@ mod tests {
     }
 
     /// QC2-11 / qc1 F-012 regression: a scoped `get` answering
-    /// `KNOWLEDGE_ENTRY_NOT_FOUND` is an absent destination — the put
-    /// proceeds as a create-only write (CAS base `None`), not a refusal.
+    /// `KNOWLEDGE_ENTRY_NOT_FOUND` is an absent destination — a
+    /// create-only put (caller base `None`) proceeds as a create, not a
+    /// refusal. A non-null caller base on an absent entry is an update
+    /// on a missing entry and refuses `STORED_REVISION_STALE` before
+    /// any write (QC2-12/F-014: the wire fence is never substituted).
     #[tokio::test]
     async fn scoped_put_creates_when_the_store_answers_entry_not_found() {
         let store = Arc::new(ScopedPutStore {
@@ -3364,7 +3411,7 @@ mod tests {
         });
         let face = put_face(store.clone());
         let result = call_knowledge_op(
-            KnowledgeCall::PutKnowledgeEntry(put_entry("new-entry", None), Some(7)),
+            KnowledgeCall::PutKnowledgeEntry(put_entry("new-entry", None), None),
             &face,
             &put_scope(),
             None,
@@ -3379,13 +3426,41 @@ mod tests {
             vec![None],
             "a create carries no CAS base"
         );
+
+        // An update fence on an absent entry refuses before any write.
+        let stale = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(put_entry("absent-entry", None), Some(7)),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(
+            matches!(
+                stale,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::StoredRevisionStale,
+                    ..
+                })
+            ),
+            "an update base on an absent entry refuses: {stale:?}"
+        );
+        assert_eq!(
+            store.cas_bases.lock().expect("cas_bases").len(),
+            1,
+            "the stale-base refusal happened before the write"
+        );
     }
 
-    /// §Anchor immutability CAS binding: the write's compare-and-swap base
-    /// is the loaded stored revision — the snapshot the anchor check
-    /// inspected — never the wire-supplied `expected_base_revision`.
+    /// Caller OCC + §Anchor immutability CAS binding: the write's
+    /// compare-and-swap base is the wire-supplied
+    /// `expected_base_revision`, accepted only when it equals the stored
+    /// snapshot the anchor check inspected — a stale base refuses
+    /// `STORED_REVISION_STALE`, a create-only `None` on an occupied slot
+    /// refuses `REVISION_CONFLICT`, and a matched base writes (QC2-12 /
+    /// qc3 F-014).
     #[tokio::test]
-    async fn scoped_put_cas_base_is_the_checked_stored_revision() {
+    async fn scoped_put_honours_the_caller_occ_fence() {
         let mut stored_entry = put_entry("anchored-entry", Some(put_anchor()));
         stored_entry.revision = Some(5);
         let store = Arc::new(ScopedPutStore {
@@ -3395,11 +3470,60 @@ mod tests {
         });
         let face = put_face(store.clone());
         // Anchor preserved byte-identically + a stale wire base: the put
-        // CASes against the inspected revision 5, not 2.
-        let result = call_knowledge_op(
+        // refuses before any store write.
+        let stale = call_knowledge_op(
             KnowledgeCall::PutKnowledgeEntry(
                 put_entry("anchored-entry", Some(put_anchor())),
                 Some(2),
+            ),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(
+            matches!(
+                stale,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::StoredRevisionStale,
+                    ..
+                })
+            ),
+            "a stale caller base refuses even when the anchor is unchanged: {stale:?}"
+        );
+        assert!(
+            store.cas_bases.lock().expect("cas_bases").is_empty(),
+            "the stale-base refusal happened before the write"
+        );
+
+        // A create-only request cannot replace the occupied slot.
+        let create = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(
+                put_entry("anchored-entry", Some(put_anchor())),
+                None,
+            ),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(
+            matches!(
+                create,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::RevisionConflict,
+                    ..
+                })
+            ),
+            "a create-only put on an occupied slot refuses: {create:?}"
+        );
+
+        // The matched base writes — the CAS base IS the caller fence,
+        // equal to the inspected revision.
+        let result = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(
+                put_entry("anchored-entry", Some(put_anchor())),
+                Some(5),
             ),
             &face,
             &put_scope(),
@@ -3410,7 +3534,7 @@ mod tests {
         assert_eq!(
             *store.cas_bases.lock().expect("cas_bases"),
             vec![Some(5)],
-            "the CAS base is the checked stored revision"
+            "the CAS base is the caller fence, verified against the checked revision"
         );
 
         // Mutate-then-put still refuses ADOPTION_ANCHOR_IMMUTABLE before

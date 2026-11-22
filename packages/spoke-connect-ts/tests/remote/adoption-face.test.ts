@@ -1128,4 +1128,137 @@ describe("adoption request extensions and numeric parity", () => {
       expect(tooBigInteger.code).toBe("INVALID_INPUT");
     }
   });
+
+// ── Scoped put caller-OCC fence (C1 / F-001 / QC2-01) ───────────────────
+
+describe("scoped put caller OCC fence (spoke-knowledge-adoption wire-wide C1)", () => {
+  /**
+   * A CAS-only scoped store: enforces the OCC fence it is handed but
+   * applies no anchor gate of its own — the responder's pre-read plus
+   * caller fence is the whole guarantee under test.
+   */
+  function casOnlyStore(state: FixtureState) {
+    const seenBases: Array<number | null> = [];
+    const store = {
+      async getScopedKnowledgeEntry(
+        _scope: Scope,
+        entryId: string,
+      ): Promise<SpokeResult<KnowledgeEntry>> {
+        const entry = state.destinations.get(entryId);
+        return entry === undefined
+          ? spokeReject("KNOWLEDGE_ENTRY_NOT_FOUND", `no such entry ${entryId}`)
+          : spokeOk(entry);
+      },
+      async putScopedKnowledgeEntry(
+        _scope: Scope,
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): Promise<SpokeResult<KnowledgeEntry>> {
+        seenBases.push(expectedBaseRevision);
+        const stored = state.destinations.get(entry.entry_id);
+        if (expectedBaseRevision === null) {
+          if (stored !== undefined) {
+            return spokeReject("REVISION_CONFLICT", "exists");
+          }
+        } else if (stored === undefined || (stored.revision ?? 0) !== expectedBaseRevision) {
+          return spokeReject("STORED_REVISION_STALE", "stale");
+        }
+        state.destinations.set(entry.entry_id, entry);
+        return spokeOk(entry);
+      },
+      async listScopedKnowledgeEntries(
+        _scope: Scope,
+      ): Promise<SpokeResult<KnowledgeEntry[]>> {
+        return spokeOk([...state.destinations.values()]);
+      },
+    };
+    return { store, seenBases };
+  }
+
+  function anchoredEntry(entryId: string, revision: number): KnowledgeEntry {
+    return {
+      schema_version: 1,
+      entry_id: entryId,
+      entry_type: "note",
+      canonical_name: entryId,
+      status: "confirmed",
+      revision,
+      body: {},
+      extensions: {},
+      adoption_anchor: {
+        schema_version: 1,
+        source_scope_id: SOURCE_SCOPE,
+        source_entry_id: "ke_source",
+        source_revision: 3,
+        extensions: {},
+      },
+    } as KnowledgeEntry;
+  }
+
+  async function dialPutHost(state: FixtureState): Promise<DialedAdoptionHost> {
+    const { store } = casOnlyStore(state);
+    return dialAdoptionHost({
+      clientCapabilities: CLIENT_CAPABILITIES,
+      ports: {
+        knowledge: {
+          store,
+          admission: () =>
+            spokeOk({ scope_id: DESTINATION_SCOPE, extensions: {} }),
+        },
+      },
+    });
+  }
+
+  it("a stale caller base refuses even when the anchor is unchanged; the matching base writes through the store", async () => {
+    const state = fixtureState({
+      destinations: [anchoredEntry("ke_dest", 5)],
+    });
+    const host = await dialPutHost(state);
+    try {
+      // The caller claims base 6 but the responder's snapshot is revision 5:
+      // an anchor check on 5 can never justify a write whose CAS fence is 6.
+      const stale = await host.client.putKnowledgeEntry(
+        { ...anchoredEntry("ke_dest", 6), canonical_name: "stale" },
+        6,
+      );
+      expect(stale.ok).toBe(false);
+      if (!stale.ok) {
+        expect(stale.code).toBe("STORED_REVISION_STALE");
+      }
+      expect(state.destinations.get("ke_dest")?.revision).toBe(5);
+
+      // Update against a missing destination fails the caller fence too
+      // (create-only null base is the only write to an absent entry).
+      const missing = await host.client.putKnowledgeEntry(
+        anchoredEntry("ke_absent", 1),
+        0,
+      );
+      expect(missing.ok).toBe(false);
+      if (!missing.ok) {
+        expect(missing.code).toBe("STORED_REVISION_STALE");
+      }
+
+      // A null base against an occupied slot keeps the create-only refusal.
+      const occupiedCreate = await host.client.putKnowledgeEntry(
+        anchoredEntry("ke_dest", 1),
+        null,
+      );
+      expect(occupiedCreate.ok).toBe(false);
+      if (!occupiedCreate.ok) {
+        expect(occupiedCreate.code).toBe("REVISION_CONFLICT");
+      }
+
+      // The correct caller base — the inspected snapshot's revision — is
+      // forwarded verbatim as the CAS fence and writes.
+      const correct = await host.client.putKnowledgeEntry(
+        { ...anchoredEntry("ke_dest", 6), canonical_name: "written" },
+        5,
+      );
+      expect(correct.ok).toBe(true);
+      expect(state.destinations.get("ke_dest")?.canonical_name).toBe("written");
+    } finally {
+      host.close();
+    }
+  });
+});
 });

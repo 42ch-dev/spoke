@@ -199,6 +199,20 @@ pub fn capability_satisfies(negotiated: &[String], required: &str) -> bool {
     negotiated.iter().any(|c| c == required)
 }
 
+/// Whether `op` falls under a core-reserved prefix with no registered
+/// row. `knowledge.*` is a reserved-product prefix owned by this core
+/// decision (spoke-knowledge-adoption contract §Connect operation):
+/// `knowledge.adopt` is its single registered operation — an op that
+/// starts with `knowledge.` and has no core-table row is an unknown
+/// reserved name, refused `op_unsupported` by every dispatch surface
+/// BEFORE the product custom-map (`ConnectConfig.op_capability_requirements`
+/// and equivalents) is consulted. Custom mappings apply only outside
+/// reserved families.
+#[must_use]
+pub fn reserved_prefix_op(op: &str) -> bool {
+    required_capability(op).is_none() && op.starts_with("knowledge.")
+}
+
 /// Whether `op` may be dispatched in a session with `negotiated_capabilities`.
 ///
 /// Fails closed: an unknown `op` has no core-table requirement and is not
@@ -242,6 +256,21 @@ mod tests {
 
     fn caps(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// `knowledge.*` is a core-reserved prefix: the one registered op is
+    /// not reserved-unknown, every unregistered name is — regardless of
+    /// any product custom-map row — and names outside the prefix are
+    /// never classified reserved (F-011: the distinction lives in core,
+    /// not in each consumer).
+    #[test]
+    fn knowledge_prefix_reservation_is_core_owned() {
+        assert!(!reserved_prefix_op("knowledge.adopt"));
+        assert!(reserved_prefix_op("knowledge.archive"));
+        assert!(reserved_prefix_op("knowledge."));
+        assert!(!reserved_prefix_op("memory.archive.purge"));
+        assert!(!reserved_prefix_op("knowledgeless"));
+        assert!(!reserved_prefix_op("port.knowledge.get"));
     }
 
     #[test]

@@ -7464,8 +7464,12 @@ async fn knowledge_face_serves_get_put_and_list_on_a_knowledge_only_host() {
         SpokeResult::Reject(reject) => panic!("scoped list must serve: {reject:?}"),
     }
 
-    // Every op went through the knowledge face — no baseline fallback exists.
-    assert_eq!(store.calls(), vec!["get", "put", "put", "list"]);
+    // Every op went through the knowledge face — no baseline fallback
+    // exists. Each put also runs its anchor/OCC pre-read `get` first.
+    assert_eq!(
+        store.calls(),
+        vec!["get", "get", "put", "get", "put", "list"]
+    );
     let wire_ops = captured_request_ops(&sent);
     for op in [
         "port.knowledge.get",
@@ -8121,6 +8125,11 @@ async fn knowledge_serve_shares_one_deadline_between_admission_and_the_store() {
 struct PendingStore {
     calls: Mutex<Vec<String>>,
     pending: Notify,
+    /// When set, `get` answers `KnowledgeEntryNotFound` immediately
+    /// instead of parking — the anchor pre-read for a put resolves
+    /// before the mutation the test parks (the anchor-immutability
+    /// pre-read is a read, not the write under test).
+    absent_gets: bool,
 }
 
 impl PendingStore {
@@ -8128,6 +8137,18 @@ impl PendingStore {
         Self {
             calls: Mutex::new(Vec::new()),
             pending: Notify::new(),
+            absent_gets: false,
+        }
+    }
+
+    /// `get` completes instantly as absent; only `put`/`list` park —
+    /// a put-timeout witness can observe the pre-read AND the pending
+    /// mutation separately.
+    fn pending_writes() -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            pending: Notify::new(),
+            absent_gets: true,
         }
     }
 
@@ -8148,6 +8169,13 @@ impl ScopedKnowledgePort for PendingStore {
         _scope: &Scope,
         _entry_id: &str,
     ) -> SpokeResult<KnowledgeEntry> {
+        if self.absent_gets {
+            return spoke_reject(
+                SpokeRejectCode::KnowledgeEntryNotFound,
+                "knowledge entry not found",
+                None,
+            );
+        }
         self.park("get").await;
         unreachable!("the serve deadline answers before this read completes")
     }
@@ -8197,7 +8225,9 @@ async fn start_pending_store_peer(
 /// memory family, and the store really was invoked.
 #[tokio::test]
 async fn knowledge_put_timeout_answers_an_uncertain_outcome() {
-    let store = Arc::new(PendingStore::new());
+    // `pending_writes`: the anchor pre-read (`get`) answers absent
+    // immediately so the parked call under test IS the mutation.
+    let store = Arc::new(PendingStore::pending_writes());
     let (responder, pair, seed) = start_pending_store_peer(&store).await;
     let session_id = raw_handshake(
         &pair.client,

@@ -260,9 +260,20 @@ impl AdoptionPort for ScriptedAdoptionPort {
             .as_str()
             .map(str::to_string);
 
-        // Admission: an unadmitted source scope is the same generic
-        // absence as a missing entry.
+        // Admission: both requested scope selectors are admitted before
+        // any source access or retirement-chain resolution (QC2-08 —
+        // an unadmitted destination paired with a retired source must
+        // not yield a chain trace). Either unadmitted selector is the
+        // same generic absence as a missing entry.
         if !self.state.admitted_scopes.iter().any(|s| s == source_scope_id) {
+            return FixtureState::generic_not_found();
+        }
+        if !self
+            .state
+            .admitted_scopes
+            .iter()
+            .any(|s| s == destination_scope_id)
+        {
             return FixtureState::generic_not_found();
         }
         // Source load: missing or owner-private to another viewpoint is
@@ -376,16 +387,6 @@ impl AdoptionPort for ScriptedAdoptionPort {
             if owner != viewpoint.as_deref() {
                 return FixtureState::generic_not_found();
             }
-        }
-
-        // The destination scope must also be admitted.
-        if !self
-            .state
-            .admitted_scopes
-            .iter()
-            .any(|s| s == destination_scope_id)
-        {
-            return FixtureState::generic_not_found();
         }
 
         let destination_id = destination_id.unwrap_or_else(|| terminal.source_entry_id.clone());

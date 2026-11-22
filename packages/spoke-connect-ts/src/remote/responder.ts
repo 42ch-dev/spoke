@@ -2357,13 +2357,44 @@ export class ConnectResponder {
                   if (!gate.ok) {
                     return gate;
                   }
-                  // note: Rust decodes `Option<u64>` — a missing member is
-                  // None (create), so the store must never receive
-                  // `undefined` here.
+                  // note: C1 — the caller's `expected_base_revision` IS the
+                  // CAS fence; the anchor check above inspected THIS stored
+                  // snapshot, so the two only agree when the caller base
+                  // names it. A caller base that diverges from the snapshot
+                  // is an OCC stale/conflict refusal: a non-null base
+                  // requires that exact stored revision (absent entry fails
+                  // the update), a null base is create-only and fails on an
+                  // existing entry. `undefined` (absent member) decodes the
+                  // same as `null` — never forwarded to the store.
+                  const callerBase = (payload.expected_base_revision ??
+                    null) as number | null;
+                  if (callerBase === null) {
+                    if (stored !== undefined) {
+                      return spokeReject(
+                        SpokeRejectCode.REVISION_CONFLICT,
+                        `Entry already exists: ${candidate.entry_id}`,
+                        { entry_id: candidate.entry_id },
+                      );
+                    }
+                  } else {
+                    if (stored === undefined) {
+                      return spokeReject(
+                        SpokeRejectCode.STORED_REVISION_STALE,
+                        `KnowledgeEntry not found for update: ${candidate.entry_id}`,
+                      );
+                    }
+                    const storedRevision = stored.revision ?? 0;
+                    if (storedRevision !== callerBase) {
+                      return spokeReject(
+                        SpokeRejectCode.STORED_REVISION_STALE,
+                        `Store revision ${storedRevision} does not match expected base ${callerBase}`,
+                      );
+                    }
+                  }
                   return face.store.putScopedKnowledgeEntry(
                     admitted.value,
                     candidate,
-                    (payload.expected_base_revision ?? null) as number | null,
+                    callerBase,
                   );
                 })();
               default:

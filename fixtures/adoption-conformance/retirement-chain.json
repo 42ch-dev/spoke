@@ -1,0 +1,966 @@
+{
+  "id": "retirement-chain",
+  "title": "Retirement-chain resolution \u2014 terminal live source, cycle, ambiguity, deleted terminal, 32-edge limit",
+  "protocol_refs": [
+    "\u00a7Retirement-chain resolution",
+    "\u00a7Refusal vocabulary"
+  ],
+  "cases": [
+    {
+      "id": "merged-source-resolves-to-live-terminal",
+      "invariant": "\u00a7Retirement-chain resolution",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a merged source resolves through its retirement chain; the anchor records the terminal live source scope/id/revision and the default destination id is the terminal id",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_m_old",
+            "successors": [
+              "ke_m_live"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_m_old",
+              "entry_type": "note",
+              "canonical_name": "ke_m_old",
+              "status": "merged",
+              "revision": 2,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_m_live",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_m_live",
+              "entry_type": "note",
+              "canonical_name": "ke_m_live",
+              "status": "confirmed",
+              "revision": 9,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_m_old",
+        "source_revision": 2,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "chain-live-1",
+        "extensions": {}
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          {
+            "path": "outcome",
+            "equals": "adopted"
+          },
+          {
+            "path": "entry.entry_id",
+            "equals": "ke_m_live"
+          },
+          {
+            "path": "entry.adoption_anchor.source_scope_id",
+            "equals": "spc_shared"
+          },
+          {
+            "path": "entry.adoption_anchor.source_entry_id",
+            "equals": "ke_m_live"
+          },
+          {
+            "path": "entry.adoption_anchor.source_revision",
+            "equals": 9
+          }
+        ],
+        "provider_calls": 1
+      },
+      "then": [
+        {
+          "op": "port.knowledge.get",
+          "request": {
+            "entry_id": "ke_m_live"
+          },
+          "expect": {
+            "success": true,
+            "state": [
+              {
+                "path": "adoption_anchor.source_entry_id",
+                "equals": "ke_m_live"
+              },
+              {
+                "path": "adoption_anchor.source_revision",
+                "equals": 9
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "retirement-cycle-source-retired",
+      "invariant": "\u00a7Retirement-chain resolution",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a cycle in the retirement chain refuses SOURCE_RETIRED with details.retirement_chain listing every visited id including the repeated one",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_cyc_a",
+            "successors": [
+              "ke_cyc_b"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_cyc_a",
+              "entry_type": "note",
+              "canonical_name": "ke_cyc_a",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_cyc_b",
+            "successors": [
+              "ke_cyc_c"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_cyc_b",
+              "entry_type": "note",
+              "canonical_name": "ke_cyc_b",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_cyc_c",
+            "successors": [
+              "ke_cyc_a"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_cyc_c",
+              "entry_type": "note",
+              "canonical_name": "ke_cyc_c",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_cyc_a",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "chain-cycle-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "SOURCE_RETIRED",
+        "details": {
+          "retirement_chain": [
+            "ke_cyc_a",
+            "ke_cyc_b",
+            "ke_cyc_c",
+            "ke_cyc_a"
+          ]
+        },
+        "provider_calls": 1
+      }
+    },
+    {
+      "id": "retirement-ambiguous-no-successor",
+      "invariant": "\u00a7Retirement-chain resolution",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a merged entry with zero successors refuses SOURCE_RETIRED with the chain ending at the ambiguous node",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_amb_zero",
+            "successors": [],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_amb_zero",
+              "entry_type": "note",
+              "canonical_name": "ke_amb_zero",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_amb_zero",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "chain-amb0-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "SOURCE_RETIRED",
+        "details": {
+          "retirement_chain": [
+            "ke_amb_zero"
+          ]
+        },
+        "provider_calls": 1
+      }
+    },
+    {
+      "id": "retirement-ambiguous-multiple-successors",
+      "invariant": "\u00a7Retirement-chain resolution",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a merged entry with multiple successors refuses SOURCE_RETIRED with the chain ending at the ambiguous node",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_amb_multi",
+            "successors": [
+              "ke_m1",
+              "ke_m2"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_amb_multi",
+              "entry_type": "note",
+              "canonical_name": "ke_amb_multi",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_m1",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_m1",
+              "entry_type": "note",
+              "canonical_name": "ke_m1",
+              "status": "confirmed",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_m2",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_m2",
+              "entry_type": "note",
+              "canonical_name": "ke_m2",
+              "status": "confirmed",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_amb_multi",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "chain-ambm-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "SOURCE_RETIRED",
+        "details": {
+          "retirement_chain": [
+            "ke_amb_multi"
+          ]
+        },
+        "provider_calls": 1
+      }
+    },
+    {
+      "id": "retirement-deleted-terminal",
+      "invariant": "\u00a7Retirement-chain resolution",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a chain that ends at a deleted entry refuses SOURCE_RETIRED with the deleted terminal in the chain",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_d_mid",
+            "successors": [
+              "ke_d_dead"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_d_mid",
+              "entry_type": "note",
+              "canonical_name": "ke_d_mid",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_d_dead",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_d_dead",
+              "entry_type": "note",
+              "canonical_name": "ke_d_dead",
+              "status": "deleted",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_d_mid",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "chain-del-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "SOURCE_RETIRED",
+        "details": {
+          "retirement_chain": [
+            "ke_d_mid",
+            "ke_d_dead"
+          ]
+        },
+        "provider_calls": 1
+      }
+    },
+    {
+      "id": "retirement-limit-33-edges",
+      "invariant": "\u00a7Retirement-chain resolution",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a chain that requires a 33rd edge refuses SOURCE_RETIRED; the chain lists all 33 visited ids plus the edge that would exceed the limit",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_lim_1",
+            "successors": [
+              "ke_lim_2"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_1",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_1",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_2",
+            "successors": [
+              "ke_lim_3"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_2",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_2",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_3",
+            "successors": [
+              "ke_lim_4"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_3",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_3",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_4",
+            "successors": [
+              "ke_lim_5"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_4",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_4",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_5",
+            "successors": [
+              "ke_lim_6"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_5",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_5",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_6",
+            "successors": [
+              "ke_lim_7"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_6",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_6",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_7",
+            "successors": [
+              "ke_lim_8"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_7",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_7",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_8",
+            "successors": [
+              "ke_lim_9"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_8",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_8",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_9",
+            "successors": [
+              "ke_lim_10"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_9",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_9",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_10",
+            "successors": [
+              "ke_lim_11"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_10",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_10",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_11",
+            "successors": [
+              "ke_lim_12"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_11",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_11",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_12",
+            "successors": [
+              "ke_lim_13"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_12",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_12",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_13",
+            "successors": [
+              "ke_lim_14"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_13",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_13",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_14",
+            "successors": [
+              "ke_lim_15"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_14",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_14",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_15",
+            "successors": [
+              "ke_lim_16"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_15",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_15",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_16",
+            "successors": [
+              "ke_lim_17"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_16",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_16",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_17",
+            "successors": [
+              "ke_lim_18"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_17",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_17",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_18",
+            "successors": [
+              "ke_lim_19"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_18",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_18",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_19",
+            "successors": [
+              "ke_lim_20"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_19",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_19",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_20",
+            "successors": [
+              "ke_lim_21"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_20",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_20",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_21",
+            "successors": [
+              "ke_lim_22"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_21",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_21",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_22",
+            "successors": [
+              "ke_lim_23"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_22",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_22",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_23",
+            "successors": [
+              "ke_lim_24"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_23",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_23",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_24",
+            "successors": [
+              "ke_lim_25"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_24",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_24",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_25",
+            "successors": [
+              "ke_lim_26"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_25",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_25",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_26",
+            "successors": [
+              "ke_lim_27"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_26",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_26",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_27",
+            "successors": [
+              "ke_lim_28"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_27",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_27",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_28",
+            "successors": [
+              "ke_lim_29"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_28",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_28",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_29",
+            "successors": [
+              "ke_lim_30"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_29",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_29",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_30",
+            "successors": [
+              "ke_lim_31"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_30",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_30",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_31",
+            "successors": [
+              "ke_lim_32"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_31",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_31",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_32",
+            "successors": [
+              "ke_lim_33"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_32",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_32",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_33",
+            "successors": [
+              "ke_lim_34"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_33",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_33",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_lim_34",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_lim_34",
+              "entry_type": "note",
+              "canonical_name": "ke_lim_34",
+              "status": "confirmed",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_lim_1",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "chain-lim-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "SOURCE_RETIRED",
+        "details": {
+          "retirement_chain": [
+            "ke_lim_1",
+            "ke_lim_2",
+            "ke_lim_3",
+            "ke_lim_4",
+            "ke_lim_5",
+            "ke_lim_6",
+            "ke_lim_7",
+            "ke_lim_8",
+            "ke_lim_9",
+            "ke_lim_10",
+            "ke_lim_11",
+            "ke_lim_12",
+            "ke_lim_13",
+            "ke_lim_14",
+            "ke_lim_15",
+            "ke_lim_16",
+            "ke_lim_17",
+            "ke_lim_18",
+            "ke_lim_19",
+            "ke_lim_20",
+            "ke_lim_21",
+            "ke_lim_22",
+            "ke_lim_23",
+            "ke_lim_24",
+            "ke_lim_25",
+            "ke_lim_26",
+            "ke_lim_27",
+            "ke_lim_28",
+            "ke_lim_29",
+            "ke_lim_30",
+            "ke_lim_31",
+            "ke_lim_32",
+            "ke_lim_33",
+            "ke_lim_34"
+          ]
+        },
+        "provider_calls": 1
+      },
+      "requires": [
+        "32 edges are followed (ke_lim_1 .. ke_lim_33 visited); the successor that would make a 33rd edge is the refusal node"
+      ]
+    }
+  ]
+}

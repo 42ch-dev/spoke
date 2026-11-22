@@ -1228,6 +1228,82 @@ describe("adoption dedup single-flight fallback (lookup/record-only store — F-
   });
 });
 
+describe("served result E1 revision domain + E2 extensions presence", () => {
+  const servedEntry = (anchorRevision: number, entryRevision: number) => ({
+    schema_version: 1,
+    entry_id: "ke_dst",
+    entry_type: "note",
+    canonical_name: "copy",
+    status: "confirmed",
+    revision: entryRevision,
+    body: {},
+    adoption_anchor: {
+      schema_version: 1,
+      source_scope_id: "spc_local",
+      source_entry_id: "ke_src",
+      source_revision: anchorRevision,
+      extensions: {},
+    },
+    extensions: {},
+  });
+  const serveWith = (result: unknown) =>
+    new AdoptionPortService(
+      {
+        adoptKnowledgeEntry: async () =>
+          spokeOk(result as KnowledgeAdoptResponse),
+      },
+      DEDUP_ADMISSION,
+      { dedupStore: new InMemoryHistoryDedupStore() },
+    );
+  const localPayload = () => ({
+    ...adoptPayload("k-e1"),
+    source_scope_id: DESTINATION_SCOPE,
+  });
+
+  it("refuses a served anchor or entry revision outside [0, 2^53] — the inclusive endpoint serves (E1)", async () => {
+    for (const [anchorRevision, entryRevision, servedOk] of [
+      [9007199254740992, 1, true],
+      [9007199254740994, 1, false],
+      [1, 9007199254740992, true],
+      [1, 9007199254740994, false],
+    ] as const) {
+      const service = serveWith({
+        outcome: "adopted",
+        entry: servedEntry(anchorRevision, entryRevision),
+      });
+      const result = await service.invoke(
+        "peer_a",
+        "knowledge.adopt",
+        localPayload(),
+      );
+      expect(result.ok, `anchor=${anchorRevision} entry=${entryRevision}`).toBe(
+        servedOk,
+      );
+    }
+  });
+
+  it("a producer-supplied response extensions member survives verbatim (E2)", async () => {
+    const service = serveWith({
+      outcome: "adopted",
+      entry: servedEntry(3, 1),
+      extensions: { product: { v: 1 } },
+    });
+    const result = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      localPayload(),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok && result.value !== null && typeof result.value === "object") {
+      // note: `extensions` is an optional declared response member —
+      // the served value preserves the producer's member verbatim.
+      expect("extensions" in result.value && result.value.extensions).toEqual(
+        { product: { v: 1 } },
+      );
+    }
+  });
+});
+
 // ── Destination admission at the serving boundary (C7 / QC2-08) ────────
 
 describe("adoption destination admission (contract Wire-wide rules)", () => {

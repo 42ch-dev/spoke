@@ -115,7 +115,7 @@ import {
   isConnectInvokeRequest,
   isConnectInvokeResponse,
 } from "./guards.js";
-import { isValidKnowledgeEntryDeep } from "./payload.js";
+import { isValidKnowledgeEntryDeep, isAdoptExactNonNegativeInteger } from "./payload.js";
 import type { RemoteAdoptionService, RemoteHistoryService } from "./serve_ports.js";
 import type { RemoteIdentity, ToolHandler } from "./remote-adapter.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
@@ -624,18 +624,16 @@ export function validateKnowledgeOpPayload(
       return scopePayloadReject(op, entryError);
     }
     const expected = payload.expected_base_revision;
+    // note: revision-typed member — the interoperable integer domain is
+    // `[0, 2^53]` inclusive (contract E1), not `Number.isSafeInteger`.
     if (
       expected !== undefined &&
       expected !== null &&
-      !(
-        typeof expected === "number" &&
-        Number.isSafeInteger(expected) &&
-        expected >= 0
-      )
+      !isAdoptExactNonNegativeInteger(expected)
     ) {
       return scopePayloadReject(
         op,
-        "expected_base_revision must be a non-negative safe integer or null",
+        "expected_base_revision must be a non-negative integer within [0, 2^53] or null",
       );
     }
   }

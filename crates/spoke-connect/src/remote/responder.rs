@@ -464,6 +464,59 @@ fn decode_knowledge_call<'a>(
                     }
                 }
             }
+
+            // Contract E1 — revision-typed members live in the
+            // interoperable integer domain `[0, 2^53]` on the wire: the
+            // typed `u64` decoders would accept beyond that, so the
+            // bound runs on the RAW payload (TS parity:
+            // `isAdoptExactNonNegativeInteger` inside
+            // `isValidKnowledgeEntryDeep` / `validateKnowledgeOpPayload`).
+            const ADOPT_EXACT_INTEGER_BOUND: u64 = 1 << 53;
+            fn adopt_domain(value: Option<&Value>) -> bool {
+                match value {
+                    None => true,
+                    Some(Value::Null) => true,
+                    Some(Value::Number(number)) => number.as_f64().is_some_and(|float| {
+                        // The bound is evaluated on the f64 VALUE — the
+                        // same number JavaScript observes — so an integer
+                        // spelling between u64 and its f64 rounding
+                        // (`9007199254740993` ≡ `9007199254740992.0`)
+                        // admits or refuses identically on both stacks.
+                        float.fract() == 0.0
+                            && float >= 0.0
+                            && float <= ADOPT_EXACT_INTEGER_BOUND as f64
+                    }),
+                    Some(_) => false,
+                }
+            }
+            if let Some(members) = payload.get("entry").and_then(Value::as_object) {
+                if !adopt_domain(members.get("revision")) {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        "invalid port.knowledge.put payload: entry.revision must be an integer within [0, 2^53]",
+                        None,
+                    );
+                }
+                if !adopt_domain(
+                    members
+                        .get("adoption_anchor")
+                        .and_then(Value::as_object)
+                        .and_then(|anchor| anchor.get("source_revision")),
+                ) {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        "invalid port.knowledge.put payload: entry.adoption_anchor.source_revision must be an integer within [0, 2^53]",
+                        None,
+                    );
+                }
+            }
+            if !adopt_domain(payload.get("expected_base_revision")) {
+                return spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    "invalid port.knowledge.put payload: expected_base_revision must be an integer within [0, 2^53] or null",
+                    None,
+                );
+            }
             let entry = match payload_field::<KnowledgeEntry>(payload, "entry", op) {
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),

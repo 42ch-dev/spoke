@@ -438,7 +438,7 @@ function isExactNonNegativeInteger(value: unknown): value is number {
  * number Rust's `adopt_request_from_payload` admits (qc1 F-013 /
  * qc3 F-006). History's stricter `u64`-exact rule above stays untouched.
  */
-function isAdoptExactNonNegativeInteger(value: unknown): value is number {
+export function isAdoptExactNonNegativeInteger(value: unknown): value is number {
   return (
     typeof value === "number" &&
     Number.isInteger(value) &&
@@ -827,8 +827,10 @@ export function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): bool
   if (!matchesOptionalFields(entity, KNOWLEDGE_ENTRY_OPTIONAL_FIELDS)) {
     return false;
   }
-  // `revision` is a u64; `owner` / `disclosure` are non-empty when present.
-  if ("revision" in entity && !isExactNonNegativeInteger(entity.revision)) {
+  // `revision` is revision-typed payload: the interoperable integer
+  // domain is `[0, 2^53]` inclusive (contract E1); `owner` / `disclosure`
+  // are non-empty when present.
+  if ("revision" in entity && !isAdoptExactNonNegativeInteger(entity.revision)) {
     return false;
   }
   for (const key of ["owner", "disclosure"] as const) {

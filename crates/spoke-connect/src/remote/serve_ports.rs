@@ -1421,6 +1421,34 @@ fn valid_served_adopt_result(
             "adoption provider returned an entry that is not a valid KnowledgeEntry",
         );
     };
+    // Contract E1 — revision-typed members live in the interoperable
+    // integer domain `[0, 2^53]` on the wire (TS parity:
+    // `isAdoptExactNonNegativeInteger` inside the deep checks).
+    if let Some(revision) = decoded_entry.revision {
+        if revision > ADOPT_EXACT_INTEGER_BOUND {
+            return history_transport_reject(
+                "adoption provider returned an entry with revision outside [0, 2^53]",
+            );
+        }
+    }
+    let anchor_revision_ok = entry
+        .get("adoption_anchor")
+        .and_then(Value::as_object)
+        .and_then(|anchor| anchor.get("source_revision"))
+        .is_some_and(|revision| {
+            // The bound is on the f64 VALUE — the same number
+            // JavaScript observes (E1 cross-stack parity).
+            revision.as_f64().is_some_and(|float| {
+                float.fract() == 0.0
+                    && float >= 0.0
+                    && float <= ADOPT_EXACT_INTEGER_BOUND as f64
+            })
+        });
+    if !anchor_revision_ok {
+        return history_transport_reject(
+            "adoption provider returned an anchor with source_revision outside [0, 2^53]",
+        );
+    }
     if let Some(destination_entry_id) = destination_entry_id {
         if decoded_entry.entry_id != destination_entry_id {
             return history_transport_reject(
@@ -1428,10 +1456,16 @@ fn valid_served_adopt_result(
             );
         }
     }
-    // The emitted success is `{outcome, entry}` — the contract's exact
-    // success branch (parity with TS `validServedAdoptResult`, which
-    // emits those two members only).
-    spoke_ok(json!({ "outcome": outcome, "entry": entry }))
+    // The emitted success carries `{outcome, entry}` plus a
+    // producer-supplied `extensions` member verbatim (contract E2:
+    // absent ≡ present-empty, but a supplied member is never dropped).
+    let mut response = serde_json::Map::new();
+    response.insert("outcome".into(), Value::String(outcome.expect("validated above")));
+    response.insert("entry".into(), entry.clone());
+    if let Some(extensions) = object.get("extensions") {
+        response.insert("extensions".into(), extensions.clone());
+    }
+    spoke_ok(Value::Object(response))
 }
 
 /// Decode the op's request object, call the provider once, re-encode its
@@ -2607,6 +2641,114 @@ mod history_tests {
             "an integral-float revision serves: {result:?}"
         );
         assert_eq!(*port.0.lock().expect("capture lock"), vec![7]);
+    }
+
+    /// E1/E2 fixtures: a provider result factory with an overridable
+    /// anchor `source_revision`, `entry.revision` and response
+    /// `extensions`.
+    fn served_entry(anchor_revision: u64, entry_revision: u64) -> Value {
+        json!({
+            "schema_version": 1,
+            "entry_id": "ke_dst",
+            "entry_type": "note",
+            "canonical_name": "copy",
+            "status": "confirmed",
+            "revision": entry_revision,
+            "body": {},
+            "adoption_anchor": {
+                "schema_version": 1,
+                "source_scope_id": "spc_local",
+                "source_entry_id": "ke_src",
+                "source_revision": anchor_revision,
+                "extensions": {},
+            },
+            "extensions": {},
+        })
+    }
+
+    /// Contract E1 — revision-typed payload members live in the
+    /// interoperable integer domain `[0, 2^53]` on the wire: the served
+    /// adopt result refuses an anchor `source_revision` or
+    /// `entry.revision` beyond it (TS parity: the deep-check bound).
+    /// Contract E2 — a producer-supplied response `extensions` member
+    /// survives verbatim.
+    #[tokio::test]
+    async fn served_result_enforces_e1_revision_domain_and_preserves_extensions() {
+        struct ServedPort(Value, bool);
+        #[async_trait]
+        impl AdoptionPort for ServedPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                let mut response = json!({
+                    "outcome": "adopted",
+                    "entry": self.0.clone(),
+                });
+                if self.1 {
+                    response["extensions"] = json!({ "product": { "v": 1 } });
+                }
+                spoke_ok(
+                    serde_json::from_value(response).expect("response decodes"),
+                )
+            }
+        }
+        let admission = || admission(scope("spc_local"), principal("prn_peer-a"));
+        let payload = || {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload
+        };
+
+        // The inclusive endpoint admits on the served path; one step
+        // beyond it refuses.
+        for (anchor_revision, entry_revision, served_ok) in [
+            (9007199254740992_u64, 1_u64, true),
+            (9007199254740994_u64, 1_u64, false),
+            (1_u64, 9007199254740992_u64, true),
+            (1_u64, 9007199254740994_u64, false),
+        ] {
+            let service = AdoptionPortService::new(
+                Arc::new(ServedPort(served_entry(anchor_revision, entry_revision), false)),
+                admission(),
+            );
+            let result = service.invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload()).await;
+            assert_eq!(
+                matches!(result, SpokeResult::Ok(_)),
+                served_ok,
+                "anchor_revision={anchor_revision} entry_revision={entry_revision}: {result:?}"
+            );
+        }
+
+        // E2: a producer-supplied `extensions` member rides the served
+        // response verbatim — never dropped (absent ≡ present-empty, but
+        // present stays present).
+        for with_extensions in [true, false] {
+            let service = AdoptionPortService::new(
+                Arc::new(ServedPort(served_entry(3, 1), with_extensions)),
+                admission(),
+            );
+            let result = service.invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload()).await;
+            let SpokeResult::Ok(value) = result else {
+                panic!("a valid provider result must serve: {result:?}")
+            };
+            if with_extensions {
+                assert_eq!(
+                    value["extensions"],
+                    json!({ "product": { "v": 1 } }),
+                    "supplied extensions must survive verbatim: {value}"
+                );
+            } else {
+                assert!(
+                    value.get("extensions").is_none()
+                        || value["extensions"] == json!({}),
+                    "absent ≡ present-empty is conformant: {value}"
+                );
+            }
+        }
     }
 
     /// F-007 fixture: a lookup/record-only dedup store whose every

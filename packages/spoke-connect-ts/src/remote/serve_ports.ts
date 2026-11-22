@@ -1124,10 +1124,17 @@ function validServedAdoptResult(
     );
   }
   // note: snapshot the settled JSON — the replay must return the
-  // recorded outcome, not a live reference into provider state.
+  // recorded outcome, not a live reference into provider state. A
+  // producer-supplied `extensions` member survives verbatim (contract
+  // E2: present-empty ≡ absent, but a supplied member is never
+  // dropped).
   return spokeOk(
     JSON.parse(
-      JSON.stringify({ outcome, entry: value.entry }),
+      JSON.stringify(
+        "extensions" in value
+          ? { outcome, entry: value.entry, extensions: value.extensions }
+          : { outcome, entry: value.entry },
+      ),
     ) as { outcome: string; entry: unknown },
   );
 }

@@ -207,8 +207,10 @@ value cannot be canonicalized. Typed representations normalize members in ways t
 distinct, and those normalizations stay out of the comparison on both stacks. On a language stack
 that accepts producer objects rather than parsed wire JSON, the comparison first projects each
 value to its wire members (§ Wire-wide rules): non-enumerable own properties, inherited members,
-and members a JSON serializer would drop — including enumerable `toJSON` hooks — are excluded, so
-off-wire producer detail can never change the compared bytes.
+and members a JSON serializer would drop — including `toJSON` hooks on envelope objects — are
+excluded. Opaque payloads (`verdict.detail` member values, `extensions.<ns>` values) pass through
+verbatim as wire content, so a serializer hook inside one fires exactly as it would in wire
+emission. Off-wire producer detail outside those payloads can never change the compared bytes.
 
 Wire presence is comparison-significant: a present-and-empty `verdict.detail: {}` is a distinct
 member and compares unequal to an absent `detail`. `created_at` compares by its exact wire

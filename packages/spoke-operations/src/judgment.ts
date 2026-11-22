@@ -96,21 +96,43 @@ function ownEnumerable(value: object, key: string): boolean {
   return Object.prototype.propertyIsEnumerable.call(value, key);
 }
 
+
+// note: Members whose values the contract keeps opaque — `verdict.detail`
+// member values and every `extensions.<ns>` value are product-owned wire
+// content; the envelope neither probes nor projects inside them. Their names
+// cannot collide with an envelope member elsewhere: the envelope objects are
+// closed, so these keys only ever appear at their opaque boundaries.
+const OPAQUE_MEMBER_KEYS: Record<string, true> = { detail: true, extensions: true };
+
 // note: The producer-facing wire projection — an object's wire members are
 // exactly its own enumerable JSON-typed properties (contract §Wire member
 // enumerability). Non-enumerable own members, inherited members, and values
 // JSON drops (undefined, functions, symbols, bigints — including `toJSON`
-// hooks) never reach the wire, so validation and canonicalization both run
-// on this copy rather than the raw producer object. Holes in sparse arrays
-// serialize as null on the wire, matching canonicalize's array handling.
+// hooks at envelope level) never reach the wire, so validation and
+// canonicalization both run on this copy rather than the raw producer
+// object. Three details matter:
+//   - `Object.fromEntries` builds the copy so an own enumerable `__proto__`
+//     data key round-trips as a data property instead of a prototype write.
+//   - Array indices are gated on enumerability like object members; surviving
+//     indices are re-indexed (a hidden or absent index is a gap the wire
+//     compacts, never a read of the hidden element).
+//   - Opaque member values (OPAQUE_MEMBER_KEYS) are copied verbatim — the
+//     contract keeps their children opaque, so the projection does not look
+//     inside them.
 function wireCopy(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(wireCopy);
+    const out: unknown[] = [];
+    for (let i = 0; i < value.length; i += 1) {
+      if (ownEnumerable(value, String(i))) {
+        out.push(wireCopy(value[i]));
+      }
+    }
+    return out;
   }
   if (!isPlainObject(value)) {
     return value;
   }
-  const out: Record<string, unknown> = {};
+  const entries: [string, unknown][] = [];
   for (const key of Object.keys(value)) {
     const member = value[key];
     if (
@@ -121,9 +143,12 @@ function wireCopy(value: unknown): unknown {
     ) {
       continue;
     }
-    out[key] = wireCopy(member);
+    entries.push([
+      key,
+      OPAQUE_MEMBER_KEYS[key] === true ? member : wireCopy(member),
+    ]);
   }
-  return out;
+  return Object.fromEntries(entries);
 }
 
 // note: Lexicographic first-offender order is Unicode code-point order

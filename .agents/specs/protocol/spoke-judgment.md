@@ -77,8 +77,10 @@ spellings remain accepted, and invalid calendar days remain refused.
 keys match `^[a-z][a-z0-9_-]*$`, and each value is an object. A non-conforming entry returns
 `INVALID_INPUT` with `details.field` at the offending member (for example `extensions.acme`); when
 several entries fail, `details.field` names the first offending member in lexicographic key order —
-a sorted order both stacks derive from the map's keys alone, independent of insertion or
-enumeration order, deterministic across stacks. The check reads namespace key and value kind only;
+the sorted order over Unicode code points that both stacks derive from the map's keys alone,
+independent of insertion or enumeration order, deterministic across stacks (Rust's UTF-8 `String`
+order is already code-point order; TypeScript compares code points explicitly, not UTF-16 code
+units). The check reads namespace key and value kind only;
 map children stay opaque.
 
 ### `Judgment`

@@ -74,11 +74,12 @@ fn is_positive_integer(value: &Value) -> bool {
 // refuses offsetless spellings, keeps leap-second `23:59:60` accepted and
 // refuses invalid calendar days. The grammar is matched against the raw wire
 // string exactly as received: chrono `parse_from_rfc3339` also accepts a
-// space as the date-time separator and this check stays ahead of any trim,
-// so the raw-string gates refuse whitespace-wrapped and space-separated
-// spellings to keep Rust and TypeScript on one strict form.
+// space as the date-time separator and Unicode offset signs such as U+2212,
+// so the raw-string gates refuse whitespace-wrapped, space-separated and
+// non-ASCII spellings to keep Rust and TypeScript on one strict form.
 fn is_parseable_date_time(value: &str) -> bool {
-    value.trim() == value
+    value.is_ascii()
+        && value.trim() == value
         && matches!(value.as_bytes().get(10), Some(b'T' | b't'))
         && DateTime::parse_from_rfc3339(value).is_ok()
 }
@@ -585,6 +586,28 @@ mod tests {
         // Lowercase `t` and `z` spellings stay accepted.
         let mut judgment = valid_judgment();
         judgment["created_at"] = Value::String("2026-06-30t15:59:59z".into());
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+    }
+
+    #[test]
+    fn validate_judgment_refuses_non_ascii_created_at_spelling() {
+        // Only ASCII offset signs are in contract: chrono's RFC 3339 parse
+        // alone accepts U+2212 MINUS SIGN as an offset sign.
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-06-30T23:59:59\u{2212}08:00".into());
+        expect_invalid(validate_judgment(&judgment), "created_at");
+
+        // Any non-ASCII byte refuses, not only offset signs.
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-06-30T15:59:59\u{2212}".into());
+        expect_invalid(validate_judgment(&judgment), "created_at");
+
+        // ASCII `+` and `-` offsets stay accepted.
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-06-30T15:59:59-08:00".into());
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-06-30T15:59:59+08:00".into());
         assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
     }
 

@@ -15,7 +15,15 @@
   ],
   "properties": {
     "schema_version": {
-      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+      "description": "Wire schema version (integer >= 1) in the interoperable integer domain.",
+      "allOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        {
+          "maximum": 9007199254740991
+        }
+      ]
     },
     "judgment_id": {
       "type": "string",

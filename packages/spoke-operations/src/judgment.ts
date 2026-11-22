@@ -89,6 +89,29 @@ function hasOnlyKeys(
 ): boolean {
   return Object.keys(value).every((key) => allowed[key] === true);
 }
+// note: Wire members are own enumerable properties only (contract §verdict
+// core and detail) — non-enumerable own names are representation detail, not
+// wire members.
+function ownEnumerable(value: object, key: string): boolean {
+  return Object.prototype.propertyIsEnumerable.call(value, key);
+}
+
+// note: Lexicographic first-offender order is Unicode code-point order
+// (contract §Wire-wide rules), matching Rust UTF-8 string order. ECMAScript's
+// default `.sort()` compares UTF-16 code units, which misorders
+// supplementary-plane keys (a leading surrogate sorts below every BMP code
+// point >= U+E000).
+function compareCodePoints(left: string, right: string): number {
+  const leftPoints = Array.from(left, (unit) => unit.codePointAt(0)!);
+  const rightPoints = Array.from(right, (unit) => unit.codePointAt(0)!);
+  const shared = Math.min(leftPoints.length, rightPoints.length);
+  for (let i = 0; i < shared; i += 1) {
+    if (leftPoints[i] !== rightPoints[i]) {
+      return leftPoints[i] - rightPoints[i];
+    }
+  }
+  return leftPoints.length - rightPoints.length;
+}
 
 function validateJudgmentRef(
   ref: unknown,
@@ -210,9 +233,10 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
       return invalid("verdict.detail", "verdict.detail must be an object");
     }
     // Bounded probe over the four protocol constants in the fixed order,
-    // over own enumerable members only — inherited names are not wire members.
+    // over own enumerable members only — inherited and non-enumerable names
+    // are not wire members.
     for (const member of DETAIL_RESERVED_MEMBERS) {
-      if (Object.prototype.hasOwnProperty.call(verdict.detail, member)) {
+      if (ownEnumerable(verdict.detail, member)) {
         return invalid(
           `verdict.detail.${member}`,
           `verdict.detail.${member} duplicates a protocol envelope location`,
@@ -238,10 +262,12 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
   if (!isPlainObject(judgment.extensions)) {
     return invalid("extensions", "extensions must be a present object");
   }
-  // Sorted key order: several failing entries report the first offender in
-  // lexicographic key order (contract §Wire-wide rules), matching the Rust
-  // map iteration independent of insertion order.
-  for (const key of Object.keys(judgment.extensions).sort()) {
+  // First-offender order is Unicode code-point order (contract §Wire-wide
+  // rules), matching the Rust map's UTF-8 string order; ECMAScript default
+  // sort disagrees on supplementary-plane keys. Own enumerable members only.
+  for (const key of Object.keys(judgment.extensions)
+    .filter((key) => ownEnumerable(judgment.extensions, key))
+    .sort(compareCodePoints)) {
     const entry = judgment.extensions[key];
     if (!NAMESPACE_RE.test(key) || !isPlainObject(entry)) {
       return invalid(

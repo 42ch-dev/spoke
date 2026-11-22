@@ -185,6 +185,34 @@ describe("validateJudgment", () => {
     expect(validateJudgment(j)).toEqual({ ok: true });
   });
 
+  it("ignores non-enumerable own reserved names on verdict.detail", () => {
+    const j = judgment();
+    const detail: Record<string, unknown> = { note: "own only" };
+    Object.defineProperty(detail, "target", {
+      value: {},
+      enumerable: false,
+    });
+    j.verdict.detail = detail;
+    expect(validateJudgment(j)).toEqual({ ok: true });
+  });
+
+  it("orders first-offending extensions keys by Unicode code point", () => {
+    const j = judgment();
+    // U+E000 sorts before U+10000 in code-point order even though the
+    // supplementary key's first UTF-16 unit (U+D800) is lower.
+    j.extensions = {
+      "\u{10000}": {},
+      "\uE000": {},
+    } as unknown as Judgment["extensions"];
+    expectField(validateJudgment(j), "extensions.\uE000");
+  });
+
+  it("rejects a schema_version above the interoperable integer domain", () => {
+    const j = judgment();
+    (j as Record<string, unknown>).schema_version = 2 ** 53;
+    expectField(validateJudgment(j), "schema_version");
+  });
+
   it("rejects a non-namespace extensions key", () => {
     const j = judgment();
     j.extensions = { "Acme:Audit": { pass: true } } as Judgment["extensions"];

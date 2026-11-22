@@ -1892,69 +1892,129 @@ impl MemoryPort for RemoteAdapter {
 /// operations): `get` sends the request object and decodes the wrapped
 /// `snapshot` member; `prune` attaches the wire-required `idempotency_key`
 /// itself — the key is a connect-layer dedup concern the port signature
-/// deliberately omits, so this face generates a fresh caller-chosen key per
-/// call. The responder's gate is the only authority: an unnegotiated
-/// `spoke-history` answers `capability_missing`, mapped to
+/// deliberately omits. [`RemoteAdapter::prune_history`] accepts a
+/// caller-supplied key for retries and generates one only when the caller
+/// omits it (§9.1: retries replay the same key). `principal` is the LOCAL
+/// admission context — over the wire the serving host admits the
+/// authenticated peer; `scope` is always sent so the serving face can
+/// match it to its admission (an unmatched scope refuses before the
+/// port). The responder's gate is the only capability authority: an
+/// unnegotiated `spoke-history` answers `capability_missing`, mapped to
 /// `CAPABILITY_PORT_MISSING` with `details.wire_code`.
 #[async_trait]
 impl HistoryPort for RemoteAdapter {
     async fn get_history_snapshot(
         &self,
-        scope: Option<&Scope>,
+        _principal: &Principal,
+        scope: &Scope,
         entity_kind: &str,
         entity_id: &str,
         revision: u64,
     ) -> SpokeResult<RevisionSnapshot> {
-        let mut request = json!({
+        let request = json!({
             "entity_kind": entity_kind,
             "entity_id": entity_id,
             "revision": revision,
+            "scope": scope,
         });
-        if let Some(scope) = scope {
-            request["scope"] = json!(scope);
-        }
-        let value = match self
-            .invoke_mapped::<Value>("history.revisions.get", request)
-            .await
-        {
-            SpokeResult::Ok(value) => value,
-            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        let payload = match self.invoke_op("history.revisions.get", request).await {
+            Ok(ConnectInvokeResponse::Variant0 { payload, .. }) => payload,
+            Ok(ConnectInvokeResponse::Variant1 { error, .. }) => {
+                return SpokeResult::Reject(map_error_envelope(&error));
+            }
+            Err(error) => return internal_error(error.kind.as_str(), error.message),
         };
-        match value.get("snapshot").cloned().map(serde_json::from_value) {
-            Some(Ok(snapshot)) => spoke_ok(snapshot),
+        // Contract §Connect operations: the response payload must carry a
+        // present `snapshot` member that decodes as a `RevisionSnapshot`
+        // and targets the request selectors — a malformed or wrong-target
+        // success is a transport decode error, never `Ok`.
+        let mut payload = payload;
+        let snapshot = payload.as_object_mut().and_then(|o| o.remove("snapshot"));
+        match snapshot.map(serde_json::from_value::<RevisionSnapshot>) {
+            Some(Ok(snapshot)) => {
+                match crate::remote::serve_ports::validate_history_snapshot(
+                    &snapshot,
+                    entity_kind,
+                    entity_id,
+                    revision,
+                ) {
+                    SpokeResult::Ok(()) => spoke_ok(snapshot),
+                    SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+                }
+            }
             _ => internal_error(
                 "transport",
-                "history.revisions.get response missing snapshot",
+                "history.revisions.get response missing or malformed snapshot",
             ),
         }
     }
 
     async fn prune_history(
         &self,
-        scope: Option<&Scope>,
+        _principal: &Principal,
+        scope: &Scope,
         entity_kind: &str,
         entity_id: &str,
         keep: u64,
     ) -> SpokeResult<spoke_operations::HistoryPruneResult> {
-        let idempotency_key = match generate_request_id() {
-            Ok(id) => id,
-            Err(error) => {
-                return internal_error(
-                    "transport",
-                    format!("idempotency key generation failed: {error}"),
-                )
-            }
+        self.prune_history(scope, entity_kind, entity_id, keep, None)
+            .await
+    }
+}
+
+impl RemoteAdapter {
+    /// `history.revisions.prune` with caller-owned idempotency (contract
+    /// §9.1): `idempotency_key` is the dedup key the caller replays on
+    /// retry; `None` generates a fresh key (one-shot call). The validated
+    /// `HistoryPruneResult` is the op's response object — `deleted` as a
+    /// `u64` integer and a present, nullable `floor_revision` — a
+    /// malformed success is a transport decode error, never `Ok`.
+    pub async fn prune_history(
+        &self,
+        scope: &Scope,
+        entity_kind: &str,
+        entity_id: &str,
+        keep: u64,
+        idempotency_key: Option<&str>,
+    ) -> SpokeResult<spoke_operations::HistoryPruneResult> {
+        let idempotency_key = match idempotency_key {
+            Some(key) => key.to_owned(),
+            None => match generate_request_id() {
+                Ok(id) => id,
+                Err(error) => {
+                    return internal_error(
+                        "transport",
+                        format!("idempotency key generation failed: {error}"),
+                    )
+                }
+            },
         };
-        let mut request = json!({
+        let request = json!({
             "entity_kind": entity_kind,
             "entity_id": entity_id,
             "keep": keep,
             "idempotency_key": idempotency_key,
+            "scope": scope,
         });
-        if let Some(scope) = scope {
-            request["scope"] = json!(scope);
+        let payload = match self.invoke_op("history.revisions.prune", request).await {
+            Ok(ConnectInvokeResponse::Variant0 { payload, .. }) => payload,
+            Ok(ConnectInvokeResponse::Variant1 { error, .. }) => {
+                return SpokeResult::Reject(map_error_envelope(&error));
+            }
+            Err(error) => return internal_error(error.kind.as_str(), error.message),
+        };
+        if let SpokeResult::Reject(reject) =
+            crate::remote::serve_ports::validate_history_prune_success(&payload)
+        {
+            return SpokeResult::Reject(reject);
         }
-        self.invoke_mapped("history.revisions.prune", request).await
+        match serde_json::from_value(payload) {
+            Ok(result) => spoke_ok(result),
+            Err(error) => internal_error(
+                "transport",
+                format!("history.revisions.prune response decode failed: {error}"),
+            ),
+        }
     }
 }
 

@@ -14,8 +14,8 @@
 //! [`RemoteServePorts::as_extract`]; it is a service, not a port method. The
 //! memory family is served the same way through the optional
 //! [`RemoteMemoryService`] face ([`RemoteServePorts::as_memory`]); the
-//! `spoke-history` family probes the injected [`HistoryPort`] directly
-//! through [`RemoteServePorts::as_history`].
+//! `spoke-history` family is served the same way through the optional
+//! [`RemoteHistoryService`] face ([`RemoteServePorts::as_history`]).
 //! Serving order is gate → probe → serve/deny: after the capability gate
 //! passes, the responder probes the injected face; a `None` probe means the
 //! host declared a family it does not provide (host misconfiguration) and
@@ -28,18 +28,24 @@
 //! [`RemoteServePortsComposite::with_extract`]; a host that serves only the
 //! knowledge ops composes with [`RemoteServePortsComposite::knowledge_only`].
 
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 use spoke_operations::{
-    spoke_reject, BaselinePorts, ComputablePort, ForkTimelineQueryPort, HistoryPort, MemoryPort,
-    ScopedKnowledgePort, SpokeRejectCode, SpokeResult,
+    jcs_sha256_hex, spoke_ok, spoke_reject, BaselinePorts, ComputablePort,
+    ForkTimelineQueryPort, HistoryPort, HistoryPruneResult, MemoryPort, ScopedKnowledgePort,
+    SpokeReject, SpokeRejectCode, SpokeResult,
 };
-use spoke_schemas::{ExtractRequest, ExtractResponse, Principal, Scope};
+use spoke_schemas::data::revision_snapshot::RevisionSnapshotSnapshot;
+use spoke_schemas::{
+    ExtractRequest, ExtractResponse, HistoryRevisionsGetRequest,
+    HistoryRevisionsPruneRequest, Principal, RevisionSnapshot, Scope,
+};
 
 /// Connect-owned service face for the core `extract` op: the serving host
 /// runs its own extraction — local loader, local extractor, local
@@ -315,15 +321,15 @@ pub trait RemoteServePorts: Send + Sync {
         None
     }
 
-    /// Optional `spoke-history` face (revision replay + explicit pruning),
-    /// when provided. Absent means the host declared `spoke-history`
-    /// without providing the port — the responder answers the dispatch-deny
-    /// branch.
+    /// Optional `spoke-history` service face (revision replay + explicit
+    /// pruning), when provided. Absent means the host declared
+    /// `spoke-history` without providing the service — the responder
+    /// answers the dispatch-deny branch.
     ///
-    /// Owned (not borrowed) like [`RemoteServePorts::as_memory`]: the prune
-    /// op mutates, so the responder may detach the admitted invoke from its
-    /// response deadline and the spawned task must own the port.
-    fn as_history(&self) -> Option<Arc<dyn HistoryPort + Send + Sync>> {
+    /// Owned (not borrowed) like [`RemoteServePorts::as_memory`]: the
+    /// prune op mutates, so the responder detaches the admitted invoke
+    /// from its response deadline and the spawned task must own the face.
+    fn as_history(&self) -> Option<Arc<dyn RemoteHistoryService>> {
         None
     }
 }
@@ -362,7 +368,7 @@ pub struct RemoteServePortsComposite {
     fork: Option<Arc<dyn ForkTimelineQueryPort + Send + Sync>>,
     extract: Option<Arc<dyn RemoteExtractService>>,
     memory: Option<Arc<dyn RemoteMemoryService>>,
-    history: Option<Arc<dyn HistoryPort + Send + Sync>>,
+    history: Option<Arc<dyn RemoteHistoryService>>,
 }
 
 impl RemoteServePortsComposite {
@@ -428,9 +434,10 @@ impl RemoteServePortsComposite {
         self
     }
 
-    /// Attach the optional `spoke-history` port face (consuming builder).
+    /// Attach the optional `spoke-history` service face (consuming
+    /// builder).
     #[must_use]
-    pub fn with_history(mut self, history: Arc<dyn HistoryPort + Send + Sync>) -> Self {
+    pub fn with_history(mut self, history: Arc<dyn RemoteHistoryService>) -> Self {
         self.history = Some(history);
         self
     }
@@ -469,7 +476,432 @@ impl RemoteServePorts for RemoteServePortsComposite {
         self.memory.clone()
     }
 
-    fn as_history(&self) -> Option<Arc<dyn HistoryPort + Send + Sync>> {
+    fn as_history(&self) -> Option<Arc<dyn RemoteHistoryService>> {
         self.history.clone()
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+    use serde_json::json;
+    use spoke_operations::{spoke_ok_unit, HistoryPruneResult};
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
+    fn scope(id: &str) -> Scope {
+        serde_json::from_value(json!({
+            "scope_id": id,
+            "extensions": {}
+        }))
+        .expect("valid Scope")
+    }
+
+    fn principal(id: &str) -> Principal {
+        serde_json::from_value(json!({
+            "principal_id": id,
+            "extensions": {}
+        }))
+        .expect("valid Principal")
+    }
+
+    fn admission(scope: Scope, principal: Principal) -> HistoryAdmission {
+        Arc::new(move |_peer| spoke_ok((principal.clone(), scope.clone())))
+    }
+
+    fn snapshot_json(entity_id: &str, revision: u64) -> serde_json::Value {
+        json!({
+            "schema_version": 1,
+            "entity_kind": "knowledge_entry",
+            "entity_id": entity_id,
+            "revision": revision,
+            "snapshot": {
+                "schema_version": 1,
+                "entry_id": entity_id,
+                "canonical_name": "fixture",
+                "entry_type": "note",
+                "status": "active",
+                "body": {},
+                "extensions": {},
+                "revision": revision,
+            },
+            "extensions": {}
+        })
+    }
+
+    /// Provider stub: records call count + the principal/scope it was
+    /// invoked with, returns fixed results.
+    struct StubHistoryPort {
+        prune_calls: AtomicU64,
+        get_calls: AtomicU64,
+        last_principal: Mutex<Option<Principal>>,
+        last_scope: Mutex<Option<Scope>>,
+    }
+
+    impl StubHistoryPort {
+        fn new() -> Self {
+            Self {
+                prune_calls: AtomicU64::new(0),
+                get_calls: AtomicU64::new(0),
+                last_principal: Mutex::new(None),
+                last_scope: Mutex::new(None),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl HistoryPort for StubHistoryPort {
+        async fn get_history_snapshot(
+            &self,
+            principal: &Principal,
+            scope: &Scope,
+            _entity_kind: &str,
+            entity_id: &str,
+            revision: u64,
+        ) -> SpokeResult<RevisionSnapshot> {
+            self.get_calls.fetch_add(1, AtomicOrdering::SeqCst);
+            *self.last_principal.lock().expect("lock") = Some(principal.clone());
+            *self.last_scope.lock().expect("lock") = Some(scope.clone());
+            serde_json::from_value(snapshot_json(entity_id, revision))
+                .map_or_else(|e| spoke_reject(SpokeRejectCode::InternalError, e.to_string(), None), spoke_ok)
+        }
+
+        async fn prune_history(
+            &self,
+            principal: &Principal,
+            scope: &Scope,
+            _entity_kind: &str,
+            _entity_id: &str,
+            keep: u64,
+        ) -> SpokeResult<HistoryPruneResult> {
+            self.prune_calls.fetch_add(1, AtomicOrdering::SeqCst);
+            *self.last_principal.lock().expect("lock") = Some(principal.clone());
+            *self.last_scope.lock().expect("lock") = Some(scope.clone());
+            spoke_ok(HistoryPruneResult {
+                deleted: 1,
+                floor_revision: Some(keep + 1),
+            })
+        }
+    }
+
+    fn prune_payload(key: &str, keep: u64, scope: Option<&Value>) -> Value {
+        let mut payload = json!({
+            "entity_kind": "knowledge_entry",
+            "entity_id": "e1",
+            "keep": keep,
+            "idempotency_key": key,
+        });
+        if let Some(scope) = scope {
+            payload["scope"] = scope.clone();
+        }
+        payload
+    }
+
+    #[tokio::test]
+    async fn get_passes_principal_and_admitted_scope_to_port() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service = HistoryPortService::new(
+            port.clone(),
+            admission(scope("s1"), principal("peer-p")),
+        );
+        let result = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_GET,
+                json!({
+                    "entity_kind": "knowledge_entry",
+                    "entity_id": "e1",
+                    "revision": 7,
+                    // The request scope equals the admission — allowed.
+                    "scope": {"scope_id": "s1", "extensions": {}}
+                }),
+            )
+            .await;
+        let SpokeResult::Ok(value) = result else {
+            panic!("expected Ok, got {result:?}")
+        };
+        assert_eq!(value["snapshot"]["entity_id"], "e1");
+        assert_eq!(value["snapshot"]["revision"], 7);
+        assert_eq!(
+            port.last_principal.lock().expect("lock").as_ref().unwrap().principal_id.as_str(),
+            "peer-p"
+        );
+        assert_eq!(
+            port.last_scope.lock().expect("lock").as_ref().unwrap().scope_id,
+            "s1"
+        );
+    }
+
+    #[tokio::test]
+    async fn scope_mismatch_denies_without_port_call() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service = HistoryPortService::new(
+            port.clone(),
+            admission(scope("s1"), principal("peer-p")),
+        );
+        let get = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_GET,
+                json!({
+                    "entity_kind": "knowledge_entry",
+                    "entity_id": "e1",
+                    "revision": 7,
+                    "scope": {"scope_id": "other", "extensions": {}}
+                }),
+            )
+            .await;
+        assert!(matches!(
+            get,
+            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::NotFound, .. })
+        ));
+        let prune = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_PRUNE,
+                prune_payload("k1", 2, Some(&json!({"scope_id": "other", "extensions": {}}))),
+            )
+            .await;
+        assert!(matches!(
+            prune,
+            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::NotAuthorized, .. })
+        ));
+        assert_eq!(port.get_calls.load(AtomicOrdering::SeqCst), 0);
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn prune_replays_same_key_without_reexecuting() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service = HistoryPortService::new(
+            port.clone(),
+            admission(scope("s1"), principal("peer-p")),
+        );
+        let payload = prune_payload("replay-key", 2, None);
+        let first = service.invoke("peer-a", HISTORY_OP_PRUNE, payload.clone()).await;
+        let second = service.invoke("peer-a", HISTORY_OP_PRUNE, payload).await;
+        assert!(matches!(first, SpokeResult::Ok(_)));
+        // The recorded outcome replays verbatim — no second port call.
+        assert_eq!(first, second);
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn prune_same_key_different_digest_conflicts() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service = HistoryPortService::new(
+            port.clone(),
+            admission(scope("s1"), principal("peer-p")),
+        );
+        let first = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, prune_payload("k1", 2, None))
+            .await;
+        assert!(matches!(first, SpokeResult::Ok(_)));
+        let conflict = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, prune_payload("k1", 5, None))
+            .await;
+        assert!(matches!(
+            conflict,
+            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::IdempotencyConflict, .. })
+        ));
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn evicted_receipt_expires_without_reexecuting() {
+        let port = Arc::new(StubHistoryPort::new());
+        // Capacity 1: the second prune's record evicts the first's; its
+        // replay must answer RECEIPT_EXPIRED rather than re-execute.
+        let service = HistoryPortService::new(
+            port.clone(),
+            admission(scope("s1"), principal("peer-p")),
+        )
+        .with_dedup_store(Arc::new(InMemoryHistoryDedupStore::with_capacity(1)));
+        let first = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, prune_payload("k1", 2, None))
+            .await;
+        assert!(matches!(first, SpokeResult::Ok(_)));
+        let second = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, prune_payload("k2", 2, None))
+            .await;
+        assert!(matches!(second, SpokeResult::Ok(_)));
+        let replay = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, prune_payload("k1", 2, None))
+            .await;
+        assert!(matches!(
+            replay,
+            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::ReceiptExpired, .. })
+        ));
+        // The evicted outcome never re-executes; the live key replays.
+        let live = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, prune_payload("k2", 2, None))
+            .await;
+        assert_eq!(live, second);
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn missing_idempotency_key_is_invalid_input() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service = HistoryPortService::new(
+            port.clone(),
+            admission(scope("s1"), principal("peer-p")),
+        );
+        let mut payload = prune_payload("k1", 2, None);
+        payload.as_object_mut().expect("object").remove("idempotency_key");
+        let result = service.invoke("peer-a", HISTORY_OP_PRUNE, payload).await;
+        assert!(matches!(
+            result,
+            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::InvalidInput, .. })
+        ));
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn wrong_target_snapshot_is_transport_decode_error() {
+        struct WrongTarget;
+        #[async_trait]
+        impl HistoryPort for WrongTarget {
+            async fn get_history_snapshot(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _entity_kind: &str,
+                _entity_id: &str,
+                _revision: u64,
+            ) -> SpokeResult<RevisionSnapshot> {
+                serde_json::from_value(snapshot_json("OTHER", 99)).map_or_else(
+                    |e| spoke_reject(SpokeRejectCode::InternalError, e.to_string(), None),
+                    spoke_ok,
+                )
+            }
+            async fn prune_history(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _entity_kind: &str,
+                _entity_id: &str,
+                _keep: u64,
+            ) -> SpokeResult<HistoryPruneResult> {
+                spoke_ok(HistoryPruneResult {
+                    deleted: 0,
+                    floor_revision: None,
+                })
+            }
+        }
+        let port: Arc<dyn HistoryPort + Send + Sync> = Arc::new(WrongTarget);
+        let service = HistoryPortService::new(port, admission(scope("s1"), principal("p")));
+        let result = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_GET,
+                json!({
+                    "entity_kind": "knowledge_entry",
+                    "entity_id": "e1",
+                    "revision": 7,
+                }),
+            )
+            .await;
+        assert!(matches!(
+            result,
+            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::InternalError, .. })
+        ));
+    }
+
+    /// Wire-presence rule (contract §`RevisionSnapshot`): an
+    /// explicitly-present empty member of the served response payload
+    /// survives the serving path byte-identically. The raw face boundary
+    /// carries the response `Value` through unprojected, so a service
+    /// that emits `"modules": {}` (or `body.tags: []`) preserves it.
+    struct PresenceHistoryService;
+    #[async_trait]
+    impl RemoteHistoryService for PresenceHistoryService {
+        async fn invoke(
+            &self,
+            _peer_id: &str,
+            _op: &str,
+            _payload: serde_json::Value,
+        ) -> SpokeResult<serde_json::Value> {
+            spoke_ok(json!({
+                "snapshot": {
+                    "schema_version": 1,
+                    "entity_kind": "knowledge_entry",
+                    "entity_id": "e1",
+                    "revision": 3,
+                    "snapshot": {
+                        "schema_version": 1,
+                        "entry_id": "e1",
+                        "canonical_name": "fixture",
+                        "entry_type": "note",
+                        "status": "active",
+                        "body": {"tags": [], "state": {}, "attributes": []},
+                        "modules": {},
+                        "extensions": {},
+                        "revision": 3,
+                    },
+                    "extensions": {}
+                }
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn served_response_preserves_explicit_empty_members() {
+        let service = PresenceHistoryService;
+        let result = service
+            .invoke(
+                "peer",
+                HISTORY_OP_GET,
+                json!({"entity_kind": "knowledge_entry", "entity_id": "e1", "revision": 3}),
+            )
+            .await;
+        let SpokeResult::Ok(value) = result else {
+            panic!("expected Ok, got {result:?}")
+        };
+        let entity = &value["snapshot"]["snapshot"];
+        assert_eq!(entity["modules"], json!({}));
+        assert_eq!(entity["body"]["tags"], json!([]));
+        assert_eq!(entity["body"]["state"], json!({}));
+        assert_eq!(entity["body"]["attributes"], json!([]));
+        // The serving path emits the response payload verbatim — compare
+        // the whole member byte-identically.
+        assert_eq!(
+            entity,
+            &json!({
+                "schema_version": 1,
+                "entry_id": "e1",
+                "canonical_name": "fixture",
+                "entry_type": "note",
+                "status": "active",
+                "body": {"tags": [], "state": {}, "attributes": []},
+                "modules": {},
+                "extensions": {},
+                "revision": 3,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn prune_result_shape_validation() {
+        assert!(matches!(
+            validate_history_prune_success(&json!({"deleted": 0, "floor_revision": null})),
+            SpokeResult::Ok(())
+        ));
+        assert!(matches!(
+            validate_history_prune_success(&json!({"deleted": 1, "floor_revision": 4})),
+            SpokeResult::Ok(())
+        ));
+        // Present member required: absent floor is malformed.
+        assert!(matches!(
+            validate_history_prune_success(&json!({"deleted": 1})),
+            SpokeResult::Reject(_)
+        ));
+        assert!(matches!(
+            validate_history_prune_success(&json!({"deleted": -1, "floor_revision": null})),
+            SpokeResult::Reject(_)
+        ));
+        assert!(matches!(
+            validate_history_prune_success(&json!({"deleted": 1, "floor_revision": "x"})),
+            SpokeResult::Reject(_)
+        ));
     }
 }

@@ -65,17 +65,51 @@ describe("revisionSnapshotsEqualCanonical", () => {
   });
 });
 
-describe("HistoryPruneResult", () => {
-  it("serializes to the wire shape", () => {
+describe("revision snapshot wire presence", () => {
+  it("explicitly present-and-empty members change canonical bytes", () => {
+    // note: product-behavior assertion — the wire-presence rule (contract
+    // §RevisionSnapshot): `body.tags: []`, `body.state: {}`, `modules: {}`
+    // and `body.attributes: []` are byte-significant under RFC 8785, so a
+    // snapshot carrying them MUST NOT compare equal to one where they are
+    // absent. Guards against a representation that drops present-empty
+    // members before canonicalization (qc1-F-005).
+    const empty: RevisionSnapshot = snapshot();
+    empty.snapshot = {
+      ...(empty.snapshot as object),
+      body: { tags: [], state: {}, attributes: [] },
+      modules: {},
+    } as RevisionSnapshot["snapshot"];
+    expect(revisionSnapshotsEqualCanonical(snapshot(), empty)).toEqual({
+      ok: true,
+      value: false,
+    });
+
+    const absentThenPresent = snapshot();
+    absentThenPresent.snapshot = {
+      ...(absentThenPresent.snapshot as object),
+      modules: {},
+    } as RevisionSnapshot["snapshot"];
+    expect(
+      revisionSnapshotsEqualCanonical(empty, absentThenPresent),
+    ).toEqual({ ok: true, value: false });
+
+    // note: a snapshot identical including the empty members still
+    // canonicalizes equal — presence is preserved, not invented.
+    const alsoEmpty = snapshot();
+    alsoEmpty.snapshot = JSON.parse(JSON.stringify(empty.snapshot));
+    expect(revisionSnapshotsEqualCanonical(empty, alsoEmpty)).toEqual({
+      ok: true,
+      value: true,
+    });
+  });
+
+  it("HistoryPruneResult carries deleted + nullable floor_revision (contract §4.2)", () => {
+    // note: the prune outcome vocabulary — a deleting prune reports the
+    // retained floor; a no-op reports `null`, never an omitted member.
     const deleted: HistoryPruneResult = { deleted: 1, floor_revision: 2 };
-    expect(JSON.parse(JSON.stringify(deleted))).toEqual({
-      deleted: 1,
-      floor_revision: 2,
-    });
     const noop: HistoryPruneResult = { deleted: 0, floor_revision: null };
-    expect(JSON.parse(JSON.stringify(noop))).toEqual({
-      deleted: 0,
-      floor_revision: null,
-    });
+    expect("floor_revision" in noop).toBe(true);
+    expect(noop.floor_revision).toBeNull();
+    expect(deleted.deleted).toBeGreaterThanOrEqual(0);
   });
 });

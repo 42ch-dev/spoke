@@ -335,7 +335,60 @@ function isValidExtractSuccessPayload(value: unknown): boolean {
   return true;
 }
 
+/** note: `revision` / `deleted` / `floor_revision` are `u64` on the wire — exact integers only, never rounded (spoke-history contract). */
+function isExactNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+  );
+}
+
+/**
+ * note: strict `RevisionSnapshot` envelope shape (spoke-history contract
+ * §RevisionSnapshot): all six required members present and well-formed.
+ * Selector equality against the request is enforced by the serving face
+ * and the `RemoteAdapter` cross-check (request context lives there).
+ */
+function isValidRevisionSnapshotEnvelope(snapshot: unknown): boolean {
+  return (
+    isRecord(snapshot) &&
+    typeof snapshot.schema_version === "number" &&
+    Number.isInteger(snapshot.schema_version) &&
+    typeof snapshot.entity_kind === "string" &&
+    typeof snapshot.entity_id === "string" &&
+    isExactNonNegativeInteger(snapshot.revision) &&
+    isRecord(snapshot.snapshot) &&
+    isValidExtensionMap(snapshot.extensions)
+  );
+}
+
+/**
+ * note: strict `history.revisions.*` success shapes (spoke-history
+ * contract §Connect operations): get requires a present `snapshot` member
+ * decoding as `RevisionSnapshot`; prune requires `deleted` integer ≥ 0
+ * and a present, nullable `floor_revision`. Malformed values fail the
+ * gate → `INTERNAL_ERROR` transport decode, never `Ok`.
+ */
+function isValidHistorySuccessPayload(op: string, value: unknown): boolean {
+  if (op === "history.revisions.get") {
+    return (
+      isRecord(value) &&
+      "snapshot" in value &&
+      isValidRevisionSnapshotEnvelope(value.snapshot)
+    );
+  }
+  return (
+    isRecord(value) &&
+    isExactNonNegativeInteger(value.deleted) &&
+    "floor_revision" in value &&
+    (value.floor_revision === null ||
+      isExactNonNegativeInteger(value.floor_revision))
+  );
+}
+
 export function isValidSuccessPayload(op: string, value: unknown): boolean {
+  if (op === "history.revisions.get" || op === "history.revisions.prune") {
+    return isValidHistorySuccessPayload(op, value);
+  }
   const shape = SUCCESS_SHAPES[op];
   if (shape === undefined) {
     return true;

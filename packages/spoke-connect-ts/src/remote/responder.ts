@@ -73,7 +73,6 @@ import {
   type BaselinePorts,
   type ComputablePort,
   type ForkTimelineQueryPort,
-  type HistoryPort,
   type ScopedKnowledgePort,
   type SpokeReject,
   type SpokeResult,
@@ -115,8 +114,10 @@ import {
   isConnectInvokeRequest,
   isConnectInvokeResponse,
 } from "./guards.js";
+import type { RemoteHistoryService } from "./serve_ports.js";
 import type { RemoteIdentity, ToolHandler } from "./remote-adapter.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
+
 
 const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
 
@@ -290,7 +291,7 @@ export function scopeOpRequiresOwnershipCapability(
   return typeof viewpoint === "string" && viewpoint.length > 0;
 }
 
-function isJsonObject(value: unknown): value is Record<string, unknown> {
+export function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -424,8 +425,8 @@ function isStringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-/** note: structural decode/validate for a declared Scope (mirrors Rust `Scope::deserialize`). */
-function validateDeclaredScope(scope: Record<string, unknown>): string | null {
+/** note: structural decode/validate for a declared Scope (mirrors Rust `Scope::deserialize`); exported for the history serving face (`serve_ports.ts`). */
+export function validateDeclaredScope(scope: Record<string, unknown>): string | null {
   for (const key of Object.keys(scope)) {
     if (!SCOPE_WIRE_KEYS.has(key)) {
       return `unknown property \`${key}\` at scope`;
@@ -748,139 +749,21 @@ export interface RemoteMemoryService {
 
 /**
  * Remote-only history service seam (spoke-history contract §Connect
- * operations): the serving face a responder host attaches to answer the two
- * `history.*` ops. It IS the typed [`HistoryPort`] — history needs no
- * per-peer admission mapping (the request `scope` arrives on the wire and
- * `idempotency_key` is a connect-layer concern), so unlike
- * [`RemoteMemoryService`] there is no connect-owned invoke seam; the
- * responder decodes the payload and calls the port directly (Rust parity:
- * `RemoteServePorts::as_history` probes `HistoryPort`).
+ * operations): the serving face a responder host attaches to answer the
+ * two `history.*` ops. It owns peer admission, effective-scope
+ * resolution, and prune deduplication — the connect idempotency envelope
+ * and the closed request decode never reach the provider `HistoryPort`
+ * (spoke-history contract §9.1). Re-exported from `serve_ports.ts`, which
+ * also ships `HistoryPortService` adapting a provider port to this seam
+ * (mirroring `RemoteMemoryService` / `MemoryPortService`; Rust parity:
+ * `RemoteServePorts::as_history`).
  */
-export interface RemoteHistoryService extends HistoryPort {}
-
-/**
- * One decoded `history.*` dispatch: the validated arguments produced by
- * `decodeHistoryCall` before the serve bound starts (B1 — a malformed
- * payload keeps its `INVALID_INPUT` reject even at a zero budget). The
- * prune op's wire `idempotency_key` is validated by the decode but never
- * reaches the port — the connect idempotency envelope is a connect-layer
- * concern (spoke-history contract).
- */
-type HistoryCall =
-  | {
-      readonly kind: "get";
-      readonly scope: Scope | undefined;
-      readonly entityKind: string;
-      readonly entityId: string;
-      readonly revision: number;
-    }
-  | {
-      readonly kind: "prune";
-      readonly scope: Scope | undefined;
-      readonly entityKind: string;
-      readonly entityId: string;
-      readonly keep: number;
-    };
-
-/** note: `revision` / `keep` are `u64` on the wire — a non-negative integer. */
-function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
-/**
- * Decode the request's optional `scope` member as the shared `Scope`:
- * absent is `undefined` (the provider applies its own scope resolution), a
- * present malformed member is `INVALID_INPUT` (mirrors
- * `validateDeclaredScope` — the same structural decode the knowledge ops
- * apply to a declared Scope).
- */
-function decodeHistoryScope(
-  op: string,
-  payload: Record<string, unknown>,
-): SpokeResult<Scope | undefined> {
-  if (!("scope" in payload) || payload.scope === undefined) {
-    return spokeOk<Scope | undefined>(undefined);
-  }
-  const scope = payload.scope;
-  if (!isJsonObject(scope)) {
-    return scopePayloadReject(op, "scope must be an object");
-  }
-  const scopeError = validateDeclaredScope(scope);
-  if (scopeError !== null) {
-    return scopePayloadReject(op, scopeError);
-  }
-  return spokeOk(scope as unknown as Scope);
-}
-
-/**
- * Decode and validate one `history.*` op payload. The typed decode is the
- * trust boundary — a malformed payload answers `INVALID_INPUT` before the
- * provider is called (same rule as `extract` and the memory service
- * boundary; Rust parity: `decode_history_call`).
- */
-function decodeHistoryCall(
-  op: string,
-  payload: Record<string, unknown>,
-): SpokeResult<HistoryCall> {
-  if (
-    typeof payload.entity_kind !== "string" ||
-    typeof payload.entity_id !== "string"
-  ) {
-    return scopePayloadReject(
-      op,
-      "entity_kind and entity_id must be strings",
-    );
-  }
-  const scopeResult = decodeHistoryScope(op, payload);
-  if (!scopeResult.ok) {
-    return scopeResult;
-  }
-  const { entity_kind: entityKind, entity_id: entityId } = payload;
-  const scope = scopeResult.value;
-  switch (op) {
-    case "history.revisions.get": {
-      if (!isNonNegativeInteger(payload.revision)) {
-        return scopePayloadReject(
-          op,
-          "revision must be a non-negative integer",
-        );
-      }
-      return spokeOk({
-        kind: "get",
-        scope,
-        entityKind: entityKind as string,
-        entityId: entityId as string,
-        revision: payload.revision,
-      });
-    }
-    case "history.revisions.prune": {
-      if (!isNonNegativeInteger(payload.keep)) {
-        return scopePayloadReject(
-          op,
-          "keep must be a non-negative integer",
-        );
-      }
-      if (typeof payload.idempotency_key !== "string") {
-        return scopePayloadReject(
-          op,
-          "idempotency_key is required and must be a string",
-        );
-      }
-      return spokeOk({
-        kind: "prune",
-        scope,
-        entityKind: entityKind as string,
-        entityId: entityId as string,
-        keep: payload.keep,
-      });
-    }
-    default:
-      return spokeReject(
-        SpokeRejectCode.CAPABILITY_PORT_MISSING,
-        `unimplemented history op ${op}`,
-      );
-  }
-}
+export type {
+  HistoryAdmission,
+  HistoryCall,
+  HistoryDedupStore,
+  RemoteHistoryService,
+} from "./serve_ports.js";
 
 /**
  * The knowledge serving face: a scoped store plus per-peer admission.
@@ -904,11 +787,12 @@ export interface RemoteServePorts {
   baseline?: BaselinePorts;
   knowledge?: RemoteKnowledgeFace;
   /**
-   * note: optional `spoke-history` face (revision replay + explicit
-   * pruning), when provided. Absent means the host declared `spoke-history`
-   * without providing the port — a `None` probe answers the documented
-   * `op_unsupported` dispatch-deny branch (Rust parity:
-   * `RemoteServePorts::as_history`).
+   * note: optional `spoke-history` service face (revision replay +
+   * explicit pruning with dedup), when provided — attach a provider
+   * `HistoryPort` via `HistoryPortService` (`serve_ports.ts`). Absent
+   * means the host declared `spoke-history` without providing the
+   * service — a `None` probe answers the documented `op_unsupported`
+   * dispatch-deny branch (Rust parity: `RemoteServePorts::as_history`).
    */
   asHistory?: () => RemoteHistoryService | undefined;
 }
@@ -1703,7 +1587,7 @@ export class ConnectResponder {
         return;
       }
       // note: `history.*` ops are served by the optional injected
-      // `HistoryPort` face (spoke-history contract) — the same
+      // `RemoteHistoryService` face (spoke-history contract) — the same
       // gate → probe → serve/deny order as the optional `port.*` families.
       if (doc.op.startsWith("history.")) {
         await this.#dispatchHistoryInvoke(doc);
@@ -2079,19 +1963,23 @@ export class ConnectResponder {
 
   /**
    * note: serve a `history.*` invoke through the optional injected
-   * `HistoryPort` face (spoke-history contract §Connect operations). The
-   * static capability gate already passed in `#dispatchInvoke` — a known
-   * history op that was not negotiated never reaches here
-   * (`capability_missing`). The serving order mirrors the `memory.*`
-   * branch: cognition gate → `asHistory` probe → typed decode → bounded
-   * port call → response envelope. An absent face is the documented
-   * dispatch-deny branch (the host declared `spoke-history` without
-   * providing the port).
+   * `RemoteHistoryService` face (spoke-history contract §Connect
+   * operations). The static capability gate already passed in
+   * `#dispatchInvoke` — a known history op that was not negotiated never
+   * reaches here (`capability_missing`). The serving order mirrors the
+   * `memory.*` branch: cognition gate → `asHistory` probe → bounded
+   * service invoke → response envelope. The service owns the closed
+   * request decode, peer admission, effective-scope resolution and prune
+   * dedup; an absent face is the documented dispatch-deny branch (the
+   * host declared `spoke-history` without providing the service).
    *
-   * The serve bound matches the `port.*` ops: expiry after the call was
-   * invoked answers the plain timeout rather than `OUTCOME_UNCERTAIN` — the
-   * contract's prune idempotency model (recorded outcomes, digest dedup) is
-   * not wired yet, so this end makes no outcome claim.
+   * The serve bound matches the `memory.*` ops: a zero budget answers the
+   * plain timeout without invoking the service at all, while expiry AFTER
+   * invocation means the admitted mutation may have committed — that is
+   * `OUTCOME_UNCERTAIN`/`uncertain` (§14.2/§14.3), recoverable through the
+   * recorded-outcome dedup, never a clean internal error or a silent
+   * re-execution. The service promise keeps running past the deadline so
+   * a settling prune still records its outcome.
    */
   async #dispatchHistoryInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const session = this.#session;
@@ -2115,47 +2003,45 @@ export class ConnectResponder {
     if (history === undefined) {
       await this.#sendReverseErrorEnvelope(doc, {
         code: "op_unsupported",
-        message: `no history port configured for op ${doc.op}`,
+        message: `no history service configured for op ${doc.op}`,
         extensions: {},
       });
       return;
     }
-    // note: decode BEFORE the bound (B1): a malformed payload keeps its
-    // `INVALID_INPUT` reject even at a zero budget.
-    const decoded = decodeHistoryCall(
-      doc.op,
-      isJsonObject(doc.payload) ? doc.payload : {},
-    );
-    if (!decoded.ok) {
-      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(decoded));
-      return;
-    }
-    const call = decoded.value;
+    // invariant: the admitted principal/scope derive from the authenticated
+    // session peer, never from the payload (MEM-R003; contract
+    // §Authorization).
+    const peerId = this.remotePeerId;
+    // note: a zero budget rejects before the service is invoked (plain
+    // timeout, no dedup key reserved). A non-zero budget expiring AFTER
+    // invocation answers the uncertain outcome identically to the memory
+    // ops — the invoked service is left running; nothing here claims
+    // cancellation or rollback of provider work.
+    const uncertainOnExpiry =
+      this.#invokeTimeoutMs === 0
+        ? undefined
+        : spokeReject(
+            SpokeRejectCode.OUTCOME_UNCERTAIN,
+            `history serve wait exceeded the local budget of ${this.#invokeTimeoutMs}ms; the outcome is unknown — replay the same idempotency key`,
+            { retry_class: "uncertain", kind: "timeout" },
+          );
     let result: SpokeResult<unknown>;
     try {
       result = await this.#withServeBudget(
-        (): Promise<SpokeResult<unknown>> =>
-          call.kind === "get"
-            ? history.getHistorySnapshot(
-                call.entityKind,
-                call.entityId,
-                call.revision,
-                call.scope,
-              )
-            : history.pruneHistory(
-                call.entityKind,
-                call.entityId,
-                call.keep,
-                call.scope,
-              ),
+        () => history.invoke(peerId, doc.op, doc.payload),
+        uncertainOnExpiry,
       );
     } catch (error) {
-      // why: a provider throw or rejection answers a clean internal error —
-      // unlike memory there is no recorded-outcome channel, so no uncertain
-      // claim is made (Rust parity: `dispatch_history_invoke`).
+      // why: the service threw or rejected AFTER invocation, so the transport
+      // has no evidence that nothing committed (§14.3): answer uncertain —
+      // the same containment as a provider panic on the memory path —
+      // never a clean internal error.
       result = spokeReject(
-        SpokeRejectCode.INTERNAL_ERROR,
-        error instanceof Error ? error.message : String(error),
+        SpokeRejectCode.OUTCOME_UNCERTAIN,
+        `history service failed after invocation: ${
+          error instanceof Error ? error.message : String(error)
+        }; the outcome is unknown — replay the same idempotency key`,
+        { retry_class: "uncertain", kind: "panic" },
       );
     }
     // note: a close during the bounded wait answers nothing afterwards.
@@ -2166,13 +2052,10 @@ export class ConnectResponder {
       await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
       return;
     }
-    // note: `history.revisions.get` success wraps the snapshot under
-    // `snapshot` (the get-response Variant0 member); prune serializes
-    // `HistoryPruneResult` verbatim (`{ deleted, floor_revision }`).
-    await this.#sendOkResponse(
-      doc,
-      call.kind === "get" ? { snapshot: result.value } : result.value,
-    );
+    // note: the service returns the op's response object verbatim —
+    // `history.revisions.get` wraps the snapshot under `snapshot`, prune
+    // serializes `HistoryPruneResult` (`{ deleted, floor_revision }`).
+    await this.#sendOkResponse(doc, result.value);
   }
 
   /** note: serve a `port.*` invoke through the D4 catalogue (or dispatch-deny). */

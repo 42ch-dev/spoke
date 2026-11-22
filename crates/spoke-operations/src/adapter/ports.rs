@@ -602,18 +602,21 @@ where
 /// entity keeps the existing `NOT_FOUND` behavior, and `prune_history`
 /// authorization is exactly the entity's write permission — there is no
 /// history-specific grant or refusal code.
-///
-/// `scope` mirrors the wire request: `None` means the caller sent no `scope`
-/// member and the provider applies its own scope resolution. The connect
-/// idempotency envelope is a connect-layer concern — `idempotency_key` is
-/// deliberately not a port argument (spoke-history contract).
+/// `principal` is the authenticated admission context (MEM-R003: never
+/// payload-asserted) and `scope` is required — the wire request's optional
+/// `scope` member is resolved to the admitted effective scope by the
+/// connect serving face before the port runs (spoke-history contract
+/// §Connect operations). The connect idempotency envelope is likewise a
+/// connect-layer concern — `idempotency_key` is deliberately not a port
+/// argument.
 #[async_trait]
 pub trait HistoryPort: Send + Sync {
     /// `history.revisions.get` — replay the stored entity at exactly
-    /// `revision`. Read-only.
+    /// `revision` inside `scope`. Read-only.
     async fn get_history_snapshot(
         &self,
-        scope: Option<&Scope>,
+        principal: &Principal,
+        scope: &Scope,
         entity_kind: &str,
         entity_id: &str,
         revision: u64,
@@ -625,7 +628,8 @@ pub trait HistoryPort: Send + Sync {
     /// `keep`; no write path performs this pruning implicitly.
     async fn prune_history(
         &self,
-        scope: Option<&Scope>,
+        principal: &Principal,
+        scope: &Scope,
         entity_kind: &str,
         entity_id: &str,
         keep: u64,

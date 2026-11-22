@@ -54,6 +54,7 @@
           "entry_type": "character",
           "canonical_name": "Mira",
           "status": "confirmed",
+          "revision": 3,
           "body": {},
           "extensions": {}
         },

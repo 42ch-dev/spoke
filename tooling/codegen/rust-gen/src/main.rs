@@ -38,12 +38,25 @@ const SKIP_NONE: &str =
 // instead of collapsing it to `None`). The builder keeps its `Vec`-taking
 // setters and wraps the value in `Some`.
 const PRESENCE_SENSITIVE_SCHEMAS: &[&str] = &[
+    "data/revision-snapshot.schema.json",
     "data/memory-export-chunk.schema.json",
+    "ops/history-revisions-get-response.schema.json",
     "ops/memory-capture-request.schema.json",
     "ops/memory-exports-get-response.schema.json",
     "ops/memory-imports-stage-request.schema.json",
     "ops/memory-records-create-request.schema.json",
     "ops/memory-records-update-request.schema.json",
+];
+
+// The same wire-presence rule applies to optional maps (`skip_serializing_if
+// = "…Map::is_empty"` collapses `{}` into absence). Only the history snapshot
+// carriers need it today: revision replay must keep `modules: {}`,
+// `body.state: {}` and friends byte-identical, so every optional map in these
+// modules becomes `Option<M>` — including enum-variant fields, which carry no
+// `pub` and no builder.
+const PRESENCE_SENSITIVE_MAP_SCHEMAS: &[&str] = &[
+    "data/revision-snapshot.schema.json",
+    "ops/history-revisions-get-response.schema.json",
 ];
 
 const EMPTY_VEC_ATTR: &str =
@@ -55,11 +68,64 @@ const SETTER_VEC_BOUND: &str = " < T > (mut self , value : T) -> Self where T : 
 const SETTER_VALUE: &str = "value . try_into ()";
 const SETTER_SOME: &str = " . map (:: std :: option :: Option :: Some)";
 
+const EMPTY_JSON_MAP_ATTR: &str =
+    "# [serde (default , skip_serializing_if = \"::serde_json::Map::is_empty\")] ";
+const EMPTY_HASH_MAP_ATTR: &str =
+    "# [serde (default , skip_serializing_if = \"::std::collections::HashMap::is_empty\")] ";
+const JSON_MAP_TYPE: &str = ":: serde_json :: Map <";
+const HASH_MAP_TYPE: &str = ":: std :: collections :: HashMap <";
+const BUILDER_RESULT_FIELD: &str = " : :: std :: result :: Result <";
+const SETTER_BOUND_PREFIX: &str =
+    " < T > (mut self , value : T) -> Self where T : :: std :: convert :: TryInto <";
+
+// The typify 0.4.x upgrade changed two pieces of the generated public API the
+// wire contract already shipped: non-`String` newtypes lost their
+// `TryFrom<&str>`/`TryFrom<String>` impls, and several `about` fields that the
+// previous typify boxed inside `Option` came back unboxed. Both are breaking
+// changes in an additive release, so the generator restores them.
+
+// Schemas whose `about` fields were emitted as `Option<Box<SharedN>>` by the
+// previous typify. Box placement was emission-order dependent and cannot be
+// derived structurally — `memory-candidate`, `memory-export-chunk` and
+// `memory-exports-get-response` carry `about: Option<SharedN>` fields that
+// were never boxed and must stay unboxed — so the restore list is explicit.
+const ABOUT_BOXED_SCHEMAS: &[&str] = &[
+    "data/assemble-packet.schema.json",
+    "data/memory-export-bundle.schema.json",
+    "data/mind-state.schema.json",
+    "ops/assemble-response.schema.json",
+    "ops/memory-imports-stage-request.schema.json",
+    "ops/memory-recall-response.schema.json",
+    "ops/memory-records-get-response.schema.json",
+    "ops/memory-records-list-response.schema.json",
+];
+
+// Final path segments that are never boxable field targets.
+const NEVER_BOXED_ABOUT_TYPES: &[&str] =
+    &["String", "Self", "Vec", "Box", "Option", "Result"];
+
 const PRESENCE_ARRAY_HELPER: &str = r#"
 /// Presence-sensitive array decode: `Some` keeps an explicitly present array
 /// (including `[]`) distinct from an absent member, while an explicit `null`
 /// stays invalid — the schema admits arrays only.
 fn deserialize_presence_sensitive_array<'de, D, T>(
+    deserializer: D,
+) -> ::std::result::Result<::std::option::Option<T>, D::Error>
+where
+    D: ::serde::Deserializer<'de>,
+    T: ::serde::Deserialize<'de>,
+{
+    ::std::result::Result::Ok(::std::option::Option::Some(T::deserialize(
+        deserializer,
+    )?))
+}
+"#;
+
+const PRESENCE_MAP_HELPER: &str = r#"
+/// Presence-sensitive map decode: `Some` keeps an explicitly present map
+/// (including `{}`) distinct from an absent member, while an explicit `null`
+/// stays invalid — the schema admits objects only.
+fn deserialize_presence_sensitive_map<'de, D, T>(
     deserializer: D,
 ) -> ::std::result::Result<::std::option::Option<T>, D::Error>
 where
@@ -367,12 +433,22 @@ fn is_vec_type(type_text: &str) -> bool {
 
 /// A field selected for a presence rewrite: owning struct, field name and
 /// emitted type text.
-type ArrayField = (String, String, String);
+type WireField = (String, String, String);
 
-/// Array-typed wire fields of the generated module: the optional ones
-/// (`serde(default)` + `Vec`) still awaiting presence normalization, and the
-/// required arrays that must stay `Vec`.
-fn struct_array_fields(rust: &str) -> (Vec<ArrayField>, Vec<ArrayField>) {
+fn is_map_type(type_text: &str) -> bool {
+    let trimmed = type_text.trim_start();
+    trimmed.starts_with(JSON_MAP_TYPE) || trimmed.starts_with(HASH_MAP_TYPE)
+}
+
+/// Wire fields of the generated module whose type satisfies `is_target`:
+/// the optional ones (`serde(default)`) still awaiting presence
+/// normalization, and the required ones that must keep their type. Only
+/// `pub` struct fields are seen — enum-variant fields have no `pub` and are
+/// covered by the map rule's leftover-attribute check instead.
+fn struct_typed_fields(
+    rust: &str,
+    is_target: fn(&str) -> bool,
+) -> (Vec<WireField>, Vec<WireField>) {
     let mut optional = Vec::new();
     let mut required = Vec::new();
     for (owner, body) in struct_bodies(rust) {
@@ -383,7 +459,7 @@ fn struct_array_fields(rust: &str) -> (Vec<ArrayField>, Vec<ArrayField>) {
             let Some((name, type_text)) = field_name_and_type(chunk, pub_at) else {
                 continue;
             };
-            if !is_vec_type(type_text) {
+            if !is_target(type_text) {
                 continue;
             }
             let entry = (
@@ -399,6 +475,14 @@ fn struct_array_fields(rust: &str) -> (Vec<ArrayField>, Vec<ArrayField>) {
         }
     }
     (optional, required)
+}
+
+fn struct_array_fields(rust: &str) -> (Vec<WireField>, Vec<WireField>) {
+    struct_typed_fields(rust, is_vec_type)
+}
+
+fn struct_map_fields(rust: &str) -> (Vec<WireField>, Vec<WireField>) {
+    struct_typed_fields(rust, is_map_type)
 }
 
 /// `Content.cognition` across every inlined clone: typify names the owning
@@ -467,11 +551,11 @@ fn normalize_arrays_matching(
     // selected `serde(default)` `Vec` wire field. Required arrays must stay
     // `Vec`, so they are counted separately and re-checked at the end.
     let (intended_all, required_before) = struct_array_fields(rust);
-    let intended_optional: Vec<ArrayField> = intended_all
+    let intended_optional: Vec<WireField> = intended_all
         .into_iter()
         .filter(|(owner, name, type_text)| matches(owner, name, type_text))
         .collect();
-    let required_before: Vec<ArrayField> = required_before
+    let required_before: Vec<WireField> = required_before
         .into_iter()
         .filter(|(owner, name, type_text)| matches(owner, name, type_text))
         .collect();
@@ -641,7 +725,7 @@ fn normalize_arrays_matching(
 
     // Prove the rewrite is complete and that required arrays stayed `Vec`.
     let (leftover_all, required_after_all) = struct_array_fields(&with_setters);
-    let leftover_optional: Vec<&ArrayField> = leftover_all
+    let leftover_optional: Vec<&WireField> = leftover_all
         .iter()
         .filter(|(owner, name, type_text)| matches(owner, name, type_text))
         .collect();
@@ -672,6 +756,256 @@ fn normalize_arrays_matching(
         builder_keys.len(),
         setter_keys.len(),
         required_after
+    );
+    Ok(with_setters)
+}
+
+/// Earliest empty-map attribute (`serde_json::Map` or `HashMap`) in `text`.
+fn next_empty_map_attr(text: &str) -> Option<(usize, usize)> {
+    let json = text.find(EMPTY_JSON_MAP_ATTR);
+    let hash = text.find(EMPTY_HASH_MAP_ATTR);
+    match (json, hash) {
+        (Some(j), Some(h)) if j <= h => Some((j, EMPTY_JSON_MAP_ATTR.len())),
+        (Some(_), Some(h)) => Some((h, EMPTY_HASH_MAP_ATTR.len())),
+        (Some(j), None) => Some((j, EMPTY_JSON_MAP_ATTR.len())),
+        (None, Some(h)) => Some((h, EMPTY_HASH_MAP_ATTR.len())),
+        (None, None) => None,
+    }
+}
+
+/// Presence-sensitive map rewrite for [`PRESENCE_SENSITIVE_MAP_SCHEMAS`]:
+/// every `serde(default)` map wire field becomes `Option<M>` so a present `{}`
+/// stays distinct from absence, while required maps keep their plain type.
+/// Unlike the array rule this also covers enum-variant fields (`modules`,
+/// `metadata` on `RevisionSnapshotSnapshot`), which carry no `pub` and no
+/// builder; only `pub` struct fields get builder/setter rewrites, tracked in
+/// `pub_keys`. Intended coverage for `pub` fields is verified against
+/// `struct_map_fields`, and any leftover `Map::is_empty` attribute fails.
+fn normalize_presence_sensitive_maps(rust: &str) -> Result<String, String> {
+    let rule = "presence-sensitive map";
+    let (intended_all, required_before) = struct_map_fields(rust);
+    let intended: BTreeSet<(String, String)> = intended_all
+        .into_iter()
+        .map(|(owner, name, _type_text)| (owner, name))
+        .collect();
+    let mut keys: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut pub_keys: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut variant_keys = 0usize;
+    let mut out = String::with_capacity(rust.len() + rust.len() / 8);
+    let mut rest = rust;
+
+    // Struct and enum-variant fields: `M` -> `Option<M>`; variant fields carry
+    // no `pub`, so the prefix is optional here (unlike the array rule).
+    while let Some((idx, attr_len)) = next_empty_map_attr(rest) {
+        let (head, tail) = rest.split_at(idx);
+        out.push_str(head);
+        let field = &tail[attr_len..];
+        let (had_pub, field) = match field.strip_prefix("pub ") {
+            Some(without_pub) => (true, without_pub),
+            None => (false, field),
+        };
+        let name_len: usize = field
+            .chars()
+            .take_while(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || *ch == '_')
+            .map(char::len_utf8)
+            .sum();
+        if name_len == 0 {
+            return Err(format!("{rule}: attribute not followed by a field name"));
+        }
+        let name = &field[..name_len];
+        let Some(type_part) = field[name_len..].strip_prefix(" : ") else {
+            return Err(format!("{rule}: field {name} not followed by ` : `"));
+        };
+        let type_start = if type_part.starts_with(JSON_MAP_TYPE) {
+            JSON_MAP_TYPE.len()
+        } else if type_part.starts_with(HASH_MAP_TYPE) {
+            HASH_MAP_TYPE.len()
+        } else {
+            return Err(format!("{rule}: field {name} is not a map type"));
+        };
+        let open = type_start - 1;
+        let close = matching_angle(type_part, open)
+            .ok_or_else(|| format!("{rule}: unbalanced type for field {name}"))?;
+        let owner = enclosing_type(&out)
+            .ok_or_else(|| format!("{rule}: no enclosing type for field {name}"))?;
+        keys.insert((owner.clone(), name.to_string()));
+        if had_pub {
+            pub_keys.insert((owner, name.to_string()));
+        } else {
+            // Enum-variant fields have no `pub` and no builder; their
+            // coverage is the leftover `Map::is_empty` check below.
+            variant_keys += 1;
+        }
+        out.push_str("# [serde (default , deserialize_with = \"deserialize_presence_sensitive_map\" , skip_serializing_if = \"::std::option::Option::is_none\")] ");
+        if had_pub {
+            out.push_str("pub ");
+        }
+        out.push_str(name);
+        out.push_str(" : :: std :: option :: Option < ");
+        out.push_str(&type_part[..=close]);
+        out.push_str(" >");
+        rest = &type_part[close + 1..];
+    }
+    out.push_str(rest);
+
+    // `pub` struct fields must match the independent field scan exactly;
+    // variant fields are covered by the leftover check below.
+    if pub_keys != intended {
+        let missed: Vec<String> = intended
+            .difference(&pub_keys)
+            .map(|(owner, field)| format!("{owner}::{field}"))
+            .collect();
+        let unexpected: Vec<String> = pub_keys
+            .difference(&intended)
+            .map(|(owner, field)| format!("{owner}::{field}"))
+            .collect();
+        return Err(format!(
+            "{rule} normalization coverage mismatch: missed {missed:?}, unexpected {unexpected:?}"
+        ));
+    }
+    if keys.is_empty() {
+        return Err(format!("{rule} normalization matched no fields"));
+    }
+
+    // Builder struct fields for `pub` wire fields:
+    // `Result<M, String>` -> `Result<Option<M>, String>`.
+    let mut with_builders = String::with_capacity(out.len() + out.len() / 16);
+    let mut rest = out.as_str();
+    let mut builder_keys: BTreeSet<(String, String)> = BTreeSet::new();
+    while let Some(idx) = rest.find(BUILDER_RESULT_FIELD) {
+        let (head, tail) = rest.split_at(idx);
+        with_builders.push_str(head);
+        let inner = &tail[BUILDER_RESULT_FIELD.len()..];
+        if !is_map_type(inner) {
+            with_builders.push_str(BUILDER_RESULT_FIELD);
+            rest = inner;
+            continue;
+        }
+        let name = identifier_before(&with_builders, with_builders.len());
+        let owner = declared_name(&with_builders, "pub struct ");
+        let selected = match (&name, &owner) {
+            (Some(field), Some(owner)) => pub_keys.contains(&(owner.clone(), field.clone())),
+            _ => false,
+        };
+        if !selected {
+            with_builders.push_str(BUILDER_RESULT_FIELD);
+            rest = inner;
+            continue;
+        }
+        let (Some(field), Some(owner)) = (name, owner) else {
+            unreachable!("selected builder field carries a name and owner");
+        };
+        builder_keys.insert((owner, field.clone()));
+        let open = inner
+            .find('<')
+            .ok_or_else(|| format!("{rule}: builder map type for {field}"))?;
+        let close = matching_angle(inner, open).ok_or_else(|| {
+            format!("{rule}: unbalanced builder type for {field}")
+        })?;
+        if !inner[close + 1..].starts_with(BUILDER_STRING_TAIL) {
+            return Err(format!("{rule}: unexpected builder type tail for {field}"));
+        }
+        with_builders.push_str(
+            " : :: std :: result :: Result < :: std :: option :: Option < ",
+        );
+        with_builders.push_str(&inner[..=close]);
+        with_builders.push_str(" > , :: std :: string :: String , >");
+        rest = &inner[close + 1 + BUILDER_STRING_TAIL.len()..];
+    }
+    with_builders.push_str(rest);
+
+    // Setters for `pub` fields: keep the `TryInto<M>` argument, wrap `Some`.
+    let mut with_setters = String::with_capacity(with_builders.len() + 64 * pub_keys.len());
+    let mut rest = with_builders.as_str();
+    let mut setter_keys: BTreeSet<(String, String)> = BTreeSet::new();
+    while let Some(idx) = rest.find(SETTER_BOUND_PREFIX) {
+        let (head, tail) = rest.split_at(idx);
+        with_setters.push_str(head);
+        let bound = &tail[SETTER_BOUND_PREFIX.len()..];
+        if !is_map_type(bound) {
+            with_setters.push_str(SETTER_BOUND_PREFIX);
+            rest = bound;
+            continue;
+        }
+        let name = identifier_before(&with_setters, with_setters.len());
+        let owner = declared_name(&with_setters, "impl ");
+        let selected = match (&name, &owner) {
+            (Some(name), Some(owner)) => pub_keys.contains(&(owner.clone(), name.clone())),
+            _ => false,
+        };
+        if !selected {
+            with_setters.push_str(SETTER_BOUND_PREFIX);
+            rest = bound;
+            continue;
+        }
+        let (Some(field), Some(owner)) = (name, owner) else {
+            unreachable!("selected setter carries a name and owner");
+        };
+        setter_keys.insert((owner, field));
+        let open = bound
+            .find('<')
+            .ok_or_else(|| format!("{rule}: unbalanced setter bound"))?;
+        let close = matching_angle(bound, open)
+            .ok_or_else(|| format!("{rule}: unbalanced setter bound"))?;
+        let body = &bound[close + 1..];
+        let Some(value_at) = body.find(SETTER_VALUE) else {
+            return Err(format!("{rule}: setter without try_into body"));
+        };
+        let insert_at = SETTER_BOUND_PREFIX.len() + close + 1 + value_at + SETTER_VALUE.len();
+        with_setters.push_str(&tail[..insert_at]);
+        with_setters.push_str(SETTER_SOME);
+        rest = &tail[insert_at..];
+    }
+    with_setters.push_str(rest);
+
+    if !with_setters.contains("fn deserialize_presence_sensitive_map") {
+        with_setters.push_str(PRESENCE_MAP_HELPER);
+    }
+
+    // Builder/setter coverage is required for `pub` fields only — enum-variant
+    // fields (`modules`, `metadata`) have no builder or setter.
+    for (kind, covered) in [("builder", &builder_keys), ("setter", &setter_keys)] {
+        if covered != &pub_keys {
+            let missed: Vec<String> = pub_keys
+                .difference(covered)
+                .map(|(owner, field)| format!("{owner}::{field}"))
+                .collect();
+            return Err(format!(
+                "{rule} {kind} coverage mismatch: missed {missed:?}"
+            ));
+        }
+    }
+
+    // Nothing empty-skipping may remain (covers non-canonical attribute
+    // spellings on variant fields), and required maps must be untouched.
+    if with_setters.contains("Map::is_empty") {
+        return Err(format!("{rule} normalization left a Map::is_empty attribute"));
+    }
+    let (leftover_optional, required_after_all) = struct_map_fields(&with_setters);
+    if !leftover_optional.is_empty() {
+        let missed: Vec<String> = leftover_optional
+            .iter()
+            .map(|(owner, field, _type_text)| format!("{owner}::{field}"))
+            .collect();
+        return Err(format!(
+            "{rule} normalization left optional map fields unconverted: {missed:?}"
+        ));
+    }
+    if required_after_all.len() != required_before.len() {
+        return Err(format!(
+            "{rule} normalization changed required map count {} -> {}",
+            required_before.len(),
+            required_after_all.len()
+        ));
+    }
+
+    eprintln!(
+        "{rule}s: {} field(s), {} variant field(s), {} builder field(s), {} setter(s), {} required map(s)",
+        pub_keys.len(),
+        variant_keys,
+        builder_keys.len(),
+        setter_keys.len(),
+        required_after_all.len()
     );
     Ok(with_setters)
 }
@@ -716,6 +1050,238 @@ fn normalize_boxed_option_fields(rust: &str) -> Result<String, String> {
         );
     }
     Ok(out)
+}
+
+/// True when an `Option` inner type is a plain value type that restores to
+/// `Box<..>`: a local name (`Shared13`) or `super :: Shared13` path segment.
+/// Paths into crates (`:: std ::`, `:: chrono ::`) and primitives/maps stay
+/// unboxed, and generic inners (`Vec<T>`, `BTreeMap<..>`) never reach here
+/// because the caller only accepts angle-free inners.
+fn is_boxable_about_inner(inner: &str) -> bool {
+    if inner.contains('<') || inner.contains('"') {
+        return false;
+    }
+    let inner = inner.trim();
+    let last = inner.rsplit("::").next().unwrap_or(inner).trim();
+    let first = last.chars().next().unwrap_or(' ');
+    if !first.is_ascii_uppercase() {
+        return false;
+    }
+    !inner.starts_with("::")
+        && last
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        && !NEVER_BOXED_ABOUT_TYPES.contains(&last)
+}
+
+/// Restore `about : Option<SharedN>` -> `about : Option<Box<SharedN>>` for the
+/// schemas in [`ABOUT_BOXED_SCHEMAS`], covering the wire field, the builder
+/// field and the setter bound. The setter's bound does not follow a `about :`
+/// token (`pub fn about < T > ... TryInto < Option < .. > >`), so the bound is
+/// located through the setter's own name and rewritten when the enclosing
+/// builder already boxed that field.
+fn normalize_about_boxed_option_fields(rust: &str) -> Result<String, String> {
+    let mut out = String::with_capacity(rust.len() + 512);
+    let mut rest = rust;
+    let mut keys: BTreeSet<String> = BTreeSet::new();
+
+    // Pass 1: `about : .. Option < inner >` in field/decl positions (wire
+    // struct fields and builder struct fields). Everything before `Option`
+    // must be whitespace or `Result`-wrapper path tokens.
+    while let Some(idx) = rest.find("about") {
+        out.push_str(&rest[..idx + "about".len()]);
+        rest = &rest[idx + "about".len()..];
+
+        let mut pos = skip_ws(rest.as_bytes(), 0);
+        if rest.as_bytes().get(pos) != Some(&b':') {
+            continue;
+        }
+        pos = skip_ws(rest.as_bytes(), pos + 1);
+
+        let window = &rest[pos..(pos + 64).min(rest.len())];
+        let Some(option_at) = window.find("Option") else {
+            continue;
+        };
+        if window[..option_at]
+            .chars()
+            .any(|ch| !(ch == ':' || ch == ' ' || ch == '<' || ch.is_ascii_alphabetic()))
+        {
+            continue;
+        }
+        pos = skip_ws(rest.as_bytes(), pos + option_at + "Option".len());
+        if rest.as_bytes().get(pos) != Some(&b'<') {
+            continue;
+        }
+        let close =
+            matching_angle(rest, pos).ok_or("about-boxing: unbalanced Option type")?;
+        let inner = &rest[pos + 1..close];
+        if inner.contains("boxed :: Box")
+            || inner.contains("::boxed::Box")
+            || !is_boxable_about_inner(inner)
+        {
+            continue;
+        }
+
+        if let Some(owner) = enclosing_type(&out) {
+            keys.insert(owner);
+        }
+        out.push_str(&rest[..pos + 1]);
+        out.push_str(" :: std :: boxed :: Box < ");
+        out.push_str(inner.trim());
+        out.push_str(" > >");
+        rest = &rest[skip_ws(rest.as_bytes(), close + 1)..];
+    }
+    out.push_str(rest);
+
+    if keys.is_empty() {
+        return Err(
+            "about-boxing: schema expected a Box restore but none was emitted".to_string(),
+        );
+    }
+
+    // Pass 2: `pub fn about` setters on boxed owners. The bound sits inside
+    // `TryInto < Option < inner > >` in the signature, so locate `TryInto`
+    // before the setter body and wrap the inner when the setter's `impl`
+    // owner was boxed in pass 1.
+    let mut with_setters = String::with_capacity(out.len() + 128);
+    let mut rest = out.as_str();
+    let mut setters = 0usize;
+    while let Some(idx) = rest.find("pub fn about") {
+        with_setters.push_str(&rest[..idx + "pub fn about".len()]);
+        rest = &rest[idx + "pub fn about".len()..];
+
+        let body_at = rest.find('{').unwrap_or(rest.len());
+        let signature = &rest[..body_at];
+        let Some(try_into_at) = signature.find("TryInto") else {
+            continue;
+        };
+        let mut pos = skip_ws(rest.as_bytes(), try_into_at + "TryInto".len());
+        if rest.as_bytes().get(pos) != Some(&b'<') {
+            continue;
+        }
+        pos = skip_ws(rest.as_bytes(), pos + 1);
+        let window = &rest[pos..(pos + 64).min(rest.len())];
+        let Some(option_at) = window.find("Option") else {
+            continue;
+        };
+        if window[..option_at]
+            .chars()
+            .any(|ch| !(ch == ':' || ch == ' ' || ch.is_ascii_alphabetic()))
+        {
+            continue;
+        }
+        pos = skip_ws(rest.as_bytes(), pos + option_at + "Option".len());
+        if rest.as_bytes().get(pos) != Some(&b'<') {
+            continue;
+        }
+        let close =
+            matching_angle(rest, pos).ok_or("about-boxing: unbalanced setter bound")?;
+        let inner = &rest[pos + 1..close];
+        if inner.contains("boxed :: Box")
+            || inner.contains("::boxed::Box")
+            || !is_boxable_about_inner(inner)
+        {
+            continue;
+        }
+        match declared_name(&with_setters, "impl ") {
+            Some(owner) if keys.contains(&owner) => {}
+            _ => continue,
+        }
+
+        with_setters.push_str(&rest[..pos + 1]);
+        with_setters.push_str(" :: std :: boxed :: Box < ");
+        with_setters.push_str(inner.trim());
+        with_setters.push_str(" > >");
+        rest = &rest[skip_ws(rest.as_bytes(), close + 1)..];
+        setters += 1;
+    }
+    with_setters.push_str(rest);
+
+    eprintln!(
+        "restored {} about decl position(s) + {setters} setter bound(s) to Option<Box<..>>",
+        keys.len()
+    );
+    Ok(with_setters)
+}
+
+/// Re-emit the `TryFrom<&str>` and `TryFrom<String>` impls typify 0.4.x
+/// stopped producing for non-`String` newtypes (`DateTime`, `NonZeroU64`
+/// inners such as `Timestamp`, `SchemaVersion` and the shared `SharedN`
+/// copies). Detection mirrors the previous typify output: a `FromStr`
+/// newtype with a `(pub Inner)` tuple inner and no `TryFrom` impls gets
+/// both impls appended; `String` newtypes kept theirs and are skipped.
+fn restore_newtype_try_from(rust: &str) -> Result<String, String> {
+    let mut inners: Vec<(String, String)> = Vec::new();
+    let mut rest = rust;
+
+    while let Some(rel) = rest.find("pub struct ") {
+        let name_at = rel + "pub struct ".len();
+        let name_len = rest[name_at..]
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .unwrap_or(rest.len() - name_at);
+        let name = &rest[name_at..name_at + name_len];
+
+        // Tuple newtype shape: `pub struct Name (pub Inner) ;`
+        let mut pos = skip_ws(rest.as_bytes(), name_at + name_len);
+        if rest.as_bytes().get(pos) == Some(&b'(') {
+            pos = skip_ws(rest.as_bytes(), pos + 1);
+            if rest[pos..].starts_with("pub") {
+                pos = skip_ws(rest.as_bytes(), pos + 3);
+                if let Some(close) = rest[pos..].find(')') {
+                    let inner = rest[pos..pos + close].trim();
+                    if !inner.is_empty() {
+                        inners.push((name.to_string(), inner.to_string()));
+                    }
+                }
+            }
+        }
+        rest = &rest[name_at + name_len..];
+    }
+
+    let mut impls = String::new();
+    let mut restored = 0usize;
+    for (name, inner) in inners {
+        // `From<String>`/`From<&str>` activate the blanket TryFrom (U: Into<T>),
+        // so a newtype carrying one already has the impl and must not be
+        // re-emitted (TimelineScale, whose base output equally lacks explicit
+        // TryFrom impls).
+        let has_from = |source: &str| {
+            rust.contains(&format!(
+                "impl :: std :: convert :: From < {source} > for {name} {{"
+            ))
+        };
+        if !rust.contains(&format!("impl :: std :: str :: FromStr for {name} {{"))
+            || rust
+                .contains(&format!("impl :: std :: convert :: TryFrom < & str > for {name} {{"))
+            || rust.contains(&format!(
+                "impl :: std :: convert :: TryFrom < String > for {name} {{"
+            ))
+            || rust.contains(&format!(
+                "impl :: std :: convert :: TryFrom < :: std :: string :: String > for {name} {{"
+            ))
+            || has_from("& str")
+            || has_from("String")
+            || has_from(":: std :: string :: String")
+        {
+            continue;
+        }
+        impls.push_str(&format!(
+            " impl :: std :: convert :: TryFrom < & str > for {name} {{ type Error = < {inner} as :: std :: str :: FromStr > :: Err ; fn try_from (value : & str) -> :: std :: result :: Result < Self , Self :: Error > {{ value . parse () }} }}"
+        ));
+        impls.push_str(&format!(
+            " impl :: std :: convert :: TryFrom < String > for {name} {{ type Error = < {inner} as :: std :: str :: FromStr > :: Err ; fn try_from (value : String) -> :: std :: result :: Result < Self , Self :: Error > {{ value . parse () }} }}"
+        ));
+        restored += 1;
+    }
+
+    if restored > 0 {
+        eprintln!("restored TryFrom<&str>/TryFrom<String> for {restored} newtype(s)");
+        let mut out = String::with_capacity(rust.len() + impls.len());
+        out.push_str(rust);
+        out.push_str(&impls);
+        return Ok(out);
+    }
+    Ok(rust.to_string())
 }
 
 
@@ -811,6 +1377,8 @@ fn generate_schema_rust(
     schemas_dir: &Path,
     out_path: &Path,
     presence_sensitive: bool,
+    presence_sensitive_map: bool,
+    about_boxed: bool,
 ) -> Result<(), String> {
     let content = fs::read_to_string(schema_path)
         .map_err(|err| format!("failed to read {}: {err}", schema_path.display()))?;
@@ -859,10 +1427,39 @@ fn generate_schema_rust(
             schema_path.display()
         )
     })?;
+    // typify 0.4.x stopped emitting TryFrom<&str>/TryFrom<String> for
+    // non-String newtypes and unboxed several `about` fields that shipped
+    // boxed; restore the released API shape before the other rewrites.
+    let rust = restore_newtype_try_from(&rust).map_err(|err| {
+        format!(
+            "newtype TryFrom restore failed for {}: {err}",
+            schema_path.display()
+        )
+    })?;
+    let rust = if about_boxed {
+        normalize_about_boxed_option_fields(&rust).map_err(|err| {
+            format!(
+                "about-boxing normalization failed for {}: {err}",
+                schema_path.display()
+            )
+        })?
+    } else {
+        rust
+    };
     let rust = if presence_sensitive {
         normalize_presence_sensitive_arrays(&rust).map_err(|err| {
             format!(
                 "presence-sensitive array normalization failed for {}: {err}",
+                schema_path.display()
+            )
+        })?
+    } else {
+        rust
+    };
+    let rust = if presence_sensitive_map {
+        normalize_presence_sensitive_maps(&rust).map_err(|err| {
+            format!(
+                "presence-sensitive map normalization failed for {}: {err}",
                 schema_path.display()
             )
         })?
@@ -948,8 +1545,18 @@ fn main() {
         let (export_all, export_type) = export_mode_for_schema(&source_schema);
         let rel_key = rel.to_string_lossy().replace('\\', "/");
         let presence_sensitive = PRESENCE_SENSITIVE_SCHEMAS.contains(&rel_key.as_str());
+        let presence_sensitive_map =
+            PRESENCE_SENSITIVE_MAP_SCHEMAS.contains(&rel_key.as_str());
+        let about_boxed = ABOUT_BOXED_SCHEMAS.contains(&rel_key.as_str());
 
-        match generate_schema_rust(schema_path, &schemas_dir, &out_path, presence_sensitive) {
+        match generate_schema_rust(
+            schema_path,
+            &schemas_dir,
+            &out_path,
+            presence_sensitive,
+            presence_sensitive_map,
+            about_boxed,
+        ) {
             Ok(()) => {
                 generated_files.insert(out_path.clone());
                 generated_modules.push(GeneratedModule {
@@ -1037,7 +1644,7 @@ mod tests {
 
     fn builder_field(name: &str) -> String {
         format!(
-            "{name} : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String > , "
+            "{name} : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String , > , "
         )
     }
 
@@ -1063,7 +1670,7 @@ mod tests {
         wire.push_str("pub required : ");
         wire.push_str(STRING_VEC);
         wire.push_str(" , } ");
-        builder.push_str("required : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String > , } ");
+        builder.push_str("required : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String , > , } ");
         setter_source.push_str("} }");
         format!("{wire}{builder}{setter_source}")
     }
@@ -1146,7 +1753,7 @@ mod tests {
             "pub struct {owner} {{ # [serde (default , skip_serializing_if = \"::std::vec::Vec::is_empty\")] pub cognition : {COGNITION_VEC} , # [serde (default , skip_serializing_if = \"::std::vec::Vec::is_empty\")] pub context_ids : {STRING_VEC} , }} "
         );
         let builder = format!(
-            "pub mod builder {{ # [derive (Clone , Debug)] pub struct {owner} {{ cognition : :: std :: result :: Result < :: std :: vec :: Vec < super :: CognitionRecord > , :: std :: string :: String > , context_ids : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String > , }} }} "
+            "pub mod builder {{ # [derive (Clone , Debug)] pub struct {owner} {{ cognition : :: std :: result :: Result < :: std :: vec :: Vec < super :: CognitionRecord > , :: std :: string :: String , > , context_ids : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String , > , }} }} "
         );
         let setters = format!(
             "impl {owner} {{ pub fn cognition < T > (mut self , value : T) -> Self where T : :: std :: convert :: TryInto < :: std :: vec :: Vec < super :: CognitionRecord > > , T :: Error : :: std :: fmt :: Display , {{ self . cognition = value . try_into () . map_err (| e | format ! (\"error converting supplied value for cognition: {{e}}\")) ; self }} pub fn context_ids < T > (mut self , value : T) -> Self where T : :: std :: convert :: TryInto < :: std :: vec :: Vec < :: std :: string :: String > > , T :: Error : :: std :: fmt :: Display , {{ self . context_ids = value . try_into () . map_err (| e | format ! (\"error converting supplied value for context_ids: {{e}}\")) ; self }} }}"
@@ -1174,7 +1781,7 @@ mod tests {
         assert!(output.contains(
             "cognition : :: std :: result :: Result < :: std :: option :: Option < :: std :: vec :: Vec < super :: CognitionRecord"
         ));
-        assert!(output.contains("context_ids : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String >"));
+        assert!(output.contains("context_ids : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String , >"));
         assert!(output.contains(
             "self . cognition = value . try_into () . map (:: std :: option :: Option :: Some)"
         ));
@@ -1234,6 +1841,95 @@ mod tests {
                 );
             }
         }
+    }
+
+    const ABOUT_OPT: &str = ":: std :: option :: Option < Shared3 > ";
+    const ABOUT_BOXED: &str =
+        ":: std :: option :: Option < :: std :: boxed :: Box < Shared3 > >";
+
+    /// Emitted shape of one `about` field set: wire field, builder field and
+    /// setter bound, as typify renders them.
+    fn about_module() -> String {
+        format!(
+            "pub struct Target {{ # [serde (skip_serializing_if = \"::std::option::Option::is_none\")] pub about : {ABOUT_OPT} , pub carrier : Shared4 , }} pub mod builder {{ pub struct Target {{ about : :: std :: result :: Result < {ABOUT_OPT} , :: std :: string :: String , > , }} impl Target {{ pub fn about < T > (mut self , value : T) -> Self where T : :: std :: convert :: TryInto < {ABOUT_OPT} > , T :: Error : :: std :: fmt :: Display , {{ self . about = value . try_into () . map_err (| e | format ! (\"error\")) ; self }} }} }}"
+        )
+    }
+
+    #[test]
+    fn about_option_fields_box_wire_builder_and_setter() {
+        let output = normalize_about_boxed_option_fields(&about_module()).expect("boxes");
+        assert_eq!(output.matches(ABOUT_BOXED).count(), 3, "{output}");
+        assert!(
+            !output.contains(&format!(" : {ABOUT_OPT} ,")),
+            "wire field stayed unboxed"
+        );
+        assert!(
+            !output.contains(&format!("TryInto < {ABOUT_OPT} >")),
+            "setter bound stayed unboxed"
+        );
+    }
+
+    const BOXED_ALREADY: &str =
+        ":: std :: option :: Option < :: std :: boxed :: Box < Shared9 > >";
+
+    /// Same shapes as [`about_module`] with one already-boxed self
+    /// recursion (`Shared9.about`) plus the unboxed `about` to restore.
+    fn about_module_with_self_recursive() -> String {
+        format!(
+            "pub struct Target {{ pub about : {ABOUT_OPT} , }} pub struct Shared9 {{ pub about : {BOXED_ALREADY} , }} pub mod builder {{ pub struct Shared9 {{ about : :: std :: result :: Result < {BOXED_ALREADY} , :: std :: string :: String , > , }} impl Shared9 {{ pub fn about < T > (mut self , value : T) -> Self where T : :: std :: convert :: TryInto < {BOXED_ALREADY} > , T :: Error : :: std :: fmt :: Display , {{ self }} }} }}"
+        )
+    }
+
+    #[test]
+    fn about_pass_leaves_already_boxed_self_recursion_alone() {
+        let output = normalize_about_boxed_option_fields(&about_module_with_self_recursive())
+            .expect("boxes the unboxed field");
+        assert_eq!(output.matches("boxed :: Box").count(), 4, "{output}");
+        assert!(output.contains("pub fn about < T >"));
+    }
+
+    #[test]
+    fn about_pass_rejects_foreign_and_generic_inners() {
+        let source = "pub struct T { pub about : :: std :: option :: Option < :: std :: vec :: Vec < Shared3 > > , }";
+        let error = normalize_about_boxed_option_fields(source)
+            .expect_err("no boxable inner must fail for a listed schema");
+        assert!(error.contains("none was emitted"), "{error}");
+    }
+
+    const TIMESTAMP_NEWTYPE: &str =
+        "pub struct Timestamp (pub :: chrono :: DateTime < :: chrono :: offset :: Utc >) ; impl :: std :: str :: FromStr for Timestamp { type Err = < :: chrono :: DateTime < :: chrono :: offset :: Utc > as :: std :: str :: FromStr > :: Err ; fn from_str (value : & str) -> :: std :: result :: Result < Self , Self :: Err > { Ok (Self (value . parse () ?)) } }";
+
+    #[test]
+    fn newtype_try_from_restores_str_and_string_impls() {
+        let output = restore_newtype_try_from(TIMESTAMP_NEWTYPE).expect("restores");
+        assert!(
+            output.contains("impl :: std :: convert :: TryFrom < & str > for Timestamp {"),
+            "{output}"
+        );
+        assert!(
+            output.contains("impl :: std :: convert :: TryFrom < String > for Timestamp {"),
+            "{output}"
+        );
+        assert!(
+            output.contains(
+                "type Error = < :: chrono :: DateTime < :: chrono :: offset :: Utc > as :: std :: str :: FromStr > :: Err"
+            ),
+            "{output}"
+        );
+    }
+
+    #[test]
+    fn newtype_try_from_skips_types_that_kept_impls() {
+        let source = format!(
+            "{TIMESTAMP_NEWTYPE} impl :: std :: convert :: TryFrom < & str > for Timestamp {{ }}"
+        );
+        assert_eq!(restore_newtype_try_from(&source).expect("no-op"), source);
+    }
+
+    #[test]
+    fn newtype_try_from_ignores_named_field_structs() {
+        let source = "pub struct Truth { pub value : bool , }";
+        assert_eq!(restore_newtype_try_from(source).expect("no-op"), source);
     }
 
     #[test]

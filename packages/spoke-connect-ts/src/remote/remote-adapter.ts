@@ -981,26 +981,30 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort {
    * object and decodes the wrapped `snapshot` member; `prune` attaches the
    * wire-required `idempotency_key` itself — the key is a connect-layer
    * dedup concern the port signature deliberately omits, so this face
-   * generates a fresh caller-chosen key per call. The responder's gate is
-   * the only authority: an unnegotiated `spoke-history` answers
-   * `capability_missing`, mapped to `CAPABILITY_PORT_MISSING` with
-   * `details.wire_code` (Rust parity: `impl HistoryPort for
-   * RemoteAdapter`). Rows mirror `HISTORY_OPS`.
+   * accepts a caller-supplied key for retries (`options.idempotencyKey`)
+   * and generates one only when the caller omits it (spoke-history
+   * contract §9.1: retries replay the same key). `principal` is the LOCAL
+   * admission context — over the wire the serving host admits the
+   * authenticated peer; `scope` is sent so the serving face can match it
+   * to its admission (an unmatched scope refuses before the port). The
+   * responder's gate is the only capability authority: an unnegotiated
+   * `spoke-history` answers `capability_missing`, mapped to
+   * `CAPABILITY_PORT_MISSING` with `details.wire_code` (Rust parity:
+   * `impl HistoryPort for RemoteAdapter`). Rows mirror `HISTORY_OPS`.
    */
   async getHistorySnapshot(
+    _principal: Principal,
+    scope: Scope,
     entityKind: string,
     entityId: string,
     revision: number,
-    scope?: Scope,
   ): Promise<SpokeResult<RevisionSnapshot>> {
     const request: Record<string, unknown> = {
       entity_kind: entityKind,
       entity_id: entityId,
       revision,
+      scope,
     };
-    if (scope !== undefined) {
-      request.scope = scope;
-    }
     const result = await this.#invokeMapped<Record<string, unknown>>(
       HISTORY_OPS.getHistorySnapshot,
       request,
@@ -1009,33 +1013,60 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort {
       return result;
     }
     const snapshot = result.value.snapshot;
-    if (typeof snapshot !== "object" || snapshot === null) {
+    // note: `#invokeMapped` validated the RevisionSnapshot envelope; the
+    // client boundary also checks the requested selectors and the nested
+    // entity equality rules — a wrong-target success is a transport decode
+    // error, never `Ok` (spoke-history contract §9).
+    const entity =
+      typeof snapshot === "object" && snapshot !== null
+        ? (snapshot as Record<string, unknown>).snapshot
+        : undefined;
+    const nestedId =
+      typeof entity === "object" && entity !== null
+        ? ((entity as Record<string, unknown>).entry_id ??
+          (entity as Record<string, unknown>).relation_id)
+        : undefined;
+    const nestedRevision =
+      typeof entity === "object" && entity !== null
+        ? (entity as Record<string, unknown>).revision
+        : undefined;
+    if (
+      typeof snapshot !== "object" ||
+      snapshot === null ||
+      (snapshot as Record<string, unknown>).entity_kind !== entityKind ||
+      (snapshot as Record<string, unknown>).entity_id !== entityId ||
+      (snapshot as Record<string, unknown>).revision !== revision ||
+      (nestedId !== undefined && nestedId !== entityId) ||
+      (nestedRevision !== undefined && nestedRevision !== revision)
+    ) {
       return internalError(
         "transport",
-        "history.revisions.get response missing snapshot",
+        "history.revisions.get response snapshot does not match the request selectors",
       );
     }
     return spokeOk(snapshot as RevisionSnapshot);
   }
 
   async pruneHistory(
+    _principal: Principal,
+    scope: Scope,
     entityKind: string,
     entityId: string,
     keep: number,
-    scope?: Scope,
+    options?: { idempotencyKey?: string },
   ): Promise<SpokeResult<HistoryPruneResult>> {
     const request: Record<string, unknown> = {
       entity_kind: entityKind,
       entity_id: entityId,
       keep,
       // why: the wire request requires `idempotency_key` but the port
-      // signature must not carry it (contract) — a fresh caller-chosen key
-      // per call (Rust parity: `generate_request_id`).
-      idempotency_key: globalThis.crypto.randomUUID(),
+      // signature must not carry it (contract) — the caller owns the key
+      // for retries so a replay reproduces the dedup namespace; a fresh
+      // key is generated only when the caller omits it (Rust parity:
+      // `generate_request_id`).
+      idempotency_key: options?.idempotencyKey ?? globalThis.crypto.randomUUID(),
+      scope,
     };
-    if (scope !== undefined) {
-      request.scope = scope;
-    }
     return this.#invokeMapped<HistoryPruneResult>(
       HISTORY_OPS.pruneHistory,
       request,

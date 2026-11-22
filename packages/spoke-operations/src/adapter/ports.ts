@@ -497,32 +497,38 @@ export interface MemoryPorts {
  * exactly the entity's write permission — there is no history-specific
  * grant or refusal code.
  *
- * `scope` mirrors the wire request: `undefined` means the caller sent no
- * `scope` member and the provider applies its own scope resolution. The
- * connect idempotency envelope is a connect-layer concern —
- * `idempotency_key` is deliberately not a port argument (spoke-history
- * contract). Rust parity: `crates/spoke-operations/src/adapter/ports.rs`
- * `HistoryPort`.
+ * Both methods take the authenticated `Principal` first and the required
+ * effective `Scope` second (spoke-history contract §HistoryPort, mirroring
+ * `MemoryPort` and MEM-R003): the Connect serving face resolves peer
+ * admission and the optional wire `scope` into the admitted scope before
+ * the call, so the port binds entity read/write authorization to the
+ * caller rather than to payload-asserted identity. The connect
+ * idempotency envelope is a connect-layer concern — `idempotency_key` is
+ * deliberately not a port argument. Rust parity:
+ * `crates/spoke-operations/src/adapter/ports.rs` `HistoryPort`.
  */
 export interface HistoryPort {
   /** note: `history.revisions.get` — replay the stored entity at exactly `revision`. Read-only. */
   getHistorySnapshot(
+    principal: Principal,
+    scope: Scope,
     entityKind: string,
     entityId: string,
     revision: number,
-    scope?: Scope,
   ): Promise<SpokeResult<RevisionSnapshot>>;
   /**
    * note: `history.revisions.prune` — retain the newest `keep` checkpoints
    * of one `(scope, entity_kind, entity_id)` target and delete every older
    * checkpoint. The live row is not a checkpoint and never consumes `keep`;
-   * no write path performs this pruning implicitly.
+   * no write path performs this pruning implicitly. Prune authorization is
+   * the selected entity's write permission in `scope`.
    */
   pruneHistory(
+    principal: Principal,
+    scope: Scope,
     entityKind: string,
     entityId: string,
     keep: number,
-    scope?: Scope,
   ): Promise<SpokeResult<HistoryPruneResult>>;
 }
 

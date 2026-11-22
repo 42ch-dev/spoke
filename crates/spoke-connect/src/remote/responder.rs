@@ -69,15 +69,14 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
-    BaselinePorts, HistoryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    BaselinePorts, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ConnectInvokeResponse;
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::{
     ComputeRequest, ExtractRequest, ExtractResponse, Finding, HostCapabilityManifest,
-    HistoryRevisionsGetRequest, HistoryRevisionsPruneRequest, KnowledgeEntry, ProjectRequest,
-    Relation, Scope,
+    KnowledgeEntry, ProjectRequest, Relation, Scope,
 };
 
 use crate::cognition::{unsupported_cognition_requirement, WIRE_INVALID_INPUT};
@@ -636,109 +635,41 @@ fn map_result<T: Serialize>(result: SpokeResult<T>) -> SpokeResult<Value> {
     }
 }
 
-/// One decoded `history.*` dispatch: the validated arguments produced by
-/// [`decode_history_call`] before the serve bound starts (B1 — a malformed
-/// payload keeps its `INVALID_INPUT` reject even at a zero budget). The
-/// prune op's wire `idempotency_key` is validated by the typed decode but
-/// never reaches the port — the connect idempotency envelope is a
-/// connect-layer concern (spoke-history contract).
-enum HistoryCall {
-    /// `history.revisions.get` — `(scope, entity_kind, entity_id, revision)`.
-    Get(Option<Scope>, String, String, u64),
-    /// `history.revisions.prune` — `(scope, entity_kind, entity_id, keep)`.
-    Prune(Option<Scope>, String, String, u64),
-}
-
-/// Decode the request's optional `scope` member as the shared `Scope`:
-/// absent is `None` (the provider applies its own scope resolution), a
-/// present malformed member is `INVALID_INPUT`.
-fn decode_history_scope(op: &str, payload: &Value) -> SpokeResult<Option<Scope>> {
-    let Some(scope) = payload.get("scope") else {
-        return spoke_ok(None);
-    };
-    match serde_json::from_value(scope.clone()) {
-        Ok(scope) => spoke_ok(Some(scope)),
-        Err(error) => spoke_reject(
-            SpokeRejectCode::InvalidInput,
-            format!("invalid {op} payload: {error}"),
-            None,
+/// §14.2/§14.3, history face: the serve budget expired AFTER the history
+/// service was invoked, so the transport has no evidence that nothing
+/// committed — a prune may have applied. The response says the outcome is
+/// unknown instead of claiming a clean failure; provider work is neither
+/// cancelled nor rolled back by this end, and the settled prune is still
+/// recorded by the service dedup so a same-key replay recovers it
+/// (spoke-history contract §9.1).
+fn history_uncertain_reject(budget: Duration) -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("timeout".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: format!(
+            "history serve wait exceeded the local budget of {}ms; the outcome is unknown — replay the same idempotency key",
+            budget.as_millis()
         ),
+        details: Some(details),
     }
 }
 
-/// Decode and validate one `history.*` op payload. The typed request decode
-/// is the trust boundary — a malformed or unknown-member payload answers
-/// `INVALID_INPUT` before the provider is called (same rule as `extract`
-/// and the memory service boundary).
-fn decode_history_call(op: &str, payload: &Value) -> SpokeResult<HistoryCall> {
-    match op {
-        "history.revisions.get" => {
-            match serde_json::from_value::<HistoryRevisionsGetRequest>(payload.clone()) {
-                Ok(request) => match decode_history_scope(op, payload) {
-                    SpokeResult::Ok(scope) => spoke_ok(HistoryCall::Get(
-                        scope,
-                        (*request.entity_kind).clone(),
-                        (*request.entity_id).clone(),
-                        request.revision,
-                    )),
-                    SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
-                },
-                Err(error) => spoke_reject(
-                    SpokeRejectCode::InvalidInput,
-                    format!("invalid {op} payload: {error}"),
-                    None,
-                ),
-            }
-        }
-        "history.revisions.prune" => {
-            match serde_json::from_value::<HistoryRevisionsPruneRequest>(payload.clone()) {
-                Ok(request) => match decode_history_scope(op, payload) {
-                    SpokeResult::Ok(scope) => spoke_ok(HistoryCall::Prune(
-                        scope,
-                        (*request.entity_kind).clone(),
-                        (*request.entity_id).clone(),
-                        request.keep,
-                    )),
-                    SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
-                },
-                Err(error) => spoke_reject(
-                    SpokeRejectCode::InvalidInput,
-                    format!("invalid {op} payload: {error}"),
-                    None,
-                ),
-            }
-        }
-        _ => SpokeResult::Reject(SpokeReject {
-            code: SpokeRejectCode::CapabilityPortMissing,
-            message: format!("unimplemented history op {op}"),
-            details: None,
-        }),
-    }
-}
-
-/// Dispatch one decoded [`HistoryCall`] to the injected `HistoryPort` —
-/// the provider work the serve bound covers.
-async fn call_history_op(call: HistoryCall, port: &dyn HistoryPort) -> SpokeResult<Value> {
-    match call {
-        HistoryCall::Get(scope, entity_kind, entity_id, revision) => {
-            let result = port
-                .get_history_snapshot(scope.as_ref(), &entity_kind, &entity_id, revision)
-                .await;
-            // The success wire object wraps the snapshot under `snapshot`
-            // (the get-response Variant0 member), not the bare value.
-            match map_result(result) {
-                SpokeResult::Ok(snapshot) => spoke_ok(json!({ "snapshot": snapshot })),
-                reject => reject,
-            }
-        }
-        HistoryCall::Prune(scope, entity_kind, entity_id, keep) => {
-            // `HistoryPruneResult` serializes to the wire success object
-            // directly (`{ deleted, floor_revision }`).
-            map_result(
-                port.prune_history(scope.as_ref(), &entity_kind, &entity_id, keep)
-                    .await,
-            )
-        }
+/// §14.2/§14.3: the detached history invoke panicked (or otherwise
+/// dropped its result channel) AFTER invocation, so the transport has no
+/// evidence that nothing committed — a clean `INTERNAL_ERROR` would
+/// assert no-effect. The response says the outcome is unknown instead
+/// (same containment as the memory panic path).
+fn history_panic_uncertain_reject() -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("panic".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: "history service failed after invocation; the outcome is unknown — replay the same idempotency key"
+            .to_string(),
+        details: Some(details),
     }
 }
 
@@ -1431,9 +1362,9 @@ impl ConnectResponder {
             self.dispatch_memory_invoke(doc, &negotiated).await?;
             return Ok(());
         }
-        // `history.*` ops are served by the optional injected `HistoryPort`
-        // face (spoke-history contract): the same gate → probe → serve/deny
-        // order as the optional `port.*` families.
+        // `history.*` ops are served by the optional injected
+        // `RemoteHistoryService` face (spoke-history contract): the same
+        // gate → probe → serve/deny order as `memory.*`.
         if op.starts_with("history.") {
             self.dispatch_history_invoke(doc, &negotiated).await?;
             return Ok(());
@@ -1841,20 +1772,27 @@ impl ConnectResponder {
         Ok(())
     }
 
-    /// Serve a `history.*` invoke through the injected [`HistoryPort`] face
+    /// Serve a `history.*` invoke through the injected
+    /// [`RemoteHistoryService`](crate::remote::RemoteHistoryService) face
     /// (spoke-history contract §Connect operations). The static capability
     /// gate already passed in
     /// [`ConnectResponder::try_dispatch_invoke`] — a known history op that
     /// was not negotiated never reaches here (`capability_missing`). The
     /// serving order mirrors the `memory.*` branch: cognition gate →
-    /// `as_history` probe → typed decode → bounded port call → response
-    /// envelope. An absent face is the documented dispatch-deny branch (the
-    /// host declared `spoke-history` without providing the port).
+    /// `as_history` probe → bounded service invoke → response envelope.
+    /// The service owns the closed request decode, peer admission,
+    /// effective-scope resolution and prune dedup; an absent face is the
+    /// documented dispatch-deny branch (the host declared `spoke-history`
+    /// without providing the service).
     ///
-    /// The serve bound matches the `port.*` ops: expiry after the call was
-    /// invoked answers the plain timeout rather than `OUTCOME_UNCERTAIN` —
-    /// the contract's prune idempotency model (recorded outcomes, digest
-    /// dedup) is not wired yet, so this end makes no outcome claim.
+    /// The serve bound matches the `memory.*` ops: a zero budget answers
+    /// the plain timeout without invoking the service at all, while
+    /// expiry AFTER invocation means the admitted mutation may have
+    /// committed — that is `OUTCOME_UNCERTAIN`/`uncertain`
+    /// (§14.2/§14.3), recoverable through the service's recorded-outcome
+    /// dedup, never a clean internal error or a silent re-execution. The
+    /// service task keeps running past the deadline so a settling prune
+    /// still records its outcome.
     async fn dispatch_history_invoke(
         &self,
         doc: &Value,
@@ -1885,53 +1823,79 @@ impl ConnectResponder {
         {
             return Ok(());
         }
-        let Some(port) = self
-            .ports
-            .as_ref()
-            .and_then(|ports| ports.as_history())
-        else {
+        let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_history()) else {
             self.send_reverse_error_envelope(
                 doc,
                 "op_unsupported",
-                &format!("no history port configured for op {op}"),
+                &format!("no history service configured for op {op}"),
                 None,
             )
             .await?;
             return Ok(());
         };
-        // Decode BEFORE the bound (B1): a malformed payload keeps its
-        // `INVALID_INPUT` reject even at a zero budget.
-        let call = match decode_history_call(op, payload) {
-            SpokeResult::Ok(call) => call,
-            SpokeResult::Reject(reject) => {
-                self.send_reverse_error_envelope(
-                    doc,
-                    reject.code.as_str(),
-                    &reject.message,
-                    reject.details.as_ref(),
-                )
-                .await?;
-                return Ok(());
-            }
-        };
-        let result = if self.invoke_timeout.is_zero() {
-            SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout))
-        } else {
-            match tokio::time::timeout(
-                self.invoke_timeout,
-                call_history_op(call, port.as_ref()),
+        // The admitted principal/scope derive from the authenticated
+        // session peer, never from the payload (MEM-R003; contract
+        // §Authorization).
+        let Some(peer_id) = self.remote_peer_id() else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no authenticated peer for op {op}"),
+                None,
             )
-            .await
-            {
-                Ok(result) => result,
-                Err(_) => SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout)),
+            .await?;
+            return Ok(());
+        };
+        let payload = doc.get("payload").cloned().unwrap_or_else(|| json!({}));
+        // Same serve bound as `memory.*`: a zero budget rejects before the
+        // service is invoked (the baseline serve-timeout rejection
+        // stands). A non-zero budget that expires AFTER invocation means
+        // the mutation may have committed: that is `OUTCOME_UNCERTAIN`,
+        // not a clean internal error. The admitted invoke is detached
+        // from the response deadline (spawned, matching the TS path's
+        // uncancellable promise): expiry answers the budget, it never
+        // cancels the provider task, and the dedup store still records
+        // the settled outcome for a same-key replay to recover.
+        let zero_budget = self.invoke_timeout.is_zero();
+        let bounded = if zero_budget {
+            None
+        } else {
+            let service = Arc::clone(&service);
+            let peer_id = peer_id.clone();
+            let op = op.to_string();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let _ = tx.send(service.invoke(&peer_id, &op, payload).await);
+            });
+            match tokio::time::timeout(self.invoke_timeout, rx).await {
+                Ok(Ok(result)) => Some(result),
+                // The detached task sends exactly once before dropping the
+                // sender; a receive failure means it panicked AFTER
+                // admission, so — like a budget expiry — the transport
+                // cannot assert no-effect (§14.3): answer uncertain,
+                // never a clean internal error.
+                Ok(Err(_)) => Some(SpokeResult::Reject(history_panic_uncertain_reject())),
+                Err(_) => None,
             }
         };
-        // A close during the bounded wait released the session: this dispatch
-        // answers nothing afterwards — no late success, no late second error.
         if self.state() == ConnectResponderState::Closed {
             return Ok(());
         }
+        let Some(result) = bounded else {
+            let reject = if zero_budget {
+                serve_timeout_reject(self.invoke_timeout)
+            } else {
+                history_uncertain_reject(self.invoke_timeout)
+            };
+            self.send_reverse_error_envelope(
+                doc,
+                reject.code.as_str(),
+                &reject.message,
+                reject.details.as_ref(),
+            )
+            .await?;
+            return Ok(());
+        };
         match result {
             SpokeResult::Ok(value) => self.send_ok_response(doc, value).await?,
             SpokeResult::Reject(reject) => {

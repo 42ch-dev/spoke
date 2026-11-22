@@ -53,6 +53,35 @@ export function isParseableDateTime(value: string): boolean {
 }
 
 /**
+ * Strict RFC 3339 gate with a mandatory UTC offset (`Z` or `±hh:mm`) — the
+ * `spoke-judgment` `created_at` rule. Same calendar/clock validity and
+ * leap-second acceptance as `isParseableDateTime`, minus the NaiveDateTime
+ * fallback: an offsetless timestamp refuses.
+ */
+export function isStrictTimestamp(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return false;
+  }
+  const rfc3339 = RFC3339_TIMESTAMP_RE.exec(trimmed);
+  if (rfc3339 === null) {
+    return false;
+  }
+  return (
+    isCalendarDateTimeValid(
+      rfc3339[1],
+      rfc3339[2],
+      rfc3339[3],
+      rfc3339[4],
+      rfc3339[5],
+      rfc3339[6],
+    ) &&
+    (rfc3339[8] === undefined ||
+      (Number(rfc3339[9]) <= 23 && Number(rfc3339[10]) <= 59))
+  );
+}
+
+/**
  * note: Calendar/clock validity on UTC parts. Seconds may be 60 (leap second), which
  * chrono accepts; JS Date cannot represent it, so it is checked separately.
  * Round-trip through Date catches rollovers (Feb 30, month 13, hour 24, ...).

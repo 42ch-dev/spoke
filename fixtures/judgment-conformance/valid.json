@@ -154,6 +154,63 @@
         "verdict": { "outcome": "consistent", "confidence": 1 },
         "extensions": {}
       }
+    },
+    {
+      "id": "whitespace-kind-and-id",
+      "invariant": "§Wire-wide rules non-empty strings",
+      "what": "minLength: 1 is measured raw: a whitespace-only open string is a valid non-empty wire value",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": " ",
+        "judgment_kind": "﻿",
+        "target": { "kind": " ", "id": " " },
+        "evidence": [],
+        "verdict": { "outcome": " " },
+        "extensions": {}
+      }
+    },
+    {
+      "id": "detail-scalar-array-members",
+      "invariant": "§verdict core and detail",
+      "what": "verdict.detail members are unconstrained JSON values: scalars, arrays and null validate without casts",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_detail_free",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": {
+          "outcome": "accepted",
+          "detail": {
+            "note": "checked",
+            "score": 0.75,
+            "verified": true,
+            "tags": ["a", "b"],
+            "previous": null
+          }
+        },
+        "extensions": {}
+      }
+    },
+    {
+      "id": "revision-domain-upper-bound",
+      "invariant": "§Wire-wide rules interoperable integer domain",
+      "what": "2^53-1 is the top of the interoperable integer domain and pins exactly on both stacks",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_max_rev",
+        "judgment_kind": "consistency",
+        "target": {
+          "kind": "knowledge_entry",
+          "id": "ke_1",
+          "revision": 9007199254740991
+        },
+        "evidence": [
+          { "kind": "knowledge_entry", "id": "ke_2", "revision": 9007199254740991 }
+        ],
+        "verdict": { "outcome": "consistent" },
+        "extensions": {}
+      }
     }
   ]
 }

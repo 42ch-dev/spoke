@@ -83,15 +83,27 @@ fn refusal_cases_reject_invalid_input_with_field() {
 }
 
 #[test]
-fn canonical_parity_cases_produce_identical_bytes() {
+fn canonical_parity_cases_produce_expected_bytes() {
     let scenario = load_scenario("canonical-parity.json");
     for case in cases(&scenario) {
         let id = case["id"].as_str().expect("case id");
         let left = &case["left"];
         let right = &case["right"];
-        let expected = case["expected_canonical"]
-            .as_str()
-            .expect("expected_canonical");
+        // `equal: false` cases carry per-side expected bytes under
+        // `expected_canonical.left` / `.right`; equal cases carry one shared
+        // string.
+        let equal = case["equal"].as_bool().unwrap_or(true);
+        let expected = &case["expected_canonical"];
+        let expected_left = if equal {
+            expected.as_str().expect("expected_canonical")
+        } else {
+            expected["left"].as_str().expect("expected_canonical.left")
+        };
+        let expected_right = if equal {
+            expected.as_str().expect("expected_canonical")
+        } else {
+            expected["right"].as_str().expect("expected_canonical.right")
+        };
 
         // Both producers must pass the wire-shape gate before byte claims.
         assert!(
@@ -103,36 +115,42 @@ fn canonical_parity_cases_produce_identical_bytes() {
             "case {id}: right must validate"
         );
 
-        // Wire-value canonical bytes equal the fixture's expected bytes,
+        // Raw wire-value canonical bytes equal the fixture's expected bytes,
         // which the TS runner asserts against `canonicalize` output.
         let left_bytes = serde_jcs::to_vec(left).expect("left canonicalizes");
         let right_bytes = serde_jcs::to_vec(right).expect("right canonicalizes");
         assert_eq!(
             String::from_utf8(left_bytes.clone()).expect("left bytes are UTF-8"),
-            expected,
+            expected_left,
             "case {id}: left canonical bytes"
         );
         assert_eq!(
             String::from_utf8(right_bytes.clone()).expect("right bytes are UTF-8"),
-            expected,
+            expected_right,
             "case {id}: right canonical bytes"
         );
 
-        // The typed helper reports byte-equality and the typed
-        // serialization reproduces the same canonical bytes.
-        let left_typed = typed(left);
-        let right_typed = typed(right);
+        // The comparison helper reports the contract's wire-bytes equality.
         assert!(
             matches!(
-                judgments_equal_canonical(&left_typed, &right_typed),
-                SpokeResult::Ok(true)
+                judgments_equal_canonical(left, right),
+                SpokeResult::Ok(value) if value == equal
             ),
             "case {id}: judgments_equal_canonical"
         );
-        let typed_bytes = serde_jcs::to_vec(&left_typed).expect("typed canonicalizes");
-        assert_eq!(
-            typed_bytes, left_bytes,
-            "case {id}: typed serialization preserves canonical bytes"
-        );
+
+        // Typed round-trip is only asserted for cases whose members survive
+        // typed serialization unchanged; `typed_parity: false` marks cases
+        // where the generated type normalizes wire content (empty `detail`
+        // maps, non-UTC `created_at` spellings).
+        if case["typed_parity"].as_bool().unwrap_or(true) {
+            let left_typed = typed(left);
+            let typed_bytes =
+                serde_jcs::to_vec(&left_typed).expect("typed canonicalizes");
+            assert_eq!(
+                typed_bytes, left_bytes,
+                "case {id}: typed serialization preserves canonical bytes"
+            );
+        }
     }
 }

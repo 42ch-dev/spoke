@@ -37,7 +37,8 @@ interface ParityCase {
   id: string;
   left: Judgment;
   right: Judgment;
-  expected_canonical: string;
+  equal?: boolean;
+  expected_canonical: string | { left: string; right: string };
 }
 
 function loadScenario<T>(filename: string): { cases: T[] } {
@@ -76,18 +77,29 @@ describe("judgment-conformance refusal vectors", () => {
 
 describe("judgment-conformance canonical-parity vectors", () => {
   const { cases } = loadScenario<ParityCase>("canonical-parity.json");
-  for (const { id, left, right, expected_canonical } of cases) {
+  for (const { id, left, right, equal, expected_canonical } of cases) {
     it(`${id} produces the expected canonical bytes`, () => {
       // Both producers must pass the wire-shape gate before byte claims.
       expect(validateJudgment(left)).toEqual({ ok: true });
       expect(validateJudgment(right)).toEqual({ ok: true });
 
+      // `equal: false` cases carry per-side expected bytes; equal cases one
+      // shared string.
+      const leftExpected =
+        typeof expected_canonical === "string"
+          ? expected_canonical
+          : expected_canonical.left;
+      const rightExpected =
+        typeof expected_canonical === "string"
+          ? expected_canonical
+          : expected_canonical.right;
+
       expect(judgmentsEqualCanonical(left, right)).toEqual({
         ok: true,
-        value: true,
+        value: equal !== false,
       });
-      expect(canonicalize(left)).toBe(expected_canonical);
-      expect(canonicalize(right)).toBe(expected_canonical);
+      expect(canonicalize(left)).toBe(leftExpected);
+      expect(canonicalize(right)).toBe(rightExpected);
     });
   }
 });

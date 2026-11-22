@@ -93,11 +93,8 @@ export interface Verdict {
    * Optional product-specific assessment content, opaque to the envelope validator and included in canonicalization. Direct members MUST NOT duplicate protocol-level envelope locations: the reserved direct member names are target, evidence, judgment_kind, and outcome.
    */
   detail?: {
-    [k: string]: DetailValue | undefined;
+    [k: string]: unknown | undefined;
   };
-}
-export interface DetailValue {
-  [k: string]: unknown | undefined;
 }
 /**
  * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.

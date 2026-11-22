@@ -135,6 +135,66 @@
         "schema_version": 1
       },
       "expected_canonical": "{\"created_at\":\"2026-06-30T23:59:59Z\",\"evidence\":[{\"id\":\"n_1\",\"kind\":\"note\",\"revision\":12}],\"extensions\":{\"acme_audit\":{\"pass\":true,\"reviewer\":\"résumé-bot\"},\"acme_trace\":{\"hops\":[1,2,3]}},\"judgment_id\":\"jd_unicode_3\",\"judgment_kind\":\"support\",\"schema_version\":1,\"target\":{\"id\":\"ke_café_大字\",\"kind\":\"knowledge_entry\"},\"verdict\":{\"confidence\":0.5,\"detail\":{\"nested\":{\"deep\":{\"ok\":true}},\"scores\":{\"lexical\":0.25,\"semantic\":1},\"tags\":[\"été\",\"日本語\"]},\"outcome\":\"supported\"}}"
+    },
+    {
+      "id": "present-empty-detail-vs-absent",
+      "invariant": "§Canonical JSON wire presence",
+      "what": "a present-and-empty verdict.detail is wire-significant and compares unequal to an absent detail; typed-parity bytes are skipped because the typed Verdict.detail drops an empty map",
+      "equal": false,
+      "typed_parity": false,
+      "left": {
+        "schema_version": 1,
+        "judgment_id": "jd_detail_presence",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted", "detail": {} },
+        "extensions": {}
+      },
+      "right": {
+        "schema_version": 1,
+        "judgment_id": "jd_detail_presence",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expected_canonical": {
+        "left": "{\"evidence\":[],\"extensions\":{},\"judgment_id\":\"jd_detail_presence\",\"judgment_kind\":\"review\",\"schema_version\":1,\"target\":{\"id\":\"ke_1\",\"kind\":\"knowledge_entry\"},\"verdict\":{\"detail\":{},\"outcome\":\"accepted\"}}",
+        "right": "{\"evidence\":[],\"extensions\":{},\"judgment_id\":\"jd_detail_presence\",\"judgment_kind\":\"review\",\"schema_version\":1,\"target\":{\"id\":\"ke_1\",\"kind\":\"knowledge_entry\"},\"verdict\":{\"outcome\":\"accepted\"}}"
+      }
+    },
+    {
+      "id": "created-at-offset-spelling-distinct",
+      "invariant": "§Canonical JSON wire presence",
+      "what": "created_at compares by its exact wire spelling: +08:00 and Z spellings of the same instant compare unequal; typed-parity bytes are skipped because DateTime<Utc> normalizes the offset",
+      "equal": false,
+      "typed_parity": false,
+      "left": {
+        "schema_version": 1,
+        "judgment_id": "jd_offset_spell",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "created_at": "2026-06-30T23:59:59+08:00",
+        "extensions": {}
+      },
+      "right": {
+        "schema_version": 1,
+        "judgment_id": "jd_offset_spell",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "created_at": "2026-06-30T15:59:59Z",
+        "extensions": {}
+      },
+      "expected_canonical": {
+        "left": "{\"created_at\":\"2026-06-30T23:59:59+08:00\",\"evidence\":[],\"extensions\":{},\"judgment_id\":\"jd_offset_spell\",\"judgment_kind\":\"review\",\"schema_version\":1,\"target\":{\"id\":\"ke_1\",\"kind\":\"knowledge_entry\"},\"verdict\":{\"outcome\":\"accepted\"}}",
+        "right": "{\"created_at\":\"2026-06-30T15:59:59Z\",\"evidence\":[],\"extensions\":{},\"judgment_id\":\"jd_offset_spell\",\"judgment_kind\":\"review\",\"schema_version\":1,\"target\":{\"id\":\"ke_1\",\"kind\":\"knowledge_entry\"},\"verdict\":{\"outcome\":\"accepted\"}}"
+      }
     }
   ]
 }

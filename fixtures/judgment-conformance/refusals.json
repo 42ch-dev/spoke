@@ -515,6 +515,170 @@
         "extensions": {}
       },
       "expect": { "field": "created_at" }
+    },
+    {
+      "id": "created-at-offsetless",
+      "invariant": "§Wire-wide rules created_at offset",
+      "what": "an RFC 3339 date-time without an explicit UTC offset refuses",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "created_at": "2026-06-30T23:59:59",
+        "extensions": {}
+      },
+      "expect": { "field": "created_at" }
+    },
+    {
+      "id": "extensions-key-not-namespace",
+      "invariant": "§Wire-wide rules extension and module maps",
+      "what": "an extensions key outside ^[a-z][a-z0-9_-]*$ refuses at the member",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": { "Acme:Audit": { "pass": true } }
+      },
+      "expect": { "field": "extensions.Acme:Audit" }
+    },
+    {
+      "id": "extensions-value-not-object",
+      "invariant": "§Wire-wide rules extension and module maps",
+      "what": "an extensions value that is not an object refuses at the member",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": { "acme_audit": 7 }
+      },
+      "expect": { "field": "extensions.acme_audit" }
+    },
+    {
+      "id": "extensions-key-leading-digit",
+      "invariant": "§Wire-wide rules extension and module maps",
+      "what": "a namespace key starting with a digit refuses",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": { "9lives": { "pass": true } }
+      },
+      "expect": { "field": "extensions.9lives" }
+    },
+    {
+      "id": "detail-multiple-reserved-order",
+      "invariant": "§verdict core and detail reserved members",
+      "what": "with several reserved members the first in the fixed probe order target/evidence/judgment_kind/outcome is reported, independent of wire order",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": {
+          "outcome": "accepted",
+          "detail": { "outcome": "shadow", "target": {}, "evidence": [] }
+        },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.detail.target" }
+    },
+    {
+      "id": "detail-multiple-reserved-order-two",
+      "invariant": "§verdict core and detail reserved members",
+      "what": "judgment_kind probes before outcome when target and evidence are absent",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": {
+          "outcome": "accepted",
+          "detail": { "outcome": "x", "judgment_kind": "y" }
+        },
+        "extensions": {}
+      },
+      "expect": { "field": "verdict.detail.judgment_kind" }
+    },
+    {
+      "id": "target-revision-out-of-domain",
+      "invariant": "§Wire-wide rules interoperable integer domain",
+      "what": "2^53 is outside the interoperable integer domain",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": {
+          "kind": "knowledge_entry",
+          "id": "ke_1",
+          "revision": 9007199254740992
+        },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "target.revision" }
+    },
+    {
+      "id": "evidence-revision-out-of-domain",
+      "invariant": "§Wire-wide rules interoperable integer domain",
+      "what": "an evidence revision above 2^53-1 cannot pin exactly on both stacks",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [
+          { "kind": "knowledge_entry", "id": "ke_2", "revision": 9007199254740992 }
+        ],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "evidence[0].revision" }
+    },
+    {
+      "id": "schema-version-out-of-domain",
+      "invariant": "§Wire-wide rules interoperable integer domain",
+      "what": "schema_version above 2^53-1 is out of the interoperable domain",
+      "judgment": {
+        "schema_version": 9007199254740992,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "schema_version" }
+    },
+    {
+      "id": "created-at-invalid-day",
+      "invariant": "§Wire-wide rules created_at offset",
+      "what": "an invalid calendar day refuses even with a valid offset",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "created_at": "2026-02-30T23:59:59Z",
+        "extensions": {}
+      },
+      "expect": { "field": "created_at" }
     }
   ]
 }

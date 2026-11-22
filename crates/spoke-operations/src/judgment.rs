@@ -1,21 +1,21 @@
 //! `spoke-judgment` envelope validation and canonical comparison (spoke-judgment
 //! wire contract): `validate_judgment` is the pure wire-shape gate — required
-//! fields, the closed `Judgment` / `JudgmentRef` / `verdict` envelopes,
-//! non-empty strings, `verdict.confidence` in `[0, 1]`, positive `revision`s
-//! and the reserved `verdict.detail` members. It runs on the untyped wire value
-//! so contract refusals (e.g. `verdict.detail.target`) report `INVALID_INPUT`
-//! with `details.field` instead of opaque decode errors.
+//! fields, the closed `Judgment` / `JudgmentRef` / `verdict` envelopes, raw
+//! `minLength: 1` strings, the interoperable integer domain,
+//! `verdict.confidence` in `[0, 1]` and the reserved `verdict.detail`
+//! members. It runs on the untyped wire value so contract refusals (e.g.
+//! `verdict.detail.target`) report `INVALID_INPUT` with `details.field`
+//! instead of opaque decode errors.
 //!
-//! `judgments_equal_canonical` is the RFC 8785 comparison helper: two producers
-//! of the same `Judgment` emit byte-identical canonical bytes; `verdict.detail`
-//! and `extensions` are included, never normalized by product rules.
+//! `judgments_equal_canonical` is the RFC 8785 comparison helper on the wire
+//! JSON itself: `verdict.detail` presence, `extensions` and the `created_at`
+//! spelling stay comparison-significant — typed decodes never normalize them.
 //!
 //! TypeScript parity: `packages/spoke-operations/src/judgment.ts`.
 
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::DateTime;
 use serde_json::{Map, Value};
-use spoke_schemas::judgment::Judgment;
 
 // Closed-envelope property tables (judgment.schema.json, additionalProperties:
 // false on Judgment, JudgmentRef and Verdict).
@@ -39,28 +39,54 @@ const VERDICT_KEYS: [&str; 3] = ["outcome", "confidence", "detail"];
 // envelope locations (contract §verdict core and detail).
 const DETAIL_RESERVED_MEMBERS: [&str; 4] = ["target", "evidence", "judgment_kind", "outcome"];
 
-fn is_non_empty_trimmed_string(value: &str) -> bool {
-    !value.trim().is_empty()
+// Raw `minLength: 1`: whitespace-only strings are valid non-empty wire
+// values; the raw string is measured, never trimmed (wire-wide rule).
+fn is_non_empty_string(value: &str) -> bool {
+    !value.is_empty()
 }
 
 fn is_plain_object(value: &Value) -> bool {
     value.is_object()
 }
 
-fn is_positive_integer(value: &Value) -> bool {
-    value.as_u64().is_some_and(|v| v >= 1)
+// Interoperable integer domain [0, 2^53-1]: exact in u64 and IEEE-754
+// binary64 alike. Integral spellings (`1.0`) decode as the integer they
+// spell; non-integral or out-of-domain values are INVALID_INPUT.
+const MAX_INTEROPERABLE_INTEGER: u64 = (1 << 53) - 1;
+
+fn wire_integer(value: &Value) -> Option<u64> {
+    if let Some(v) = value.as_u64() {
+        return (v <= MAX_INTEROPERABLE_INTEGER).then_some(v);
+    }
+    match value.as_f64() {
+        Some(v) if v.fract() == 0.0 && (0.0..=(MAX_INTEROPERABLE_INTEGER as f64)).contains(&v) => {
+            Some(v as u64)
+        }
+        _ => None,
+    }
 }
 
-fn is_parseable_date_time(value: &str) -> bool {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
+fn is_positive_integer(value: &Value) -> bool {
+    wire_integer(value).is_some_and(|v| v >= 1)
+}
 
-    DateTime::parse_from_rfc3339(trimmed).is_ok()
-        || trimmed.parse::<DateTime<Utc>>().is_ok()
-        || NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.f").is_ok()
-        || NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S").is_ok()
+// RFC 3339 `date-time` requires an explicit offset (`Z` or `±hh:mm`); chrono
+// refuses offsetless spellings, keeps leap-second `23:59:60` accepted and
+// refuses invalid calendar days.
+fn is_parseable_date_time(value: &str) -> bool {
+    DateTime::parse_from_rfc3339(value).is_ok()
+}
+
+// Shared ExtensionMap grammar: namespace keys match `^[a-z][a-z0-9_-]*$`.
+fn is_namespace(value: &str) -> bool {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    value[1..]
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
 }
 
 /// Every shape violation rejects `INVALID_INPUT` with `details.field` set to
@@ -89,14 +115,14 @@ fn validate_judgment_ref(ref_: &Value, field: &str, require_revision: bool) -> S
         );
     }
     let kind = ref_.get("kind").and_then(Value::as_str).unwrap_or("");
-    if !is_non_empty_trimmed_string(kind) {
+    if !is_non_empty_string(kind) {
         return invalid(
             &format!("{field}.kind"),
             &format!("{field}.kind must be a non-empty string"),
         );
     }
     let id = ref_.get("id").and_then(Value::as_str).unwrap_or("");
-    if !is_non_empty_trimmed_string(id) {
+    if !is_non_empty_string(id) {
         return invalid(
             &format!("{field}.id"),
             &format!("{field}.id must be a non-empty string"),
@@ -104,7 +130,7 @@ fn validate_judgment_ref(ref_: &Value, field: &str, require_revision: bool) -> S
     }
     if let Some(namespace) = ref_.get("namespace") {
         let namespace = namespace.as_str().unwrap_or("");
-        if !is_non_empty_trimmed_string(namespace) {
+        if !is_non_empty_string(namespace) {
             return invalid(
                 &format!("{field}.namespace"),
                 &format!("{field}.namespace must be a non-empty string when present"),
@@ -131,9 +157,10 @@ fn validate_judgment_ref(ref_: &Value, field: &str, require_revision: bool) -> S
 
 /// Wire-shape gate for `Judgment` (optional capability spoke-judgment).
 ///
-/// Checks required-field presence, the closed envelopes, non-empty strings,
-/// `schema_version`/`revision` positive integers, `verdict` shape and the
-/// reserved `verdict.detail` members. Pure envelope validation only — verdict
+/// Checks required-field presence, the closed envelopes, raw `minLength: 1`
+/// strings, `schema_version`/`revision` positive integers in the
+/// interoperable `[0, 2^53-1]` domain, `verdict` shape and the reserved
+/// `verdict.detail` members. Pure envelope validation only — verdict
 /// truth, evidence existence or content correctness, and product-specific
 /// `detail` shape stay product-owned. Deterministic, no I/O.
 pub fn validate_judgment(judgment: &Value) -> SpokeResult<()> {
@@ -154,14 +181,14 @@ pub fn validate_judgment(judgment: &Value) -> SpokeResult<()> {
         .get("judgment_id")
         .and_then(Value::as_str)
         .unwrap_or("");
-    if !is_non_empty_trimmed_string(judgment_id) {
+    if !is_non_empty_string(judgment_id) {
         return invalid("judgment_id", "judgment_id must be a non-empty string");
     }
     let judgment_kind = judgment
         .get("judgment_kind")
         .and_then(Value::as_str)
         .unwrap_or("");
-    if !is_non_empty_trimmed_string(judgment_kind) {
+    if !is_non_empty_string(judgment_kind) {
         return invalid(
             "judgment_kind",
             "judgment_kind must be a non-empty string",
@@ -204,7 +231,7 @@ pub fn validate_judgment(judgment: &Value) -> SpokeResult<()> {
         .get("outcome")
         .and_then(Value::as_str)
         .unwrap_or("");
-    if !is_non_empty_trimmed_string(outcome) {
+    if !is_non_empty_string(outcome) {
         return invalid(
             "verdict.outcome",
             "verdict.outcome must be a non-empty string",
@@ -213,7 +240,7 @@ pub fn validate_judgment(judgment: &Value) -> SpokeResult<()> {
     if let Some(confidence) = verdict.get("confidence") {
         if !confidence
             .as_f64()
-            .is_some_and(|c| (0.0..=1.0).contains(&c))
+            .is_some_and(|c| c.is_finite() && (0.0..=1.0).contains(&c))
         {
             return invalid(
                 "verdict.confidence",
@@ -225,8 +252,11 @@ pub fn validate_judgment(judgment: &Value) -> SpokeResult<()> {
         let Some(detail) = detail.as_object() else {
             return invalid("verdict.detail", "verdict.detail must be an object");
         };
-        for member in detail.keys() {
-            if DETAIL_RESERVED_MEMBERS.contains(&member.as_str()) {
+        // Fixed protocol probe order (contract §verdict core and detail):
+        // bounded over the four reserved names, independent of wire member
+        // order, so `details.field` is deterministic across stacks.
+        for member in DETAIL_RESERVED_MEMBERS {
+            if detail.contains_key(member) {
                 return invalid(
                     &format!("verdict.detail.{member}"),
                     &format!(
@@ -252,21 +282,30 @@ pub fn validate_judgment(judgment: &Value) -> SpokeResult<()> {
             );
         }
     }
-    if !judgment.get("extensions").is_some_and(is_plain_object) {
+    let Some(extensions) = judgment.get("extensions").and_then(Value::as_object) else {
         return invalid("extensions", "extensions must be a present object");
+    };
+    for (key, entry) in extensions {
+        if !is_namespace(key) || !is_plain_object(entry) {
+            return invalid(
+                &format!("extensions.{key}"),
+                "extensions entries need a namespace key and an object value",
+            );
+        }
     }
 
     spoke_ok_unit()
 }
 
-/// Whether two [`Judgment`]s are byte-identical under RFC 8785 canonical JSON —
-/// the contract's producer-equality rule. Canonicalization covers the complete
-/// envelope including `verdict.detail`, `extensions` and present optional
-/// members.
+/// Whether two `Judgment` wire values are byte-identical under RFC 8785
+/// canonical JSON — the contract's producer-equality rule. Compares the
+/// canonical serialization of the wire JSON, never a typed decode: member
+/// presence (`verdict.detail: {}` ≠ absent) and the `created_at` spelling
+/// stay comparison-significant.
 ///
 /// Rejects with `INVALID_INPUT` when either judgment cannot be serialized to
 /// canonical bytes.
-pub fn judgments_equal_canonical(left: &Judgment, right: &Judgment) -> SpokeResult<bool> {
+pub fn judgments_equal_canonical(left: &Value, right: &Value) -> SpokeResult<bool> {
     let left = match serde_jcs::to_vec(left) {
         Ok(bytes) => bytes,
         Err(error) => {
@@ -315,9 +354,6 @@ mod tests {
         })
     }
 
-    fn typed(judgment: &Value) -> Judgment {
-        serde_json::from_value(judgment.clone()).expect("fixture parses into Judgment")
-    }
 
     fn expect_invalid(result: SpokeResult<()>, field: &str) {
         let SpokeResult::Reject(reject) = result else {
@@ -340,11 +376,11 @@ mod tests {
         expect_invalid(validate_judgment(&judgment), "judgment_id");
 
         let mut judgment = valid_judgment();
-        judgment["judgment_id"] = Value::String(" ".into());
+        judgment["judgment_id"] = Value::String("".into());
         expect_invalid(validate_judgment(&judgment), "judgment_id");
 
         let mut judgment = valid_judgment();
-        judgment["judgment_kind"] = Value::String("   ".into());
+        judgment["judgment_kind"] = Value::String("".into());
         expect_invalid(validate_judgment(&judgment), "judgment_kind");
 
         let mut judgment = valid_judgment();
@@ -359,7 +395,7 @@ mod tests {
     #[test]
     fn validate_judgment_rejects_bad_target_and_evidence_refs() {
         let mut judgment = valid_judgment();
-        judgment["target"] = serde_json::json!({"kind": " ", "id": "ke-1"});
+        judgment["target"] = serde_json::json!({"kind": "", "id": "ke-1"});
         expect_invalid(validate_judgment(&judgment), "target.kind");
 
         let mut judgment = valid_judgment();
@@ -390,7 +426,7 @@ mod tests {
     #[test]
     fn validate_judgment_rejects_bad_verdict() {
         let mut judgment = valid_judgment();
-        judgment["verdict"]["outcome"] = Value::String(" ".into());
+        judgment["verdict"]["outcome"] = Value::String("".into());
         expect_invalid(validate_judgment(&judgment), "verdict.outcome");
 
         let mut judgment = valid_judgment();
@@ -459,9 +495,97 @@ mod tests {
     }
 
     #[test]
+    fn validate_judgment_uses_raw_min_length_one() {
+        // Raw minLength: 1 — whitespace-only strings are valid non-empty
+        // wire values (a lone space, U+FEFF); only the empty string fails.
+        let mut judgment = valid_judgment();
+        judgment["judgment_id"] = Value::String(" ".into());
+        judgment["judgment_kind"] = Value::String("\u{FEFF}".into());
+        judgment["target"]["kind"] = Value::String(" ".into());
+        judgment["target"]["namespace"] = Value::String(" ".into());
+        judgment["verdict"]["outcome"] = Value::String(" ".into());
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+    }
+
+    #[test]
+    fn validate_judgment_enforces_the_interoperable_integer_domain() {
+        // Integral spellings decode as the integer they spell.
+        let mut judgment = valid_judgment();
+        judgment["schema_version"] = Value::from(2.0);
+        judgment["evidence"][0]["revision"] = Value::from(1.0);
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+
+        // The top of [0, 2^53-1] is exact on both stacks.
+        let mut judgment = valid_judgment();
+        judgment["evidence"][0]["revision"] = Value::from(9_007_199_254_740_991_u64);
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+
+        // 2^53 is out of domain even though it is u64-safe.
+        let mut judgment = valid_judgment();
+        judgment["evidence"][0]["revision"] = Value::from(9_007_199_254_740_992_u64);
+        expect_invalid(validate_judgment(&judgment), "evidence[0].revision");
+
+        let mut judgment = valid_judgment();
+        judgment["target"]["revision"] = Value::from(2.5);
+        expect_invalid(validate_judgment(&judgment), "target.revision");
+    }
+
+    #[test]
+    fn validate_judgment_requires_a_created_at_offset() {
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-11-22T10:00:00".into());
+        expect_invalid(validate_judgment(&judgment), "created_at");
+
+        // Leap-second spellings stay accepted.
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-06-30T23:59:60Z".into());
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+
+        // Explicit non-UTC offsets are accepted.
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-11-22T18:00:00+08:00".into());
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+
+        // Invalid calendar days stay refused.
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-02-30T10:00:00Z".into());
+        expect_invalid(validate_judgment(&judgment), "created_at");
+    }
+
+    #[test]
+    fn validate_judgment_enforces_the_extension_map_grammar() {
+        let mut judgment = valid_judgment();
+        judgment["extensions"] = serde_json::json!({"Acme": {}});
+        expect_invalid(validate_judgment(&judgment), "extensions.Acme");
+
+        let mut judgment = valid_judgment();
+        judgment["extensions"] = serde_json::json!({"acme": 7});
+        expect_invalid(validate_judgment(&judgment), "extensions.acme");
+
+        let mut judgment = valid_judgment();
+        judgment["extensions"] = serde_json::json!({"acme-prod_1": {"flag": true}});
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+    }
+
+    #[test]
+    fn detail_reserved_probe_follows_the_fixed_protocol_order() {
+        // Probe order target, evidence, judgment_kind, outcome is independent
+        // of wire member order, so details.field matches across stacks.
+        let mut judgment = valid_judgment();
+        judgment["verdict"]["detail"] =
+            serde_json::json!({"outcome": 1, "judgment_kind": 1, "evidence": 1, "target": 1});
+        expect_invalid(validate_judgment(&judgment), "verdict.detail.target");
+
+        let mut judgment = valid_judgment();
+        judgment["verdict"]["detail"] =
+            serde_json::json!({"outcome": 1, "judgment_kind": 1});
+        expect_invalid(validate_judgment(&judgment), "verdict.detail.judgment_kind");
+    }
+
+    #[test]
     fn identical_judgments_compare_equal() {
         assert!(matches!(
-            judgments_equal_canonical(&typed(&valid_judgment()), &typed(&valid_judgment())),
+            judgments_equal_canonical(&valid_judgment(), &valid_judgment()),
             SpokeResult::Ok(true)
         ));
     }
@@ -471,14 +595,14 @@ mod tests {
         let mut right = valid_judgment();
         right["judgment_id"] = Value::String("j-2".into());
         assert!(matches!(
-            judgments_equal_canonical(&typed(&valid_judgment()), &typed(&right)),
+            judgments_equal_canonical(&valid_judgment(), &right),
             SpokeResult::Ok(false)
         ));
     }
 
     #[test]
     fn member_order_does_not_change_the_canonical_bytes() {
-        let left = typed(&serde_json::json!({
+        let left = serde_json::json!({
             "judgment_id": "j-1",
             "judgment_kind": "review",
             "schema_version": 1,
@@ -486,8 +610,8 @@ mod tests {
             "evidence": [],
             "verdict": {"outcome": "accepted", "detail": {"a": 1, "b": 2}},
             "extensions": {},
-        }));
-        let right = typed(&serde_json::json!({
+        });
+        let right = serde_json::json!({
             "extensions": {},
             "verdict": {"detail": {"b": 2, "a": 1}, "outcome": "accepted"},
             "evidence": [],
@@ -495,7 +619,7 @@ mod tests {
             "schema_version": 1,
             "judgment_kind": "review",
             "judgment_id": "j-1",
-        }));
+        });
         assert!(matches!(
             judgments_equal_canonical(&left, &right),
             SpokeResult::Ok(true)
@@ -507,7 +631,33 @@ mod tests {
         let mut right = valid_judgment();
         right["verdict"]["detail"] = serde_json::json!({"reason": "changed"});
         assert!(matches!(
-            judgments_equal_canonical(&typed(&valid_judgment()), &typed(&right)),
+            judgments_equal_canonical(&valid_judgment(), &right),
+            SpokeResult::Ok(false)
+        ));
+    }
+
+    #[test]
+    fn present_empty_detail_differs_from_absent_detail() {
+        // Wire presence is comparison-significant: a present-and-empty
+        // verdict.detail is a distinct member from an absent detail.
+        let mut left = valid_judgment();
+        left["verdict"].as_object_mut().unwrap().remove("detail");
+        let mut right = left.clone();
+        right["verdict"]["detail"] = serde_json::json!({});
+        assert!(matches!(
+            judgments_equal_canonical(&left, &right),
+            SpokeResult::Ok(false)
+        ));
+    }
+
+    #[test]
+    fn created_at_spelling_stays_comparison_significant() {
+        // `created_at` compares by its exact wire spelling; the same instant
+        // spelled with a non-UTC offset is a different canonical string.
+        let mut right = valid_judgment();
+        right["created_at"] = Value::String("2026-11-22T18:00:00+08:00".into());
+        assert!(matches!(
+            judgments_equal_canonical(&valid_judgment(), &right),
             SpokeResult::Ok(false)
         ));
     }

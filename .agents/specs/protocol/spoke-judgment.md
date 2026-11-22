@@ -110,7 +110,7 @@ TypeScript exposes `validateJudgment(judgment: Judgment): SpokeResult<void>`; Ru
 behaviorally identical `validate_judgment(judgment: &Value) -> SpokeResult<()>` (snake_case). The
 helper is deterministic and performs no I/O. The TS parameter type is the generated structural
 `Judgment` type; the validated value is the undecoded wire value in both languages (see
-[`2026-11-23-spoke-judgment.md`](../../adr/proposed/feature/2026-11-23-spoke-judgment.md)).
+[`2026-11-23-spoke-judgment.md`](../../adr/implemented/feature/2026-11-23-spoke-judgment.md)).
 
 `validateJudgment` checks:
 
@@ -222,7 +222,7 @@ names) or `extensions.<ns>`.
 | Rust helpers + tests | `crates/spoke-operations/src/judgment.rs` — `validate_judgment`, `judgments_equal_canonical` |
 | TS helpers | `packages/spoke-operations/src/judgment.ts` — `validateJudgment`, `judgmentsEqualCanonical` |
 | TS conformance suite | `packages/spoke-operations/src/judgment.test.ts` |
-| Decision record | `.agents/adr/proposed/feature/2026-11-23-spoke-judgment.md` |
+| Decision record | `.agents/adr/implemented/feature/2026-11-23-spoke-judgment.md` |
 
 ## Change obligations
 

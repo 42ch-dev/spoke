@@ -24,7 +24,7 @@ import {
   spokeReject,
   type SpokeResult,
 } from "./result.js";
-import { isParseableDateTime } from "./timestamp.js";
+import { isStrictTimestamp } from "./timestamp.js";
 
 // note: Closed-envelope property tables (judgment.schema.json,
 // additionalProperties: false on Judgment, JudgmentRef and Verdict).
@@ -53,25 +53,30 @@ const VERDICT_KEYS: Record<string, true> = {
   detail: true,
 };
 
-// note: Reserved verdict.detail direct member names — they duplicate
-// protocol-level envelope locations (contract §verdict core and detail).
-const DETAIL_RESERVED_MEMBERS: Record<string, true> = {
-  target: true,
-  evidence: true,
-  judgment_kind: true,
-  outcome: true,
-};
+// note: Reserved verdict.detail direct member names in the fixed protocol
+// probe order (contract §verdict core and detail) — the first present member
+// decides details.field, independent of wire member order.
+const DETAIL_RESERVED_MEMBERS = ["target", "evidence", "judgment_kind", "outcome"] as const;
 
-function isNonEmptyTrimmedString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+// note: Shared ExtensionMap grammar — namespace keys (contract §Wire-wide rules).
+const NAMESPACE_RE = /^[a-z][a-z0-9_-]*$/;
+
+// note: Non-empty is raw JSON Schema minLength: 1 — whitespace-only strings are
+// valid wire values for every open string in this contract.
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// note: Interoperable integer domain [0, 2^53-1]; integral spellings (1.0)
+// decode as the integer they spell.
 function isPositiveInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 1;
+  return (
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 1
+  );
 }
 
 function invalid(field: string, message: string): SpokeResult<void> {
@@ -96,13 +101,13 @@ function validateJudgmentRef(
   if (!hasOnlyKeys(ref, JUDGMENT_REF_KEYS)) {
     return invalid(field, `${field} carries a member outside the JudgmentRef shape`);
   }
-  if (!isNonEmptyTrimmedString(ref.kind)) {
+  if (!isNonEmptyString(ref.kind)) {
     return invalid(`${field}.kind`, `${field}.kind must be a non-empty string`);
   }
-  if (!isNonEmptyTrimmedString(ref.id)) {
+  if (!isNonEmptyString(ref.id)) {
     return invalid(`${field}.id`, `${field}.id must be a non-empty string`);
   }
-  if (ref.namespace !== undefined && !isNonEmptyTrimmedString(ref.namespace)) {
+  if (ref.namespace !== undefined && !isNonEmptyString(ref.namespace)) {
     return invalid(
       `${field}.namespace`,
       `${field}.namespace must be a non-empty string when present`,
@@ -148,10 +153,10 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
       "schema_version must be an integer >= 1",
     );
   }
-  if (!isNonEmptyTrimmedString(judgment.judgment_id)) {
+  if (!isNonEmptyString(judgment.judgment_id)) {
     return invalid("judgment_id", "judgment_id must be a non-empty string");
   }
-  if (!isNonEmptyTrimmedString(judgment.judgment_kind)) {
+  if (!isNonEmptyString(judgment.judgment_kind)) {
     return invalid("judgment_kind", "judgment_kind must be a non-empty string");
   }
 
@@ -184,18 +189,19 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
       "verdict carries a member outside the Verdict shape",
     );
   }
-  if (!isNonEmptyTrimmedString(verdict.outcome)) {
+  if (!isNonEmptyString(verdict.outcome)) {
     return invalid("verdict.outcome", "verdict.outcome must be a non-empty string");
   }
   if (verdict.confidence !== undefined) {
     if (
       typeof verdict.confidence !== "number" ||
+      !Number.isFinite(verdict.confidence) ||
       verdict.confidence < 0 ||
       verdict.confidence > 1
     ) {
       return invalid(
         "verdict.confidence",
-        "verdict.confidence must be a number in [0, 1]",
+        "verdict.confidence must be a finite number in [0, 1]",
       );
     }
   }
@@ -203,8 +209,9 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
     if (!isPlainObject(verdict.detail)) {
       return invalid("verdict.detail", "verdict.detail must be an object");
     }
-    for (const member of Object.keys(verdict.detail)) {
-      if (DETAIL_RESERVED_MEMBERS[member] === true) {
+    // Bounded probe over the four protocol constants in the fixed order.
+    for (const member of DETAIL_RESERVED_MEMBERS) {
+      if (member in verdict.detail) {
         return invalid(
           `verdict.detail.${member}`,
           `verdict.detail.${member} duplicates a protocol envelope location`,
@@ -219,16 +226,24 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
   if (judgment.created_at !== undefined) {
     if (
       typeof judgment.created_at !== "string" ||
-      !isParseableDateTime(judgment.created_at)
+      !isStrictTimestamp(judgment.created_at)
     ) {
       return invalid(
         "created_at",
-        "created_at must be an RFC 3339 timestamp when present",
+        "created_at must be an RFC 3339 date-time with an explicit UTC offset when present",
       );
     }
   }
   if (!isPlainObject(judgment.extensions)) {
     return invalid("extensions", "extensions must be a present object");
+  }
+  for (const [key, entry] of Object.entries(judgment.extensions)) {
+    if (!NAMESPACE_RE.test(key) || !isPlainObject(entry)) {
+      return invalid(
+        `extensions.${key}`,
+        `extensions.${key} must carry a namespace-pattern key and an object value`,
+      );
+    }
   }
 
   return spokeOk();

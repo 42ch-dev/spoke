@@ -65,8 +65,18 @@ describe("validateJudgment", () => {
 
   it("rejects a target with empty id", () => {
     const j = judgment();
-    j.target.id = "  ";
+    j.target.id = "";
     expectField(validateJudgment(j), "target.id");
+  });
+
+  it("accepts whitespace-only open strings (raw minLength: 1)", () => {
+    const j = judgment();
+    j.judgment_id = " ";
+    j.judgment_kind = "﻿";
+    j.target.id = " ";
+    j.target.kind = " ";
+    j.verdict.outcome = " ";
+    expect(validateJudgment(j)).toEqual({ ok: true });
   });
 
   it("rejects a non-positive target.revision", () => {
@@ -105,10 +115,55 @@ describe("validateJudgment", () => {
     expectField(validateJudgment(j), "verdict.confidence");
   });
 
+  it("rejects non-finite verdict.confidence", () => {
+    const nan = judgment();
+    nan.verdict.confidence = Number.NaN;
+    expectField(validateJudgment(nan), "verdict.confidence");
+    const inf = judgment();
+    inf.verdict.confidence = Number.POSITIVE_INFINITY;
+    expectField(validateJudgment(inf), "verdict.confidence");
+  });
+
+  it("rejects a revision outside the interoperable integer domain", () => {
+    const j = judgment();
+    j.evidence[0].revision = 2 ** 53;
+    expectField(validateJudgment(j), "evidence[0].revision");
+  });
+
+  it("accepts a revision at the 2^53-1 domain ceiling", () => {
+    const j = judgment();
+    j.evidence[0].revision = 2 ** 53 - 1;
+    expect(validateJudgment(j)).toEqual({ ok: true });
+  });
+
   it("rejects a reserved verdict.detail member", () => {
     const j = judgment();
     j.verdict.detail = { target: { kind: "knowledge_entry", id: "ke_x" } };
     expectField(validateJudgment(j), "verdict.detail.target");
+  });
+
+  it("reports the first reserved detail member in fixed probe order", () => {
+    const j = judgment();
+    j.verdict.detail = { outcome: "x", judgment_kind: "y", evidence: [] };
+    expectField(validateJudgment(j), "verdict.detail.evidence");
+  });
+
+  it("rejects an offsetless created_at", () => {
+    const j = judgment();
+    j.created_at = "2026-06-30T23:59:59";
+    expectField(validateJudgment(j), "created_at");
+  });
+
+  it("rejects a non-namespace extensions key", () => {
+    const j = judgment();
+    j.extensions = { "Acme:Audit": { pass: true } } as Judgment["extensions"];
+    expectField(validateJudgment(j), "extensions.Acme:Audit");
+  });
+
+  it("rejects a non-object extensions value", () => {
+    const j = judgment();
+    j.extensions = { acme_audit: 7 } as unknown as Judgment["extensions"];
+    expectField(validateJudgment(j), "extensions.acme_audit");
   });
 
   it("rejects a missing extensions member", () => {

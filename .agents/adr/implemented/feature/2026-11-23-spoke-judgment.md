@@ -1,5 +1,5 @@
 # ADR: Ship judgment as a manifest-only data capability with a dedicated reference and wire-value validation
-Status: proposed — recorded against the shipped judgment surface; promotion to `implemented/` follows PM acceptance of the `knowledge-evolution-p3-judgment` plan
+Status: implemented — recorded against the shipped judgment surface
 Date: 2026-11-23
 Scope: SPOKE judgment wire contract (`schemas/data/judgment.schema.json`), operations-library validation helpers, capability advertisement
 Spec: `.agents/specs/protocol/spoke-judgment.md`

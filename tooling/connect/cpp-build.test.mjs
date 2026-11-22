@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
-import { applyRustFlags, readProvenance } from "./cpp-build.mjs";
+import { applyRustFlags, lastRevision, readProvenance } from "./cpp-build.mjs";
 
 /**
  * Windows CRT flag (`TARGETS["x86_64-pc-windows-msvc"].extraRustFlags`).
@@ -90,6 +90,16 @@ describe("readProvenance", () => {
   });
 });
 
+describe("lastRevision", () => {
+  it("returns null for an empty path set without touching git", () => {
+    assert.equal(lastRevision([]), null);
+  });
+
+  it("returns null for paths with no history", () => {
+    assert.equal(lastRevision(["tooling/connect/__no-history-fixture__.mjs"]), null);
+  });
+});
+
 describe("dependency source identity", () => {
   for (const crate of ["spoke-operations", "spoke-schemas"]) {
     it(`records committed ${crate} changes and refuses dirty changes`, () => {
@@ -110,6 +120,8 @@ describe("dependency source identity", () => {
       });
       const revision = () => JSON.parse(readFileSync(join(root, "crates/spoke-connect/bindings/cpp/native/provenance.json")))
         .nativeArtifacts["win-x64"].sourceRevision;
+      const recipe = () => JSON.parse(readFileSync(join(root, "crates/spoke-connect/bindings/cpp/native/provenance.json")))
+        .nativeArtifacts["win-x64"].recipeRevision;
       try {
         mkdirSync(dirname(script), { recursive: true });
         copyFileSync(fileURLToPath(new URL("./cpp-build.mjs", import.meta.url)), script);
@@ -121,8 +133,14 @@ describe("dependency source identity", () => {
         put("crates/spoke-connect/bindings/cpp/include/spoke_connect.h", "header\n");
         put("crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp", "header\n");
         put("unrelated.txt", "initial\n");
+        // A second recipe path so the fixture can prove a tracked-then-
+        // deleted recipe fails the dirty check.
+        put(".github/workflows/cpp-connect.yml", "workflow\n");
         git("add", ".");
         git("commit", "-qm", "initial");
+        // Both recipe paths land in the initial commit, so the recipe
+        // revision is that commit.
+        const initialRevision = git("rev-parse", "HEAD");
         put("bin/cargo", "#!/bin/sh\nmkdir -p target/cpp/x86_64-pc-windows-msvc/release\nprintf native > target/cpp/x86_64-pc-windows-msvc/release/spoke_connect_capi.dll\nprintf import > target/cpp/x86_64-pc-windows-msvc/release/spoke_connect_capi.dll.lib\n", { mode: 0o755 });
         put("bin/rustc", "#!/bin/sh\nprintf 'rustc fixture\\n'\n", { mode: 0o755 });
         put("bin/cl.exe", "#!/bin/sh\nprintf 'Compiler Version fixture\\n'\n", { mode: 0o755 });
@@ -143,6 +161,15 @@ describe("dependency source identity", () => {
         const unrelated = build();
         assert.equal(unrelated.status, 0, unrelated.stderr);
         assert.equal(revision(), dependencyRevision);
+        assert.equal(recipe(), initialRevision);
+
+        // Deleted while the tree is otherwise clean: the dirty check must
+        // still see the tracked recipe, not filter it out.
+        rmSync(join(root, ".github/workflows/cpp-connect.yml"));
+        const deletedRecipe = build();
+        assert.notEqual(deletedRecipe.status, 0);
+        assert.match(deletedRecipe.stderr, /cpp-connect\.yml/);
+        git("checkout", "--", ".github/workflows/cpp-connect.yml");
 
         put(dependency, "dirty change\n");
         const dirty = build();
@@ -153,4 +180,48 @@ describe("dependency source identity", () => {
       }
     });
   }
+});
+
+describe("provenance without source history", () => {
+  it("records null revisions instead of failing the build", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "cpp-build-nohist-")));
+    const bin = join(root, "bin");
+    const script = join(root, "tooling/connect/cpp-build.mjs");
+    const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+    const put = (path, content, options) => {
+      const absolute = join(root, path);
+      mkdirSync(dirname(absolute), { recursive: true });
+      writeFileSync(absolute, content, options);
+    };
+    try {
+      mkdirSync(dirname(script), { recursive: true });
+      copyFileSync(fileURLToPath(new URL("./cpp-build.mjs", import.meta.url)), script);
+      git("init", "-q");
+      git("config", "user.name", "Fixture");
+      git("config", "user.email", "fixture@example.invalid");
+      // No Cargo.toml and no crates sources: BUILD_SOURCE_PATHS resolve no
+      // history, while the committed script keeps the recipe revision real.
+      put("crates/spoke-connect/bindings/cpp/include/spoke_connect.h", "header\n");
+      put("crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp", "header\n");
+      git("add", ".");
+      git("commit", "-qm", "initial");
+      const initialRevision = git("rev-parse", "HEAD");
+      put("bin/cargo", "#!/bin/sh\nmkdir -p target/cpp/x86_64-pc-windows-msvc/release\nprintf native > target/cpp/x86_64-pc-windows-msvc/release/spoke_connect_capi.dll\nprintf import > target/cpp/x86_64-pc-windows-msvc/release/spoke_connect_capi.dll.lib\n", { mode: 0o755 });
+      put("bin/rustc", "#!/bin/sh\nprintf 'rustc fixture\\n'\n", { mode: 0o755 });
+      put("bin/cl.exe", "#!/bin/sh\nprintf 'Compiler Version fixture\\n'\n", { mode: 0o755 });
+
+      const built = spawnSync(process.execPath, [script, "--target", "x86_64-pc-windows-msvc"], {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      });
+      assert.equal(built.status, 0, built.stderr);
+      const entry = JSON.parse(readFileSync(join(root, "crates/spoke-connect/bindings/cpp/native/provenance.json")))
+        .nativeArtifacts["win-x64"];
+      assert.equal(entry.sourceRevision, null);
+      assert.equal(entry.recipeRevision, initialRevision);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

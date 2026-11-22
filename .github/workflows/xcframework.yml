@@ -40,7 +40,7 @@ jobs:
           # Source and recipe files whose change invalidates the committed
           # xcframework. Prefix alternatives have no `$`; exact files do.
           REBUILD_PATTERN: >-
-            ^(Cargo\.toml$|Cargo\.lock$|\.cargo/|rust-toolchain(\.toml)?$|crates/spoke-connect/|crates/spoke-schemas/|crates/spoke-operations/|tooling/connect/build-swift-xcframework\.sh$|tooling/connect/normalize-cargo-version\.mjs$|tooling/release/lockstep-surfaces\.mjs$|\.github/workflows/xcframework\.yml$)
+            ^(Cargo\.toml$|Cargo\.lock$|\.cargo/|rust-toolchain(\.toml)?$|crates/spoke-connect/|crates/spoke-schemas/|crates/spoke-operations/|tooling/connect/build-swift-xcframework\.sh$|tooling/connect/xcframework-manifest\.sh$|tooling/connect/normalize-cargo-version\.mjs$|tooling/release/lockstep-surfaces\.mjs$|\.github/workflows/xcframework\.yml$)
         run: |
           code=false
           rebuild=false

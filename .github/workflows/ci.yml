@@ -36,18 +36,19 @@ jobs:
       - name: Detect code changes
         id: detect
         run: |
+          code=false
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            code=true
+          # --no-renames: a file moved out of a code path still reports its
+          # old path, so the rename keeps counting as a code change.
+          elif ! files=$(git diff --no-renames --name-only "origin/${{ github.base_ref }}"...HEAD); then
+            # Fail closed: a diff failure must never be read as "docs only".
+            code=true
+          elif printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
+            code=true
           fi
-          # --no-renames keeps a moved file's old path in the diff, so a rename
-          # out of a rebuild prefix still reports a change inside it.
-          files=$(git diff --no-renames --name-only "origin/${{ github.base_ref }}"...HEAD || true)
-          if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_STEP_SUMMARY"
 
   verify-codegen:
     needs: changes

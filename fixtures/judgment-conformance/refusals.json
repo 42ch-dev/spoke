@@ -679,6 +679,53 @@
         "extensions": {}
       },
       "expect": { "field": "created_at" }
+    },
+    {
+      "id": "created-at-whitespace-wrapped",
+      "invariant": "§Wire-wide rules created_at raw match",
+      "what": "the grammar matches the raw wire string — leading or trailing whitespace refuses on both stacks",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "created_at": " 2026-06-30T15:59:59Z ",
+        "extensions": {}
+      },
+      "expect": { "field": "created_at" }
+    },
+    {
+      "id": "created-at-space-separator",
+      "invariant": "§Wire-wide rules created_at raw match",
+      "what": "a space date-time separator is not RFC 3339 — only T or t is accepted",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "created_at": "2026-06-30 15:59:59Z",
+        "extensions": {}
+      },
+      "expect": { "field": "created_at" }
+    },
+    {
+      "id": "extensions-multiple-bad-keys-sorted",
+      "invariant": "§Wire-wide rules extension and module maps",
+      "what": "several failing entries report the first offender in lexicographic key order, not insertion order",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": { "zeta_ns": 7, "Alpha": {}, "9lives": {} }
+      },
+      "expect": { "field": "extensions.9lives" }
     }
   ]
 }

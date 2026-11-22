@@ -154,6 +154,37 @@ describe("validateJudgment", () => {
     expectField(validateJudgment(j), "created_at");
   });
 
+  it("rejects whitespace-wrapped created_at on the raw string", () => {
+    const j = judgment();
+    j.created_at = " 2026-06-30T23:59:59Z ";
+    expectField(validateJudgment(j), "created_at");
+  });
+
+  it("rejects a space-separated created_at", () => {
+    const j = judgment();
+    j.created_at = "2026-06-30 23:59:59Z";
+    expectField(validateJudgment(j), "created_at");
+  });
+
+  it("accepts created_at with a lowercase t separator", () => {
+    const j = judgment();
+    j.created_at = "2026-06-30t23:59:59z";
+    expect(validateJudgment(j)).toEqual({ ok: true });
+  });
+
+  it("reports the lexicographically first failing extensions key", () => {
+    const j = judgment();
+    j.extensions = { zeta_ns: 7, Alpha: {}, "9lives": {} } as unknown as Judgment["extensions"];
+    expectField(validateJudgment(j), "extensions.9lives");
+  });
+
+  it("ignores reserved names inherited through the prototype chain", () => {
+    const j = judgment();
+    j.verdict.detail = { note: "own only" };
+    Object.setPrototypeOf(j.verdict.detail, { target: {}, evidence: [] });
+    expect(validateJudgment(j)).toEqual({ ok: true });
+  });
+
   it("rejects a non-namespace extensions key", () => {
     const j = judgment();
     j.extensions = { "Acme:Audit": { pass: true } } as Judgment["extensions"];

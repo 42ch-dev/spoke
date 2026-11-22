@@ -209,9 +209,10 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
     if (!isPlainObject(verdict.detail)) {
       return invalid("verdict.detail", "verdict.detail must be an object");
     }
-    // Bounded probe over the four protocol constants in the fixed order.
+    // Bounded probe over the four protocol constants in the fixed order,
+    // over own enumerable members only — inherited names are not wire members.
     for (const member of DETAIL_RESERVED_MEMBERS) {
-      if (member in verdict.detail) {
+      if (Object.prototype.hasOwnProperty.call(verdict.detail, member)) {
         return invalid(
           `verdict.detail.${member}`,
           `verdict.detail.${member} duplicates a protocol envelope location`,
@@ -237,7 +238,11 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
   if (!isPlainObject(judgment.extensions)) {
     return invalid("extensions", "extensions must be a present object");
   }
-  for (const [key, entry] of Object.entries(judgment.extensions)) {
+  // Sorted key order: several failing entries report the first offender in
+  // lexicographic key order (contract §Wire-wide rules), matching the Rust
+  // map iteration independent of insertion order.
+  for (const key of Object.keys(judgment.extensions).sort()) {
+    const entry = judgment.extensions[key];
     if (!NAMESPACE_RE.test(key) || !isPlainObject(entry)) {
       return invalid(
         `extensions.${key}`,

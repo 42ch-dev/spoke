@@ -39,7 +39,7 @@ canonical bytes; nothing about how a judgment is produced, stored, or acted on i
 | `kind` | required | non-empty open string | Identifies the referenced thing's kind without a protocol registry. |
 | `id` | required | non-empty string | Opaque stable id within the applicable kind and product scope. |
 | `namespace` | optional | non-empty string | Product scope for the reference; not a required component of the referenced thing's identity. |
-| `revision` | conditional | positive integer (`>= 1`) | Pins the referenced revision when revision pinning applies. |
+| `revision` | conditional | positive integer (`>= 1`) in the interoperable integer domain (§ Wire-wide rules) | Pins the referenced revision when revision pinning applies; the pin stays exact on both stacks. |
 
 `JudgmentRef` carries only kind, id, optional product scope, and optional revision. It does not
 reuse `CognitionReference` or `CognitionTarget`; those types retain their cognition-scoped carrier,
@@ -51,21 +51,51 @@ Narrowing rule: on `Judgment.target`, `revision` is optional and positive when p
 and positive. Evidence therefore always carries the exact revisions the judgment relies on; the
 target may be assessed unpinned (product decision).
 
+### Wire-wide rules
+
+These rules govern every member they name on both stacks and sit ahead of the per-field tables.
+
+**Non-empty strings.** "Non-empty" means JSON Schema `minLength: 1` measured on the raw wire
+string: a whitespace-only string (a lone space, `U+FEFF`) is a valid non-empty wire value for every
+open string in this contract, matching the schema exactly.
+
+**Interoperable integer domain.** The integer-valued members — `schema_version`, `target.revision`,
+and every `evidence[].revision` — take non-negative integers exactly representable on the wire: the
+interoperable domain is `[0, 2^53-1]`, the JSON numbers that are at once u64-safe and IEEE-754
+binary64-safe. The wire schema pins this domain with `maximum: 9007199254740991`. Integral spellings
+such as `1.0` denote the integer they spell on the wire. A non-integral or out-of-domain value
+returns `INVALID_INPUT` at that member's field path. The per-field positivity rules
+(`schema_version >= 1`, `revision >= 1`) apply within the domain.
+
+**`created_at` offset and raw match.** `created_at` is an RFC 3339 `date-time` carrying an explicit
+UTC offset (`Z` or `±hh:mm`); an offsetless timestamp returns `INVALID_INPUT` at `created_at`. The
+grammar is matched against the raw wire string exactly as received: a value with leading or
+trailing whitespace returns `INVALID_INPUT` at `created_at` on both stacks. Leap-second `23:59:60`
+spellings remain accepted, and invalid calendar days remain refused.
+
+**Extension and module maps.** `extensions` follows the shared `ExtensionMap` grammar: namespace
+keys match `^[a-z][a-z0-9_-]*$`, and each value is an object. A non-conforming entry returns
+`INVALID_INPUT` with `details.field` at the offending member (for example `extensions.acme`); when
+several entries fail, `details.field` names the first offending member in lexicographic key order —
+a sorted order both stacks derive from the map's keys alone, independent of insertion or
+enumeration order, deterministic across stacks. The check reads namespace key and value kind only;
+map children stay opaque.
+
 ### `Judgment`
 
 `Judgment` is a closed object (`additionalProperties: false`):
 
 | Field | Presence | Type | Contract |
 |---|---|---|---|
-| `schema_version` | required | shared `SchemaVersion` | Integer `>= 1`; version of the `Judgment` wire schema. |
+| `schema_version` | required | shared `SchemaVersion` | Integer `>= 1` in the interoperable integer domain; version of the `Judgment` wire schema. |
 | `judgment_id` | required | non-empty string | Opaque stable judgment id. |
 | `judgment_kind` | required | non-empty open string | Assessment-kind vocabulary (§ `judgment_kind` vocabulary). |
-| `target` | required | `JudgmentRef` | The thing assessed. |
+| `target` | required | `JudgmentRef` | The thing assessed; its `revision` is optional and positive when present. |
 | `evidence` | required | `JudgmentEvidenceRef[]` | Present even when empty; every item pins a required positive `revision`. |
 | `verdict` | required | `Verdict` | Closed core plus open product detail (§ `verdict` core and detail). |
 | `basis` | optional | string | Product-supplied explanation or rationale; it does not replace `evidence`. |
-| `created_at` | optional | shared `Timestamp` | RFC 3339 date-time with offset. |
-| `extensions` | required | shared `ExtensionMap` | Product-namespace extensions; `{}` when empty. Unknown namespaces and keys round-trip unchanged (see [`spoke-data-model.md`](spoke-data-model.md) §Extensions). |
+| `created_at` | optional | shared `Timestamp` | RFC 3339 date-time with an explicit UTC offset; see § Wire-wide rules. |
+| `extensions` | required | shared `ExtensionMap` | Product-namespace extensions; `{}` when empty. Entries follow the shared `ExtensionMap` grammar (§ Wire-wide rules); unknown namespaces and keys round-trip unchanged (see [`spoke-data-model.md`](spoke-data-model.md) §Extensions). |
 
 Required members are `schema_version`, `judgment_id`, `judgment_kind`, `target`, `evidence`,
 `verdict`, `extensions`. Only `basis` and `created_at` are optional.
@@ -91,18 +121,23 @@ valid and need no registry update; readers still decode and interpret the common
 | Field | Presence | Type | Contract |
 |---|---|---|---|
 | `outcome` | required | non-empty open string | Portable core outcome. |
-| `confidence` | optional | number in `[0, 1]` | Core confidence value. |
-| `detail` | optional | object | Product-specific assessment content, opaque to the envelope validator and included in canonicalization. |
+| `confidence` | optional | finite number in `[0, 1]` | Core confidence value; non-finite numbers return `INVALID_INPUT`. |
+| `detail` | optional | object with unconstrained JSON member values | Product-specific assessment content, opaque to the envelope validator and included in canonicalization. |
 
 `verdict.outcome` is an open string with no protocol-enforced vocabulary; products define outcome
 values and readers interpret them.
 
-`detail` is a free-form object except that its direct members MUST NOT duplicate protocol-level
-envelope locations. The reserved direct member names are `target`, `evidence`, `judgment_kind`, and
-`outcome`; for example, `verdict.detail.target` and `verdict.detail.evidence` are invalid.
-Product-specific members inside `detail`, including nested objects, retain product-defined shapes.
-The reserved-member check protects protocol field locations only — `detail` content shape is not
-otherwise validated.
+`detail` member values are unconstrained JSON values — objects, scalars, arrays, or `null`. The
+schema constrains member names only: `detail` is a free-form object except that its direct members
+MUST NOT duplicate protocol-level envelope locations. The reserved direct member names are
+`target`, `evidence`, `judgment_kind`, and `outcome`; for example, `verdict.detail.target` and
+`verdict.detail.evidence` are invalid. When several reserved members are present, the refusal
+reports the first one in the fixed protocol probe order `target`, `evidence`, `judgment_kind`,
+`outcome` — a bounded check over protocol constants, independent of wire member order, enumerating
+the object's own enumerable members only — and `details.field` carries `verdict.detail.<name>` for
+the first present reserved member. Product-specific members inside `detail`, including nested
+objects, retain product-defined shapes. The reserved-member check protects protocol field locations
+only — `detail` content shape is not otherwise validated.
 
 ### Pure validation — `validateJudgment`
 
@@ -116,15 +151,23 @@ helper is deterministic and performs no I/O. The TS parameter type is the genera
 
 1. Presence and wire shape of every required field, including the closed `Judgment`, `JudgmentRef`,
    and `verdict` objects and the required `extensions` map.
-2. `schema_version` as an integer `>= 1`; `judgment_id` and `judgment_kind` as non-empty strings.
-3. `target` and `evidence` reference shape: non-empty `kind` and `id`, non-empty `namespace` when
-   present, and positive-integer revisions where applicable.
+2. `schema_version` as an integer `>= 1` inside the interoperable integer domain; `judgment_id` and
+   `judgment_kind` as non-empty raw strings (§ Wire-wide rules).
+3. `target` and `evidence` reference shape: non-empty raw `kind` and `id`, non-empty raw
+   `namespace` when present, and positive-integer revisions inside the interoperable integer
+   domain where applicable.
 4. Presence of `evidence`, including the valid empty-array case, and a required positive integer
-   `revision` on every evidence item.
-5. `verdict.outcome` as a non-empty string, optional `verdict.confidence` as a number in `[0, 1]`,
-   and optional `verdict.detail` as an object without the reserved direct members listed above.
-6. Optional `basis`, `created_at`, and reference revisions against their declared wire types and
-   constraints.
+   `revision` inside the interoperable integer domain on every evidence item.
+5. `verdict.outcome` as a non-empty raw string, optional `verdict.confidence` as a finite number in
+   `[0, 1]` (non-finite values such as `NaN` and `Infinity` return `INVALID_INPUT` even though the
+   TypeScript `number` type admits them), and optional `verdict.detail` as an object without the
+   reserved direct members listed above, probed in the fixed order.
+6. `extensions` entries against the shared `ExtensionMap` grammar: a non-conforming entry returns
+   `INVALID_INPUT` with `details.field` at the offending member, and several failing entries report
+   the first offender in lexicographic key order (§ Wire-wide rules).
+7. Optional `basis` and reference revisions against their declared wire types and constraints, and
+   optional `created_at` as an RFC 3339 `date-time` with an explicit UTC offset, matched against
+   the raw wire string exactly as received (§ Wire-wide rules).
 
 `validateJudgment` does **not** determine verdict truth, evidence existence or content correctness,
 authorization, business thresholds, or product-specific `detail` shape. Its reserved-member check
@@ -136,7 +179,8 @@ or product policy evaluation.
 Every shape violation returns `INVALID_INPUT` with `details.field` containing the exact logical
 field path. Paths use dotted members and bracketed array indices — `judgment_kind`,
 `target.revision`, `evidence[0].revision`, `verdict.outcome`, `verdict.confidence`,
-`verdict.detail.target`. `field` is the only protocol-required member of `details` for these
+`verdict.detail.target`, `extensions.acme`. `field` is the only protocol-required member of
+`details` for these
 refusals; the human-readable `message` carries no stable machine semantics. The reject envelope is
 the shared `SpokeResult` / `SpokeRejectCode` surface (see
 [`spoke-operations.md`](spoke-operations.md) § Result / reject envelope); `INVALID_INPUT` is its
@@ -144,13 +188,22 @@ shared shape-violation code and judgment validation introduces no new reject cod
 
 ### Canonical comparison — RFC 8785
 
+Canonical equality is wire-form equality. `judgmentsEqualCanonical(left, right)` (Rust
+`judgments_equal_canonical`) compares the RFC 8785 canonical serialization of the wire JSON — the
+JSON the producer emitted or the validator accepted — rather than the canonical serialization of
+any typed decode of it, and returns `SpokeResult<bool>`; it rejects `INVALID_INPUT` when either
+value cannot be canonicalized. Typed representations normalize members in ways the wire keeps
+distinct, and those normalizations stay out of the comparison on both stacks.
+
+Wire presence is comparison-significant: a present-and-empty `verdict.detail: {}` is a distinct
+member and compares unequal to an absent `detail`. `created_at` compares by its exact wire
+spelling — `2026-06-30T23:59:59+08:00` and `2026-06-30T15:59:59Z` compare unequal — because each
+stack preserves the timestamp string it received.
+
 Two independent producers of the same `Judgment` emit byte-identical bytes under RFC 8785
-canonical JSON. `judgmentsEqualCanonical(left, right)` (Rust `judgments_equal_canonical`) compares
-those canonical bytes and returns `SpokeResult<bool>`; it rejects `INVALID_INPUT` when either value
-cannot be canonicalized. Canonicalization covers the complete envelope, including `verdict.detail`,
-`extensions`, present empty arrays and objects, and all optional members that are present. `detail`
-remains opaque to the envelope but is never omitted, normalized by product rules, or excluded from
-canonical comparison.
+canonical JSON. Canonicalization covers the complete envelope, including `verdict.detail`,
+`extensions`, present empty arrays and objects, and all optional members that are present.
+`detail` remains opaque to the envelope and stays in canonical comparison as produced.
 
 ### Manifest advertisement and `tools.*` transport
 
@@ -196,8 +249,11 @@ names) or `extensions.<ns>`.
    member outside the documented field set.
 2. `evidence` is always present (empty array is valid) and every evidence item carries a required
    positive-integer `revision`; the target's `revision` is optional but positive when present.
+   Every integer member stays inside the interoperable `[0, 2^53-1]` domain.
 3. `verdict.detail` direct members never include the reserved names `target`, `evidence`,
-   `judgment_kind`, `outcome`.
+   `judgment_kind`, `outcome`; only own enumerable members count, and multi-member refusals report
+   the fixed probe order. `extensions` member violations likewise report the first offending key in
+   lexicographic order, identical on both stacks.
 4. Every shape violation rejects `INVALID_INPUT` with `details.field` set to the logical field path
    (dotted members, bracketed array indices); no other reject code exists for judgment validation.
 5. `validateJudgment` and `judgmentsEqualCanonical` are pure and deterministic: no I/O, no registry,

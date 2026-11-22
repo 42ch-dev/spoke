@@ -72,9 +72,15 @@ fn is_positive_integer(value: &Value) -> bool {
 
 // RFC 3339 `date-time` requires an explicit offset (`Z` or `±hh:mm`); chrono
 // refuses offsetless spellings, keeps leap-second `23:59:60` accepted and
-// refuses invalid calendar days.
+// refuses invalid calendar days. The grammar is matched against the raw wire
+// string exactly as received: chrono `parse_from_rfc3339` also accepts a
+// space as the date-time separator and this check stays ahead of any trim,
+// so the raw-string gates refuse whitespace-wrapped and space-separated
+// spellings to keep Rust and TypeScript on one strict form.
 fn is_parseable_date_time(value: &str) -> bool {
-    DateTime::parse_from_rfc3339(value).is_ok()
+    value.trim() == value
+        && matches!(value.as_bytes().get(10), Some(b'T' | b't'))
+        && DateTime::parse_from_rfc3339(value).is_ok()
 }
 
 // Shared ExtensionMap grammar: namespace keys match `^[a-z][a-z0-9_-]*$`.
@@ -285,6 +291,11 @@ pub fn validate_judgment(judgment: &Value) -> SpokeResult<()> {
     let Some(extensions) = judgment.get("extensions").and_then(Value::as_object) else {
         return invalid("extensions", "extensions must be a present object");
     };
+    // serde_json::Map is a BTreeMap: iteration is lexicographic key order, so
+    // with several failing entries the first refusal names the
+    // lexicographically-first offending member — the contract's sorted-order
+    // probe, derived from the map's keys alone and matching TypeScript's
+    // explicit sort.
     for (key, entry) in extensions {
         if !is_namespace(key) || !is_plain_object(entry) {
             return invalid(
@@ -550,6 +561,50 @@ mod tests {
         let mut judgment = valid_judgment();
         judgment["created_at"] = Value::String("2026-02-30T10:00:00Z".into());
         expect_invalid(validate_judgment(&judgment), "created_at");
+    }
+
+    #[test]
+    fn validate_judgment_matches_created_at_against_the_raw_wire_string() {
+        // The grammar is matched against the raw wire string exactly as
+        // received: leading or trailing whitespace refuses even though the
+        // inner spelling is a valid timestamp.
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String(" 2026-06-30T15:59:59Z ".into());
+        expect_invalid(validate_judgment(&judgment), "created_at");
+
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("\t2026-06-30T15:59:59Z".into());
+        expect_invalid(validate_judgment(&judgment), "created_at");
+
+        // A non-`T`/`t` date-time separator refuses — chrono's RFC 3339
+        // parse alone would accept the space at index 10.
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-06-30 15:59:59Z".into());
+        expect_invalid(validate_judgment(&judgment), "created_at");
+
+        // Lowercase `t` and `z` spellings stay accepted.
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-06-30t15:59:59z".into());
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+    }
+
+    #[test]
+    fn extensions_multi_violation_reports_the_lexicographically_first_key() {
+        // Sorted-order probe: with several failing entries, details.field
+        // names the first offending member in lexicographic key order —
+        // derived from the map's keys alone, deterministic across stacks.
+        let mut judgment = valid_judgment();
+        judgment["extensions"] = serde_json::json!({"zeta_ns": 7, "Alpha": {}, "9lives": {}});
+        expect_invalid(validate_judgment(&judgment), "extensions.9lives");
+
+        let mut judgment = valid_judgment();
+        judgment["extensions"] = serde_json::json!({"zeta_ns": 7, "acme_audit": 7});
+        expect_invalid(validate_judgment(&judgment), "extensions.acme_audit");
+
+        // A valid member ahead of an invalid one is skipped, not reported.
+        let mut judgment = valid_judgment();
+        judgment["extensions"] = serde_json::json!({"a_ok": {}, "bad key": {}});
+        expect_invalid(validate_judgment(&judgment), "extensions.bad key");
     }
 
     #[test]

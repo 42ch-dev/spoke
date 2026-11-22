@@ -59,11 +59,9 @@ export function isParseableDateTime(value: string): boolean {
  * fallback: an offsetless timestamp refuses.
  */
 export function isStrictTimestamp(value: string): boolean {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return false;
-  }
-  const rfc3339 = RFC3339_TIMESTAMP_RE.exec(trimmed);
+  // Grammar matches the raw wire string exactly as received (contract
+  // §Wire-wide rules created_at) — no trim; whitespace-wrapped values refuse.
+  const rfc3339 = RFC3339_TIMESTAMP_RE.exec(value);
   if (rfc3339 === null) {
     return false;
   }

@@ -211,6 +211,24 @@
         "verdict": { "outcome": "consistent" },
         "extensions": {}
       }
+    },
+    {
+      "id": "inherited-reserved-name-ignored",
+      "invariant": "§verdict core and detail reserved members / own enumerable members only",
+      "what": "reserved names on the prototype chain are not wire members — the TypeScript runner grafts proto_members onto verdict.detail's prototype and the envelope must still pass (Rust asserts the same wire JSON)",
+      "proto_members": { "target": { "kind": "shadow", "id": "s_1" }, "toString": "shadow" },
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_proto",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": {
+          "outcome": "accepted",
+          "detail": { "note": "own members only" }
+        },
+        "extensions": {}
+      }
     }
   ]
 }

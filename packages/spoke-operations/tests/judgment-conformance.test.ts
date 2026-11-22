@@ -31,6 +31,10 @@ interface RefusalCase {
 interface ValidCase {
   id: string;
   judgment: Judgment;
+  // Members the TS runner grafts onto the object's prototype chain after
+  // JSON.parse — JSON alone cannot express inherited (non-own) members, and
+  // the contract counts only own enumerable members. Rust skips this field.
+  proto_members?: Record<string, unknown>;
 }
 
 interface ParityCase {
@@ -55,8 +59,13 @@ function loadScenario<T>(filename: string): { cases: T[] } {
 
 describe("judgment-conformance valid vectors", () => {
   const { cases } = loadScenario<ValidCase>("valid.json");
-  for (const { id, judgment } of cases) {
+  for (const { id, judgment, proto_members } of cases) {
     it(`${id} passes validateJudgment`, () => {
+      if (proto_members !== undefined) {
+        Object.setPrototypeOf(judgment.verdict.detail, {
+          ...proto_members,
+        });
+      }
       expect(validateJudgment(judgment)).toEqual({ ok: true });
     });
   }

@@ -20,8 +20,8 @@ stacks fails on at least one side.
 
 | File | Cases | Purpose |
 |------|-------|---------|
-| `valid.json` | 11 | Envelopes that must pass the validator: required-only, fully populated, empty `evidence`, namespaced `judgment_kind`, populated `extensions`, non-UTC `created_at` offset, `confidence` at both `[0, 1]` bounds, raw `minLength: 1` whitespace strings, unconstrained `detail` member values, the `2^53-1` integer-domain ceiling |
-| `refusals.json` | 43 | `INVALID_INPUT` matrix: missing/empty required members, closed-envelope violations, non-positive and out-of-domain revisions, `verdict` shape and `[0, 1]` confidence bounds, reserved `verdict.detail` members including fixed-order multi-member probes, offsetless/invalid-day `created_at`, `ExtensionMap` key-pattern and value-kind violations — each with the exact `details.field` path |
+| `valid.json` | 12 | Envelopes that must pass the validator: required-only, fully populated, empty `evidence`, namespaced `judgment_kind`, populated `extensions`, non-UTC `created_at` offset, `confidence` at both `[0, 1]` bounds, raw `minLength: 1` whitespace strings, unconstrained `detail` member values, the `2^53-1` integer-domain ceiling, and a `proto_members` case where reserved names on the prototype chain must not count as members (TS runner only) |
+| `refusals.json` | 46 | `INVALID_INPUT` matrix: missing/empty required members, closed-envelope violations, non-positive and out-of-domain revisions, `verdict` shape and `[0, 1]` confidence bounds, reserved `verdict.detail` members including fixed-order multi-member probes, offsetless/whitespace-wrapped/space-separated/invalid-day `created_at`, `ExtensionMap` key-pattern and value-kind violations including a multi-offender lexicographic-order case — each with the exact `details.field` path |
 | `canonical-parity.json` | 5 | Pairs of serialized envelopes plus the expected RFC 8785 canonical UTF-8 bytes; covers member-order insensitivity, minimal envelopes, non-ASCII/`detail`/`extensions` byte-significance, and wire-presence inequalities (`detail: {}` vs absent, non-UTC `created_at` spellings) |
 
 ## Case envelope
@@ -45,6 +45,12 @@ Refusal cases replace `judgment` assertions with:
 the `INVALID_INPUT` reject (dotted members, bracketed array indices). The
 human-readable `message` carries no stable machine semantics and is never
 asserted.
+
+A valid case may also carry `proto_members`: members the TypeScript runner
+grafts onto `verdict.detail`'s prototype chain (via `Object.setPrototypeOf`)
+before validating, because JSON cannot express inherited members. The
+contract counts only own enumerable members, so the envelope must still
+pass. The Rust runner asserts the same wire JSON and ignores `proto_members`.
 
 Canonical-parity cases use:
 

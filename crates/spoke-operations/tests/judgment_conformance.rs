@@ -9,7 +9,10 @@
 //! (`packages/spoke-operations/tests/judgment-conformance.test.ts`) asserts
 //! the same corpus, so shared `expected_canonical` strings make each vector
 //! a cross-stack byte-parity check.
-
+//!
+//! Valid cases may carry `proto_members`, which only the TypeScript runner
+//! grafts onto a prototype chain — JSON cannot express inherited members and
+//! this runner asserts the wire JSON, so the field is ignored here.
 use serde_json::Value;
 use spoke_operations::{
     judgments_equal_canonical, validate_judgment, SpokeRejectCode, SpokeResult,

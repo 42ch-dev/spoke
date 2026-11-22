@@ -80,6 +80,7 @@
         "revision": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 9007199254740991,
           "description": "Pins the referenced revision when revision pinning applies; positive (>= 1) when present."
         }
       },
@@ -101,6 +102,7 @@
             "revision": {
               "type": "integer",
               "minimum": 1,
+              "maximum": 9007199254740991,
               "description": "Required positive revision — evidence refs always pin the exact revision relied on."
             }
           }

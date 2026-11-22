@@ -205,14 +205,14 @@ function cargoCommand() {
 }
 
 /**
- * The value following a flag. A flag at the end of the command line or one
- * followed by another flag has no value: reading the next token would name a
- * file the caller never asked for, and an empty report flag would silently
- * fall back to running cargo.
+ * The value following a flag. A flag at the end of the command line, one
+ * followed by another flag, or one followed by an empty string has no value:
+ * the path would name nothing the caller asked for, and a falsy report flag
+ * would silently fall back to running cargo.
  */
 function flagValue(argv, index, flag) {
   const value = argv[index + 1];
-  if (value === undefined || value.startsWith("--")) {
+  if (!value || value.startsWith("--")) {
     fail(`${flag} requires a value`);
   }
   return value;

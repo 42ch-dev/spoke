@@ -8,6 +8,7 @@ export type { AssemblePacket } from './assemble-packet';
 export type { CognitionRecord } from './cognition';
 export type { Finding } from './finding';
 export type { HostCapabilityManifest } from './host-capability-manifest';
+export type { Judgment } from './judgment';
 export type { KnowledgeEntry } from './knowledge-entry';
 export type { MemoryCandidate } from './memory-candidate';
 export type { MemoryExportBundle } from './memory-export-bundle';

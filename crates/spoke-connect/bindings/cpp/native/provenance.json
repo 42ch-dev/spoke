@@ -27,8 +27,7 @@
           "path": "libspoke_connect_capi.dylib",
           "sha256": "f4d9455c132fe4d0b4900a755a2937e181d1f6c883db7496c7ce817015c3f9c3"
         }
-      ],
-      "recipeRevision": "bec3c0dcd00844dfe37ab17fa86118b1a3c9e6f0"
+      ]
     },
     "win-x64": {
       "target": "x86_64-pc-windows-msvc",
@@ -63,8 +62,7 @@
           "path": "spoke_connect_capi.dll.lib",
           "sha256": "12980ab82525b937c7bfa39ae4113bca60adfcacaa89c809933d4f554f35d09f"
         }
-      ],
-      "recipeRevision": "bec3c0dcd00844dfe37ab17fa86118b1a3c9e6f0"
+      ]
     }
   }
 }

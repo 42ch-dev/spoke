@@ -404,7 +404,8 @@ phase_host_body() {
     --language swift \
     --out-dir "${GENERATED}"
 
-  stage_headers "$(headers_dir)"
+  headers_dir
+  stage_headers "${HEADERS_DIR}"
 }
 
 stage_headers() {
@@ -420,17 +421,16 @@ EOF
 }
 
 # One header tree for every phase: the staged output dir when set, otherwise
-# the invocation's own staging dir (phase `all`). Producer and consumer phases
-# resolve through here so the two paths cannot drift.
+# the invocation's own staging dir (phase `all`, or a lazily allocated one for
+# the standalone `host` phase). Sets HEADERS_DIR in the caller — never invoke
+# it inside $( ), or a lazy STAGE allocation would die with the subshell and
+# leak the temp dir the EXIT trap cleans.
 headers_dir() {
   if [[ -n "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
-    printf '%s\n' "${XCFRAMEWORK_OUTPUT_DIR}/Headers"
+    HEADERS_DIR="${XCFRAMEWORK_OUTPUT_DIR}/Headers"
   else
-    # Without the staged output dir the headers stage into the invocation's
-    # own staging dir — created lazily so the standalone `host` phase works
-    # while `all` reuses the staging it allocated before the host body.
     STAGE="${STAGE:-$(mktemp -d)}"
-    printf '%s\n' "${STAGE}/Headers"
+    HEADERS_DIR="${STAGE}/Headers"
   fi
 }
 
@@ -486,7 +486,8 @@ phase_assemble() {
     echo "error: --phase assemble requires XCFRAMEWORK_OUTPUT_DIR" >&2
     exit 2
   fi
-  local hdrs="$(headers_dir)"
+  headers_dir
+  local hdrs="${HEADERS_DIR}"
   if [[ ! -f "${hdrs}/spoke_connectFFI.h" ]]; then
     echo "error: missing host headers: ${hdrs}/spoke_connectFFI.h" >&2
     exit 1
@@ -600,7 +601,8 @@ phase_all() {
     build_slice_staticlib "${entry%%|*}" "${entry#*|}" "${target_dir}" "${STAGE}/${entry%%|*}"
   done
 
-  assemble_xcframework "${STAGE}" "$(headers_dir)"
+  headers_dir
+  assemble_xcframework "${STAGE}" "${HEADERS_DIR}"
 }
 
 

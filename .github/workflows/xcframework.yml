@@ -453,7 +453,7 @@ jobs:
           name: spoke-connect-xcframework-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.XCFRAMEWORK_OUTPUT_DIR }}
-            !${{ env.XCFRAMEWORK_OUTPUT_DIR }}/slices
+            !${{ env.XCFRAMEWORK_OUTPUT_DIR }}/slices/**
           if-no-files-found: error
           retention-days: 5
 

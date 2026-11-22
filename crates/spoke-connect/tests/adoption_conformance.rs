@@ -308,6 +308,22 @@ impl AdoptionPort for ScriptedAdoptionPort {
             .map(|seeded| seeded.entry.clone())
             .expect("resolved terminal is stored");
 
+        // The entry adoption actually copies must satisfy the same
+        // visibility predicate as the requested source (contract
+        // §Admission and owner-private absence): an owner-private
+        // resolved terminal invisible to the admitted viewpoint is the
+        // same generic absence and no destination write occurs.
+        if terminal_entry["disclosure"].as_str() == Some("owner-private") {
+            let owner = terminal_entry["owner"].as_str();
+            let viewpoint = scope
+                .viewpoint
+                .as_ref()
+                .map(|viewpoint| viewpoint.as_str().to_string());
+            if owner != viewpoint.as_deref() {
+                return FixtureState::generic_not_found();
+            }
+        }
+
         // The destination scope must also be admitted.
         if !self
             .state
@@ -320,18 +336,26 @@ impl AdoptionPort for ScriptedAdoptionPort {
 
         let destination_id = destination_id.unwrap_or_else(|| terminal.source_entry_id.clone());
         let mut destinations = self.state.destinations.lock().expect("destinations lock");
+        // The stored copy is classified by its anchor (contract §Repeat
+        // and idempotency): the repeat comparator is the resolved source
+        // tuple `(source_entry_id, resolved_terminal_revision)` — the
+        // same tuple the create write records below. For a live source
+        // the resolved terminal revision is the requested snapshot
+        // revision; for a retirement-resolved source it is the
+        // terminal's own revision. A differing resolved revision
+        // refuses REVISION_CONFLICT with details.adopted_revision from
+        // the stored anchor.
+        let resolved_revision = if terminal.source_entry_id == source_entry_id {
+            source_revision
+        } else {
+            terminal.source_revision
+        };
         if let Some(occupant) = destinations.get(&destination_id) {
             if let Some(anchor) = occupant.get("adoption_anchor") {
-                // The stored copy is classified by its anchor (contract
-                // §Repeat and idempotency): the same terminal source at
-                // the same REQUESTED source_revision is the repeat case;
-                // a different requested source_revision refuses
-                // REVISION_CONFLICT with details.adopted_revision from
-                // the stored anchor.
                 if anchor["source_scope_id"] == terminal.source_scope_id
                     && anchor["source_entry_id"] == terminal.source_entry_id
                 {
-                    if anchor["source_revision"].as_u64() == Some(source_revision) {
+                    if anchor["source_revision"].as_u64() == Some(resolved_revision) {
                         // `Variant0.entry` is the response module's own
                         // generated KnowledgeEntry — decode the whole
                         // response envelope instead of constructing it.
@@ -362,14 +386,11 @@ impl AdoptionPort for ScriptedAdoptionPort {
                 None,
             );
         }
-        // The anchor records the REQUESTED revision for a live source
-        // (the repeat rule classifies on it), the terminal's own revision
-        // for a retirement-resolved source.
-        let anchor_revision = if terminal.source_entry_id == source_entry_id {
-            source_revision
-        } else {
-            terminal.source_revision
-        };
+        // The anchor records the resolved tuple — the requested
+        // revision for a live source (the snapshot pinned), the
+        // terminal's own revision for a retirement-resolved source
+        // (contract §Repeat and idempotency).
+        let anchor_revision = resolved_revision;
         let copy =
             self.copy_for_destination(&terminal_entry, &terminal, &destination_id, anchor_revision);
         destinations.insert(destination_id, copy.clone());

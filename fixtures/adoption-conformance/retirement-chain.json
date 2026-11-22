@@ -99,6 +99,35 @@
               }
             ]
           }
+        },
+        {
+          "op": "knowledge.adopt",
+          "request": {
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_m_old",
+            "source_revision": 2,
+            "destination_scope_id": "spc_local",
+            "idempotency_key": "chain-live-2",
+            "extensions": {}
+          },
+          "expect": {
+            "success": true,
+            "state": [
+              {
+                "path": "outcome",
+                "equals": "already_present"
+              },
+              {
+                "path": "entry.entry_id",
+                "equals": "ke_m_live"
+              },
+              {
+                "path": "entry.adoption_anchor.source_revision",
+                "equals": 9
+              }
+            ],
+            "provider_calls": 2
+          }
         }
       ]
     },
@@ -952,14 +981,655 @@
             "ke_lim_30",
             "ke_lim_31",
             "ke_lim_32",
-            "ke_lim_33",
-            "ke_lim_34"
+            "ke_lim_33"
           ]
         },
         "provider_calls": 1
       },
       "requires": [
-        "32 edges are followed (ke_lim_1 .. ke_lim_33 visited); the successor that would make a 33rd edge is the refusal node"
+        "32 edges are followed (ke_lim_1 .. ke_lim_33 visited); the successor that would make a 33rd edge stays unvisited and unlisted"
+      ]
+    },
+    {
+      "id": "retirement-success-32-edges",
+      "invariant": "\u00a7Retirement-chain resolution",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a chain that resolves to a live terminal at exactly 32 edges succeeds \u2014 the last accepted depth, one edge below the refusal bound",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_x_1",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_1",
+              "entry_type": "note",
+              "canonical_name": "ke_x_1",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_2"
+            ]
+          },
+          {
+            "entry_id": "ke_x_2",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_2",
+              "entry_type": "note",
+              "canonical_name": "ke_x_2",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_3"
+            ]
+          },
+          {
+            "entry_id": "ke_x_3",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_3",
+              "entry_type": "note",
+              "canonical_name": "ke_x_3",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_4"
+            ]
+          },
+          {
+            "entry_id": "ke_x_4",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_4",
+              "entry_type": "note",
+              "canonical_name": "ke_x_4",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_5"
+            ]
+          },
+          {
+            "entry_id": "ke_x_5",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_5",
+              "entry_type": "note",
+              "canonical_name": "ke_x_5",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_6"
+            ]
+          },
+          {
+            "entry_id": "ke_x_6",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_6",
+              "entry_type": "note",
+              "canonical_name": "ke_x_6",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_7"
+            ]
+          },
+          {
+            "entry_id": "ke_x_7",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_7",
+              "entry_type": "note",
+              "canonical_name": "ke_x_7",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_8"
+            ]
+          },
+          {
+            "entry_id": "ke_x_8",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_8",
+              "entry_type": "note",
+              "canonical_name": "ke_x_8",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_9"
+            ]
+          },
+          {
+            "entry_id": "ke_x_9",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_9",
+              "entry_type": "note",
+              "canonical_name": "ke_x_9",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_10"
+            ]
+          },
+          {
+            "entry_id": "ke_x_10",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_10",
+              "entry_type": "note",
+              "canonical_name": "ke_x_10",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_11"
+            ]
+          },
+          {
+            "entry_id": "ke_x_11",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_11",
+              "entry_type": "note",
+              "canonical_name": "ke_x_11",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_12"
+            ]
+          },
+          {
+            "entry_id": "ke_x_12",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_12",
+              "entry_type": "note",
+              "canonical_name": "ke_x_12",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_13"
+            ]
+          },
+          {
+            "entry_id": "ke_x_13",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_13",
+              "entry_type": "note",
+              "canonical_name": "ke_x_13",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_14"
+            ]
+          },
+          {
+            "entry_id": "ke_x_14",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_14",
+              "entry_type": "note",
+              "canonical_name": "ke_x_14",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_15"
+            ]
+          },
+          {
+            "entry_id": "ke_x_15",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_15",
+              "entry_type": "note",
+              "canonical_name": "ke_x_15",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_16"
+            ]
+          },
+          {
+            "entry_id": "ke_x_16",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_16",
+              "entry_type": "note",
+              "canonical_name": "ke_x_16",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_17"
+            ]
+          },
+          {
+            "entry_id": "ke_x_17",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_17",
+              "entry_type": "note",
+              "canonical_name": "ke_x_17",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_18"
+            ]
+          },
+          {
+            "entry_id": "ke_x_18",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_18",
+              "entry_type": "note",
+              "canonical_name": "ke_x_18",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_19"
+            ]
+          },
+          {
+            "entry_id": "ke_x_19",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_19",
+              "entry_type": "note",
+              "canonical_name": "ke_x_19",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_20"
+            ]
+          },
+          {
+            "entry_id": "ke_x_20",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_20",
+              "entry_type": "note",
+              "canonical_name": "ke_x_20",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_21"
+            ]
+          },
+          {
+            "entry_id": "ke_x_21",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_21",
+              "entry_type": "note",
+              "canonical_name": "ke_x_21",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_22"
+            ]
+          },
+          {
+            "entry_id": "ke_x_22",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_22",
+              "entry_type": "note",
+              "canonical_name": "ke_x_22",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_23"
+            ]
+          },
+          {
+            "entry_id": "ke_x_23",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_23",
+              "entry_type": "note",
+              "canonical_name": "ke_x_23",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_24"
+            ]
+          },
+          {
+            "entry_id": "ke_x_24",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_24",
+              "entry_type": "note",
+              "canonical_name": "ke_x_24",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_25"
+            ]
+          },
+          {
+            "entry_id": "ke_x_25",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_25",
+              "entry_type": "note",
+              "canonical_name": "ke_x_25",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_26"
+            ]
+          },
+          {
+            "entry_id": "ke_x_26",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_26",
+              "entry_type": "note",
+              "canonical_name": "ke_x_26",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_27"
+            ]
+          },
+          {
+            "entry_id": "ke_x_27",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_27",
+              "entry_type": "note",
+              "canonical_name": "ke_x_27",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_28"
+            ]
+          },
+          {
+            "entry_id": "ke_x_28",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_28",
+              "entry_type": "note",
+              "canonical_name": "ke_x_28",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_29"
+            ]
+          },
+          {
+            "entry_id": "ke_x_29",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_29",
+              "entry_type": "note",
+              "canonical_name": "ke_x_29",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_30"
+            ]
+          },
+          {
+            "entry_id": "ke_x_30",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_30",
+              "entry_type": "note",
+              "canonical_name": "ke_x_30",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_31"
+            ]
+          },
+          {
+            "entry_id": "ke_x_31",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_31",
+              "entry_type": "note",
+              "canonical_name": "ke_x_31",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_32"
+            ]
+          },
+          {
+            "entry_id": "ke_x_32",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_32",
+              "entry_type": "note",
+              "canonical_name": "ke_x_32",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            },
+            "successors": [
+              "ke_x_33"
+            ]
+          },
+          {
+            "entry_id": "ke_x_33",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_x_33",
+              "entry_type": "note",
+              "canonical_name": "ke_x_33",
+              "status": "confirmed",
+              "revision": 7,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_x_1",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "chain-32-1",
+        "extensions": {}
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          {
+            "path": "outcome",
+            "equals": "adopted"
+          },
+          {
+            "path": "entry.entry_id",
+            "equals": "ke_x_33"
+          },
+          {
+            "path": "entry.adoption_anchor.source_entry_id",
+            "equals": "ke_x_33"
+          },
+          {
+            "path": "entry.adoption_anchor.source_revision",
+            "equals": 7
+          }
+        ],
+        "provider_calls": 1
+      },
+      "requires": [
+        "exactly 32 retirement edges are followed (ke_x_1 .. ke_x_33 visited); the 33rd edge bound stays untested here"
+      ]
+    },
+    {
+      "id": "retirement-private-terminal-not-found",
+      "invariant": "\u00a7Admission and owner-private absence",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a merged source resolving to an owner-private terminal invisible to the admitted viewpoint refuses the same generic NOT_FOUND and writes no destination copy",
+      "input": {
+        "admitted_viewpoint": "vp_caller",
+        "sources": [
+          {
+            "entry_id": "ke_p_old",
+            "successors": [
+              "ke_p_secret"
+            ],
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_p_old",
+              "entry_type": "note",
+              "canonical_name": "ke_p_old",
+              "status": "merged",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          },
+          {
+            "entry_id": "ke_p_secret",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_p_secret",
+              "entry_type": "note",
+              "canonical_name": "ke_p_secret",
+              "status": "confirmed",
+              "revision": 4,
+              "body": {},
+              "owner": "vp_other",
+              "disclosure": "owner-private",
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_p_old",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "chain-private-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "NOT_FOUND",
+        "absent_details": [
+          "source_entry_id",
+          "entry_id",
+          "retirement_chain"
+        ],
+        "provider_calls": 1
+      },
+      "then": [
+        {
+          "op": "port.knowledge.get",
+          "request": {
+            "entry_id": "ke_p_secret"
+          },
+          "expect": {
+            "error_code": "KNOWLEDGE_ENTRY_NOT_FOUND"
+          }
+        }
       ]
     }
   ]

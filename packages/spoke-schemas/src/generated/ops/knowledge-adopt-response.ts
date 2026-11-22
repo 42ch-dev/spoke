@@ -15,11 +15,14 @@ export type AdoptionOutcome = "adopted" | "already_present";
 
 export interface OneOf {
   outcome: AdoptionOutcome;
+  /**
+   * Success: the destination KnowledgeEntry; its adoption_anchor is required — a success entry lacking the anchor is malformed.
+   */
   entry: KnowledgeEntry;
   extensions?: ExtensionMap1;
 }
 /**
- * Success: the destination KnowledgeEntry, including its adoption_anchor.
+ * Atomic narrative knowledge unit: identity, typed body, provenance envelope.
  */
 export interface KnowledgeEntry {
   /**

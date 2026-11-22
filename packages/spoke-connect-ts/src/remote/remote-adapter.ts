@@ -118,6 +118,7 @@ import {
   spokeReject,
   toErrorEnvelope,
   type AdoptionPort,
+  type AdoptionPorts,
   type BaselinePorts,
   type HistoryPort,
   type HistoryPruneResult,
@@ -446,7 +447,7 @@ export type ToolHandler = (
  * session. Construct via `connectRemoteAdapter` — the constructor alone
  * yields an un-established adapter that fails closed on every port call.
  */
-export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, AdoptionPort {
+export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, AdoptionPort, AdoptionPorts {
   readonly #transport: Transport;
   readonly #invokeTimeoutMs: number;
   /** note: this adapter's raw 32-byte Ed25519 seed (hello identity — signs outbound envelopes). */
@@ -1097,6 +1098,16 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       ADOPTION_OPS.adoptKnowledgeEntry,
       { ...request },
     );
+  }
+
+  /**
+   * note: `AdoptionPorts` probe — this adapter serves adoption, so the
+   * availability probe answers itself (parity with the Rust blanket
+   * `AdoptionPorts` impl: `Some(self)`; a dynamically assembled
+   * boundary that lacks adoption simply omits `asAdoption`).
+   */
+  asAdoption(): AdoptionPort {
+    return this;
   }
 
   /**

@@ -68,8 +68,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
-    from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
-    BaselinePorts, SpokeReject, SpokeRejectCode, SpokeResult,
+    assert_adoption_anchor_preserved, from_error_envelope, parse_tool_capability_id, spoke_ok,
+    spoke_reject, to_error_envelope, BaselinePorts, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ConnectInvokeResponse;
@@ -458,11 +458,39 @@ async fn call_knowledge_op(
                 .get_scoped_knowledge_entry(admitted, &entry_id)
                 .await,
         ),
-        KnowledgeCall::PutKnowledgeEntry(entry, expected) => map_result(
-            face.store
-                .put_scoped_knowledge_entry(admitted, entry, expected)
-                .await,
-        ),
+        KnowledgeCall::PutKnowledgeEntry(entry, expected) => {
+            // The scoped put path serving `port.knowledge.put` owns the
+            // same anchor-immutability obligation as the upsert/promote
+            // orchestrations (spoke-knowledge-adoption contract §Anchor
+            // immutability): a stored `adoption_anchor` is preserved
+            // byte-identically or the write refuses
+            // `ADOPTION_ANCHOR_IMMUTABLE` with `details.entry_id` —
+            // before the put, never after.
+            let stored = match face
+                .store
+                .get_scoped_knowledge_entry(admitted, &entry.entry_id)
+                .await
+            {
+                SpokeResult::Ok(stored) => Some(stored),
+                // A missing destination is a create — no anchor to preserve.
+                SpokeResult::Reject(reject)
+                    if reject.code == SpokeRejectCode::NotFound =>
+                {
+                    None
+                }
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            };
+            if let SpokeResult::Reject(reject) =
+                assert_adoption_anchor_preserved(&entry, stored.as_ref())
+            {
+                return SpokeResult::Reject(reject);
+            }
+            map_result(
+                face.store
+                    .put_scoped_knowledge_entry(admitted, entry, expected)
+                    .await,
+            )
+        }
         KnowledgeCall::ListKnowledgeEntries(_) => {
             let scope = list_scope.expect("a list call carries its effective scope");
             map_result(face.store.list_scoped_knowledge_entries(scope).await)

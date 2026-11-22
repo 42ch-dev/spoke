@@ -1,5 +1,5 @@
 # ADR: Adoption provenance as a dedicated protocol field with terminal-source resolution
-Status: proposed — the decision is implemented in the repository; promotion to implemented/ follows the capability's merge to main
+Status: implemented — `KnowledgeEntry.adoption_anchor` wire, `AdoptionPort`, retirement-chain resolution, and the `knowledge.adopt` compound-gated connect op are in force
 Date: 2026-11-23
 Scope: `spoke-schemas` adoption wire, `spoke-operations` adoption helpers and `AdoptionPort`, `spoke-connect` dispatch and serving, `KnowledgeEntry.adoption_anchor`
 

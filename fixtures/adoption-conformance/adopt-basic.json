@@ -1,15 +1,15 @@
 {
   "id": "adopt-basic",
-  "title": "Adopt a shared KnowledgeEntry — outcome adopted, anchor written, copy rules, capability gate",
+  "title": "Adopt a shared KnowledgeEntry \u2014 outcome adopted, anchor written, copy rules, capability gate",
   "protocol_refs": [
-    "§KnowledgeAdoptRequest and response",
-    "§Copy rules and create-only OCC",
-    "§Connect operation and capability gate"
+    "\u00a7KnowledgeAdoptRequest and response",
+    "\u00a7Copy rules and create-only OCC",
+    "\u00a7Connect operation and capability gate"
   ],
   "cases": [
     {
       "id": "adopt-shared-entry-writes-anchor",
-      "invariant": "§KnowledgeAdoptRequest and response",
+      "invariant": "\u00a7KnowledgeAdoptRequest and response",
       "surface": "wire",
       "outcome": "identical",
       "what": "a live shared source adopts into the destination scope with outcome adopted and entry.adoption_anchor recording the source triple",
@@ -24,30 +24,50 @@
               "canonical_name": "Mira",
               "status": "confirmed",
               "revision": 3,
-              "body": { "tags": ["pov"], "state": {}, "attributes": [] },
+              "body": {
+                "tags": [
+                  "pov"
+                ],
+                "state": {},
+                "attributes": []
+              },
               "source_anchor": {
                 "schema_version": 1,
                 "source_id": "manuscript:tw-ch1",
-                "span": { "start": 48, "end": 312 },
+                "span": {
+                  "start": 48,
+                  "end": 312
+                },
                 "label": "Harbor arrival scene",
                 "extensions": {}
               },
               "modules": {
-                "cognition": { "world_facts": [] },
-                "mental": { "beliefs": [] }
+                "cognition": {
+                  "world_facts": []
+                },
+                "mental": {
+                  "beliefs": []
+                }
               },
               "owner": "vp_other",
               "disclosure": "shared-public",
               "extensions": {
-                "mindcore_adoption": { "source_revision": 3 },
-                "nexus": { "world_id": "wld_toy_nexus_001" },
+                "mindcore_adoption": {
+                  "source_revision": 3
+                },
+                "nexus": {
+                  "world_id": "wld_toy_nexus_001"
+                },
                 "creader": {}
               }
             }
           }
         ],
         "admitted_viewpoint": "vp_caller",
-        "destination_governance": { "owner": "vp_caller", "disclosure": "owner-private" }
+        "destination_governance": {
+          "owner": "vp_caller",
+          "disclosure": "owner-private"
+        }
       },
       "op": "knowledge.adopt",
       "request": {
@@ -61,21 +81,68 @@
       "expect": {
         "success": true,
         "state": [
-          { "path": "outcome", "equals": "adopted" },
-          { "path": "entry.entry_id", "equals": "ke_mira_harbor" },
-          { "path": "entry.entry_type", "equals": "character" },
-          { "path": "entry.canonical_name", "equals": "Mira" },
-          { "path": "entry.adoption_anchor.schema_version", "equals": 1 },
-          { "path": "entry.adoption_anchor.source_scope_id", "equals": "spc_shared" },
-          { "path": "entry.adoption_anchor.source_entry_id", "equals": "ke_mira_harbor" },
-          { "path": "entry.adoption_anchor.source_revision", "equals": 3 },
-          { "path": "entry.modules.mental", "equals": { "beliefs": [] } },
-          { "path": "entry.extensions.nexus", "equals": { "world_id": "wld_toy_nexus_001" } },
-          { "path": "entry.extensions.creader", "equals": {} },
-          { "path": "entry.owner", "equals": "vp_caller" },
-          { "path": "entry.disclosure", "equals": "owner-private" }
+          {
+            "path": "outcome",
+            "equals": "adopted"
+          },
+          {
+            "path": "entry.entry_id",
+            "equals": "ke_mira_harbor"
+          },
+          {
+            "path": "entry.entry_type",
+            "equals": "character"
+          },
+          {
+            "path": "entry.canonical_name",
+            "equals": "Mira"
+          },
+          {
+            "path": "entry.adoption_anchor.schema_version",
+            "equals": 1
+          },
+          {
+            "path": "entry.adoption_anchor.source_scope_id",
+            "equals": "spc_shared"
+          },
+          {
+            "path": "entry.adoption_anchor.source_entry_id",
+            "equals": "ke_mira_harbor"
+          },
+          {
+            "path": "entry.adoption_anchor.source_revision",
+            "equals": 3
+          },
+          {
+            "path": "entry.modules.mental",
+            "equals": {
+              "beliefs": []
+            }
+          },
+          {
+            "path": "entry.extensions.nexus",
+            "equals": {
+              "world_id": "wld_toy_nexus_001"
+            }
+          },
+          {
+            "path": "entry.extensions.creader",
+            "equals": {}
+          },
+          {
+            "path": "entry.owner",
+            "equals": "vp_caller"
+          },
+          {
+            "path": "entry.disclosure",
+            "equals": "owner-private"
+          }
         ],
-        "present": ["entry.adoption_anchor", "entry.modules", "entry.extensions.creader"],
+        "present": [
+          "entry.adoption_anchor",
+          "entry.modules",
+          "entry.extensions.creader"
+        ],
         "absent": [
           "entry.source_anchor",
           "entry.modules.cognition",
@@ -86,14 +153,24 @@
       "then": [
         {
           "op": "port.knowledge.get",
-          "request": { "entry_id": "ke_mira_harbor" },
+          "request": {
+            "entry_id": "ke_mira_harbor"
+          },
           "expect": {
             "success": true,
             "state": [
-              { "path": "adoption_anchor.source_entry_id", "equals": "ke_mira_harbor" },
-              { "path": "adoption_anchor.source_revision", "equals": 3 }
+              {
+                "path": "adoption_anchor.source_entry_id",
+                "equals": "ke_mira_harbor"
+              },
+              {
+                "path": "adoption_anchor.source_revision",
+                "equals": 3
+              }
             ],
-            "absent": ["source_anchor"]
+            "absent": [
+              "source_anchor"
+            ]
           }
         }
       ],
@@ -103,7 +180,7 @@
     },
     {
       "id": "adopt-with-destination-entry-id",
-      "invariant": "§KnowledgeAdoptRequest and response",
+      "invariant": "\u00a7KnowledgeAdoptRequest and response",
       "surface": "wire",
       "outcome": "identical",
       "what": "a supplied destination_entry_id names the copy while the anchor still records the source triple",
@@ -137,20 +214,34 @@
       "expect": {
         "success": true,
         "state": [
-          { "path": "outcome", "equals": "adopted" },
-          { "path": "entry.entry_id", "equals": "ke_my_mira" },
-          { "path": "entry.adoption_anchor.source_entry_id", "equals": "ke_mira_harbor" }
+          {
+            "path": "outcome",
+            "equals": "adopted"
+          },
+          {
+            "path": "entry.entry_id",
+            "equals": "ke_my_mira"
+          },
+          {
+            "path": "entry.adoption_anchor.source_entry_id",
+            "equals": "ke_mira_harbor"
+          }
         ],
         "provider_calls": 1
       },
       "then": [
         {
           "op": "port.knowledge.get",
-          "request": { "entry_id": "ke_my_mira" },
+          "request": {
+            "entry_id": "ke_my_mira"
+          },
           "expect": {
             "success": true,
             "state": [
-              { "path": "adoption_anchor.source_entry_id", "equals": "ke_mira_harbor" }
+              {
+                "path": "adoption_anchor.source_entry_id",
+                "equals": "ke_mira_harbor"
+              }
             ]
           }
         }
@@ -158,12 +249,14 @@
     },
     {
       "id": "capability-gate-denial-without-port-call",
-      "invariant": "§Connect operation and capability gate",
+      "invariant": "\u00a7Connect operation and capability gate",
       "surface": "wire",
       "outcome": "identical",
       "what": "a session that did not negotiate spoke-knowledge-adoption answers capability_missing and never reaches the port",
       "input": {
-        "client_capabilities": ["spoke-knowledge"],
+        "client_capabilities": [
+          "spoke-knowledge"
+        ],
         "sources": []
       },
       "op": "knowledge.adopt",
@@ -182,12 +275,14 @@
     },
     {
       "id": "co-capability-gate-denial",
-      "invariant": "§Connect operation and capability gate",
+      "invariant": "\u00a7Connect operation and capability gate",
       "surface": "wire",
       "outcome": "identical",
       "what": "spoke-knowledge-adoption without the mandatory spoke-knowledge co-capability still fails the compound gate with capability_missing",
       "input": {
-        "client_capabilities": ["spoke-knowledge-adoption"],
+        "client_capabilities": [
+          "spoke-knowledge-adoption"
+        ],
         "sources": []
       },
       "op": "knowledge.adopt",
@@ -206,7 +301,7 @@
     },
     {
       "id": "absent-face-dispatch-deny",
-      "invariant": "§Connect operation and capability gate",
+      "invariant": "\u00a7Connect operation and capability gate",
       "surface": "wire",
       "outcome": "identical",
       "what": "a host that advertises spoke-knowledge-adoption but provides no service answers the documented op_unsupported dispatch-deny branch",
@@ -229,7 +324,7 @@
     },
     {
       "id": "invalid-input-missing-idempotency-key",
-      "invariant": "§KnowledgeAdoptRequest and response",
+      "invariant": "\u00a7KnowledgeAdoptRequest and response",
       "surface": "service",
       "outcome": "identical",
       "what": "a payload missing the required idempotency_key answers INVALID_INPUT at the service decode boundary before admission or any port call",
@@ -242,6 +337,30 @@
         "source_entry_id": "ke_any",
         "source_revision": 0,
         "destination_scope_id": "spc_local",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "INVALID_INPUT",
+        "provider_calls": 0
+      }
+    },
+    {
+      "id": "invalid-input-null-destination-entry-id",
+      "invariant": "\u00a7KnowledgeAdoptRequest and response",
+      "surface": "service",
+      "outcome": "identical",
+      "what": "an explicit null destination_entry_id is malformed input refused INVALID_INPUT before admission, dedup and any port call",
+      "input": {
+        "sources": []
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_src",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "destination_entry_id": null,
+        "idempotency_key": "null-selector-1",
         "extensions": {}
       },
       "expect": {

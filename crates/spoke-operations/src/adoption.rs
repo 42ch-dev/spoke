@@ -106,10 +106,11 @@ pub struct RetirementTerminal {
 /// resolution follows at most [`RETIREMENT_CHAIN_MAX_EDGES`] (32) edges;
 /// every visited entry id is tracked, and `details.retirement_chain` on
 /// `SOURCE_RETIRED` is the ordered visited-id array beginning with the
-/// requested id and including the entry at which resolution failed.
-/// Refusals: a repeated visited id (cycle), zero or multiple successors on
-/// a `merged` node (ambiguous chain), a `deleted` terminal, a mid-chain
-/// load miss, or a required 33rd edge.
+/// requested id and ending at the last resolved node — the entry at
+/// which resolution failed. Refusals: a repeated visited id (cycle),
+/// zero or multiple successors on a `merged` node (ambiguous chain), a
+/// `deleted` terminal, a mid-chain load miss, or a required 33rd edge
+/// (the successor beyond the rejected edge is never listed).
 ///
 /// `successors_of` is the storage-owned successor lookup: `None` means the
 /// provider could not identify successors (treated as ambiguous), an empty
@@ -147,9 +148,11 @@ where
         }
         let successor_id = successors.into_iter().next().expect("exactly one");
         if visited.len() > RETIREMENT_CHAIN_MAX_EDGES {
-            // Reaching the 33rd edge means 32 edges were already followed
-            // and the chain still has not terminated.
-            visited.push(successor_id);
+            // Requiring a 33rd edge means 32 edges were already followed
+            // and the chain still has not terminated: the refusal trace
+            // ends at the last resolved (still-`merged`) node — the
+            // successor beyond the rejected edge stays unlisted
+            // (contract §Retirement-chain resolution).
             return source_retired("retirement chain exceeds the 32-edge limit", &visited);
         }
         if seen.contains(&successor_id) {

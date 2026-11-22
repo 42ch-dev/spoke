@@ -21,8 +21,15 @@
           "title": "AdoptionOutcome"
         },
         "entry": {
-          "$ref": "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json",
-          "description": "Success: the destination KnowledgeEntry, including its adoption_anchor."
+          "oneOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json"
+            }
+          ],
+          "required": [
+            "adoption_anchor"
+          ],
+          "description": "Success: the destination KnowledgeEntry; its adoption_anchor is required — a success entry lacking the anchor is malformed."
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

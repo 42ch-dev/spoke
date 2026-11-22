@@ -252,6 +252,14 @@ export async function orchestratePromote(
         }
       : accepted.value;
 
+  // note: `orchestratePromote` owns the anchor-immutability obligation for
+  // the promote write path too (spoke-knowledge-adoption contract §Anchor
+  // immutability) — the stored entry was already loaded above.
+  const anchorGate = assertAdoptionAnchorPreserved(toPersist, stored);
+  if (!anchorGate.ok) {
+    return anchorGate;
+  }
+
   const expectedBaseRevision =
     stored === undefined ? null : (stored.revision ?? 0);
 

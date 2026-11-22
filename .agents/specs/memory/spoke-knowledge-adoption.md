@@ -6,7 +6,7 @@
 > **Wire SSOT:** `schemas/data/adoption-anchor.schema.json`, `schemas/ops/knowledge-adopt-request.schema.json`, `schemas/ops/knowledge-adopt-response.schema.json`
 > **Operations library:** `packages/spoke-operations/src/adoption.ts`, `crates/spoke-operations/src/adoption.rs`; port `AdoptionPort` in `packages/spoke-operations/src/adapter/ports.ts`, `crates/spoke-operations/src/adapter/ports.rs`; put-path anchor gate in `packages/spoke-operations/src/adapter/orchestrate.ts`, `crates/spoke-operations/src/adapter/orchestrate.rs`
 > **Connect serving:** `RemoteAdoptionService` / `AdoptionPortService` in `crates/spoke-connect/src/remote/serve_ports.rs`, `packages/spoke-connect-ts/src/remote/serve_ports.ts`; dispatch rows in `crates/spoke-connect/src/core/dispatch.rs`, `packages/spoke-connect-ts/src/core/dispatch.ts`
-> **Capability decision:** [`2026-11-23-spoke-knowledge-adoption.md`](../../adr/proposed/feature/2026-11-23-spoke-knowledge-adoption.md)
+> **Capability decision:** [`2026-11-23-spoke-knowledge-adoption.md`](../../adr/implemented/feature/2026-11-23-spoke-knowledge-adoption.md)
 
 ## Scope
 
@@ -191,7 +191,7 @@ The reserved-product operation table contains exactly this adoption row:
 - Reject codes: `ADOPTION_ANCHOR_IMMUTABLE`, `SOURCE_RETIRED` in `packages/spoke-operations/src/result.ts`, `crates/spoke-operations/src/result.rs`.
 - Connect dispatch: capability constants and the compound co-capability check in `packages/spoke-connect-ts/src/core/dispatch.ts`, `crates/spoke-connect/src/core/dispatch.rs`.
 - Connect serving: `RemoteAdoptionService`, `AdoptionPortService`, `AdoptionAdmission`, `AdoptionDedupStore`, `KNOWLEDGE_OP_ADOPT` in `packages/spoke-connect-ts/src/remote/serve_ports.ts`, `crates/spoke-connect/src/remote/serve_ports.rs`; responder routing and uncertain-outcome refusals in `packages/spoke-connect-ts/src/remote/responder.ts`, `crates/spoke-connect/src/remote/responder.rs`; client `AdoptionPort` in `packages/spoke-connect-ts/src/remote/remote-adapter.ts`, `crates/spoke-connect/src/remote/remote_adapter.rs`.
-- Decision record: `.agents/adr/proposed/feature/2026-11-23-spoke-knowledge-adoption.md`.
+- Decision record: `.agents/adr/implemented/feature/2026-11-23-spoke-knowledge-adoption.md`.
 
 ## Change obligations
 

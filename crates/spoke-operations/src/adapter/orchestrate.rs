@@ -295,6 +295,15 @@ pub async fn orchestrate_promote(
         accepted.revision = Some(stored.revision.unwrap_or(0) + 1);
     }
 
+    // The promote write is a normal knowledge write orchestration: an
+    // anchored stored entry must keep its `adoption_anchor` byte-identical
+    // or refuse `ADOPTION_ANCHOR_IMMUTABLE` with `details.entry_id` before
+    // the write (spoke-knowledge-adoption contract §Anchor immutability).
+    if let SpokeResult::Reject(reject) =
+        assert_adoption_anchor_preserved(&accepted, stored.as_ref())
+    {
+        return SpokeResult::Reject(reject);
+    }
     let expected_base_revision = stored.as_ref().map(|stored| stored.revision.unwrap_or(0));
 
     let put = match ports.put_knowledge_entry(accepted, expected_base_revision).await {

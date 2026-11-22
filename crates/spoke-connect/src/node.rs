@@ -66,7 +66,6 @@ use crate::config::{ConnectConfig, InvokeHandler, InvokeHandlerV2};
 use crate::core::{
     cognition_requirement_present, token_authorizes_op, verify_capability_token,
     CapabilityTokenProof, CoreError, CoreInvokeError, InboundSequence, CAPABILITY_SPOKE_COGNITION,
-    CAPABILITY_SPOKE_KNOWLEDGE, CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION,
 };
 use crate::error::{ConnectError, InvokeError};
 use crate::gate::{gate_hello, is_allowlisted, NonceStore};
@@ -1039,35 +1038,53 @@ impl EventLoop {
                                     .sessions
                                     .get(peer)
                                     .expect("session verified above");
-                                let core_required = crate::core::required_capability(
-                                    request.op.as_str(),
-                                );
-                                let required = core_required.or_else(|| {
-                                    self.config
-                                        .op_capability_requirements
-                                        .get(request.op.as_str())
-                                        .map(String::as_str)
-                                });
-                                let negotiated_allowed = required.is_some_and(|required| {
-                                    crate::core::capability_satisfies(
+                                let op_str = request.op.as_str();
+                                let core_required =
+                                    crate::core::required_capability(op_str);
+                                // Reserved `knowledge.*` names are owned by
+                                // the core dispatch decision
+                                // (spoke-knowledge-adoption contract
+                                // §Connect operation): only the single
+                                // registered op authorizes; unknown names
+                                // in the family are ineligible for the
+                                // product custom-map fallback — custom
+                                // mappings apply only outside reserved
+                                // families.
+                                let reserved_unknown =
+                                    core_required.is_none() && op_str.starts_with("knowledge.");
+                                let required = if reserved_unknown {
+                                    None
+                                } else {
+                                    core_required.or_else(|| {
+                                        self.config
+                                            .op_capability_requirements
+                                            .get(op_str)
+                                            .map(String::as_str)
+                                    })
+                                };
+                                // A core-table op evaluates
+                                // `dispatch_allowed` — the same pure core
+                                // decision the responder serves — so the
+                                // `knowledge.adopt` co-capability conjunct
+                                // (`spoke-knowledge` alongside
+                                // `spoke-knowledge-adoption`) has exactly
+                                // one authority and the raw node agrees
+                                // with the composed responder.
+                                let negotiated_allowed = if reserved_unknown {
+                                    false
+                                } else if core_required.is_some() {
+                                    crate::core::dispatch_allowed(
+                                        op_str,
                                         &session.negotiated_capabilities,
-                                        required,
                                     )
-                                });
-                                // Compound gate (spoke-knowledge-adoption
-                                // contract): `knowledge.adopt` additionally
-                                // requires the mandatory co-capability
-                                // `spoke-knowledge` — neither flag alone
-                                // satisfies the gate. The conjunct reads the
-                                // core-table row only; a product-map override
-                                // never widens or narrows it.
-                                let negotiated_allowed = negotiated_allowed
-                                    && (core_required
-                                        != Some(CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION)
-                                        || crate::core::capability_satisfies(
+                                } else {
+                                    required.is_some_and(|required| {
+                                        crate::core::capability_satisfies(
                                             &session.negotiated_capabilities,
-                                            CAPABILITY_SPOKE_KNOWLEDGE,
-                                        ));
+                                            required,
+                                        )
+                                    })
+                                };
                                 let token_allowed = token_grant
                                     .as_deref()
                                     .is_none_or(|grant| {

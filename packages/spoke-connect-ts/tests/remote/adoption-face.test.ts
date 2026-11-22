@@ -237,7 +237,6 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
       const sourceEntryId = request.source_entry_id;
       const destinationScopeId = request.destination_scope_id;
       const sourceRevision = request.source_revision;
-
       // Admission: an unadmitted source scope is the same generic
       // absence as a missing entry.
       if (!state.admittedScopes.includes(sourceScopeId)) {
@@ -286,6 +285,17 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
         return spokeReject("INTERNAL_ERROR", "resolved terminal is not stored");
       }
 
+      // note: the entry adoption actually copies must satisfy the same
+      // visibility predicate as the requested source (contract
+      // §Admission and owner-private absence): an owner-private resolved
+      // terminal invisible to the admitted viewpoint is the same generic
+      // absence and no destination write occurs.
+      if (terminalEntry.disclosure === "owner-private") {
+        const owner = terminalEntry.owner as string | undefined;
+        if (owner !== (scope.viewpoint as string | undefined)) {
+          return genericNotFound();
+        }
+      }
       // The destination scope must also be admitted.
       if (!state.admittedScopes.includes(destinationScopeId)) {
         return genericNotFound();
@@ -308,12 +318,20 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
           anchor.source_entry_id === terminal.value.source_entry_id
         ) {
           // The stored copy is classified by its anchor (contract
-          // §Repeat and idempotency): the same terminal source at the
-          // same REQUESTED source_revision is the repeat case; a
-          // different requested source_revision refuses
+          // §Repeat and idempotency): the repeat comparator is the
+          // resolved source tuple `(source_entry_id,
+          // resolved_terminal_revision)` — the same tuple the create
+          // write records below. For a live source the resolved
+          // terminal revision is the requested snapshot revision; for a
+          // retirement-resolved source it is the terminal's own
+          // revision. A differing resolved revision refuses
           // REVISION_CONFLICT with details.adopted_revision from the
           // stored anchor.
-          if (anchor.source_revision === sourceRevision) {
+          const resolvedRevision =
+            terminal.value.source_entry_id === sourceEntryId
+              ? sourceRevision
+              : terminal.value.source_revision;
+          if (anchor.source_revision === resolvedRevision) {
             return spokeOk({ outcome: "already_present", entry: occupant });
           }
           return spokeReject(
@@ -329,9 +347,10 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
           `destination ${destinationId} is already occupied`,
         );
       }
-      // The anchor records the REQUESTED revision for a live source
-      // (the repeat rule classifies on it), the terminal's own revision
-      // for a retirement-resolved source.
+      // The anchor records the resolved tuple — the requested revision
+      // for a live source (the snapshot pinned), the terminal's own
+      // revision for a retirement-resolved source (contract §Repeat and
+      // idempotency).
       const anchorRevision =
         terminal.value.source_entry_id === sourceEntryId
           ? sourceRevision

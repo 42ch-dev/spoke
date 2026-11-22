@@ -30,7 +30,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
@@ -323,10 +323,25 @@ pub enum HistoryDedupLookup {
 /// namespace MUST stay stable across reconnects, which the in-memory
 /// default cannot promise — durable `HistoryDedupStore` implementations
 /// own that guarantee.
+///
+/// The store also owns same-key single-flight (spoke-knowledge-adoption
+/// contract §Repeat and idempotency): [`HistoryDedupStore::claim_key`]
+/// returns the per-key execution lock the service holds across
+/// lookup → port call → record, so one store shared by multiple
+/// services still yields at most one provider invocation per retry
+/// identity while unrelated keys proceed concurrently. Durable stores
+/// implement the same contract with atomic probe-and-record or keyed
+/// single-flight of their own.
 #[async_trait]
 pub trait HistoryDedupStore: Send + Sync {
     /// Resolve one dedup key (see [`HistoryDedupLookup`]).
     async fn lookup(&self, key: &str) -> HistoryDedupLookup;
+
+    /// Acquire the per-key execution lock covering the
+    /// lookup → provider call → `record` sequence: same-key callers
+    /// serialize on the returned guard, unrelated keys never block.
+    /// Cross-process atomicity is a store-implementation obligation.
+    async fn claim_key(&self, key: &str) -> tokio::sync::OwnedMutexGuard<()>;
 
     /// Persist the digest and settled outcome for one executed key.
     async fn record(&self, key: &str, record: HistoryDedupRecord);
@@ -353,6 +368,11 @@ struct InMemoryDedupState {
     /// Live records, FIFO by insertion order.
     records: HashMap<String, HistoryDedupRecord>,
     order: VecDeque<String>,
+    /// Per-key single-flight locks — the store-interface ownership
+    /// point: every service sharing this store serializes on the same
+    /// lock for a key, while unrelated keys hold independent locks.
+    /// Weak entries drop once no caller holds the lock.
+    in_flight: HashMap<String, Weak<tokio::sync::Mutex<()>>>,
     /// Evicted keys — permanent for the lifetime of the store (contract
     /// §9.1): never evicted, so a replayed evicted key never returns
     /// `Unseen`.
@@ -395,6 +415,24 @@ impl HistoryDedupStore for InMemoryHistoryDedupStore {
             return HistoryDedupLookup::Evicted;
         }
         HistoryDedupLookup::Unseen
+    }
+
+    async fn claim_key(&self, key: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let mut state = self.state.lock().expect("dedup lock");
+            state.in_flight.retain(|_, weak| weak.strong_count() > 0);
+            match state.in_flight.get(key).and_then(Weak::upgrade) {
+                Some(lock) => lock,
+                None => {
+                    let lock = Arc::new(tokio::sync::Mutex::new(()));
+                    state
+                        .in_flight
+                        .insert(key.to_owned(), Arc::downgrade(&lock));
+                    lock
+                }
+            }
+        };
+        lock.lock_owned().await
     }
 
     async fn record(&self, key: &str, record: HistoryDedupRecord) {
@@ -735,11 +773,10 @@ fn valid_served_prune_result(result: HistoryPruneResult) -> SpokeResult<Value> {
 pub struct HistoryPortService {
     port: Arc<dyn HistoryPort + Send + Sync>,
     admission: HistoryAdmission,
+    /// Owns same-key single-flight via [`HistoryDedupStore::claim_key`]:
+    /// two concurrent same-key prunes cannot both observe `Unseen` and
+    /// double-execute, while unrelated keys proceed concurrently.
     dedup: Arc<dyn HistoryDedupStore>,
-    /// Serializes the dedup lookup → port call → record sequence so two
-    /// concurrent same-key prunes cannot both observe `Unseen` and
-    /// double-execute.
-    dedup_lock: tokio::sync::Mutex<()>,
 }
 
 impl HistoryPortService {
@@ -751,7 +788,6 @@ impl HistoryPortService {
             port,
             admission,
             dedup: Arc::new(InMemoryHistoryDedupStore::new()),
-            dedup_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -880,9 +916,12 @@ impl RemoteHistoryService for HistoryPortService {
                     "{scope_digest}|{}|{op}|{idempotency_key}",
                     principal.principal_id.as_str()
                 );
-                // One lock covers lookup → port → record: concurrent
-                // same-key prunes cannot both see `Unseen`.
-                let _dedup_guard = self.dedup_lock.lock().await;
+                // The store-interface keyed lock covers
+                // lookup → port → record: concurrent same-key prunes
+                // cannot both see `Unseen` — including across services
+                // sharing this store — while unrelated keys proceed
+                // concurrently.
+                let _dedup_guard = self.dedup.claim_key(&dedup_key).await;
                 match self.dedup.lookup(&dedup_key).await {
                     HistoryDedupLookup::Evicted => {
                         return spoke_reject(
@@ -984,25 +1023,25 @@ pub trait RemoteAdoptionService: Send + Sync {
 /// `knowledge.adopt` op maps onto its typed port call, so a host attaches
 /// an existing provider with
 /// `RemoteServePortsComposite::new(..).with_adoption(Arc::new(AdoptionPortService::new(port, admission)))`
-/// — mirroring [`HistoryPortService`]. The dedup key is
-/// `(effective_scope, requester_principal_id, op, idempotency_key)` and
-/// the request digest is SHA-256 over RFC 8785 canonical JSON of the
-/// complete request payload; a same-key different-digest replay answers
-/// `IDEMPOTENCY_CONFLICT`, a same-key same-digest replay returns the
-/// recorded outcome with `outcome` normalized to `already_present` — the
-/// existing copy, no second write (contract §Repeat and idempotency).
+/// — mirroring [`HistoryPortService`]. The dedup key is the RFC 8785
+/// canonical JSON serialization of the ordered retry-identity tuple
+/// `(op, effective_scope, requester_principal_id, idempotency_key)` —
+/// member boundaries stay structural, never delimiter-joined (contract
+/// §Repeat and idempotency: the contract key names that tuple followed
+/// by `payload_digest`; the digest is recorded on the dedup record and
+/// compared on replay, so a same-identity different-digest replay still
+/// answers `IDEMPOTENCY_CONFLICT`). A same-identity same-digest replay
+/// returns the recorded outcome with `outcome` normalized to
+/// `already_present` — the existing copy, no second write.
 ///
 /// The dedup store reuses the `HistoryDedupStore` seam — the
 /// recorded-outcome shape and bounded in-memory default are identical;
-/// host-injectable for durable persistence.
+/// host-injectable for durable persistence. The store also owns same-key
+/// single-flight through [`HistoryDedupStore::claim_key`].
 pub struct AdoptionPortService {
     port: Arc<dyn AdoptionPort + Send + Sync>,
     admission: AdoptionAdmission,
     dedup: Arc<dyn HistoryDedupStore>,
-    /// Serializes the dedup lookup → port call → record sequence so two
-    /// concurrent same-key adoptions cannot both observe `Unseen` and
-    /// double-execute.
-    dedup_lock: tokio::sync::Mutex<()>,
 }
 
 impl AdoptionPortService {
@@ -1014,7 +1053,6 @@ impl AdoptionPortService {
             port,
             admission,
             dedup: Arc::new(InMemoryHistoryDedupStore::new()),
-            dedup_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -1058,7 +1096,21 @@ impl RemoteAdoptionService for AdoptionPortService {
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
         // Decode at the boundary first: a malformed payload keeps its
-        // `INVALID_INPUT` without paying an admission lookup.
+        // `INVALID_INPUT` without paying an admission lookup (contract:
+        // validation and decode complete before admission). An explicit
+        // `destination_entry_id: null` is malformed — the selector is a
+        // string or absent — but the generated `Option` field decodes
+        // null as absent, so the null check runs on the raw payload.
+        let explicit_null_selector = payload
+            .get("destination_entry_id")
+            .is_some_and(Value::is_null);
+        if explicit_null_selector {
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("invalid {op} payload: destination_entry_id must be a string or absent, not null"),
+                None,
+            );
+        }
         let request: KnowledgeAdoptRequest = match serde_json::from_value(payload) {
             Ok(request) => request,
             Err(error) => {
@@ -1073,20 +1125,29 @@ impl RemoteAdoptionService for AdoptionPortService {
             SpokeResult::Ok(admitted) => admitted,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
-        let scope_digest = match jcs_sha256_hex(
-            &serde_json::to_value(&effective_scope).unwrap_or_else(|_| json!({})),
-        ) {
-            SpokeResult::Ok(digest) => digest,
-            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
-        };
-        let dedup_key = format!(
-            "{scope_digest}|{}|{op}|{}",
+        let scope_value =
+            serde_json::to_value(&effective_scope).unwrap_or_else(|_| json!({}));
+        // The dedup key IS the canonical serialization — never a
+        // delimiter-joined string (contract §Repeat and idempotency).
+        let dedup_key = match serde_jcs::to_string(&json!([
+            op,
+            scope_value,
             principal.principal_id.as_str(),
-            request.idempotency_key.as_str(),
-        );
-        // One lock covers lookup → port → record: concurrent same-key
-        // adoptions cannot both see `Unseen`.
-        let _dedup_guard = self.dedup_lock.lock().await;
+            request.idempotency_key.as_str()
+        ])) {
+            Ok(key) => key,
+            Err(error) => {
+                return spoke_reject(
+                    SpokeRejectCode::InternalError,
+                    format!("adoption dedup key canonicalization failed: {error}"),
+                    None,
+                )
+            }
+        };
+        // The store-interface keyed lock covers lookup → port → record:
+        // concurrent same-identity adoptions cannot both see `Unseen` —
+        // including across services sharing this store.
+        let _dedup_guard = self.dedup.claim_key(&dedup_key).await;
         match self.dedup.lookup(&dedup_key).await {
             HistoryDedupLookup::Evicted => {
                 return spoke_reject(
@@ -1190,6 +1251,17 @@ fn valid_served_adopt_result(response: KnowledgeAdoptResponse) -> SpokeResult<Va
             "adoption provider returned a missing or malformed entry member",
         );
     };
+    // A success entry always carries `adoption_anchor` (contract
+    // §`KnowledgeAdoptResponse`): a provider result whose entry lacks the
+    // anchor is malformed — a serving refusal, never `Ok`.
+    let anchor_ok = entry
+        .get("adoption_anchor")
+        .is_some_and(|anchor| anchor.is_object());
+    if !anchor_ok {
+        return history_transport_reject(
+            "adoption provider returned an entry without an adoption_anchor member",
+        );
+    }
     // The emitted success is `{outcome, entry}` — the contract's exact
     // success branch (parity with TS `validServedAdoptResult`, which
     // emits those two members only).

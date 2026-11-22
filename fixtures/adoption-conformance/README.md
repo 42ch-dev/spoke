@@ -40,14 +40,14 @@ face admission path, and the refusal's wire round-trip.
 
 | File | Cases | Purpose |
 |------|-------|---------|
-| `adopt-basic.json` | 6 | `adopted` outcome + populated `adoption_anchor`, copy-rule observables (anchor write, `source_anchor` cleared, `modules.cognition` dropped, `mindcore_adoption` dropped, governance reset), `destination_entry_id` override, compound capability gate, absent-face dispatch-deny, service decode boundary |
+| `adopt-basic.json` | 7 | `adopted` outcome + populated `adoption_anchor`, copy-rule observables (anchor write, `source_anchor` cleared, `modules.cognition` dropped, `mindcore_adoption` dropped, governance reset), `destination_entry_id` override, compound capability gate, absent-face dispatch-deny, service decode boundary (missing `idempotency_key`, explicit `null` `destination_entry_id`) |
 | `idempotent-repeat.json` | 4 | same-key recorded-outcome replay normalized to `already_present`, same-key different-digest `IDEMPOTENCY_CONFLICT`, anchor-repeat `already_present` under a different key, `RECEIPT_EXPIRED` after bounded-store eviction |
 | `revision-conflict.json` | 2 | `REVISION_CONFLICT` + `details.adopted_revision` on a different `source_revision`, unrelated-occupant create-only refusal without `adopted_revision` |
 | `private-source.json` | 4 | owner-private mismatched-viewpoint `NOT_FOUND` (recorded and re-executed repeats produce the same absence), missing-source identical absence, out-of-admitted-scope identical absence, owner-private visible to its owner |
-| `retirement-chain.json` | 6 | merged→live terminal resolution (anchor records the terminal triple), cycle, zero/multiple successors, deleted terminal, 33rd-edge limit — each `SOURCE_RETIRED` with the exact `details.retirement_chain` |
+| `retirement-chain.json` | 8 | merged→live terminal resolution (anchor records the terminal triple + fresh-key repeat on the resolved tuple), cycle, zero/multiple successors, deleted terminal, exact-32-edge success, 33rd-edge limit (visited ids only), owner-private resolved terminal generic `NOT_FOUND` — each `SOURCE_RETIRED` with the exact `details.retirement_chain` |
 | `anchor-immutable.json` | 3 | `put` mutating a stored `adoption_anchor` → `ADOPTION_ANCHOR_IMMUTABLE` + `details.entry_id` (replace and remove), identical-anchor put passes |
 
-Totals: 25 cases — 24 wire, 1 service.
+Totals: 28 cases — 26 wire, 2 service.
 
 ## Case envelope
 

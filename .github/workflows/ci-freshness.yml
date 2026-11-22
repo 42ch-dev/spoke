@@ -108,11 +108,11 @@ jobs:
             echo "::error::cpp-carrier: $CPP_PROVENANCE is not a JSON object"
             echo "- :x: **cpp-carrier** committed provenance is not a JSON object." >> "$GITHUB_STEP_SUMMARY"
             stale=1
-          elif ! cpp_rows=$(jq -r '.nativeArtifacts // {} | keys[]' "$CPP_PROVENANCE"); then
-            echo "::error::cpp-carrier: $CPP_PROVENANCE is not valid JSON"
-            echo "- :x: **cpp-carrier** committed provenance is not valid JSON." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$(jq -r '.nativeArtifacts | type' "$CPP_PROVENANCE")" != "object" ]; then
+            echo "::error::cpp-carrier: $CPP_PROVENANCE has no nativeArtifacts object"
+            echo "- :x: **cpp-carrier** committed provenance has no \`nativeArtifacts\` object." >> "$GITHUB_STEP_SUMMARY"
             stale=1
-          elif [ -z "$cpp_rows" ]; then
+          elif cpp_rows=$(jq -r '.nativeArtifacts | keys[]' "$CPP_PROVENANCE"); [ -z "$cpp_rows" ]; then
             echo "::warning::cpp-carrier: committed provenance has no nativeArtifacts entries"
             echo "- :warning: **cpp-carrier** committed provenance records no carriers." >> "$GITHUB_STEP_SUMMARY"
           else

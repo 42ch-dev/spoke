@@ -138,8 +138,8 @@ describe("dependency source identity", () => {
         put(".github/workflows/cpp-connect.yml", "workflow\n");
         git("add", ".");
         git("commit", "-qm", "initial");
-        // The copied script is the only recipe path present in the fixture,
-        // so the recipe revision is the commit that created it.
+        // Both recipe paths land in the initial commit, so the recipe
+        // revision is that commit.
         const initialRevision = git("rev-parse", "HEAD");
         put("bin/cargo", "#!/bin/sh\nmkdir -p target/cpp/x86_64-pc-windows-msvc/release\nprintf native > target/cpp/x86_64-pc-windows-msvc/release/spoke_connect_capi.dll\nprintf import > target/cpp/x86_64-pc-windows-msvc/release/spoke_connect_capi.dll.lib\n", { mode: 0o755 });
         put("bin/rustc", "#!/bin/sh\nprintf 'rustc fixture\\n'\n", { mode: 0o755 });

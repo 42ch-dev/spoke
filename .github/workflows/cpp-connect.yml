@@ -114,7 +114,7 @@ jobs:
 
       - name: Checkout
         # actions/checkout@v4.2.2 — fetch the committed LFS carrier.
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           lfs: true
@@ -123,14 +123,14 @@ jobs:
       - name: Setup MSVC developer environment
         # x64 selects the release MSVC toolchain used by the C++ smoke.
         # ilammy/msvc-dev-cmd@v1
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
         with:
           arch: x64
 
       - name: Setup Node.js
         # actions/setup-node@v4.4.0 — Node 24
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
@@ -138,7 +138,7 @@ jobs:
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16) — exact stable pin for
         # the Windows carrier and its x86_64-pc-windows-msvc target.
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.98.1
@@ -146,7 +146,7 @@ jobs:
 
       - name: Cache Rust dependencies
         # Swatinem/rust-cache@v2.9.1
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
           shared-key: spoke-rust-cpp-win
@@ -188,25 +188,25 @@ jobs:
         run: node tooling/connect/cpp-smoke.mjs --rid win-x64
 
       - name: Build Windows carrier
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.98.1
 
       - name: Show native provenance
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         shell: pwsh
         run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
       - name: Check C ABI symbols
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         id: rebuilt_symbols
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test
 
       - name: Run C++ smoke
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         id: rebuilt_smoke
         run: node tooling/connect/cpp-smoke.mjs --rid win-x64
 
       - name: Stage Windows native refresh artifact
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         shell: pwsh
         run: |
           $stage = Join-Path $env:RUNNER_TEMP "spoke-connect-win-x64"
@@ -217,7 +217,7 @@ jobs:
 
       - name: Upload Windows native refresh artifact
         # actions/upload-artifact@v4.6.2
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spoke-connect-win-x64
@@ -269,7 +269,7 @@ jobs:
 
       - name: Checkout
         # actions/checkout@v4.2.2 — fetch the committed LFS carrier.
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           lfs: true
@@ -277,7 +277,7 @@ jobs:
 
       - name: Setup Node.js
         # actions/setup-node@v4.4.0 — Node 24
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
@@ -285,7 +285,7 @@ jobs:
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16) — exact stable pin for
         # the macOS carrier's aarch64-apple-darwin target.
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.98.1
@@ -293,7 +293,7 @@ jobs:
 
       - name: Cache Rust dependencies
         # Swatinem/rust-cache@v2.9.1
-        if: steps.assert.outputs.ok == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
           shared-key: spoke-rust-cpp-macos
@@ -336,21 +336,21 @@ jobs:
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
       - name: Build macOS carrier
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         run: node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.98.1
 
       - name: Check rebuilt C ABI symbols
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         id: rebuilt_symbols
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test
 
       - name: Run rebuilt C++ smoke
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         id: rebuilt_smoke
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
       - name: Stage macOS native refresh artifact
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         run: |
           mkdir -p "${RUNNER_TEMP}/spoke-connect-osx-arm64"
           cp crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib "${RUNNER_TEMP}/spoke-connect-osx-arm64/"
@@ -358,7 +358,7 @@ jobs:
 
       - name: Upload macOS native refresh artifact
         # actions/upload-artifact@v4.6.2
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spoke-connect-osx-arm64

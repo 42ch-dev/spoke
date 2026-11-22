@@ -46,17 +46,25 @@ pub const CAPABILITY_SPOKE_MEMORY_TRANSFER: &str = "spoke-memory-transfer";
 /// boundary next to `ke-ownership`. The legacy `l5-mind` flag is never read
 /// as this family.
 pub const CAPABILITY_SPOKE_COGNITION: &str = "spoke-cognition";
+/// Optional capability: required by the history family core ops
+/// (`history.revisions.get` / `history.revisions.prune`, spoke-history
+/// contract §Connect operations and capability gate). Neither
+/// `spoke-baseline` nor `spoke-knowledge` satisfies it — dispatch requires
+/// exact `spoke-history` membership.
+pub const CAPABILITY_SPOKE_HISTORY: &str = "spoke-history";
 
 /// Ops whose registered request carries a `Scope` and therefore the
 /// `Scope.cognition` selection slot (`common.schema.json` → `Scope`,
 /// referenced by `assemble-request` / `check-request` and the three remote
 /// Scope ops).
-const SCOPE_COGNITION_OPS: [&str; 5] = [
+const SCOPE_COGNITION_OPS: [&str; 7] = [
     "check",
     "assemble",
     "port.scope.list_knowledge_entries",
     "port.scope.list_timeline_events",
     "port.fork.list_timeline_events",
+    "history.revisions.get",
+    "history.revisions.prune",
 ];
 
 /// Memory ops whose registered request declares the `cognition_filter` slot
@@ -158,6 +166,11 @@ pub fn required_capability(op: &str) -> Option<&str> {
         "memory.reflections.state"
         | "memory.reflections.list"
         | "memory.reflections.generate" => Some(CAPABILITY_SPOKE_MEMORY_REFLECTION),
+        // History family (spoke-history contract §Connect operations): two
+        // rows, exact `spoke-history` membership — no other flag implies it.
+        "history.revisions.get" | "history.revisions.prune" => {
+            Some(CAPABILITY_SPOKE_HISTORY)
+        }
         "memory.exports.create"
         | "memory.exports.get"
         | "memory.imports.stage"

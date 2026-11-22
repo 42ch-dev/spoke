@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/history-revisions-get-request.schema.json",
+  "title": "HistoryRevisionsGetRequest",
+  "description": "Replay one entity at an exact revision (spoke-history). Requires the negotiated spoke-history capability; without it the connect gate answers op_unsupported / capability_missing. After admission, an unserved entity_kind answers HISTORY_ENTITY_UNSUPPORTED with details.entity_kind; a revision below the retained floor answers HISTORY_TRUNCATED with details.floor_revision; a revision at or above the floor that cannot be reconstructed answers HISTORY_NOT_RETAINED with details.retention_reason. History reads follow the selected entity's existing read and disclosure rules; a missing or non-disclosable entity answers NOT_FOUND. Read-only; no idempotency_key.",
+  "type": "object",
+  "required": [
+    "entity_kind",
+    "entity_id",
+    "revision"
+  ],
+  "properties": {
+    "entity_kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Open kind selector. Core vocabulary (documented, not enforced): knowledge_entry, relation."
+    },
+    "entity_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque entity id within scope."
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Exact revision to replay."
+    },
+    "scope": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Scope",
+      "description": "Scope in which entity lookup and disclosure are evaluated."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "entity_kind": "knowledge_entry",
+      "entity_id": "ke_mira_harbor",
+      "revision": 3
+    }
+  ]
+}

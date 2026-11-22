@@ -69,14 +69,15 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
-    BaselinePorts, SpokeReject, SpokeRejectCode, SpokeResult,
+    BaselinePorts, HistoryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ConnectInvokeResponse;
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::{
     ComputeRequest, ExtractRequest, ExtractResponse, Finding, HostCapabilityManifest,
-    KnowledgeEntry, ProjectRequest, Relation, Scope,
+    HistoryRevisionsGetRequest, HistoryRevisionsPruneRequest, KnowledgeEntry, ProjectRequest,
+    Relation, Scope,
 };
 
 use crate::cognition::{unsupported_cognition_requirement, WIRE_INVALID_INPUT};
@@ -632,6 +633,112 @@ fn map_result<T: Serialize>(result: SpokeResult<T>) -> SpokeResult<Value> {
             ),
         },
         SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+    }
+}
+
+/// One decoded `history.*` dispatch: the validated arguments produced by
+/// [`decode_history_call`] before the serve bound starts (B1 — a malformed
+/// payload keeps its `INVALID_INPUT` reject even at a zero budget). The
+/// prune op's wire `idempotency_key` is validated by the typed decode but
+/// never reaches the port — the connect idempotency envelope is a
+/// connect-layer concern (spoke-history contract).
+enum HistoryCall {
+    /// `history.revisions.get` — `(scope, entity_kind, entity_id, revision)`.
+    Get(Option<Scope>, String, String, u64),
+    /// `history.revisions.prune` — `(scope, entity_kind, entity_id, keep)`.
+    Prune(Option<Scope>, String, String, u64),
+}
+
+/// Decode the request's optional `scope` member as the shared `Scope`:
+/// absent is `None` (the provider applies its own scope resolution), a
+/// present malformed member is `INVALID_INPUT`.
+fn decode_history_scope(op: &str, payload: &Value) -> SpokeResult<Option<Scope>> {
+    let Some(scope) = payload.get("scope") else {
+        return spoke_ok(None);
+    };
+    match serde_json::from_value(scope.clone()) {
+        Ok(scope) => spoke_ok(Some(scope)),
+        Err(error) => spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            format!("invalid {op} payload: {error}"),
+            None,
+        ),
+    }
+}
+
+/// Decode and validate one `history.*` op payload. The typed request decode
+/// is the trust boundary — a malformed or unknown-member payload answers
+/// `INVALID_INPUT` before the provider is called (same rule as `extract`
+/// and the memory service boundary).
+fn decode_history_call(op: &str, payload: &Value) -> SpokeResult<HistoryCall> {
+    match op {
+        "history.revisions.get" => {
+            match serde_json::from_value::<HistoryRevisionsGetRequest>(payload.clone()) {
+                Ok(request) => match decode_history_scope(op, payload) {
+                    SpokeResult::Ok(scope) => spoke_ok(HistoryCall::Get(
+                        scope,
+                        (*request.entity_kind).clone(),
+                        (*request.entity_id).clone(),
+                        request.revision,
+                    )),
+                    SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+                },
+                Err(error) => spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("invalid {op} payload: {error}"),
+                    None,
+                ),
+            }
+        }
+        "history.revisions.prune" => {
+            match serde_json::from_value::<HistoryRevisionsPruneRequest>(payload.clone()) {
+                Ok(request) => match decode_history_scope(op, payload) {
+                    SpokeResult::Ok(scope) => spoke_ok(HistoryCall::Prune(
+                        scope,
+                        (*request.entity_kind).clone(),
+                        (*request.entity_id).clone(),
+                        request.keep,
+                    )),
+                    SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+                },
+                Err(error) => spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("invalid {op} payload: {error}"),
+                    None,
+                ),
+            }
+        }
+        _ => SpokeResult::Reject(SpokeReject {
+            code: SpokeRejectCode::CapabilityPortMissing,
+            message: format!("unimplemented history op {op}"),
+            details: None,
+        }),
+    }
+}
+
+/// Dispatch one decoded [`HistoryCall`] to the injected `HistoryPort` —
+/// the provider work the serve bound covers.
+async fn call_history_op(call: HistoryCall, port: &dyn HistoryPort) -> SpokeResult<Value> {
+    match call {
+        HistoryCall::Get(scope, entity_kind, entity_id, revision) => {
+            let result = port
+                .get_history_snapshot(scope.as_ref(), &entity_kind, &entity_id, revision)
+                .await;
+            // The success wire object wraps the snapshot under `snapshot`
+            // (the get-response Variant0 member), not the bare value.
+            match map_result(result) {
+                SpokeResult::Ok(snapshot) => spoke_ok(json!({ "snapshot": snapshot })),
+                reject => reject,
+            }
+        }
+        HistoryCall::Prune(scope, entity_kind, entity_id, keep) => {
+            // `HistoryPruneResult` serializes to the wire success object
+            // directly (`{ deleted, floor_revision }`).
+            map_result(
+                port.prune_history(scope.as_ref(), &entity_kind, &entity_id, keep)
+                    .await,
+            )
+        }
     }
 }
 
@@ -1289,12 +1396,13 @@ impl ConnectResponder {
         // against `negotiated_capabilities` (never a raw requirements-map
         // composition, which would deny the self-describing tools family).
         if !self.gate_allows(op, &negotiated) {
-            // A `memory.*` op with a core-table row is a capability gap: the
-            // gate evaluates negotiated capabilities only, so a known op that
-            // was not negotiated answers `capability_missing` (protocol §4.1).
+            // A `memory.*` or `history.*` op with a core-table row is a
+            // capability gap: the gate evaluates negotiated capabilities
+            // only, so a known op that was not negotiated answers
+            // `capability_missing` (protocol §4.1 / spoke-history contract).
             // An op with no row at all stays `op_unsupported`.
-            let memory_deny = op.starts_with("memory.");
-            let code = if memory_deny && required_capability(op).is_some() {
+            let core_gated_deny = op.starts_with("memory.") || op.starts_with("history.");
+            let code = if core_gated_deny && required_capability(op).is_some() {
                 "capability_missing"
             } else {
                 "op_unsupported"
@@ -1302,7 +1410,8 @@ impl ConnectResponder {
             // §14.2: every memory-boundary denial — a known op missing its
             // capability and an op with no row at all — is classified
             // `terminal`, so the wire code choice never drops the metadata.
-            let memory_details = memory_deny.then(memory_terminal_details);
+            // History denials carry no extra details.
+            let memory_details = op.starts_with("memory.").then(memory_terminal_details);
             self.send_reverse_error_envelope(
                 doc,
                 code,
@@ -1320,6 +1429,13 @@ impl ConnectResponder {
         // [`RemoteMemoryService`](crate::remote::RemoteMemoryService) face.
         if op.starts_with("memory.") {
             self.dispatch_memory_invoke(doc, &negotiated).await?;
+            return Ok(());
+        }
+        // `history.*` ops are served by the optional injected `HistoryPort`
+        // face (spoke-history contract): the same gate → probe → serve/deny
+        // order as the optional `port.*` families.
+        if op.starts_with("history.") {
+            self.dispatch_history_invoke(doc, &negotiated).await?;
             return Ok(());
         }
         // `extract` is a core op served by an optional injected service
@@ -1710,6 +1826,112 @@ impl ConnectResponder {
             .await?;
             return Ok(());
         };
+        match result {
+            SpokeResult::Ok(value) => self.send_ok_response(doc, value).await?,
+            SpokeResult::Reject(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Serve a `history.*` invoke through the injected [`HistoryPort`] face
+    /// (spoke-history contract §Connect operations). The static capability
+    /// gate already passed in
+    /// [`ConnectResponder::try_dispatch_invoke`] — a known history op that
+    /// was not negotiated never reaches here (`capability_missing`). The
+    /// serving order mirrors the `memory.*` branch: cognition gate →
+    /// `as_history` probe → typed decode → bounded port call → response
+    /// envelope. An absent face is the documented dispatch-deny branch (the
+    /// host declared `spoke-history` without providing the port).
+    ///
+    /// The serve bound matches the `port.*` ops: expiry after the call was
+    /// invoked answers the plain timeout rather than `OUTCOME_UNCERTAIN` —
+    /// the contract's prune idempotency model (recorded outcomes, digest
+    /// dedup) is not wired yet, so this end makes no outcome claim.
+    async fn dispatch_history_invoke(
+        &self,
+        doc: &Value,
+        negotiated: &[String],
+    ) -> Result<(), ResponderError> {
+        let Some(op) = doc.get("op").and_then(Value::as_str) else {
+            // Defensive: the dispatch gate routes only string ops here — a
+            // non-string op means a caller bypassed it. Fail closed instead
+            // of silently swallowing the invoke.
+            self.send_reverse_error_envelope(
+                doc,
+                SpokeRejectCode::InvalidInput.as_str(),
+                "invalid history invoke: op must be a string",
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // Payload-dependent cognition gate on the raw payload: the history
+        // request `scope` carries the `Scope.cognition` selection slot, so a
+        // declared requirement needs `spoke-cognition` negotiated before the
+        // probe and any provider call.
+        let empty_payload = json!({});
+        let payload = doc.get("payload").unwrap_or(&empty_payload);
+        if !self
+            .serve_cognition_gate(doc, payload, negotiated, op)
+            .await?
+        {
+            return Ok(());
+        }
+        let Some(port) = self
+            .ports
+            .as_ref()
+            .and_then(|ports| ports.as_history())
+        else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no history port configured for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // Decode BEFORE the bound (B1): a malformed payload keeps its
+        // `INVALID_INPUT` reject even at a zero budget.
+        let call = match decode_history_call(op, payload) {
+            SpokeResult::Ok(call) => call,
+            SpokeResult::Reject(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+                return Ok(());
+            }
+        };
+        let result = if self.invoke_timeout.is_zero() {
+            SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout))
+        } else {
+            match tokio::time::timeout(
+                self.invoke_timeout,
+                call_history_op(call, port.as_ref()),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout)),
+            }
+        };
+        // A close during the bounded wait released the session: this dispatch
+        // answers nothing afterwards — no late success, no late second error.
+        if self.state() == ConnectResponderState::Closed {
+            return Ok(());
+        }
         match result {
             SpokeResult::Ok(value) => self.send_ok_response(doc, value).await?,
             SpokeResult::Reject(reject) => {

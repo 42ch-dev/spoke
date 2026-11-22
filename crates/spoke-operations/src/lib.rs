@@ -8,6 +8,7 @@ mod cognition;
 mod extensions;
 mod error;
 mod finding;
+mod history;
 mod knowledge_entry;
 mod memory;
 mod mind_state;
@@ -97,6 +98,8 @@ pub use memory::{
 pub use adapter::orchestrate::orchestrate_extract;
 pub use adapter::ports::{ExtractRunInput, ExtractionPort, ExtractionResult};
 pub use adapter::{MemoryPort, MemoryPorts};
+pub use adapter::{HistoryPort, HistoryPorts};
+pub use history::{revision_snapshots_equal_canonical, HistoryPruneResult};
 
 /// Re-export wire types for integrator convenience.
 pub use spoke_schemas;

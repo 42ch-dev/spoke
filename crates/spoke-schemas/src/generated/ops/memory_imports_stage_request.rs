@@ -20,16 +20,16 @@ impl ::std::convert::From<AuthorityHostId> for ::std::string::String {
 impl ::std::str::FromStr for AuthorityHostId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for AuthorityHostId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for AuthorityHostId {
@@ -37,7 +37,7 @@ impl ::std::convert::TryFrom<::std::string::String> for AuthorityHostId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for AuthorityHostId {
@@ -45,8 +45,7 @@ impl<'de> ::serde::Deserialize<'de> for AuthorityHostId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -70,18 +69,20 @@ impl ::std::convert::From<BundleDigest> for ::std::string::String {
 impl ::std::str::FromStr for BundleDigest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for BundleDigest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for BundleDigest {
@@ -89,7 +90,7 @@ impl ::std::convert::TryFrom<::std::string::String> for BundleDigest {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for BundleDigest {
@@ -97,8 +98,7 @@ impl<'de> ::serde::Deserialize<'de> for BundleDigest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -122,16 +122,16 @@ impl ::std::convert::From<CandidateId> for ::std::string::String {
 impl ::std::str::FromStr for CandidateId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for CandidateId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for CandidateId {
@@ -139,7 +139,7 @@ impl ::std::convert::TryFrom<::std::string::String> for CandidateId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for CandidateId {
@@ -147,8 +147,7 @@ impl<'de> ::serde::Deserialize<'de> for CandidateId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -172,16 +171,16 @@ impl ::std::convert::From<CapturedBy> for ::std::string::String {
 impl ::std::str::FromStr for CapturedBy {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapturedBy {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for CapturedBy {
@@ -189,7 +188,7 @@ impl ::std::convert::TryFrom<::std::string::String> for CapturedBy {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for CapturedBy {
@@ -197,8 +196,7 @@ impl<'de> ::serde::Deserialize<'de> for CapturedBy {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -222,18 +220,20 @@ impl ::std::convert::From<ChunkDigest> for ::std::string::String {
 impl ::std::str::FromStr for ChunkDigest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ChunkDigest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ChunkDigest {
@@ -241,7 +241,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ChunkDigest {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ChunkDigest {
@@ -249,8 +249,7 @@ impl<'de> ::serde::Deserialize<'de> for ChunkDigest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -401,18 +400,20 @@ impl ::std::convert::From<ContentDigest> for ::std::string::String {
 impl ::std::str::FromStr for ContentDigest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ContentDigest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ContentDigest {
@@ -420,7 +421,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ContentDigest {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ContentDigest {
@@ -428,8 +429,7 @@ impl<'de> ::serde::Deserialize<'de> for ContentDigest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -453,16 +453,16 @@ impl ::std::convert::From<ContextId> for ::std::string::String {
 impl ::std::str::FromStr for ContextId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ContextId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ContextId {
@@ -470,7 +470,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ContextId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ContextId {
@@ -478,8 +478,7 @@ impl<'de> ::serde::Deserialize<'de> for ContextId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -503,16 +502,16 @@ impl ::std::convert::From<DeletedBy> for ::std::string::String {
 impl ::std::str::FromStr for DeletedBy {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for DeletedBy {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for DeletedBy {
@@ -520,7 +519,7 @@ impl ::std::convert::TryFrom<::std::string::String> for DeletedBy {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for DeletedBy {
@@ -528,8 +527,7 @@ impl<'de> ::serde::Deserialize<'de> for DeletedBy {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -553,18 +551,20 @@ impl ::std::convert::From<Digest> for ::std::string::String {
 impl ::std::str::FromStr for Digest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Digest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Digest {
@@ -572,7 +572,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Digest {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Digest {
@@ -580,8 +580,7 @@ impl<'de> ::serde::Deserialize<'de> for Digest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -660,16 +659,16 @@ impl ::std::convert::From<EnginePolicyVersion> for ::std::string::String {
 impl ::std::str::FromStr for EnginePolicyVersion {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for EnginePolicyVersion {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for EnginePolicyVersion {
@@ -677,7 +676,7 @@ impl ::std::convert::TryFrom<::std::string::String> for EnginePolicyVersion {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for EnginePolicyVersion {
@@ -685,8 +684,7 @@ impl<'de> ::serde::Deserialize<'de> for EnginePolicyVersion {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -710,16 +708,16 @@ impl ::std::convert::From<ExportId> for ::std::string::String {
 impl ::std::str::FromStr for ExportId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ExportId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ExportId {
@@ -727,7 +725,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ExportId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ExportId {
@@ -735,8 +733,7 @@ impl<'de> ::serde::Deserialize<'de> for ExportId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -760,18 +757,20 @@ impl ::std::convert::From<ExtensionKey> for ::std::string::String {
 impl ::std::str::FromStr for ExtensionKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z][a-z0-9_-]*$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ExtensionKey {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[a-z][a-z0-9_-]*$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ExtensionKey {
@@ -779,7 +778,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ExtensionKey {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ExtensionKey {
@@ -787,8 +786,7 @@ impl<'de> ::serde::Deserialize<'de> for ExtensionKey {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -812,16 +810,16 @@ impl ::std::convert::From<GrantId> for ::std::string::String {
 impl ::std::str::FromStr for GrantId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for GrantId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for GrantId {
@@ -829,7 +827,7 @@ impl ::std::convert::TryFrom<::std::string::String> for GrantId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for GrantId {
@@ -837,8 +835,7 @@ impl<'de> ::serde::Deserialize<'de> for GrantId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -973,6 +970,12 @@ impl ::std::convert::From<IdempotencyKey> for ::std::string::String {
 impl ::std::str::FromStr for IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -982,18 +985,12 @@ impl ::std::str::FromStr for IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String> for IdempotencyKey {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for IdempotencyKey {
@@ -1001,8 +998,7 @@ impl<'de> ::serde::Deserialize<'de> for IdempotencyKey {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1026,16 +1022,16 @@ impl ::std::convert::From<ImportId> for ::std::string::String {
 impl ::std::str::FromStr for ImportId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ImportId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ImportId {
@@ -1043,7 +1039,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ImportId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ImportId {
@@ -1051,8 +1047,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1102,16 +1097,16 @@ impl ::std::convert::From<Kind> for ::std::string::String {
 impl ::std::str::FromStr for Kind {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Kind {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Kind {
@@ -1119,7 +1114,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Kind {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Kind {
@@ -1127,8 +1122,7 @@ impl<'de> ::serde::Deserialize<'de> for Kind {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1309,18 +1303,20 @@ impl ::std::convert::From<PayloadDigest> for ::std::string::String {
 impl ::std::str::FromStr for PayloadDigest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for PayloadDigest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for PayloadDigest {
@@ -1328,7 +1324,7 @@ impl ::std::convert::TryFrom<::std::string::String> for PayloadDigest {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for PayloadDigest {
@@ -1336,8 +1332,7 @@ impl<'de> ::serde::Deserialize<'de> for PayloadDigest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1361,16 +1356,16 @@ impl ::std::convert::From<PrincipalId> for ::std::string::String {
 impl ::std::str::FromStr for PrincipalId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for PrincipalId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for PrincipalId {
@@ -1378,7 +1373,7 @@ impl ::std::convert::TryFrom<::std::string::String> for PrincipalId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for PrincipalId {
@@ -1386,8 +1381,7 @@ impl<'de> ::serde::Deserialize<'de> for PrincipalId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1411,16 +1405,16 @@ impl ::std::convert::From<PrincipalRef> for ::std::string::String {
 impl ::std::str::FromStr for PrincipalRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for PrincipalRef {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for PrincipalRef {
@@ -1428,7 +1422,7 @@ impl ::std::convert::TryFrom<::std::string::String> for PrincipalRef {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for PrincipalRef {
@@ -1436,8 +1430,7 @@ impl<'de> ::serde::Deserialize<'de> for PrincipalRef {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1485,16 +1478,16 @@ impl ::std::convert::From<ProfileDocumentProfileKind> for ::std::string::String 
 impl ::std::str::FromStr for ProfileDocumentProfileKind {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ProfileDocumentProfileKind {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ProfileDocumentProfileKind {
@@ -1502,7 +1495,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ProfileDocumentProfileKi
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ProfileDocumentProfileKind {
@@ -1510,8 +1503,7 @@ impl<'de> ::serde::Deserialize<'de> for ProfileDocumentProfileKind {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1535,16 +1527,16 @@ impl ::std::convert::From<ProfileDocumentSpaceId> for ::std::string::String {
 impl ::std::str::FromStr for ProfileDocumentSpaceId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ProfileDocumentSpaceId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ProfileDocumentSpaceId {
@@ -1552,7 +1544,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ProfileDocumentSpaceId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ProfileDocumentSpaceId {
@@ -1560,8 +1552,7 @@ impl<'de> ::serde::Deserialize<'de> for ProfileDocumentSpaceId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1585,16 +1576,16 @@ impl ::std::convert::From<ProfileDocumentSubjectId> for ::std::string::String {
 impl ::std::str::FromStr for ProfileDocumentSubjectId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ProfileDocumentSubjectId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ProfileDocumentSubjectId {
@@ -1602,7 +1593,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ProfileDocumentSubjectId
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ProfileDocumentSubjectId {
@@ -1610,8 +1601,7 @@ impl<'de> ::serde::Deserialize<'de> for ProfileDocumentSubjectId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1635,16 +1625,16 @@ impl ::std::convert::From<ProfileDocumentUpdatedBy> for ::std::string::String {
 impl ::std::str::FromStr for ProfileDocumentUpdatedBy {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ProfileDocumentUpdatedBy {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ProfileDocumentUpdatedBy {
@@ -1652,7 +1642,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ProfileDocumentUpdatedBy
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ProfileDocumentUpdatedBy {
@@ -1660,8 +1650,7 @@ impl<'de> ::serde::Deserialize<'de> for ProfileDocumentUpdatedBy {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1725,16 +1714,16 @@ impl ::std::convert::From<ReceiptId> for ::std::string::String {
 impl ::std::str::FromStr for ReceiptId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReceiptId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReceiptId {
@@ -1742,7 +1731,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReceiptId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReceiptId {
@@ -1750,8 +1739,7 @@ impl<'de> ::serde::Deserialize<'de> for ReceiptId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1794,16 +1782,16 @@ impl ::std::convert::From<ReceiptSummaryOp> for ::std::string::String {
 impl ::std::str::FromStr for ReceiptSummaryOp {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReceiptSummaryOp {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReceiptSummaryOp {
@@ -1811,7 +1799,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReceiptSummaryOp {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReceiptSummaryOp {
@@ -1819,8 +1807,7 @@ impl<'de> ::serde::Deserialize<'de> for ReceiptSummaryOp {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1844,16 +1831,16 @@ impl ::std::convert::From<RecordId> for ::std::string::String {
 impl ::std::str::FromStr for RecordId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for RecordId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for RecordId {
@@ -1861,7 +1848,7 @@ impl ::std::convert::TryFrom<::std::string::String> for RecordId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RecordId {
@@ -1869,8 +1856,7 @@ impl<'de> ::serde::Deserialize<'de> for RecordId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1960,18 +1946,20 @@ impl ::std::convert::From<ReflectionBasisSourceSetDigest> for ::std::string::Str
 impl ::std::str::FromStr for ReflectionBasisSourceSetDigest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReflectionBasisSourceSetDigest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReflectionBasisSourceSetDigest {
@@ -1979,7 +1967,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReflectionBasisSourceSet
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionBasisSourceSetDigest {
@@ -1987,8 +1975,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionBasisSourceSetDigest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2012,18 +1999,20 @@ impl ::std::convert::From<ReflectionBasisStateDigest> for ::std::string::String 
 impl ::std::str::FromStr for ReflectionBasisStateDigest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReflectionBasisStateDigest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReflectionBasisStateDigest {
@@ -2031,7 +2020,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReflectionBasisStateDige
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionBasisStateDigest {
@@ -2039,8 +2028,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionBasisStateDigest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2076,16 +2064,16 @@ impl ::std::convert::From<ReflectionCostUnitKind> for ::std::string::String {
 impl ::std::str::FromStr for ReflectionCostUnitKind {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReflectionCostUnitKind {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReflectionCostUnitKind {
@@ -2093,7 +2081,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReflectionCostUnitKind {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionCostUnitKind {
@@ -2101,8 +2089,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionCostUnitKind {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2139,16 +2126,16 @@ impl ::std::convert::From<ReflectionGeneratorEnginePolicyVersion> for ::std::str
 impl ::std::str::FromStr for ReflectionGeneratorEnginePolicyVersion {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReflectionGeneratorEnginePolicyVersion {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReflectionGeneratorEnginePolicyVersion {
@@ -2156,7 +2143,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReflectionGeneratorEngin
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionGeneratorEnginePolicyVersion {
@@ -2164,8 +2151,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionGeneratorEnginePolicyVersion {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2189,16 +2175,16 @@ impl ::std::convert::From<ReflectionReflectionId> for ::std::string::String {
 impl ::std::str::FromStr for ReflectionReflectionId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReflectionReflectionId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReflectionReflectionId {
@@ -2206,7 +2192,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReflectionReflectionId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionReflectionId {
@@ -2214,8 +2200,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionReflectionId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2239,16 +2224,16 @@ impl ::std::convert::From<ReflectionSpaceId> for ::std::string::String {
 impl ::std::str::FromStr for ReflectionSpaceId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReflectionSpaceId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReflectionSpaceId {
@@ -2256,7 +2241,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReflectionSpaceId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionSpaceId {
@@ -2264,8 +2249,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionSpaceId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2289,16 +2273,16 @@ impl ::std::convert::From<ReflectionSubjectId> for ::std::string::String {
 impl ::std::str::FromStr for ReflectionSubjectId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReflectionSubjectId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReflectionSubjectId {
@@ -2306,7 +2290,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReflectionSubjectId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionSubjectId {
@@ -2314,8 +2298,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionSubjectId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2339,16 +2322,16 @@ impl ::std::convert::From<RequesterPrincipalRef> for ::std::string::String {
 impl ::std::str::FromStr for RequesterPrincipalRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for RequesterPrincipalRef {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for RequesterPrincipalRef {
@@ -2356,7 +2339,7 @@ impl ::std::convert::TryFrom<::std::string::String> for RequesterPrincipalRef {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RequesterPrincipalRef {
@@ -2364,8 +2347,7 @@ impl<'de> ::serde::Deserialize<'de> for RequesterPrincipalRef {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2467,18 +2449,6 @@ impl ::std::str::FromStr for Shared1 {
     type Err = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
         Ok(Self(value.parse()?))
-    }
-}
-impl ::std::convert::TryFrom<&str> for Shared1 {
-    type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
-    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<String> for Shared1 {
-    type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
-    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
-        value.parse()
     }
 }
 #[doc = "Typed reference kind. `world` identifies the designated narrated-world authority and is invalid as the holder of Belief, epistemic or Perception records. Memory.subject_id is not implicitly a holder; a Memory cognition holder explicitly uses `memory_subject` when intended."]
@@ -2585,16 +2555,16 @@ impl ::std::convert::From<Shared11Id> for ::std::string::String {
 impl ::std::str::FromStr for Shared11Id {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared11Id {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared11Id {
@@ -2602,7 +2572,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared11Id {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared11Id {
@@ -2610,8 +2580,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared11Id {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2635,18 +2604,20 @@ impl ::std::convert::From<Shared11Namespace> for ::std::string::String {
 impl ::std::str::FromStr for Shared11Namespace {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z][a-z0-9_-]*$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared11Namespace {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[a-z][a-z0-9_-]*$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared11Namespace {
@@ -2654,7 +2625,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared11Namespace {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared11Namespace {
@@ -2662,8 +2633,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared11Namespace {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2766,16 +2736,16 @@ impl ::std::convert::From<Shared13TargetId> for ::std::string::String {
 impl ::std::str::FromStr for Shared13TargetId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared13TargetId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared13TargetId {
@@ -2783,7 +2753,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared13TargetId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared13TargetId {
@@ -2791,8 +2761,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared13TargetId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2846,16 +2815,16 @@ impl ::std::convert::From<Shared15Description> for ::std::string::String {
 impl ::std::str::FromStr for Shared15Description {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared15Description {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared15Description {
@@ -2863,7 +2832,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared15Description {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared15Description {
@@ -2871,8 +2840,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared15Description {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3146,18 +3114,6 @@ impl ::std::str::FromStr for Shared2 {
         Ok(Self(value.parse()?))
     }
 }
-impl ::std::convert::TryFrom<&str> for Shared2 {
-    type Error = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
-    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<String> for Shared2 {
-    type Error = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
-    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
-        value.parse()
-    }
-}
 #[doc = "Uncertainty describes the estimate; it is not another cognitive score."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -3346,16 +3302,16 @@ impl ::std::convert::From<Shared24ContextId> for ::std::string::String {
 impl ::std::str::FromStr for Shared24ContextId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared24ContextId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared24ContextId {
@@ -3363,7 +3319,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared24ContextId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared24ContextId {
@@ -3371,8 +3327,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared24ContextId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3396,16 +3351,16 @@ impl ::std::convert::From<Shared24ForkId> for ::std::string::String {
 impl ::std::str::FromStr for Shared24ForkId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared24ForkId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared24ForkId {
@@ -3413,7 +3368,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared24ForkId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared24ForkId {
@@ -3421,8 +3376,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared24ForkId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3461,16 +3415,16 @@ impl ::std::convert::From<Shared25CriterionId> for ::std::string::String {
 impl ::std::str::FromStr for Shared25CriterionId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared25CriterionId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared25CriterionId {
@@ -3478,7 +3432,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared25CriterionId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared25CriterionId {
@@ -3486,8 +3440,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared25CriterionId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3537,16 +3490,16 @@ impl ::std::convert::From<Shared26Method> for ::std::string::String {
 impl ::std::str::FromStr for Shared26Method {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared26Method {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared26Method {
@@ -3554,7 +3507,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared26Method {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared26Method {
@@ -3562,8 +3515,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared26Method {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3575,7 +3527,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared26Method {
 pub struct Shared27 {
     #[doc = "Higher-order target; bounded by Belief order <= 3."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub about: ::std::option::Option<::std::boxed::Box<Shared13>>,
+    pub about: ::std::option::Option<Shared13>,
     pub carrier: Shared11,
     pub kind: Shared12,
     #[doc = "Non-empty and stable within carrier."]
@@ -3607,16 +3559,16 @@ impl ::std::convert::From<Shared27TargetId> for ::std::string::String {
 impl ::std::str::FromStr for Shared27TargetId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared27TargetId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared27TargetId {
@@ -3624,7 +3576,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared27TargetId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared27TargetId {
@@ -3632,8 +3584,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared27TargetId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3726,16 +3677,16 @@ impl ::std::convert::From<Shared29Method> for ::std::string::String {
 impl ::std::str::FromStr for Shared29Method {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared29Method {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared29Method {
@@ -3743,7 +3694,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared29Method {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared29Method {
@@ -3751,8 +3702,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared29Method {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3827,6 +3777,15 @@ impl ::std::ops::Deref for Shared31 {
 impl ::std::convert::From<Shared31> for i64 {
     fn from(value: Shared31) -> Self {
         value.0
+    }
+}
+impl ::std::str::FromStr for Shared31 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value
+            .parse::<i64>()
+            .map_err(|e| ::std::string::ToString::to_string(&e).into())
+            .and_then(Self::try_from)
     }
 }
 impl ::std::convert::TryFrom<i64> for Shared31 {
@@ -4374,16 +4333,16 @@ impl ::std::convert::From<Shared40RecordId> for ::std::string::String {
 impl ::std::str::FromStr for Shared40RecordId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared40RecordId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared40RecordId {
@@ -4391,7 +4350,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared40RecordId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared40RecordId {
@@ -4399,8 +4358,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared40RecordId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -4469,16 +4427,16 @@ impl ::std::convert::From<Shared41ClassificationPolicyPolicyId> for ::std::strin
 impl ::std::str::FromStr for Shared41ClassificationPolicyPolicyId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared41ClassificationPolicyPolicyId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared41ClassificationPolicyPolicyId {
@@ -4486,7 +4444,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared41ClassificationPo
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared41ClassificationPolicyPolicyId {
@@ -4494,8 +4452,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared41ClassificationPolicyPolicyId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -4519,16 +4476,16 @@ impl ::std::convert::From<Shared41ClassificationPolicyPolicyVersion> for ::std::
 impl ::std::str::FromStr for Shared41ClassificationPolicyPolicyVersion {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared41ClassificationPolicyPolicyVersion {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared41ClassificationPolicyPolicyVersion {
@@ -4536,7 +4493,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared41ClassificationPo
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared41ClassificationPolicyPolicyVersion {
@@ -4544,8 +4501,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared41ClassificationPolicyPolicyVersio
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -4569,16 +4525,16 @@ impl ::std::convert::From<Shared41RecordId> for ::std::string::String {
 impl ::std::str::FromStr for Shared41RecordId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared41RecordId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared41RecordId {
@@ -4586,7 +4542,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared41RecordId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared41RecordId {
@@ -4594,8 +4550,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared41RecordId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -4658,16 +4613,16 @@ impl ::std::convert::From<Shared42RecordId> for ::std::string::String {
 impl ::std::str::FromStr for Shared42RecordId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared42RecordId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared42RecordId {
@@ -4675,7 +4630,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared42RecordId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared42RecordId {
@@ -4683,8 +4638,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared42RecordId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -4740,16 +4694,16 @@ impl ::std::convert::From<Shared43FactId> for ::std::string::String {
 impl ::std::str::FromStr for Shared43FactId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared43FactId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared43FactId {
@@ -4757,7 +4711,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared43FactId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared43FactId {
@@ -4765,8 +4719,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared43FactId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -4808,16 +4761,16 @@ impl ::std::convert::From<Shared44Eq> for ::std::string::String {
 impl ::std::str::FromStr for Shared44Eq {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared44Eq {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared44Eq {
@@ -4825,7 +4778,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared44Eq {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared44Eq {
@@ -4833,8 +4786,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared44Eq {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -4874,16 +4826,16 @@ impl ::std::convert::From<Shared45TargetId> for ::std::string::String {
 impl ::std::str::FromStr for Shared45TargetId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared45TargetId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared45TargetId {
@@ -4891,7 +4843,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared45TargetId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared45TargetId {
@@ -4899,8 +4851,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared45TargetId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -4938,16 +4889,16 @@ impl ::std::convert::From<Shared46ContextId> for ::std::string::String {
 impl ::std::str::FromStr for Shared46ContextId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared46ContextId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared46ContextId {
@@ -4955,7 +4906,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared46ContextId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared46ContextId {
@@ -4963,8 +4914,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared46ContextId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5230,16 +5180,16 @@ impl ::std::convert::From<Shared55PolicyId> for ::std::string::String {
 impl ::std::str::FromStr for Shared55PolicyId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared55PolicyId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared55PolicyId {
@@ -5247,7 +5197,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared55PolicyId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared55PolicyId {
@@ -5255,8 +5205,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared55PolicyId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5280,16 +5229,16 @@ impl ::std::convert::From<Shared55PolicyVersion> for ::std::string::String {
 impl ::std::str::FromStr for Shared55PolicyVersion {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared55PolicyVersion {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared55PolicyVersion {
@@ -5297,7 +5246,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared55PolicyVersion {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared55PolicyVersion {
@@ -5305,8 +5254,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared55PolicyVersion {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5437,16 +5385,16 @@ impl ::std::convert::From<Shared56SelectionSelectedRecordId> for ::std::string::
 impl ::std::str::FromStr for Shared56SelectionSelectedRecordId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared56SelectionSelectedRecordId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared56SelectionSelectedRecordId {
@@ -5454,7 +5402,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared56SelectionSelecte
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared56SelectionSelectedRecordId {
@@ -5462,8 +5410,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared56SelectionSelectedRecordId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5709,16 +5656,16 @@ impl ::std::convert::From<Shared62KindId> for ::std::string::String {
 impl ::std::str::FromStr for Shared62KindId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared62KindId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared62KindId {
@@ -5726,7 +5673,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared62KindId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared62KindId {
@@ -5734,8 +5681,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared62KindId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5759,18 +5705,20 @@ impl ::std::convert::From<Shared62KindNs> for ::std::string::String {
 impl ::std::str::FromStr for Shared62KindNs {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z][a-z0-9_-]*$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared62KindNs {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[a-z][a-z0-9_-]*$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared62KindNs {
@@ -5778,7 +5726,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared62KindNs {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared62KindNs {
@@ -5786,8 +5734,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared62KindNs {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5811,16 +5758,16 @@ impl ::std::convert::From<Shared62SpaceId> for ::std::string::String {
 impl ::std::str::FromStr for Shared62SpaceId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared62SpaceId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared62SpaceId {
@@ -5828,7 +5775,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared62SpaceId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared62SpaceId {
@@ -5836,8 +5783,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared62SpaceId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5916,16 +5862,16 @@ impl ::std::convert::From<Shared62SubjectId> for ::std::string::String {
 impl ::std::str::FromStr for Shared62SubjectId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared62SubjectId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared62SubjectId {
@@ -5933,7 +5879,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared62SubjectId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared62SubjectId {
@@ -5941,8 +5887,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared62SubjectId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6007,16 +5952,16 @@ impl ::std::convert::From<Shared64ProfileKind> for ::std::string::String {
 impl ::std::str::FromStr for Shared64ProfileKind {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared64ProfileKind {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared64ProfileKind {
@@ -6024,7 +5969,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared64ProfileKind {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared64ProfileKind {
@@ -6032,8 +5977,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared64ProfileKind {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6057,16 +6001,16 @@ impl ::std::convert::From<Shared64SpaceId> for ::std::string::String {
 impl ::std::str::FromStr for Shared64SpaceId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared64SpaceId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared64SpaceId {
@@ -6074,7 +6018,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared64SpaceId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared64SpaceId {
@@ -6082,8 +6026,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared64SpaceId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6107,16 +6050,16 @@ impl ::std::convert::From<Shared64SubjectId> for ::std::string::String {
 impl ::std::str::FromStr for Shared64SubjectId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared64SubjectId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared64SubjectId {
@@ -6124,7 +6067,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared64SubjectId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared64SubjectId {
@@ -6132,8 +6075,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared64SubjectId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6157,16 +6099,16 @@ impl ::std::convert::From<Shared64UpdatedBy> for ::std::string::String {
 impl ::std::str::FromStr for Shared64UpdatedBy {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared64UpdatedBy {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared64UpdatedBy {
@@ -6174,7 +6116,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared64UpdatedBy {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared64UpdatedBy {
@@ -6182,8 +6124,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared64UpdatedBy {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6259,18 +6200,20 @@ impl ::std::convert::From<Shared65BasisSourceSetDigest> for ::std::string::Strin
 impl ::std::str::FromStr for Shared65BasisSourceSetDigest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared65BasisSourceSetDigest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared65BasisSourceSetDigest {
@@ -6278,7 +6221,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared65BasisSourceSetDi
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared65BasisSourceSetDigest {
@@ -6286,8 +6229,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared65BasisSourceSetDigest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6311,18 +6253,20 @@ impl ::std::convert::From<Shared65BasisStateDigest> for ::std::string::String {
 impl ::std::str::FromStr for Shared65BasisStateDigest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared65BasisStateDigest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared65BasisStateDigest {
@@ -6330,7 +6274,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared65BasisStateDigest
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared65BasisStateDigest {
@@ -6338,8 +6282,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared65BasisStateDigest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6375,16 +6318,16 @@ impl ::std::convert::From<Shared65CostUnitKind> for ::std::string::String {
 impl ::std::str::FromStr for Shared65CostUnitKind {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared65CostUnitKind {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared65CostUnitKind {
@@ -6392,7 +6335,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared65CostUnitKind {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared65CostUnitKind {
@@ -6400,8 +6343,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared65CostUnitKind {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6438,16 +6380,16 @@ impl ::std::convert::From<Shared65GeneratorEnginePolicyVersion> for ::std::strin
 impl ::std::str::FromStr for Shared65GeneratorEnginePolicyVersion {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared65GeneratorEnginePolicyVersion {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared65GeneratorEnginePolicyVersion {
@@ -6455,7 +6397,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared65GeneratorEngineP
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared65GeneratorEnginePolicyVersion {
@@ -6463,8 +6405,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared65GeneratorEnginePolicyVersion {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6488,16 +6429,16 @@ impl ::std::convert::From<Shared65ReflectionId> for ::std::string::String {
 impl ::std::str::FromStr for Shared65ReflectionId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared65ReflectionId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared65ReflectionId {
@@ -6505,7 +6446,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared65ReflectionId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared65ReflectionId {
@@ -6513,8 +6454,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared65ReflectionId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6538,16 +6478,16 @@ impl ::std::convert::From<Shared65SpaceId> for ::std::string::String {
 impl ::std::str::FromStr for Shared65SpaceId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared65SpaceId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared65SpaceId {
@@ -6555,7 +6495,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared65SpaceId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared65SpaceId {
@@ -6563,8 +6503,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared65SpaceId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6588,16 +6527,16 @@ impl ::std::convert::From<Shared65SubjectId> for ::std::string::String {
 impl ::std::str::FromStr for Shared65SubjectId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared65SubjectId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared65SubjectId {
@@ -6605,7 +6544,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared65SubjectId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared65SubjectId {
@@ -6613,8 +6552,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared65SubjectId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6746,16 +6684,16 @@ impl ::std::convert::From<Shared7RecordId> for ::std::string::String {
 impl ::std::str::FromStr for Shared7RecordId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared7RecordId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared7RecordId {
@@ -6763,7 +6701,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared7RecordId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared7RecordId {
@@ -6771,8 +6709,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared7RecordId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6841,16 +6778,16 @@ impl ::std::convert::From<Shared8ClassificationPolicyPolicyId> for ::std::string
 impl ::std::str::FromStr for Shared8ClassificationPolicyPolicyId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared8ClassificationPolicyPolicyId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared8ClassificationPolicyPolicyId {
@@ -6858,7 +6795,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared8ClassificationPol
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared8ClassificationPolicyPolicyId {
@@ -6866,8 +6803,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared8ClassificationPolicyPolicyId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6891,16 +6827,16 @@ impl ::std::convert::From<Shared8ClassificationPolicyPolicyVersion> for ::std::s
 impl ::std::str::FromStr for Shared8ClassificationPolicyPolicyVersion {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared8ClassificationPolicyPolicyVersion {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared8ClassificationPolicyPolicyVersion {
@@ -6908,7 +6844,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared8ClassificationPol
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared8ClassificationPolicyPolicyVersion {
@@ -6916,8 +6852,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared8ClassificationPolicyPolicyVersion
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6941,16 +6876,16 @@ impl ::std::convert::From<Shared8RecordId> for ::std::string::String {
 impl ::std::str::FromStr for Shared8RecordId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared8RecordId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared8RecordId {
@@ -6958,7 +6893,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared8RecordId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared8RecordId {
@@ -6966,8 +6901,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared8RecordId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7030,16 +6964,16 @@ impl ::std::convert::From<Shared9RecordId> for ::std::string::String {
 impl ::std::str::FromStr for Shared9RecordId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Shared9RecordId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Shared9RecordId {
@@ -7047,7 +6981,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Shared9RecordId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Shared9RecordId {
@@ -7055,8 +6989,7 @@ impl<'de> ::serde::Deserialize<'de> for Shared9RecordId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7129,16 +7062,16 @@ impl ::std::convert::From<SourceRecordId> for ::std::string::String {
 impl ::std::str::FromStr for SourceRecordId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for SourceRecordId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for SourceRecordId {
@@ -7146,7 +7079,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SourceRecordId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SourceRecordId {
@@ -7154,8 +7087,7 @@ impl<'de> ::serde::Deserialize<'de> for SourceRecordId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7179,16 +7111,16 @@ impl ::std::convert::From<SpaceId> for ::std::string::String {
 impl ::std::str::FromStr for SpaceId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for SpaceId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for SpaceId {
@@ -7196,7 +7128,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SpaceId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SpaceId {
@@ -7204,8 +7136,7 @@ impl<'de> ::serde::Deserialize<'de> for SpaceId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7312,16 +7243,16 @@ impl ::std::convert::From<SubjectId> for ::std::string::String {
 impl ::std::str::FromStr for SubjectId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for SubjectId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for SubjectId {
@@ -7329,7 +7260,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SubjectId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SubjectId {
@@ -7337,8 +7268,7 @@ impl<'de> ::serde::Deserialize<'de> for SubjectId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7375,16 +7305,16 @@ impl ::std::convert::From<SubjectKindId> for ::std::string::String {
 impl ::std::str::FromStr for SubjectKindId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for SubjectKindId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for SubjectKindId {
@@ -7392,7 +7322,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SubjectKindId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SubjectKindId {
@@ -7400,8 +7330,7 @@ impl<'de> ::serde::Deserialize<'de> for SubjectKindId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7425,18 +7354,20 @@ impl ::std::convert::From<SubjectKindNs> for ::std::string::String {
 impl ::std::str::FromStr for SubjectKindNs {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z][a-z0-9_-]*$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for SubjectKindNs {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[a-z][a-z0-9_-]*$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for SubjectKindNs {
@@ -7444,7 +7375,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SubjectKindNs {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SubjectKindNs {
@@ -7452,8 +7383,7 @@ impl<'de> ::serde::Deserialize<'de> for SubjectKindNs {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7477,16 +7407,16 @@ impl ::std::convert::From<SubjectSpaceId> for ::std::string::String {
 impl ::std::str::FromStr for SubjectSpaceId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for SubjectSpaceId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for SubjectSpaceId {
@@ -7494,7 +7424,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SubjectSpaceId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SubjectSpaceId {
@@ -7502,8 +7432,7 @@ impl<'de> ::serde::Deserialize<'de> for SubjectSpaceId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7582,16 +7511,16 @@ impl ::std::convert::From<SubjectSubjectId> for ::std::string::String {
 impl ::std::str::FromStr for SubjectSubjectId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for SubjectSubjectId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for SubjectSubjectId {
@@ -7599,7 +7528,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SubjectSubjectId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SubjectSubjectId {
@@ -7607,8 +7536,7 @@ impl<'de> ::serde::Deserialize<'de> for SubjectSubjectId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -10171,10 +10099,7 @@ pub mod builder {
     }
     #[derive(Clone, Debug)]
     pub struct Shared27 {
-        about: ::std::result::Result<
-            ::std::option::Option<::std::boxed::Box<super::Shared13>>,
-            ::std::string::String,
-        >,
+        about: ::std::result::Result<::std::option::Option<super::Shared13>, ::std::string::String>,
         carrier: ::std::result::Result<super::Shared11, ::std::string::String>,
         kind: ::std::result::Result<super::Shared12, ::std::string::String>,
         target_id: ::std::result::Result<super::Shared27TargetId, ::std::string::String>,
@@ -10197,7 +10122,7 @@ pub mod builder {
     impl Shared27 {
         pub fn about<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<::std::option::Option<::std::boxed::Box<super::Shared13>>>,
+            T: ::std::convert::TryInto<::std::option::Option<super::Shared13>>,
             T::Error: ::std::fmt::Display,
         {
             self.about = value

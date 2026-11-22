@@ -103,6 +103,7 @@ import type {
   ProjectRequest,
   ProjectResponse,
   Relation,
+  RevisionSnapshot,
   Rule,
   Scope,
   TimelineEvent,
@@ -115,6 +116,8 @@ import {
   spokeReject,
   toErrorEnvelope,
   type BaselinePorts,
+  type HistoryPort,
+  type HistoryPruneResult,
   type MemoryPort,
   type SpokeReject,
   type SpokeResult,
@@ -356,6 +359,17 @@ export const MEMORY_OPS = {
   discardImport: "memory.imports.discard",
 } as const;
 
+/**
+ * History-port method → `history.*` op (spoke-history contract §Connect
+ * operations). Exported so the cross-language golden vectors can assert the
+ * adapter's op table row-for-row against the Rust `HistoryPort for
+ * RemoteAdapter` impl.
+ */
+export const HISTORY_OPS = {
+  getHistorySnapshot: "history.revisions.get",
+  pruneHistory: "history.revisions.prune",
+} as const;
+
 /** Raw Ed25519 keypair material for the local connect peer. */
 export interface RemoteIdentity {
   seed: Uint8Array;
@@ -419,7 +433,7 @@ export type ToolHandler = (
  * session. Construct via `connectRemoteAdapter` — the constructor alone
  * yields an un-established adapter that fails closed on every port call.
  */
-export class RemoteAdapter implements BaselinePorts, MemoryPort {
+export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort {
   readonly #transport: Transport;
   readonly #invokeTimeoutMs: number;
   /** note: this adapter's raw 32-byte Ed25519 seed (hello identity — signs outbound envelopes). */
@@ -957,6 +971,74 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
     return this.#invokeMapped<MemoryImportsDiscardResponse>(
       MEMORY_OPS.discardImport,
       { ...request },
+    );
+  }
+
+  // note: HistoryPort — spoke-history contract §Connect operations
+
+  /**
+   * note: client `HistoryPort` over the session — `get` sends the request
+   * object and decodes the wrapped `snapshot` member; `prune` attaches the
+   * wire-required `idempotency_key` itself — the key is a connect-layer
+   * dedup concern the port signature deliberately omits, so this face
+   * generates a fresh caller-chosen key per call. The responder's gate is
+   * the only authority: an unnegotiated `spoke-history` answers
+   * `capability_missing`, mapped to `CAPABILITY_PORT_MISSING` with
+   * `details.wire_code` (Rust parity: `impl HistoryPort for
+   * RemoteAdapter`). Rows mirror `HISTORY_OPS`.
+   */
+  async getHistorySnapshot(
+    entityKind: string,
+    entityId: string,
+    revision: number,
+    scope?: Scope,
+  ): Promise<SpokeResult<RevisionSnapshot>> {
+    const request: Record<string, unknown> = {
+      entity_kind: entityKind,
+      entity_id: entityId,
+      revision,
+    };
+    if (scope !== undefined) {
+      request.scope = scope;
+    }
+    const result = await this.#invokeMapped<Record<string, unknown>>(
+      HISTORY_OPS.getHistorySnapshot,
+      request,
+    );
+    if (!result.ok) {
+      return result;
+    }
+    const snapshot = result.value.snapshot;
+    if (typeof snapshot !== "object" || snapshot === null) {
+      return internalError(
+        "transport",
+        "history.revisions.get response missing snapshot",
+      );
+    }
+    return spokeOk(snapshot as RevisionSnapshot);
+  }
+
+  async pruneHistory(
+    entityKind: string,
+    entityId: string,
+    keep: number,
+    scope?: Scope,
+  ): Promise<SpokeResult<HistoryPruneResult>> {
+    const request: Record<string, unknown> = {
+      entity_kind: entityKind,
+      entity_id: entityId,
+      keep,
+      // why: the wire request requires `idempotency_key` but the port
+      // signature must not carry it (contract) — a fresh caller-chosen key
+      // per call (Rust parity: `generate_request_id`).
+      idempotency_key: globalThis.crypto.randomUUID(),
+    };
+    if (scope !== undefined) {
+      request.scope = scope;
+    }
+    return this.#invokeMapped<HistoryPruneResult>(
+      HISTORY_OPS.pruneHistory,
+      request,
     );
   }
 

@@ -73,6 +73,7 @@ import {
   type BaselinePorts,
   type ComputablePort,
   type ForkTimelineQueryPort,
+  type HistoryPort,
   type ScopedKnowledgePort,
   type SpokeReject,
   type SpokeResult,
@@ -746,6 +747,142 @@ export interface RemoteMemoryService {
 }
 
 /**
+ * Remote-only history service seam (spoke-history contract §Connect
+ * operations): the serving face a responder host attaches to answer the two
+ * `history.*` ops. It IS the typed [`HistoryPort`] — history needs no
+ * per-peer admission mapping (the request `scope` arrives on the wire and
+ * `idempotency_key` is a connect-layer concern), so unlike
+ * [`RemoteMemoryService`] there is no connect-owned invoke seam; the
+ * responder decodes the payload and calls the port directly (Rust parity:
+ * `RemoteServePorts::as_history` probes `HistoryPort`).
+ */
+export interface RemoteHistoryService extends HistoryPort {}
+
+/**
+ * One decoded `history.*` dispatch: the validated arguments produced by
+ * `decodeHistoryCall` before the serve bound starts (B1 — a malformed
+ * payload keeps its `INVALID_INPUT` reject even at a zero budget). The
+ * prune op's wire `idempotency_key` is validated by the decode but never
+ * reaches the port — the connect idempotency envelope is a connect-layer
+ * concern (spoke-history contract).
+ */
+type HistoryCall =
+  | {
+      readonly kind: "get";
+      readonly scope: Scope | undefined;
+      readonly entityKind: string;
+      readonly entityId: string;
+      readonly revision: number;
+    }
+  | {
+      readonly kind: "prune";
+      readonly scope: Scope | undefined;
+      readonly entityKind: string;
+      readonly entityId: string;
+      readonly keep: number;
+    };
+
+/** note: `revision` / `keep` are `u64` on the wire — a non-negative integer. */
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * Decode the request's optional `scope` member as the shared `Scope`:
+ * absent is `undefined` (the provider applies its own scope resolution), a
+ * present malformed member is `INVALID_INPUT` (mirrors
+ * `validateDeclaredScope` — the same structural decode the knowledge ops
+ * apply to a declared Scope).
+ */
+function decodeHistoryScope(
+  op: string,
+  payload: Record<string, unknown>,
+): SpokeResult<Scope | undefined> {
+  if (!("scope" in payload) || payload.scope === undefined) {
+    return spokeOk<Scope | undefined>(undefined);
+  }
+  const scope = payload.scope;
+  if (!isJsonObject(scope)) {
+    return scopePayloadReject(op, "scope must be an object");
+  }
+  const scopeError = validateDeclaredScope(scope);
+  if (scopeError !== null) {
+    return scopePayloadReject(op, scopeError);
+  }
+  return spokeOk(scope as unknown as Scope);
+}
+
+/**
+ * Decode and validate one `history.*` op payload. The typed decode is the
+ * trust boundary — a malformed payload answers `INVALID_INPUT` before the
+ * provider is called (same rule as `extract` and the memory service
+ * boundary; Rust parity: `decode_history_call`).
+ */
+function decodeHistoryCall(
+  op: string,
+  payload: Record<string, unknown>,
+): SpokeResult<HistoryCall> {
+  if (
+    typeof payload.entity_kind !== "string" ||
+    typeof payload.entity_id !== "string"
+  ) {
+    return scopePayloadReject(
+      op,
+      "entity_kind and entity_id must be strings",
+    );
+  }
+  const scopeResult = decodeHistoryScope(op, payload);
+  if (!scopeResult.ok) {
+    return scopeResult;
+  }
+  const { entity_kind: entityKind, entity_id: entityId } = payload;
+  const scope = scopeResult.value;
+  switch (op) {
+    case "history.revisions.get": {
+      if (!isNonNegativeInteger(payload.revision)) {
+        return scopePayloadReject(
+          op,
+          "revision must be a non-negative integer",
+        );
+      }
+      return spokeOk({
+        kind: "get",
+        scope,
+        entityKind: entityKind as string,
+        entityId: entityId as string,
+        revision: payload.revision,
+      });
+    }
+    case "history.revisions.prune": {
+      if (!isNonNegativeInteger(payload.keep)) {
+        return scopePayloadReject(
+          op,
+          "keep must be a non-negative integer",
+        );
+      }
+      if (typeof payload.idempotency_key !== "string") {
+        return scopePayloadReject(
+          op,
+          "idempotency_key is required and must be a string",
+        );
+      }
+      return spokeOk({
+        kind: "prune",
+        scope,
+        entityKind: entityKind as string,
+        entityId: entityId as string,
+        keep: payload.keep,
+      });
+    }
+    default:
+      return spokeReject(
+        SpokeRejectCode.CAPABILITY_PORT_MISSING,
+        `unimplemented history op ${op}`,
+      );
+  }
+}
+
+/**
  * The knowledge serving face: a scoped store plus per-peer admission.
  * `admission(peerId)` returns the peer's admitted `Scope` or rejects —
  * the responder then serves only inside that admitted scope; the wire
@@ -766,6 +903,14 @@ export interface RemoteKnowledgeFace {
 export interface RemoteServePorts {
   baseline?: BaselinePorts;
   knowledge?: RemoteKnowledgeFace;
+  /**
+   * note: optional `spoke-history` face (revision replay + explicit
+   * pruning), when provided. Absent means the host declared `spoke-history`
+   * without providing the port — a `None` probe answers the documented
+   * `op_unsupported` dispatch-deny branch (Rust parity:
+   * `RemoteServePorts::as_history`).
+   */
+  asHistory?: () => RemoteHistoryService | undefined;
 }
 
 /** Knowledge-only serve ports: no baseline face, so `assemble` and every other baseline op stays denied. */
@@ -1519,26 +1664,30 @@ export class ConnectResponder {
       // `negotiated_capabilities` (never a raw requirements-map composition,
       // which would deny the self-describing tools family).
       if (!this.#gateAllows(doc.op, session)) {
-        // note: a known `memory.*` op is a capability gap (protocol §4.1) — the gate
-        // evaluates negotiated capabilities only, so an op with a dispatch row
-        // that was not negotiated answers `capability_missing`. An op with no
+        // note: a known `memory.*` or `history.*` op is a capability gap
+        // (protocol §4.1 / spoke-history contract) — the gate evaluates
+        // negotiated capabilities only, so an op with a dispatch row that
+        // was not negotiated answers `capability_missing`. An op with no
         // row at all stays `op_unsupported`.
         const memoryBoundary = doc.op.startsWith("memory.");
-        const memoryDeny =
-          memoryBoundary && requiredCapability(doc.op) !== undefined;
+        const coreGatedDeny =
+          memoryBoundary || doc.op.startsWith("history.");
+        const deny = coreGatedDeny && requiredCapability(doc.op) !== undefined;
         await this.#sendReverseErrorEnvelope(doc, {
-          code: memoryDeny ? "capability_missing" : "op_unsupported",
+          code: deny ? "capability_missing" : "op_unsupported",
           message: `op ${doc.op} is not authorized by this session`,
           extensions: {},
           // note: §14.2 — every memory-boundary denial (known or unknown op) is
           // classified `terminal`, so the code choice never drops the metadata.
+          // History denials carry no extra details.
           ...(memoryBoundary ? { details: { retry_class: "terminal" } } : {}),
         });
         return;
       }
-      // note: the payload-dependent cognition gate lives inside the two
+      // note: the payload-dependent cognition gate lives inside the three
       // cognition-carrying branches (`#dispatchPortInvoke` /
-      // `#dispatchMemoryInvoke`), after their own op/ownership denials and
+      // `#dispatchMemoryInvoke` / `#dispatchHistoryInvoke`), after their own
+      // op/ownership denials and
       // before any typed decode, provider probe or handler call: a tool's
       // arguments or an unrelated product payload never reach it.
       if (doc.op === "extract") {
@@ -1551,6 +1700,13 @@ export class ConnectResponder {
       }
       if (doc.op.startsWith("memory.")) {
         await this.#dispatchMemoryInvoke(doc);
+        return;
+      }
+      // note: `history.*` ops are served by the optional injected
+      // `HistoryPort` face (spoke-history contract) — the same
+      // gate → probe → serve/deny order as the optional `port.*` families.
+      if (doc.op.startsWith("history.")) {
+        await this.#dispatchHistoryInvoke(doc);
         return;
       }
       await this.#dispatchPortInvoke(doc);
@@ -1919,6 +2075,104 @@ export class ConnectResponder {
       return;
     }
     await this.#sendOkResponse(doc, result.value);
+  }
+
+  /**
+   * note: serve a `history.*` invoke through the optional injected
+   * `HistoryPort` face (spoke-history contract §Connect operations). The
+   * static capability gate already passed in `#dispatchInvoke` — a known
+   * history op that was not negotiated never reaches here
+   * (`capability_missing`). The serving order mirrors the `memory.*`
+   * branch: cognition gate → `asHistory` probe → typed decode → bounded
+   * port call → response envelope. An absent face is the documented
+   * dispatch-deny branch (the host declared `spoke-history` without
+   * providing the port).
+   *
+   * The serve bound matches the `port.*` ops: expiry after the call was
+   * invoked answers the plain timeout rather than `OUTCOME_UNCERTAIN` — the
+   * contract's prune idempotency model (recorded outcomes, digest dedup) is
+   * not wired yet, so this end makes no outcome claim.
+   */
+  async #dispatchHistoryInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const session = this.#session;
+    if (session === null) {
+      return;
+    }
+    // note: payload-dependent cognition gate on the raw payload: the history
+    // request `scope` carries the `Scope.cognition` selection slot, so a
+    // declared requirement needs `spoke-cognition` negotiated before the
+    // probe and any provider call.
+    if (
+      !(await this.#cognitionGate(
+        doc,
+        isJsonObject(doc.payload) ? doc.payload : {},
+        session.negotiated_capabilities,
+      ))
+    ) {
+      return;
+    }
+    const history = this.#ports?.asHistory?.();
+    if (history === undefined) {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "op_unsupported",
+        message: `no history port configured for op ${doc.op}`,
+        extensions: {},
+      });
+      return;
+    }
+    // note: decode BEFORE the bound (B1): a malformed payload keeps its
+    // `INVALID_INPUT` reject even at a zero budget.
+    const decoded = decodeHistoryCall(
+      doc.op,
+      isJsonObject(doc.payload) ? doc.payload : {},
+    );
+    if (!decoded.ok) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(decoded));
+      return;
+    }
+    const call = decoded.value;
+    let result: SpokeResult<unknown>;
+    try {
+      result = await this.#withServeBudget(
+        (): Promise<SpokeResult<unknown>> =>
+          call.kind === "get"
+            ? history.getHistorySnapshot(
+                call.entityKind,
+                call.entityId,
+                call.revision,
+                call.scope,
+              )
+            : history.pruneHistory(
+                call.entityKind,
+                call.entityId,
+                call.keep,
+                call.scope,
+              ),
+      );
+    } catch (error) {
+      // why: a provider throw or rejection answers a clean internal error —
+      // unlike memory there is no recorded-outcome channel, so no uncertain
+      // claim is made (Rust parity: `dispatch_history_invoke`).
+      result = spokeReject(
+        SpokeRejectCode.INTERNAL_ERROR,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    // note: a close during the bounded wait answers nothing afterwards.
+    if (this.#stateInternal === "Closed") {
+      return;
+    }
+    if (!result.ok) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
+      return;
+    }
+    // note: `history.revisions.get` success wraps the snapshot under
+    // `snapshot` (the get-response Variant0 member); prune serializes
+    // `HistoryPruneResult` verbatim (`{ deleted, floor_revision }`).
+    await this.#sendOkResponse(
+      doc,
+      call.kind === "get" ? { snapshot: result.value } : result.value,
+    );
   }
 
   /** note: serve a `port.*` invoke through the D4 catalogue (or dispatch-deny). */

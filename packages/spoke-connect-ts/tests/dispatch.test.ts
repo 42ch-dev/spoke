@@ -4,9 +4,11 @@ import {
   CAPABILITY_KE_EXTRACTION,
   CAPABILITY_L2_COMPUTABLE,
   CAPABILITY_SPOKE_BASELINE,
+  CAPABILITY_SPOKE_HISTORY,
   CAPABILITY_SPOKE_MEMORY,
   CAPABILITY_SPOKE_MEMORY_REFLECTION,
   CAPABILITY_SPOKE_MEMORY_TRANSFER,
+  cognitionRequirementField,
   dispatchAllowed,
   requiredCapability,
   tokenAuthorizesOp,
@@ -54,6 +56,8 @@ const MEMORY_TRANSFER_OPS = [
   "memory.imports.activate",
   "memory.imports.discard",
 ];
+
+const HISTORY_OPS = ["history.revisions.get", "history.revisions.prune"];
 
 describe("dispatch gate (port of dispatch.rs)", () => {
   it("baseline ops require spoke-baseline", () => {
@@ -168,6 +172,45 @@ describe("memory family", () => {
     for (const op of [...MEMORY_CORE_OPS, ...MEMORY_REFLECTION_OPS, ...MEMORY_TRANSFER_OPS]) {
       expect(dispatchAllowed(op, ALL_MEMORY)).toBe(true);
       expect(tokenAuthorizesOp(requiredCapability(op), ALL_MEMORY)).toBe(true);
+    }
+  });
+});
+
+// why: history family (spoke-history contract §Connect operations): two rows,
+// both gated on exact `spoke-history` membership — no other flag implies it
+// and a sub-flag does not exist.
+describe("history family", () => {
+  it("maps both ops to spoke-history", () => {
+    for (const op of HISTORY_OPS) {
+      expect(requiredCapability(op)).toBe(CAPABILITY_SPOKE_HISTORY);
+      expect(dispatchAllowed(op, [CAPABILITY_SPOKE_HISTORY])).toBe(true);
+      expect(tokenAuthorizesOp(requiredCapability(op), [CAPABILITY_SPOKE_HISTORY])).toBe(true);
+    }
+  });
+
+  it("no other flag satisfies the history gate", () => {
+    for (const op of HISTORY_OPS) {
+      expect(dispatchAllowed(op, [])).toBe(false);
+      expect(
+        dispatchAllowed(op, [
+          CAPABILITY_SPOKE_BASELINE,
+          "spoke-knowledge",
+          CAPABILITY_SPOKE_MEMORY,
+        ]),
+      ).toBe(false);
+    }
+    // why: an unknown `history.*` op has no row — `op_unsupported`, not a
+    // capability gap.
+    expect(requiredCapability("history.checkpoints.list")).toBeUndefined();
+    expect(dispatchAllowed("history.checkpoints.list", [CAPABILITY_SPOKE_HISTORY])).toBe(false);
+  });
+
+  it("history requests carrying a Scope.cognition selection declare a cognition requirement", () => {
+    for (const op of HISTORY_OPS) {
+      expect(
+        cognitionRequirementField(op, { scope: { scope_id: "s", cognition: {} } }),
+      ).toBe("scope.cognition");
+      expect(cognitionRequirementField(op, { scope: { scope_id: "s" } })).toBeUndefined();
     }
   });
 });

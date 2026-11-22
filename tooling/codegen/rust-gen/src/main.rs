@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use typify::{TypeSpace, TypeSpaceSettings};
 
-const EXPECTED_SCHEMA_COUNT: usize = 114;
+const EXPECTED_SCHEMA_COUNT: usize = 119;
 
 // typify breaks recursion cycles by boxing the child type id it finds in its
 // active set. When the cycle reaches a recursive struct through a *shared*
@@ -50,7 +50,7 @@ const EMPTY_VEC_ATTR: &str =
     "# [serde (default , skip_serializing_if = \"::std::vec::Vec::is_empty\")] pub ";
 const STRUCT_VEC_FIELD: &str = " : :: std :: vec :: Vec <";
 const BUILDER_VEC_FIELD: &str = " : :: std :: result :: Result < :: std :: vec :: Vec <";
-const BUILDER_STRING_TAIL: &str = " , :: std :: string :: String >";
+const BUILDER_STRING_TAIL: &str = " , :: std :: string :: String , >";
 const SETTER_VEC_BOUND: &str = " < T > (mut self , value : T) -> Self where T : :: std :: convert :: TryInto < :: std :: vec :: Vec <";
 const SETTER_VALUE: &str = "value . try_into ()";
 const SETTER_SOME: &str = " . map (:: std :: option :: Option :: Some)";
@@ -579,7 +579,7 @@ fn normalize_arrays_matching(
             " : :: std :: result :: Result < :: std :: option :: Option < :: std :: vec :: Vec <",
         );
         with_builders.push_str(&tail[open + 1..close]);
-        with_builders.push_str(" > > , :: std :: string :: String >");
+        with_builders.push_str(" > > , :: std :: string :: String , >");
         rest = &tail[tail_after_vec + BUILDER_STRING_TAIL.len()..];
     }
     with_builders.push_str(rest);
@@ -822,7 +822,7 @@ fn generate_schema_rust(
     })?;
 
     let mut settings = TypeSpaceSettings::default();
-    settings.with_struct_builder(true);
+    settings.map_typespace_settings(|s| s.with_struct_builder(true));
 
     let mut type_space = TypeSpace::new(&settings);
 
@@ -843,7 +843,10 @@ fn generate_schema_rust(
         )
     })?;
 
-    let rust = type_space.to_stream().to_string();
+    let rust = type_space
+        .to_stream()
+        .map_err(|err| format!("typify to_stream failed for {}: {err}", schema_path.display()))?
+        .to_string();
     if rust.trim().is_empty() {
         return Err(format!(
             "typify produced empty output for {}",

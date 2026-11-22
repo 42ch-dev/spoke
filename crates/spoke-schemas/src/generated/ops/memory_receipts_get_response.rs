@@ -36,18 +36,20 @@ impl ::std::convert::From<BundleDigest> for ::std::string::String {
 impl ::std::str::FromStr for BundleDigest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for BundleDigest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for BundleDigest {
@@ -55,7 +57,7 @@ impl ::std::convert::TryFrom<::std::string::String> for BundleDigest {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for BundleDigest {
@@ -63,8 +65,7 @@ impl<'de> ::serde::Deserialize<'de> for BundleDigest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -88,16 +89,16 @@ impl ::std::convert::From<CandidateId> for ::std::string::String {
 impl ::std::str::FromStr for CandidateId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for CandidateId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for CandidateId {
@@ -105,7 +106,7 @@ impl ::std::convert::TryFrom<::std::string::String> for CandidateId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for CandidateId {
@@ -113,8 +114,7 @@ impl<'de> ::serde::Deserialize<'de> for CandidateId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -184,6 +184,12 @@ impl ::std::convert::From<CandidatesDismissPollBranchVariant0IdempotencyKey>
 impl ::std::str::FromStr for CandidatesDismissPollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CandidatesDismissPollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -193,12 +199,6 @@ impl ::std::str::FromStr for CandidatesDismissPollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for CandidatesDismissPollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for CandidatesDismissPollBranchVariant0IdempotencyKey
 {
@@ -206,7 +206,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for CandidatesDismissPollBranchVariant0IdempotencyKey {
@@ -214,8 +214,7 @@ impl<'de> ::serde::Deserialize<'de> for CandidatesDismissPollBranchVariant0Idemp
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -347,6 +346,12 @@ impl ::std::convert::From<CandidatesDismissPollBranchVariant1IdempotencyKey>
 impl ::std::str::FromStr for CandidatesDismissPollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CandidatesDismissPollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -356,12 +361,6 @@ impl ::std::str::FromStr for CandidatesDismissPollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for CandidatesDismissPollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for CandidatesDismissPollBranchVariant1IdempotencyKey
 {
@@ -369,7 +368,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for CandidatesDismissPollBranchVariant1IdempotencyKey {
@@ -377,8 +376,7 @@ impl<'de> ::serde::Deserialize<'de> for CandidatesDismissPollBranchVariant1Idemp
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -542,6 +540,12 @@ impl ::std::convert::From<CandidatesReviewPollBranchVariant0IdempotencyKey>
 impl ::std::str::FromStr for CandidatesReviewPollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CandidatesReviewPollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -551,12 +555,6 @@ impl ::std::str::FromStr for CandidatesReviewPollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for CandidatesReviewPollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for CandidatesReviewPollBranchVariant0IdempotencyKey
 {
@@ -564,7 +562,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for CandidatesReviewPollBranchVariant0IdempotencyKey {
@@ -572,8 +570,7 @@ impl<'de> ::serde::Deserialize<'de> for CandidatesReviewPollBranchVariant0Idempo
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -705,6 +702,12 @@ impl ::std::convert::From<CandidatesReviewPollBranchVariant1IdempotencyKey>
 impl ::std::str::FromStr for CandidatesReviewPollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CandidatesReviewPollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -714,12 +717,6 @@ impl ::std::str::FromStr for CandidatesReviewPollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for CandidatesReviewPollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for CandidatesReviewPollBranchVariant1IdempotencyKey
 {
@@ -727,7 +724,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for CandidatesReviewPollBranchVariant1IdempotencyKey {
@@ -735,8 +732,7 @@ impl<'de> ::serde::Deserialize<'de> for CandidatesReviewPollBranchVariant1Idempo
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -898,6 +894,12 @@ impl ::std::convert::From<CapturePollBranchVariant0IdempotencyKey> for ::std::st
 impl ::std::str::FromStr for CapturePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapturePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -907,18 +909,12 @@ impl ::std::str::FromStr for CapturePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for CapturePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String> for CapturePollBranchVariant0IdempotencyKey {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for CapturePollBranchVariant0IdempotencyKey {
@@ -926,8 +922,7 @@ impl<'de> ::serde::Deserialize<'de> for CapturePollBranchVariant0IdempotencyKey 
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1057,6 +1052,12 @@ impl ::std::convert::From<CapturePollBranchVariant1IdempotencyKey> for ::std::st
 impl ::std::str::FromStr for CapturePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapturePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -1066,18 +1067,12 @@ impl ::std::str::FromStr for CapturePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for CapturePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String> for CapturePollBranchVariant1IdempotencyKey {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for CapturePollBranchVariant1IdempotencyKey {
@@ -1085,8 +1080,7 @@ impl<'de> ::serde::Deserialize<'de> for CapturePollBranchVariant1IdempotencyKey 
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1204,16 +1198,16 @@ impl ::std::convert::From<ContextId> for ::std::string::String {
 impl ::std::str::FromStr for ContextId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ContextId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ContextId {
@@ -1221,7 +1215,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ContextId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ContextId {
@@ -1229,8 +1223,7 @@ impl<'de> ::serde::Deserialize<'de> for ContextId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1282,16 +1275,16 @@ impl ::std::convert::From<ExportId> for ::std::string::String {
 impl ::std::str::FromStr for ExportId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ExportId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ExportId {
@@ -1299,7 +1292,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ExportId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ExportId {
@@ -1307,8 +1300,7 @@ impl<'de> ::serde::Deserialize<'de> for ExportId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1389,6 +1381,12 @@ impl ::std::convert::From<ExportsCreatePollBranchVariant0IdempotencyKey> for ::s
 impl ::std::str::FromStr for ExportsCreatePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExportsCreatePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -1398,12 +1396,6 @@ impl ::std::str::FromStr for ExportsCreatePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ExportsCreatePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ExportsCreatePollBranchVariant0IdempotencyKey
 {
@@ -1411,7 +1403,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ExportsCreatePollBranchVariant0IdempotencyKey {
@@ -1419,8 +1411,7 @@ impl<'de> ::serde::Deserialize<'de> for ExportsCreatePollBranchVariant0Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1553,6 +1544,12 @@ impl ::std::convert::From<ExportsCreatePollBranchVariant1IdempotencyKey> for ::s
 impl ::std::str::FromStr for ExportsCreatePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExportsCreatePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -1562,12 +1559,6 @@ impl ::std::str::FromStr for ExportsCreatePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ExportsCreatePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ExportsCreatePollBranchVariant1IdempotencyKey
 {
@@ -1575,7 +1566,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ExportsCreatePollBranchVariant1IdempotencyKey {
@@ -1583,8 +1574,7 @@ impl<'de> ::serde::Deserialize<'de> for ExportsCreatePollBranchVariant1Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1702,6 +1692,12 @@ impl ::std::convert::From<ExportsCreatePollBranchVariant2IdempotencyKey> for ::s
 impl ::std::str::FromStr for ExportsCreatePollBranchVariant2IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExportsCreatePollBranchVariant2IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -1711,12 +1707,6 @@ impl ::std::str::FromStr for ExportsCreatePollBranchVariant2IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ExportsCreatePollBranchVariant2IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ExportsCreatePollBranchVariant2IdempotencyKey
 {
@@ -1724,7 +1714,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ExportsCreatePollBranchVariant2IdempotencyKey {
@@ -1732,8 +1722,7 @@ impl<'de> ::serde::Deserialize<'de> for ExportsCreatePollBranchVariant2Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1851,18 +1840,20 @@ impl ::std::convert::From<ExtensionKey> for ::std::string::String {
 impl ::std::str::FromStr for ExtensionKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z][a-z0-9_-]*$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ExtensionKey {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[a-z][a-z0-9_-]*$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z][a-z0-9_-]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ExtensionKey {
@@ -1870,7 +1861,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ExtensionKey {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ExtensionKey {
@@ -1878,8 +1869,7 @@ impl<'de> ::serde::Deserialize<'de> for ExtensionKey {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1903,16 +1893,16 @@ impl ::std::convert::From<GrantId> for ::std::string::String {
 impl ::std::str::FromStr for GrantId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for GrantId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for GrantId {
@@ -1920,7 +1910,7 @@ impl ::std::convert::TryFrom<::std::string::String> for GrantId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for GrantId {
@@ -1928,8 +1918,7 @@ impl<'de> ::serde::Deserialize<'de> for GrantId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -1997,6 +1986,12 @@ impl ::std::convert::From<GrantsGrantPollBranchVariant0IdempotencyKey> for ::std
 impl ::std::str::FromStr for GrantsGrantPollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for GrantsGrantPollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -2006,12 +2001,6 @@ impl ::std::str::FromStr for GrantsGrantPollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for GrantsGrantPollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for GrantsGrantPollBranchVariant0IdempotencyKey
 {
@@ -2019,7 +2008,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for GrantsGrantPollBranchVariant0IdempotencyKey {
@@ -2027,8 +2016,7 @@ impl<'de> ::serde::Deserialize<'de> for GrantsGrantPollBranchVariant0Idempotency
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2158,6 +2146,12 @@ impl ::std::convert::From<GrantsGrantPollBranchVariant1IdempotencyKey> for ::std
 impl ::std::str::FromStr for GrantsGrantPollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for GrantsGrantPollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -2167,12 +2161,6 @@ impl ::std::str::FromStr for GrantsGrantPollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for GrantsGrantPollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for GrantsGrantPollBranchVariant1IdempotencyKey
 {
@@ -2180,7 +2168,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for GrantsGrantPollBranchVariant1IdempotencyKey {
@@ -2188,8 +2176,7 @@ impl<'de> ::serde::Deserialize<'de> for GrantsGrantPollBranchVariant1Idempotency
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2351,6 +2338,12 @@ impl ::std::convert::From<GrantsRevokePollBranchVariant0IdempotencyKey> for ::st
 impl ::std::str::FromStr for GrantsRevokePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for GrantsRevokePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -2360,12 +2353,6 @@ impl ::std::str::FromStr for GrantsRevokePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for GrantsRevokePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for GrantsRevokePollBranchVariant0IdempotencyKey
 {
@@ -2373,7 +2360,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for GrantsRevokePollBranchVariant0IdempotencyKey {
@@ -2381,8 +2368,7 @@ impl<'de> ::serde::Deserialize<'de> for GrantsRevokePollBranchVariant0Idempotenc
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2513,6 +2499,12 @@ impl ::std::convert::From<GrantsRevokePollBranchVariant1IdempotencyKey> for ::st
 impl ::std::str::FromStr for GrantsRevokePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for GrantsRevokePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -2522,12 +2514,6 @@ impl ::std::str::FromStr for GrantsRevokePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for GrantsRevokePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for GrantsRevokePollBranchVariant1IdempotencyKey
 {
@@ -2535,7 +2521,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for GrantsRevokePollBranchVariant1IdempotencyKey {
@@ -2543,8 +2529,7 @@ impl<'de> ::serde::Deserialize<'de> for GrantsRevokePollBranchVariant1Idempotenc
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2662,6 +2647,12 @@ impl ::std::convert::From<IdempotencyKey> for ::std::string::String {
 impl ::std::str::FromStr for IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -2671,18 +2662,12 @@ impl ::std::str::FromStr for IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String> for IdempotencyKey {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for IdempotencyKey {
@@ -2690,8 +2675,7 @@ impl<'de> ::serde::Deserialize<'de> for IdempotencyKey {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2715,16 +2699,16 @@ impl ::std::convert::From<ImportId> for ::std::string::String {
 impl ::std::str::FromStr for ImportId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ImportId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ImportId {
@@ -2732,7 +2716,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ImportId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ImportId {
@@ -2740,8 +2724,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2824,6 +2807,12 @@ impl ::std::convert::From<ImportsActivatePollBranchVariant0IdempotencyKey>
 impl ::std::str::FromStr for ImportsActivatePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ImportsActivatePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -2833,12 +2822,6 @@ impl ::std::str::FromStr for ImportsActivatePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ImportsActivatePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ImportsActivatePollBranchVariant0IdempotencyKey
 {
@@ -2846,7 +2829,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ImportsActivatePollBranchVariant0IdempotencyKey {
@@ -2854,8 +2837,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportsActivatePollBranchVariant0Idempot
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -2988,6 +2970,12 @@ impl ::std::convert::From<ImportsActivatePollBranchVariant1IdempotencyKey>
 impl ::std::str::FromStr for ImportsActivatePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ImportsActivatePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -2997,12 +2985,6 @@ impl ::std::str::FromStr for ImportsActivatePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ImportsActivatePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ImportsActivatePollBranchVariant1IdempotencyKey
 {
@@ -3010,7 +2992,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ImportsActivatePollBranchVariant1IdempotencyKey {
@@ -3018,8 +3000,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportsActivatePollBranchVariant1Idempot
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3139,6 +3120,12 @@ impl ::std::convert::From<ImportsActivatePollBranchVariant2IdempotencyKey>
 impl ::std::str::FromStr for ImportsActivatePollBranchVariant2IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ImportsActivatePollBranchVariant2IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -3148,12 +3135,6 @@ impl ::std::str::FromStr for ImportsActivatePollBranchVariant2IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ImportsActivatePollBranchVariant2IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ImportsActivatePollBranchVariant2IdempotencyKey
 {
@@ -3161,7 +3142,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ImportsActivatePollBranchVariant2IdempotencyKey {
@@ -3169,8 +3150,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportsActivatePollBranchVariant2Idempot
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3334,6 +3314,12 @@ impl ::std::convert::From<ImportsDiscardPollBranchVariant0IdempotencyKey>
 impl ::std::str::FromStr for ImportsDiscardPollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ImportsDiscardPollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -3343,12 +3329,6 @@ impl ::std::str::FromStr for ImportsDiscardPollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ImportsDiscardPollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ImportsDiscardPollBranchVariant0IdempotencyKey
 {
@@ -3356,7 +3336,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ImportsDiscardPollBranchVariant0IdempotencyKey {
@@ -3364,8 +3344,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportsDiscardPollBranchVariant0Idempote
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3497,6 +3476,12 @@ impl ::std::convert::From<ImportsDiscardPollBranchVariant1IdempotencyKey>
 impl ::std::str::FromStr for ImportsDiscardPollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ImportsDiscardPollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -3506,12 +3491,6 @@ impl ::std::str::FromStr for ImportsDiscardPollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ImportsDiscardPollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ImportsDiscardPollBranchVariant1IdempotencyKey
 {
@@ -3519,7 +3498,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ImportsDiscardPollBranchVariant1IdempotencyKey {
@@ -3527,8 +3506,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportsDiscardPollBranchVariant1Idempote
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3703,6 +3681,12 @@ impl ::std::convert::From<ImportsStagePollBranchVariant0IdempotencyKey> for ::st
 impl ::std::str::FromStr for ImportsStagePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ImportsStagePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -3712,12 +3696,6 @@ impl ::std::str::FromStr for ImportsStagePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ImportsStagePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ImportsStagePollBranchVariant0IdempotencyKey
 {
@@ -3725,7 +3703,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ImportsStagePollBranchVariant0IdempotencyKey {
@@ -3733,8 +3711,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportsStagePollBranchVariant0Idempotenc
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -3866,6 +3843,12 @@ impl ::std::convert::From<ImportsStagePollBranchVariant1IdempotencyKey> for ::st
 impl ::std::str::FromStr for ImportsStagePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ImportsStagePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -3875,12 +3858,6 @@ impl ::std::str::FromStr for ImportsStagePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ImportsStagePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ImportsStagePollBranchVariant1IdempotencyKey
 {
@@ -3888,7 +3865,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ImportsStagePollBranchVariant1IdempotencyKey {
@@ -3896,8 +3873,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportsStagePollBranchVariant1Idempotenc
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -4015,6 +3991,12 @@ impl ::std::convert::From<ImportsStagePollBranchVariant2IdempotencyKey> for ::st
 impl ::std::str::FromStr for ImportsStagePollBranchVariant2IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ImportsStagePollBranchVariant2IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -4024,12 +4006,6 @@ impl ::std::str::FromStr for ImportsStagePollBranchVariant2IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ImportsStagePollBranchVariant2IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ImportsStagePollBranchVariant2IdempotencyKey
 {
@@ -4037,7 +4013,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ImportsStagePollBranchVariant2IdempotencyKey {
@@ -4045,8 +4021,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportsStagePollBranchVariant2Idempotenc
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5485,16 +5460,16 @@ impl ::std::convert::From<Op> for ::std::string::String {
 impl ::std::str::FromStr for Op {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for Op {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Op {
@@ -5502,7 +5477,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Op {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for Op {
@@ -5510,8 +5485,7 @@ impl<'de> ::serde::Deserialize<'de> for Op {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5590,18 +5564,20 @@ impl ::std::convert::From<PayloadDigest> for ::std::string::String {
 impl ::std::str::FromStr for PayloadDigest {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for PayloadDigest {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::with_flags("^[0-9a-f]{64}$", "u").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for PayloadDigest {
@@ -5609,7 +5585,7 @@ impl ::std::convert::TryFrom<::std::string::String> for PayloadDigest {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for PayloadDigest {
@@ -5617,8 +5593,7 @@ impl<'de> ::serde::Deserialize<'de> for PayloadDigest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5657,16 +5632,16 @@ impl ::std::convert::From<ProfileKind> for ::std::string::String {
 impl ::std::str::FromStr for ProfileKind {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ProfileKind {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ProfileKind {
@@ -5674,7 +5649,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ProfileKind {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ProfileKind {
@@ -5682,8 +5657,7 @@ impl<'de> ::serde::Deserialize<'de> for ProfileKind {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5751,6 +5725,12 @@ impl ::std::convert::From<ProfileUpdatePollBranchVariant0IdempotencyKey> for ::s
 impl ::std::str::FromStr for ProfileUpdatePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProfileUpdatePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -5760,12 +5740,6 @@ impl ::std::str::FromStr for ProfileUpdatePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ProfileUpdatePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ProfileUpdatePollBranchVariant0IdempotencyKey
 {
@@ -5773,7 +5747,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ProfileUpdatePollBranchVariant0IdempotencyKey {
@@ -5781,8 +5755,7 @@ impl<'de> ::serde::Deserialize<'de> for ProfileUpdatePollBranchVariant0Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -5912,6 +5885,12 @@ impl ::std::convert::From<ProfileUpdatePollBranchVariant1IdempotencyKey> for ::s
 impl ::std::str::FromStr for ProfileUpdatePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProfileUpdatePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -5921,12 +5900,6 @@ impl ::std::str::FromStr for ProfileUpdatePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ProfileUpdatePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ProfileUpdatePollBranchVariant1IdempotencyKey
 {
@@ -5934,7 +5907,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ProfileUpdatePollBranchVariant1IdempotencyKey {
@@ -5942,8 +5915,7 @@ impl<'de> ::serde::Deserialize<'de> for ProfileUpdatePollBranchVariant1Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6180,16 +6152,16 @@ impl ::std::convert::From<ReceiptId> for ::std::string::String {
 impl ::std::str::FromStr for ReceiptId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReceiptId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReceiptId {
@@ -6197,7 +6169,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReceiptId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReceiptId {
@@ -6205,8 +6177,7 @@ impl<'de> ::serde::Deserialize<'de> for ReceiptId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6230,16 +6201,16 @@ impl ::std::convert::From<RecordId> for ::std::string::String {
 impl ::std::str::FromStr for RecordId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for RecordId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for RecordId {
@@ -6247,7 +6218,7 @@ impl ::std::convert::TryFrom<::std::string::String> for RecordId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RecordId {
@@ -6255,8 +6226,7 @@ impl<'de> ::serde::Deserialize<'de> for RecordId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6324,6 +6294,12 @@ impl ::std::convert::From<RecordsCreatePollBranchVariant0IdempotencyKey> for ::s
 impl ::std::str::FromStr for RecordsCreatePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RecordsCreatePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -6333,12 +6309,6 @@ impl ::std::str::FromStr for RecordsCreatePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RecordsCreatePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for RecordsCreatePollBranchVariant0IdempotencyKey
 {
@@ -6346,7 +6316,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RecordsCreatePollBranchVariant0IdempotencyKey {
@@ -6354,8 +6324,7 @@ impl<'de> ::serde::Deserialize<'de> for RecordsCreatePollBranchVariant0Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6485,6 +6454,12 @@ impl ::std::convert::From<RecordsCreatePollBranchVariant1IdempotencyKey> for ::s
 impl ::std::str::FromStr for RecordsCreatePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RecordsCreatePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -6494,12 +6469,6 @@ impl ::std::str::FromStr for RecordsCreatePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RecordsCreatePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for RecordsCreatePollBranchVariant1IdempotencyKey
 {
@@ -6507,7 +6476,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RecordsCreatePollBranchVariant1IdempotencyKey {
@@ -6515,8 +6484,7 @@ impl<'de> ::serde::Deserialize<'de> for RecordsCreatePollBranchVariant1Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6678,6 +6646,12 @@ impl ::std::convert::From<RecordsDeletePollBranchVariant0IdempotencyKey> for ::s
 impl ::std::str::FromStr for RecordsDeletePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RecordsDeletePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -6687,12 +6661,6 @@ impl ::std::str::FromStr for RecordsDeletePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RecordsDeletePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for RecordsDeletePollBranchVariant0IdempotencyKey
 {
@@ -6700,7 +6668,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RecordsDeletePollBranchVariant0IdempotencyKey {
@@ -6708,8 +6676,7 @@ impl<'de> ::serde::Deserialize<'de> for RecordsDeletePollBranchVariant0Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -6839,6 +6806,12 @@ impl ::std::convert::From<RecordsDeletePollBranchVariant1IdempotencyKey> for ::s
 impl ::std::str::FromStr for RecordsDeletePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RecordsDeletePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -6848,12 +6821,6 @@ impl ::std::str::FromStr for RecordsDeletePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RecordsDeletePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for RecordsDeletePollBranchVariant1IdempotencyKey
 {
@@ -6861,7 +6828,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RecordsDeletePollBranchVariant1IdempotencyKey {
@@ -6869,8 +6836,7 @@ impl<'de> ::serde::Deserialize<'de> for RecordsDeletePollBranchVariant1Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7034,6 +7000,12 @@ impl ::std::convert::From<RecordsPromotePollBranchVariant0IdempotencyKey>
 impl ::std::str::FromStr for RecordsPromotePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RecordsPromotePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -7043,12 +7015,6 @@ impl ::std::str::FromStr for RecordsPromotePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RecordsPromotePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for RecordsPromotePollBranchVariant0IdempotencyKey
 {
@@ -7056,7 +7022,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RecordsPromotePollBranchVariant0IdempotencyKey {
@@ -7064,8 +7030,7 @@ impl<'de> ::serde::Deserialize<'de> for RecordsPromotePollBranchVariant0Idempote
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7199,6 +7164,12 @@ impl ::std::convert::From<RecordsPromotePollBranchVariant1IdempotencyKey>
 impl ::std::str::FromStr for RecordsPromotePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RecordsPromotePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -7208,12 +7179,6 @@ impl ::std::str::FromStr for RecordsPromotePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RecordsPromotePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for RecordsPromotePollBranchVariant1IdempotencyKey
 {
@@ -7221,7 +7186,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RecordsPromotePollBranchVariant1IdempotencyKey {
@@ -7229,8 +7194,7 @@ impl<'de> ::serde::Deserialize<'de> for RecordsPromotePollBranchVariant1Idempote
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7392,6 +7356,12 @@ impl ::std::convert::From<RecordsUpdatePollBranchVariant0IdempotencyKey> for ::s
 impl ::std::str::FromStr for RecordsUpdatePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RecordsUpdatePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -7401,12 +7371,6 @@ impl ::std::str::FromStr for RecordsUpdatePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RecordsUpdatePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for RecordsUpdatePollBranchVariant0IdempotencyKey
 {
@@ -7414,7 +7378,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RecordsUpdatePollBranchVariant0IdempotencyKey {
@@ -7422,8 +7386,7 @@ impl<'de> ::serde::Deserialize<'de> for RecordsUpdatePollBranchVariant0Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7553,6 +7516,12 @@ impl ::std::convert::From<RecordsUpdatePollBranchVariant1IdempotencyKey> for ::s
 impl ::std::str::FromStr for RecordsUpdatePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RecordsUpdatePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -7562,12 +7531,6 @@ impl ::std::str::FromStr for RecordsUpdatePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RecordsUpdatePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for RecordsUpdatePollBranchVariant1IdempotencyKey
 {
@@ -7575,7 +7538,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RecordsUpdatePollBranchVariant1IdempotencyKey {
@@ -7583,8 +7546,7 @@ impl<'de> ::serde::Deserialize<'de> for RecordsUpdatePollBranchVariant1Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7702,16 +7664,16 @@ impl ::std::convert::From<ReflectionId> for ::std::string::String {
 impl ::std::str::FromStr for ReflectionId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for ReflectionId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ReflectionId {
@@ -7719,7 +7681,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ReflectionId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionId {
@@ -7727,8 +7689,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7811,6 +7772,12 @@ impl ::std::convert::From<ReflectionsGeneratePollBranchVariant0IdempotencyKey>
 impl ::std::str::FromStr for ReflectionsGeneratePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ReflectionsGeneratePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -7820,12 +7787,6 @@ impl ::std::str::FromStr for ReflectionsGeneratePollBranchVariant0IdempotencyKey
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ReflectionsGeneratePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ReflectionsGeneratePollBranchVariant0IdempotencyKey
 {
@@ -7833,7 +7794,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionsGeneratePollBranchVariant0IdempotencyKey {
@@ -7841,8 +7802,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionsGeneratePollBranchVariant0Ide
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -7977,6 +7937,12 @@ impl ::std::convert::From<ReflectionsGeneratePollBranchVariant1IdempotencyKey>
 impl ::std::str::FromStr for ReflectionsGeneratePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ReflectionsGeneratePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -7986,12 +7952,6 @@ impl ::std::str::FromStr for ReflectionsGeneratePollBranchVariant1IdempotencyKey
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ReflectionsGeneratePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ReflectionsGeneratePollBranchVariant1IdempotencyKey
 {
@@ -7999,7 +7959,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionsGeneratePollBranchVariant1IdempotencyKey {
@@ -8007,8 +7967,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionsGeneratePollBranchVariant1Ide
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -8130,6 +8089,12 @@ impl ::std::convert::From<ReflectionsGeneratePollBranchVariant2IdempotencyKey>
 impl ::std::str::FromStr for ReflectionsGeneratePollBranchVariant2IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ReflectionsGeneratePollBranchVariant2IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -8139,12 +8104,6 @@ impl ::std::str::FromStr for ReflectionsGeneratePollBranchVariant2IdempotencyKey
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for ReflectionsGeneratePollBranchVariant2IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for ReflectionsGeneratePollBranchVariant2IdempotencyKey
 {
@@ -8152,7 +8111,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ReflectionsGeneratePollBranchVariant2IdempotencyKey {
@@ -8160,8 +8119,7 @@ impl<'de> ::serde::Deserialize<'de> for ReflectionsGeneratePollBranchVariant2Ide
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -8281,16 +8239,16 @@ impl ::std::convert::From<RequesterPrincipalId> for ::std::string::String {
 impl ::std::str::FromStr for RequesterPrincipalId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for RequesterPrincipalId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for RequesterPrincipalId {
@@ -8298,7 +8256,7 @@ impl ::std::convert::TryFrom<::std::string::String> for RequesterPrincipalId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RequesterPrincipalId {
@@ -8306,8 +8264,7 @@ impl<'de> ::serde::Deserialize<'de> for RequesterPrincipalId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -8399,18 +8356,6 @@ impl ::std::str::FromStr for Shared0 {
         Ok(Self(value.parse()?))
     }
 }
-impl ::std::convert::TryFrom<&str> for Shared0 {
-    type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
-    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<String> for Shared0 {
-    type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
-    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
-        value.parse()
-    }
-}
 #[doc = "RFC 3339 UTC datetime string."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(transparent)]
@@ -8440,18 +8385,6 @@ impl ::std::str::FromStr for Shared1 {
     type Err = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
         Ok(Self(value.parse()?))
-    }
-}
-impl ::std::convert::TryFrom<&str> for Shared1 {
-    type Error = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
-    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<String> for Shared1 {
-    type Error = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
-    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
-        value.parse()
     }
 }
 #[doc = "Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip."]
@@ -9926,16 +9859,16 @@ impl ::std::convert::From<SpaceId> for ::std::string::String {
 impl ::std::str::FromStr for SpaceId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for SpaceId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for SpaceId {
@@ -9943,7 +9876,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SpaceId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SpaceId {
@@ -9951,8 +9884,7 @@ impl<'de> ::serde::Deserialize<'de> for SpaceId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -10020,6 +9952,12 @@ impl ::std::convert::From<SpacesFreezePollBranchVariant0IdempotencyKey> for ::st
 impl ::std::str::FromStr for SpacesFreezePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpacesFreezePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -10029,12 +9967,6 @@ impl ::std::str::FromStr for SpacesFreezePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for SpacesFreezePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for SpacesFreezePollBranchVariant0IdempotencyKey
 {
@@ -10042,7 +9974,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SpacesFreezePollBranchVariant0IdempotencyKey {
@@ -10050,8 +9982,7 @@ impl<'de> ::serde::Deserialize<'de> for SpacesFreezePollBranchVariant0Idempotenc
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -10182,6 +10113,12 @@ impl ::std::convert::From<SpacesFreezePollBranchVariant1IdempotencyKey> for ::st
 impl ::std::str::FromStr for SpacesFreezePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpacesFreezePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -10191,12 +10128,6 @@ impl ::std::str::FromStr for SpacesFreezePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for SpacesFreezePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for SpacesFreezePollBranchVariant1IdempotencyKey
 {
@@ -10204,7 +10135,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SpacesFreezePollBranchVariant1IdempotencyKey {
@@ -10212,8 +10143,7 @@ impl<'de> ::serde::Deserialize<'de> for SpacesFreezePollBranchVariant1Idempotenc
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -10377,6 +10307,12 @@ impl ::std::convert::From<SpacesUnfreezePollBranchVariant0IdempotencyKey>
 impl ::std::str::FromStr for SpacesUnfreezePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpacesUnfreezePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -10386,12 +10322,6 @@ impl ::std::str::FromStr for SpacesUnfreezePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for SpacesUnfreezePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for SpacesUnfreezePollBranchVariant0IdempotencyKey
 {
@@ -10399,7 +10329,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SpacesUnfreezePollBranchVariant0IdempotencyKey {
@@ -10407,8 +10337,7 @@ impl<'de> ::serde::Deserialize<'de> for SpacesUnfreezePollBranchVariant0Idempote
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -10541,6 +10470,12 @@ impl ::std::convert::From<SpacesUnfreezePollBranchVariant1IdempotencyKey>
 impl ::std::str::FromStr for SpacesUnfreezePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpacesUnfreezePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -10550,12 +10485,6 @@ impl ::std::str::FromStr for SpacesUnfreezePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for SpacesUnfreezePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for SpacesUnfreezePollBranchVariant1IdempotencyKey
 {
@@ -10563,7 +10492,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SpacesUnfreezePollBranchVariant1IdempotencyKey {
@@ -10571,8 +10500,7 @@ impl<'de> ::serde::Deserialize<'de> for SpacesUnfreezePollBranchVariant1Idempote
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -10765,16 +10693,16 @@ impl ::std::convert::From<SubjectId> for ::std::string::String {
 impl ::std::str::FromStr for SubjectId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for SubjectId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for SubjectId {
@@ -10782,7 +10710,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SubjectId {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SubjectId {
@@ -10790,8 +10718,7 @@ impl<'de> ::serde::Deserialize<'de> for SubjectId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -11108,6 +11035,12 @@ impl ::std::convert::From<SubjectsFencePollBranchVariant0IdempotencyKey> for ::s
 impl ::std::str::FromStr for SubjectsFencePollBranchVariant0IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for SubjectsFencePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -11117,12 +11050,6 @@ impl ::std::str::FromStr for SubjectsFencePollBranchVariant0IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for SubjectsFencePollBranchVariant0IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for SubjectsFencePollBranchVariant0IdempotencyKey
 {
@@ -11130,7 +11057,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SubjectsFencePollBranchVariant0IdempotencyKey {
@@ -11138,8 +11065,7 @@ impl<'de> ::serde::Deserialize<'de> for SubjectsFencePollBranchVariant0Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -11271,6 +11197,12 @@ impl ::std::convert::From<SubjectsFencePollBranchVariant1IdempotencyKey> for ::s
 impl ::std::str::FromStr for SubjectsFencePollBranchVariant1IdempotencyKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for SubjectsFencePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
             return Err("longer than 128 characters".into());
         }
@@ -11280,12 +11212,6 @@ impl ::std::str::FromStr for SubjectsFencePollBranchVariant1IdempotencyKey {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for SubjectsFencePollBranchVariant1IdempotencyKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 impl ::std::convert::TryFrom<::std::string::String>
     for SubjectsFencePollBranchVariant1IdempotencyKey
 {
@@ -11293,7 +11219,7 @@ impl ::std::convert::TryFrom<::std::string::String>
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for SubjectsFencePollBranchVariant1IdempotencyKey {
@@ -11301,8 +11227,7 @@ impl<'de> ::serde::Deserialize<'de> for SubjectsFencePollBranchVariant1Idempoten
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
@@ -11420,16 +11345,16 @@ impl ::std::convert::From<UnitKind> for ::std::string::String {
 impl ::std::str::FromStr for UnitKind {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        ::std::convert::TryFrom::try_from(value)
     }
 }
 impl ::std::convert::TryFrom<&str> for UnitKind {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for UnitKind {
@@ -11437,7 +11362,7 @@ impl ::std::convert::TryFrom<::std::string::String> for UnitKind {
     fn try_from(
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+        ::std::convert::TryFrom::try_from(value.as_str())
     }
 }
 impl<'de> ::serde::Deserialize<'de> for UnitKind {
@@ -11445,8 +11370,7 @@ impl<'de> ::serde::Deserialize<'de> for UnitKind {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })

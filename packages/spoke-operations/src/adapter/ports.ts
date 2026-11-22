@@ -82,11 +82,13 @@ import type {
   ProjectRequest,
   ProjectResponse,
   Relation,
+  RevisionSnapshot,
   Rule,
   Scope,
   TimelineEvent,
 } from "@42ch/spoke-schemas";
 
+import type { HistoryPruneResult } from "../history.js";
 import type { SpokeResult } from "../result.js";
 
 /** Knowledge entry persistence — get / put by entry id. */
@@ -476,4 +478,60 @@ export interface MemoryPort {
  */
 export interface MemoryPorts {
   asMemory?: () => MemoryPort | undefined;
+}
+
+/**
+ * Optional `spoke-history` family — the injected product boundary for
+ * revision replay and explicit history pruning (spoke-history contract
+ * §Standalone `HistoryPort`).
+ *
+ * Standalone like `ExtractionPort`: `HistoryPort` is NOT part of
+ * `BaselinePorts` / `FullPorts` or the adapter aliases, and neither
+ * `KnowledgeEntryPort` nor `RelationPort` inherits it. The library contains
+ * no retention engine; providers own checkpoints, reconstruction, and every
+ * refusal: a kind it does not serve answers `HISTORY_ENTITY_UNSUPPORTED`, a
+ * revision below the retained floor answers `HISTORY_TRUNCATED`, and a
+ * revision at or above the floor that cannot be reconstructed answers
+ * `HISTORY_NOT_RETAINED`. A missing or non-disclosable entity keeps the
+ * existing `NOT_FOUND` behavior, and `pruneHistory` authorization is
+ * exactly the entity's write permission — there is no history-specific
+ * grant or refusal code.
+ *
+ * `scope` mirrors the wire request: `undefined` means the caller sent no
+ * `scope` member and the provider applies its own scope resolution. The
+ * connect idempotency envelope is a connect-layer concern —
+ * `idempotency_key` is deliberately not a port argument (spoke-history
+ * contract). Rust parity: `crates/spoke-operations/src/adapter/ports.rs`
+ * `HistoryPort`.
+ */
+export interface HistoryPort {
+  /** note: `history.revisions.get` — replay the stored entity at exactly `revision`. Read-only. */
+  getHistorySnapshot(
+    entityKind: string,
+    entityId: string,
+    revision: number,
+    scope?: Scope,
+  ): Promise<SpokeResult<RevisionSnapshot>>;
+  /**
+   * note: `history.revisions.prune` — retain the newest `keep` checkpoints
+   * of one `(scope, entity_kind, entity_id)` target and delete every older
+   * checkpoint. The live row is not a checkpoint and never consumes `keep`;
+   * no write path performs this pruning implicitly.
+   */
+  pruneHistory(
+    entityKind: string,
+    entityId: string,
+    keep: number,
+    scope?: Scope,
+  ): Promise<SpokeResult<HistoryPruneResult>>;
+}
+
+/**
+ * Availability probe for the standalone `spoke-history` family, mirroring
+ * `MemoryPorts`: adapters that serve history expose `asHistory` returning
+ * themselves; dynamically assembled boundaries omit it and the probe reads
+ * as `undefined` (parity with `requirePortMethod` miss).
+ */
+export interface HistoryPorts {
+  asHistory?: () => HistoryPort | undefined;
 }

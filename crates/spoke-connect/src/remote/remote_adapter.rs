@@ -33,9 +33,9 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
-    ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
-    KnowledgeQueryPort, MemoryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject,
-    SpokeRejectCode, SpokeResult,
+    ComputablePort, FindingPort, ForkTimelineQueryPort, HistoryPort, HostManifestPort,
+    KnowledgeEntryPort, KnowledgeQueryPort, MemoryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -69,7 +69,7 @@ use spoke_schemas::{
     MemorySpacesUnfreezeRequest, MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest,
     MemorySubjectsEnsureResponse, MemorySubjectsFenceRequest, MemorySubjectsFenceResponse,
     MemorySubjectsGetRequest, MemorySubjectsGetResponse, Principal, ProjectRequest,
-    ProjectResponse, Relation, Rule, Scope, TimelineEvent,
+    ProjectResponse, Relation, RevisionSnapshot, Rule, Scope, TimelineEvent,
 };
 
 use crate::cognition::WIRE_INVALID_INPUT;
@@ -1885,6 +1885,76 @@ impl MemoryPort for RemoteAdapter {
     ) -> SpokeResult<MemoryImportsDiscardResponse> {
         self.invoke_mapped("memory.imports.discard", json!(request))
             .await
+    }
+}
+
+/// Client `HistoryPort` over the session (spoke-history contract §Connect
+/// operations): `get` sends the request object and decodes the wrapped
+/// `snapshot` member; `prune` attaches the wire-required `idempotency_key`
+/// itself — the key is a connect-layer dedup concern the port signature
+/// deliberately omits, so this face generates a fresh caller-chosen key per
+/// call. The responder's gate is the only authority: an unnegotiated
+/// `spoke-history` answers `capability_missing`, mapped to
+/// `CAPABILITY_PORT_MISSING` with `details.wire_code`.
+#[async_trait]
+impl HistoryPort for RemoteAdapter {
+    async fn get_history_snapshot(
+        &self,
+        scope: Option<&Scope>,
+        entity_kind: &str,
+        entity_id: &str,
+        revision: u64,
+    ) -> SpokeResult<RevisionSnapshot> {
+        let mut request = json!({
+            "entity_kind": entity_kind,
+            "entity_id": entity_id,
+            "revision": revision,
+        });
+        if let Some(scope) = scope {
+            request["scope"] = json!(scope);
+        }
+        let value = match self
+            .invoke_mapped::<Value>("history.revisions.get", request)
+            .await
+        {
+            SpokeResult::Ok(value) => value,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        match value.get("snapshot").cloned().map(serde_json::from_value) {
+            Some(Ok(snapshot)) => spoke_ok(snapshot),
+            _ => internal_error(
+                "transport",
+                "history.revisions.get response missing snapshot",
+            ),
+        }
+    }
+
+    async fn prune_history(
+        &self,
+        scope: Option<&Scope>,
+        entity_kind: &str,
+        entity_id: &str,
+        keep: u64,
+    ) -> SpokeResult<spoke_operations::HistoryPruneResult> {
+        let idempotency_key = match generate_request_id() {
+            Ok(id) => id,
+            Err(error) => {
+                return internal_error(
+                    "transport",
+                    format!("idempotency key generation failed: {error}"),
+                )
+            }
+        };
+        let mut request = json!({
+            "entity_kind": entity_kind,
+            "entity_id": entity_id,
+            "keep": keep,
+            "idempotency_key": idempotency_key,
+        });
+        if let Some(scope) = scope {
+            request["scope"] = json!(scope);
+        }
+        self.invoke_mapped("history.revisions.prune", request).await
     }
 }
 

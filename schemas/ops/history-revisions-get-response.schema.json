@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/history-revisions-get-response.schema.json",
+  "title": "HistoryRevisionsGetResponse",
+  "description": "Replayed RevisionSnapshot or wire error. Use snapshot OR error — not both. Codes documented for history.revisions.get: NOT_FOUND, INVALID_INPUT, HISTORY_TRUNCATED, HISTORY_ENTITY_UNSUPPORTED, HISTORY_NOT_RETAINED, plus the entity's existing read-authorization outcome. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "snapshot"
+      ],
+      "properties": {
+        "snapshot": {
+          "$ref": "https://spoke42.invalid/schemas/data/revision-snapshot.schema.json",
+          "description": "Success: the stored entity at the requested revision."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    }
+  ],
+  "examples": [
+    {
+      "snapshot": {
+        "schema_version": 1,
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_mira_harbor",
+        "revision": 3,
+        "snapshot": {
+          "schema_version": 1,
+          "entry_id": "ke_mira_harbor",
+          "entry_type": "character",
+          "canonical_name": "Mira",
+          "status": "confirmed",
+          "body": {},
+          "extensions": {}
+        },
+        "extensions": {}
+      }
+    }
+  ]
+}

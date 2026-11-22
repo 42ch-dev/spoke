@@ -8,6 +8,7 @@
 
 use async_trait::async_trait;
 use crate::result::SpokeResult;
+use crate::history::HistoryPruneResult;
 use serde_json::Value;
 use spoke_schemas::{
     ComputeRequest, ComputeResponse, ExtractRequest, Finding, HostCapabilityManifest,
@@ -33,8 +34,8 @@ use spoke_schemas::{
     MemorySpacesListRequest, MemorySpacesListResponse, MemorySpacesUnfreezeRequest,
     MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
     MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
-    MemorySubjectsGetResponse, Principal, ProjectRequest, ProjectResponse, Relation, Rule, Scope,
-    TimelineEvent,
+    MemorySubjectsGetResponse, Principal, ProjectRequest, ProjectResponse, Relation,
+    RevisionSnapshot, Rule, Scope, TimelineEvent,
 };
 
 /// Knowledge entry persistence — get / put by entry id.
@@ -582,6 +583,70 @@ where
     T: MemoryPort,
 {
     fn as_memory(&self) -> Option<&dyn MemoryPort> {
+        Some(self)
+    }
+}
+
+/// Optional `spoke-history` family — the injected product boundary for
+/// revision replay and explicit history pruning (spoke-history contract
+/// §Standalone `HistoryPort`).
+///
+/// Standalone like [`ExtractionPort`]: `HistoryPort` is NOT part of
+/// [`BaselinePorts`] / [`FullPorts`] or the adapter aliases, and neither
+/// [`KnowledgeEntryPort`] nor [`RelationPort`] inherits it. The library
+/// contains no retention engine; providers own checkpoints, reconstruction,
+/// and every refusal: a kind it does not serve answers
+/// `HISTORY_ENTITY_UNSUPPORTED`, a revision below the retained floor answers
+/// `HISTORY_TRUNCATED`, and a revision at or above the floor that cannot be
+/// reconstructed answers `HISTORY_NOT_RETAINED`. A missing or non-disclosable
+/// entity keeps the existing `NOT_FOUND` behavior, and `prune_history`
+/// authorization is exactly the entity's write permission — there is no
+/// history-specific grant or refusal code.
+///
+/// `scope` mirrors the wire request: `None` means the caller sent no `scope`
+/// member and the provider applies its own scope resolution. The connect
+/// idempotency envelope is a connect-layer concern — `idempotency_key` is
+/// deliberately not a port argument (spoke-history contract).
+#[async_trait]
+pub trait HistoryPort: Send + Sync {
+    /// `history.revisions.get` — replay the stored entity at exactly
+    /// `revision`. Read-only.
+    async fn get_history_snapshot(
+        &self,
+        scope: Option<&Scope>,
+        entity_kind: &str,
+        entity_id: &str,
+        revision: u64,
+    ) -> SpokeResult<RevisionSnapshot>;
+
+    /// `history.revisions.prune` — retain the newest `keep` checkpoints of
+    /// one `(scope, entity_kind, entity_id)` target and delete every older
+    /// checkpoint. The live row is not a checkpoint and never consumes
+    /// `keep`; no write path performs this pruning implicitly.
+    async fn prune_history(
+        &self,
+        scope: Option<&Scope>,
+        entity_kind: &str,
+        entity_id: &str,
+        keep: u64,
+    ) -> SpokeResult<HistoryPruneResult>;
+}
+
+/// Availability probe for the standalone `spoke-history` family, mirroring
+/// [`MemoryPorts`]: types that implement [`HistoryPort`] get the blanket
+/// `Some(self)` probe, while dynamically assembled boundaries MAY implement
+/// this trait with the default `None` (parity with TS `requirePortMethod`).
+pub trait HistoryPorts {
+    fn as_history(&self) -> Option<&dyn HistoryPort> {
+        None
+    }
+}
+
+impl<T> HistoryPorts for T
+where
+    T: HistoryPort,
+{
+    fn as_history(&self) -> Option<&dyn HistoryPort> {
         Some(self)
     }
 }

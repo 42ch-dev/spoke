@@ -14,6 +14,7 @@
 
 export {
   connectRemoteAdapter,
+  HISTORY_OPS,
   MEMORY_OPS,
   RemoteAdapter,
 } from "./remote-adapter.js";
@@ -34,6 +35,7 @@ export type {
   ConnectResponderState,
   RemoteExtractService,
   RemoteKnowledgeFace,
+  RemoteHistoryService,
   RemoteMemoryService,
   RemoteServePorts,
 } from "./responder.js";

@@ -13,7 +13,9 @@
 //! [`RemoteExtractService`] face, probed with
 //! [`RemoteServePorts::as_extract`]; it is a service, not a port method. The
 //! memory family is served the same way through the optional
-//! [`RemoteMemoryService`] face ([`RemoteServePorts::as_memory`]).
+//! [`RemoteMemoryService`] face ([`RemoteServePorts::as_memory`]); the
+//! `spoke-history` family probes the injected [`HistoryPort`] directly
+//! through [`RemoteServePorts::as_history`].
 //! Serving order is gate → probe → serve/deny: after the capability gate
 //! passes, the responder probes the injected face; a `None` probe means the
 //! host declared a family it does not provide (host misconfiguration) and
@@ -34,7 +36,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use spoke_operations::{
-    spoke_reject, BaselinePorts, ComputablePort, ForkTimelineQueryPort, MemoryPort,
+    spoke_reject, BaselinePorts, ComputablePort, ForkTimelineQueryPort, HistoryPort, MemoryPort,
     ScopedKnowledgePort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::{ExtractRequest, ExtractResponse, Principal, Scope};
@@ -312,6 +314,18 @@ pub trait RemoteServePorts: Send + Sync {
     fn as_memory(&self) -> Option<Arc<dyn RemoteMemoryService>> {
         None
     }
+
+    /// Optional `spoke-history` face (revision replay + explicit pruning),
+    /// when provided. Absent means the host declared `spoke-history`
+    /// without providing the port — the responder answers the dispatch-deny
+    /// branch.
+    ///
+    /// Owned (not borrowed) like [`RemoteServePorts::as_memory`]: the prune
+    /// op mutates, so the responder may detach the admitted invoke from its
+    /// response deadline and the spawned task must own the port.
+    fn as_history(&self) -> Option<Arc<dyn HistoryPort + Send + Sync>> {
+        None
+    }
 }
 
 /// Blanket impl: a provider carrying the baseline six + both optional faces
@@ -348,6 +362,7 @@ pub struct RemoteServePortsComposite {
     fork: Option<Arc<dyn ForkTimelineQueryPort + Send + Sync>>,
     extract: Option<Arc<dyn RemoteExtractService>>,
     memory: Option<Arc<dyn RemoteMemoryService>>,
+    history: Option<Arc<dyn HistoryPort + Send + Sync>>,
 }
 
 impl RemoteServePortsComposite {
@@ -379,6 +394,7 @@ impl RemoteServePortsComposite {
             fork,
             extract: None,
             memory: None,
+            history: None,
         }
     }
 
@@ -409,6 +425,13 @@ impl RemoteServePortsComposite {
     #[must_use]
     pub fn with_memory(mut self, memory: Arc<dyn RemoteMemoryService>) -> Self {
         self.memory = Some(memory);
+        self
+    }
+
+    /// Attach the optional `spoke-history` port face (consuming builder).
+    #[must_use]
+    pub fn with_history(mut self, history: Arc<dyn HistoryPort + Send + Sync>) -> Self {
+        self.history = Some(history);
         self
     }
 }
@@ -444,5 +467,9 @@ impl RemoteServePorts for RemoteServePortsComposite {
 
     fn as_memory(&self) -> Option<Arc<dyn RemoteMemoryService>> {
         self.memory.clone()
+    }
+
+    fn as_history(&self) -> Option<Arc<dyn HistoryPort + Send + Sync>> {
+        self.history.clone()
     }
 }

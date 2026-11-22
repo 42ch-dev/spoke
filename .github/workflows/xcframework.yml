@@ -392,7 +392,6 @@ jobs:
           for f in "${files[@]:1}"; do
             cmp -s "${files[0]}" "${f}" || { echo "error: worker rustc versions differ (${files[0]} vs ${f})" >&2; exit 1; }
           done
-          cp "${files[0]}" "${XCFRAMEWORK_OUTPUT_DIR}/rustc-version.txt"
 
       - name: Assemble xcframework from slices
         run: ./tooling/connect/build-swift-xcframework.sh --phase assemble
@@ -408,15 +407,37 @@ jobs:
         env:
           SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          # Freshness baselines (ci-freshness.yml recomputes the same sets at
+          # HEAD): the last commit touching the build-input source set and the
+          # recipe set. The artifact-writeback paths stay excluded from both
+          # so applying a refresh can never self-report stale. `git log -1`
+          # tolerates nonexistent pathspecs; an empty result records null.
+          EXCLUDES=(
+            ':(exclude)crates/spoke-connect/bindings/swift/xcframework/**'
+            ':(exclude)crates/spoke-connect/bindings/swift/generated/**'
+            ':(exclude)crates/spoke-connect/bindings/cpp/native/**'
+            ':(exclude)**/provenance.json'
+          )
+          SOURCE_REVISION="$(git log -1 --format=%H -- \
+            Cargo.toml Cargo.lock .cargo rust-toolchain rust-toolchain.toml \
+            crates/spoke-connect crates/spoke-schemas crates/spoke-operations \
+            Package.swift .github/workflows/xcframework.yml "${EXCLUDES[@]}" || true)"
+          RECIPE_REVISION="$(git log -1 --format=%H -- \
+            tooling/connect/build-swift-xcframework.sh \
+            tooling/connect/xcframework-manifest.sh \
+            tooling/connect/normalize-cargo-version.mjs \
+            tooling/release/lockstep-surfaces.mjs "${EXCLUDES[@]}" || true)"
           jq -n \
             --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             --argjson runId "${GITHUB_RUN_ID}" \
             --argjson runAttempt "${GITHUB_RUN_ATTEMPT}" \
             --arg head "${SOURCE_HEAD}" \
             --arg checkout "$(git rev-parse HEAD)" \
+            --arg sourceRevision "${SOURCE_REVISION}" \
+            --arg recipeRevision "${RECIPE_REVISION}" \
             --rawfile rustc "${XCFRAMEWORK_OUTPUT_DIR}/rustc-version.txt" \
             --rawfile hashes "${XCFRAMEWORK_OUTPUT_DIR}/spoke_connectFFI.xcframework.sha256" \
-            '{evidence: "ci-artifact", run: $run, runId: $runId, runAttempt: $runAttempt, sourceHead: $head, checkoutRevision: $checkout, rustcVersion: $rustc, manifest: $hashes}' \
+            '{evidence: "ci-artifact", run: $run, runId: $runId, runAttempt: $runAttempt, sourceHead: $head, checkoutRevision: $checkout, sourceRevision: ($sourceRevision | select(. != "") // null), recipeRevision: ($recipeRevision | select(. != "") // null), rustcVersion: $rustc, manifest: $hashes}' \
             > "${XCFRAMEWORK_OUTPUT_DIR}/provenance.json"
 
       - name: Upload xcframework artifact

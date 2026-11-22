@@ -8,12 +8,15 @@
 # rejected before any network call, because only the number can be recorded in
 # the provenance sidecar.
 #
-# Downloads the xcframework artifact from <run-id>, verifies the run's
-# provenance (workflow, conclusion, headSha, plus a `changes` gate job if the
-# workflow ran one), checksum-verifies the artifact against its mandatory hash
-# manifest, validates the producer record the CI ships inside the artifact (its
-# sourceHead must equal the run head, and its actual checkoutRevision must be
-# the run head or a checkout whose build inputs are byte-identical to it — a
+# Downloads the xcframework artifact from <run-id> — resolved through the
+# run's producer.json record for the split host/slice/assemble graph, falling
+# back to the fixed legacy artifact name only for runs that predate the
+# graph — verifies the run's provenance (workflow, conclusion, headSha, plus
+# a `changes` gate job if the workflow ran one), checksum-verifies the
+# artifact against its mandatory hash manifest, validates the producer record
+# the CI ships inside the artifact (its sourceHead must equal the run head,
+# and its actual checkoutRevision must be the run head or a checkout whose
+# build inputs are byte-identical to it — a
 # pull-request virtual merge records a merge checkout while declaring the PR
 # head, so the identical-build-input compare is what keeps the committed
 # carrier bound to a tree it was really built from — and its embedded manifest
@@ -33,8 +36,14 @@
 # objects).
 #
 # Provenance gate (fail-closed, runs before the download): accept successful
-# runs or failures limited to the consumer smoke check, with successful build,
-# manifest, provenance and upload steps in either case.
+# runs or failures limited to the consumer smoke check. For the split job
+# graph (changes + host + four slices + assemble + xcframework), every worker
+# must share one run attempt, all workers must conclude uniformly — success
+# on a rebuild run, skipped otherwise, any mixture refused — and the assemble
+# job must have completed the assemble, manifest, producer record and
+# upload steps. Runs predating the graph instead require the legacy
+# single-job producer with successful build, manifest, provenance and
+# upload steps in either case.
 # The run head must match HEAD unless --allow-sha pins it. The override only
 # relaxes that destination check; the producer record must still show the
 # declared run head or a checkout whose build inputs are byte-identical to it.
@@ -72,7 +81,8 @@ if [[ -n "${ALLOW_SHA}" && ! "${ALLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
 fi
 ALLOW_SHA_USED=""
 
-# Keep in sync with the artifact name in .github/workflows/xcframework.yml.
+# Fallback artifact name for runs predating the split producer graph; graph
+# runs resolve the final artifact name from the run's producer.json instead.
 ARTIFACT_NAME="spoke-connect-xcframework"
 XCFRAMEWORK_DIR="crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework"
 
@@ -119,55 +129,135 @@ if [[ "${RUN_CONCLUSION}" != "success" && "${RUN_CONCLUSION}" != "failure" ]]; t
   echo "error: run ${RUN_ID} conclusion '${RUN_CONCLUSION}' is not acceptable" >&2
   exit 1
 fi
-if ! gh run view "${RUN_ID}" --json jobs | python3 -c '
+JOBS_JSON="$(gh api "repos/{owner}/{repo}/actions/runs/${RUN_ID}/jobs?per_page=100")"
+if ! ARTIFACT_MODE="$(
+  python3 -c '
 import json
 import sys
 
+# The split producer graph uploads the final xcframework through an
+# `assemble` job and binds it to the run in producer.json; runs predating the
+# graph used one `xcframework` producer job plus the optional `changes`
+# path-filter gate. Job outputs are not readable through the REST API, so the
+# required xcframework job with a passed "Assert gate inputs and worker
+# results" step stands in for its recorded worker verdicts: that assert only
+# succeeds when every worker succeeded on a rebuild run or every worker was
+# skipped otherwise, so a uniform completed worker set is the same fact the assert
+# reported. This script answers "legacy", "graph" or "no-artifact".
 try:
-    jobs = json.load(sys.stdin)["jobs"]
-    producer = [job for job in jobs if job["name"] == "xcframework"]
-    if len(producer) != 1:
+    jobs = json.loads(sys.argv[1])["jobs"]
+    run_conclusion = sys.argv[2]
+    names = sorted(job["name"] for job in jobs)
+    if len(set(names)) != len(names):
+        raise ValueError("duplicate job name")
+    by_name = {job["name"]: job for job in jobs}
+
+    def require_completed(name):
+        job = by_name[name]
+        if job["status"] != "completed":
+            raise ValueError("job '%s' is not completed" % name)
+        return job
+
+    def check_steps(job, required, allowed_failures):
+        steps = job["steps"]
+        step_names = [step["name"] for step in steps]
+        if len(step_names) != len(set(step_names)):
+            raise ValueError("duplicate step names")
+        if any(step["status"] != "completed" or step["conclusion"] not in ("success", "failure", "skipped") for step in steps):
+            raise ValueError("incomplete or cancelled step in '%s'" % job["name"])
+        outcomes = {step["name"]: step["conclusion"] for step in steps}
+        if any(outcomes.get(name) != "success" for name in required):
+            raise ValueError("a required step did not succeed in '%s'" % job["name"])
+        failures = {name for name, conclusion in outcomes.items() if conclusion == "failure"}
+        if failures - allowed_failures or bool(failures) != (run_conclusion == "failure"):
+            raise ValueError("failure is not limited to the consumer smoke")
+
+    LEGACY = {"changes", "xcframework"}
+    GRAPH = {"changes", "host", "slice-macos", "slice-ios-arm64",
+             "slice-ios-arm64-sim", "slice-ios-x86_64-sim", "assemble", "xcframework"}
+    if set(names) <= LEGACY:
+        mode = "legacy"
+    elif set(names) == GRAPH:
+        mode = "graph"
+    else:
+        raise ValueError("unexpected job set: %s" % ", ".join(names))
+    if "xcframework" not in by_name:
         raise ValueError("expected exactly one xcframework job")
-    # The workflow may carry path-filter gate jobs beside the producer
-    # (`changes`). A gate must have succeeded; anything else in the run is an
-    # unknown producer and is refused.
-    for gate in (job for job in jobs if job["name"] != "xcframework"):
-        if gate["name"] != "changes":
-            raise ValueError("unexpected job '%s' beside the xcframework producer" % gate["name"])
-        if gate["status"] != "completed" or gate["conclusion"] != "success":
-            raise ValueError("gate job '%s' did not succeed" % gate["name"])
-    job = producer[0]
-    if job["status"] != "completed" or job["conclusion"] != sys.argv[1]:
+
+    # The path-filter gate must have succeeded wherever it ran.
+    if "changes" in by_name:
+        if require_completed("changes")["conclusion"] != "success":
+            raise ValueError("gate job 'changes' did not succeed")
+
+    aggregate = require_completed("xcframework")
+    if aggregate["conclusion"] != run_conclusion:
         raise ValueError("job status or conclusion does not match run")
-    steps = job["steps"]
-    names = [step["name"] for step in steps]
-    required = {
-        "Build Swift xcframework (staged, locked)",
-        "Write xcframework hash manifest",
-        "Record xcframework build provenance",
-        "Upload xcframework artifact",
-    }
-    allowed_failures = {
-        "Fail on committed Swift consumer smoke",
-    }
-    if len(names) != len(set(names)):
-        raise ValueError("duplicate step names")
-    outcomes = {step["name"]: step["conclusion"] for step in steps}
-    if any(outcomes.get(name) != "success" for name in required):
-        raise ValueError("build, manifest, provenance or upload did not succeed")
-    if any(step["status"] != "completed" or step["conclusion"] not in ("success", "failure", "skipped") for step in steps):
-        raise ValueError("incomplete or cancelled step")
-    failures = {name for name, conclusion in outcomes.items() if conclusion == "failure"}
-    if failures - allowed_failures or bool(failures) != (sys.argv[1] == "failure"):
-        raise ValueError("failure is not limited to the consumer smoke")
+    if mode == "legacy":
+        check_steps(
+            aggregate,
+            required={
+                "Build Swift xcframework (staged, locked)",
+                "Write xcframework hash manifest",
+                "Record xcframework build provenance",
+                "Upload xcframework artifact",
+            },
+            allowed_failures={
+                "Fail on committed Swift consumer smoke",
+            },
+        )
+    else:
+        check_steps(
+            aggregate,
+            required={"Assert gate inputs and worker results"},
+            allowed_failures={
+                "Fail on committed Swift consumer smoke",
+            },
+        )
+        workers = [by_name[name] for name in sorted(GRAPH - {"changes", "assemble", "xcframework"})]
+        for job in workers:
+            if job["status"] != "completed":
+                raise ValueError("worker '%s' is not completed" % job["name"])
+        results = {job["conclusion"] for job in workers}
+        if results - {"success", "skipped"} or len(results) != 1:
+            raise ValueError("mixed worker results: %s" % ", ".join(
+                "%s=%s" % (job["name"], job["conclusion"]) for job in workers))
+        attempts = {job["run_attempt"] for job in workers} | {aggregate["run_attempt"]}
+        if len(attempts) != 1:
+            raise ValueError("mixed worker attempts — rerun all jobs")
+        worker_result = results.pop()
+        assemble = require_completed("assemble")
+        if worker_result == "success":
+            if assemble["conclusion"] != "success":
+                raise ValueError("assemble job is '%s' on a rebuild run" % assemble["conclusion"])
+            if any(job["run_attempt"] > assemble["run_attempt"] for job in workers):
+                raise ValueError("a worker attempt is newer than the assemble attempt")
+            check_steps(
+                assemble,
+                required={
+                    "Assemble xcframework from slices",
+                    "Write xcframework hash manifest",
+                    "Record producer record",
+                    "Upload xcframework artifact",
+                },
+                allowed_failures=set(),
+            )
+        elif assemble["conclusion"] != "skipped":
+            raise ValueError("assemble job is '%s' beside skipped workers" % assemble["conclusion"])
+        else:
+            mode = "no-artifact"
+    print(mode)
 except (KeyError, TypeError, ValueError) as error:
     print("error: invalid producer job: %s" % error, file=sys.stderr)
     sys.exit(1)
-' "${RUN_CONCLUSION}"; then
+' "${JOBS_JSON}" "${RUN_CONCLUSION}"
+)"; then
   echo "error: run ${RUN_ID} did not meet the xcframework producer outcome gate" >&2
   exit 1
 fi
-
+if [[ "${ARTIFACT_MODE}" == "no-artifact" ]]; then
+  echo "error: run ${RUN_ID} is not a rebuild — no xcframework artifact was produced" >&2
+  exit 1
+fi
 EXPECT_SHA="$(git rev-parse HEAD)"
 if [[ "${RUN_HEAD_SHA}" != "${EXPECT_SHA}" ]]; then
   if [[ -n "${ALLOW_SHA}" && "${RUN_HEAD_SHA}" == "${ALLOW_SHA}" ]]; then
@@ -184,6 +274,101 @@ fi
 
 STAGE="$(mktemp -d)"
 trap 'rm -rf "${STAGE}"' EXIT
+
+# For the split producer graph the final artifact is bound to the run by the
+# producer.json record the assemble job uploaded (the workflow names every
+# artifact with the attempt that produced it, so a plain name lookup cannot
+# say which attempt is validated). Resolve the newest non-expired producer
+# artifact, then require the record to agree with the observed run.
+if [[ "${ARTIFACT_MODE}" == "graph" ]]; then
+  ARTIFACTS_JSON="$(gh api "repos/{owner}/{repo}/actions/runs/${RUN_ID}/artifacts?per_page=100")"
+  PRODUCER_NAME="$(ARTIFACTS="${ARTIFACTS_JSON}" RUN_ID="${RUN_ID}" python3 - <<'PY'
+import json
+import os
+import re
+import sys
+
+run_id = os.environ["RUN_ID"]
+pattern = re.compile(r"^spoke-connect-xcframework-producer-%s-([0-9]+)$" % run_id)
+try:
+    artifacts = json.loads(os.environ["ARTIFACTS"])["artifacts"]
+    candidates = []
+    for entry in artifacts:
+        match = pattern.match(entry["name"])
+        if match and not entry["expired"]:
+            candidates.append((int(match.group(1)), entry["name"]))
+except Exception as error:  # malformed list or entry
+    print("error: cannot read the run's artifact list: %s" % error, file=sys.stderr)
+    raise SystemExit(1)
+if not candidates:
+    print("error: run %s has no live producer record artifact — the assemble job's producer upload is missing or expired" % run_id, file=sys.stderr)
+    raise SystemExit(1)
+print(max(candidates)[1])
+PY
+)"
+  gh run download "${RUN_ID}" --name "${PRODUCER_NAME}" --dir "${STAGE}/producer"
+  PRODUCER_JSON="${STAGE}/producer/producer.json"
+  if [[ ! -f "${PRODUCER_JSON}" && -f "${STAGE}/producer/${PRODUCER_NAME}/producer.json" ]]; then
+    PRODUCER_JSON="${STAGE}/producer/${PRODUCER_NAME}/producer.json"
+  fi
+  if [[ ! -f "${PRODUCER_JSON}" ]]; then
+    echo "error: producer artifact ${PRODUCER_NAME} carried no producer.json" >&2
+    exit 1
+  fi
+  ARTIFACT_NAME="$(PRODUCER_JSON="${PRODUCER_JSON}" JOBS_JSON="${JOBS_JSON}" \
+    ARTIFACTS_JSON="${ARTIFACTS_JSON}" RUN_ID="${RUN_ID}" python3 - <<'PY'
+import json
+import os
+import re
+import sys
+
+env = os.environ
+run_id = int(env["RUN_ID"])
+def fail(message):
+    print("error: invalid producer record: %s" % message, file=sys.stderr)
+    raise SystemExit(1)
+try:
+    with open(env["PRODUCER_JSON"], encoding="utf-8") as handle:
+        record = json.load(handle)
+    jobs = json.loads(env["JOBS_JSON"])["jobs"]
+    artifacts = json.loads(env["ARTIFACTS_JSON"])["artifacts"]
+except Exception as error:
+    fail("unreadable producer.json or run data: %s" % error)
+if record.get("validated") is not True or record.get("runId") != run_id:
+    fail("record is not validated for this run")
+by_name = {job["name"]: job for job in jobs}
+for name, entry in (record.get("workers") or {}).items():
+    job = by_name.get(name)
+    if job is None:
+        fail("worker '%s' is not in this run" % name)
+    if entry.get("result") != job["conclusion"]:
+        fail("worker '%s' recorded '%s', job concluded '%s'" % (name, entry.get("result"), job["conclusion"]))
+    if entry.get("attempt") != record.get("workerAttempt") or job.get("run_attempt") != record.get("workerAttempt"):
+        fail("worker '%s' attempt does not match its job" % name)
+    slice_id = {
+        "slice-macos": "macos-arm64",
+        "slice-ios-arm64": "ios-arm64",
+        "slice-ios-arm64-sim": "ios-arm64-simulator",
+        "slice-ios-x86_64-sim": "ios-x86_64-simulator",
+    }.get(name)
+    prefix = "xc-host" if name == "host" else "xc-slice-%s" % slice_id
+    if entry.get("artifact-name") != "%s-%s-%s" % (prefix, run_id, record.get("workerAttempt")):
+        fail("worker '%s' names an unexpected artifact" % name)
+final = record.get("finalArtifact") or {}
+name = final.get("name")
+match = re.match(r"^spoke-connect-xcframework-%s-([0-9]+)$" % run_id, name or "")
+if not match or int(match.group(1)) != record.get("runAttempt"):
+    fail("finalArtifact name does not match the recorded attempt")
+if record.get("runAttempt") != by_name.get("assemble", {}).get("run_attempt"):
+    fail("record attempt does not match the assemble job")
+live = {entry["id"]: entry for entry in artifacts if not entry["expired"]}
+resolved = live.get(final.get("id"))
+if resolved is None or resolved["name"] != name:
+    fail("final artifact %s is missing or expired — use a newer run or rerun the workflow" % name)
+print(name)
+PY
+)"
+fi
 
 echo "==> download artifact ${ARTIFACT_NAME} from run ${RUN_ID}"
 gh run download "${RUN_ID}" --name "${ARTIFACT_NAME}" --dir "${STAGE}"

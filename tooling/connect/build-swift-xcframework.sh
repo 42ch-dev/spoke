@@ -404,11 +404,7 @@ phase_host_body() {
     --language swift \
     --out-dir "${GENERATED}"
 
-  local hdrs="${STAGE:+${STAGE}/}Headers"
-  if [[ -n "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
-    hdrs="${XCFRAMEWORK_OUTPUT_DIR}/Headers"
-  fi
-  stage_headers "${hdrs}"
+  stage_headers "$(headers_dir)"
 }
 
 stage_headers() {
@@ -421,6 +417,17 @@ module spoke_connectFFI {
     export *
 }
 EOF
+}
+
+# One header tree for every phase: the staged output dir when set, otherwise
+# the invocation's own staging dir (phase `all`). Producer and consumer phases
+# resolve through here so the two paths cannot drift.
+headers_dir() {
+  if [[ -n "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
+    printf '%s\n' "${XCFRAMEWORK_OUTPUT_DIR}/Headers"
+  else
+    printf '%s\n' "${STAGE}/Headers"
+  fi
 }
 
 # Phase `slice`: one staticlib for --slice-id/--target into
@@ -475,7 +482,7 @@ phase_assemble() {
     echo "error: --phase assemble requires XCFRAMEWORK_OUTPUT_DIR" >&2
     exit 2
   fi
-  local hdrs="${XCFRAMEWORK_OUTPUT_DIR}/Headers"
+  local hdrs="$(headers_dir)"
   if [[ ! -f "${hdrs}/spoke_connectFFI.h" ]]; then
     echo "error: missing host headers: ${hdrs}/spoke_connectFFI.h" >&2
     exit 1
@@ -589,7 +596,7 @@ phase_all() {
     build_slice_staticlib "${entry%%|*}" "${entry#*|}" "${target_dir}" "${STAGE}/${entry%%|*}"
   done
 
-  assemble_xcframework "${STAGE}" "${STAGE}/Headers"
+  assemble_xcframework "${STAGE}" "$(headers_dir)"
 }
 
 

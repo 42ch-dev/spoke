@@ -110,6 +110,8 @@ describe("dependency source identity", () => {
       });
       const revision = () => JSON.parse(readFileSync(join(root, "crates/spoke-connect/bindings/cpp/native/provenance.json")))
         .nativeArtifacts["win-x64"].sourceRevision;
+      const recipe = () => JSON.parse(readFileSync(join(root, "crates/spoke-connect/bindings/cpp/native/provenance.json")))
+        .nativeArtifacts["win-x64"].recipeRevision;
       try {
         mkdirSync(dirname(script), { recursive: true });
         copyFileSync(fileURLToPath(new URL("./cpp-build.mjs", import.meta.url)), script);
@@ -123,6 +125,9 @@ describe("dependency source identity", () => {
         put("unrelated.txt", "initial\n");
         git("add", ".");
         git("commit", "-qm", "initial");
+        // The copied script is the only recipe path present in the fixture,
+        // so the recipe revision is the commit that created it.
+        const initialRevision = git("rev-parse", "HEAD");
         put("bin/cargo", "#!/bin/sh\nmkdir -p target/cpp/x86_64-pc-windows-msvc/release\nprintf native > target/cpp/x86_64-pc-windows-msvc/release/spoke_connect_capi.dll\nprintf import > target/cpp/x86_64-pc-windows-msvc/release/spoke_connect_capi.dll.lib\n", { mode: 0o755 });
         put("bin/rustc", "#!/bin/sh\nprintf 'rustc fixture\\n'\n", { mode: 0o755 });
         put("bin/cl.exe", "#!/bin/sh\nprintf 'Compiler Version fixture\\n'\n", { mode: 0o755 });
@@ -143,6 +148,7 @@ describe("dependency source identity", () => {
         const unrelated = build();
         assert.equal(unrelated.status, 0, unrelated.stderr);
         assert.equal(revision(), dependencyRevision);
+        assert.equal(recipe(), initialRevision);
 
         put(dependency, "dirty change\n");
         const dirty = build();

@@ -1,0 +1,138 @@
+name: Artifact freshness
+
+# Nightly check that each committed native artifact's provenance still
+# describes the tree. Each lane's sidecar records sourceRevision and
+# recipeRevision, each computed by the producer as `git log -1 --format=%H`
+# over a path set that excludes the artifact output directories — so a
+# refresh writeback can never report itself stale. This job recomputes both
+# at HEAD over the same sets and compares by equality:
+#   missing / "unknown" field  → ::warning::, the lane is unverified, run green
+#   unequal                    → ::error:: + summary, the run fails
+# headSha / appliedAtHead / producerCheckout are run identity and are never
+# compared. No issue is opened: contents: read is the whole permission set,
+# so the red run and the step summary are the only alert channel.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    name: freshness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # Full history: the recorded revisions must resolve in this clone.
+          fetch-depth: 0
+
+      - name: Compare provenance baselines
+        run: |
+          set -u
+          stale=0
+
+          # git pathspec exclusions for the artifact writeback directories and
+          # every provenance sidecar: a refresh commit moves neither baseline.
+          EXCLUDES=(
+            ':(exclude)crates/spoke-connect/bindings/swift/xcframework/**'
+            ':(exclude)crates/spoke-connect/bindings/swift/generated/**'
+            ':(exclude)crates/spoke-connect/bindings/cpp/native/**'
+            ':(exclude)**/provenance.json'
+          )
+
+          last_revision() {
+            git log -1 --format=%H -- "$@" "${EXCLUDES[@]}"
+          }
+
+          # compare <lane> <field> <recorded> <current> <pathspec...>
+          compare() {
+            local lane="$1" field="$2" recorded="$3" current="$4"
+            shift 4
+            if [ -z "$recorded" ] || [ "$recorded" = "null" ] || [ "$recorded" = "unknown" ]; then
+              echo "::warning::${lane}: ${field} not recorded in committed provenance; freshness unverified"
+              echo "- :warning: **${lane}** \`${field}\` is not recorded; the lane's freshness is unverified until the next refresh writes it." >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+            if [ -z "$current" ]; then
+              echo "::warning::${lane}: no HEAD history resolves ${field}; baseline cannot be recomputed"
+              echo "- :warning: **${lane}** \`${field}\` has no history at HEAD; the baseline cannot be recomputed." >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+            if [ "$recorded" != "$current" ]; then
+              local first
+              first=$(git rev-list --reverse "${recorded}..HEAD" -- "$@" "${EXCLUDES[@]}" 2>/dev/null | head -1 || true)
+              echo "::error::${lane}: ${field} stale: recorded ${recorded}, HEAD ${current}"
+              {
+                echo "- :x: **${lane}** \`${field}\` stale"
+                echo "  - recorded: \`${recorded}\`"
+                echo "  - HEAD:     \`${current}\`"
+                [ -n "$first" ] && echo "  - first offending commit: \`${first}\`"
+              } >> "$GITHUB_STEP_SUMMARY"
+              return 1
+            fi
+            echo "- :white_check_mark: **${lane}** \`${field}\` fresh at \`${current}\`" >> "$GITHUB_STEP_SUMMARY"
+            return 0
+          }
+
+          echo "## Artifact freshness" >> "$GITHUB_STEP_SUMMARY"
+
+          # --- C++ carrier (crates/spoke-connect/bindings/cpp/native) ---
+          # Path sets mirror cpp-build.mjs: BUILD_SOURCE_PATHS and
+          # BUILD_RECIPE_PATHS.
+          CPP_SOURCE=(
+            Cargo.toml Cargo.lock
+            crates/spoke-connect-capi crates/spoke-connect/src crates/spoke-connect/Cargo.toml
+            crates/spoke-operations crates/spoke-schemas
+          )
+          CPP_RECIPE=(
+            tooling/connect/cpp-build.mjs
+            tooling/connect/cpp-symbol-check.mjs
+            tooling/connect/cpp-smoke.mjs
+            tooling/connect/assemble-csharp-runtimes.sh
+            tooling/connect/cpp-nightly-refresh.mjs
+          )
+          cpp_src_rev=$(last_revision "${CPP_SOURCE[@]}")
+          cpp_rec_rev=$(last_revision "${CPP_RECIPE[@]}")
+          cpp_rows=$(jq -r '.nativeArtifacts // {} | keys[]' crates/spoke-connect/bindings/cpp/native/provenance.json 2>/dev/null || true)
+          if [ -z "$cpp_rows" ]; then
+            echo "::warning::cpp-carrier: committed provenance has no nativeArtifacts entries"
+            echo "- :warning: **cpp-carrier** committed provenance records no carriers." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          while IFS= read -r rid; do
+            [ -z "$rid" ] && continue
+            rec_src=$(jq -r --arg rid "$rid" '.nativeArtifacts[$rid].sourceRevision // empty' crates/spoke-connect/bindings/cpp/native/provenance.json)
+            rec_rec=$(jq -r --arg rid "$rid" '.nativeArtifacts[$rid].recipeRevision // empty' crates/spoke-connect/bindings/cpp/native/provenance.json)
+            compare "cpp-carrier/${rid}" sourceRevision "$rec_src" "$cpp_src_rev" "${CPP_SOURCE[@]}" || stale=1
+            compare "cpp-carrier/${rid}" recipeRevision "$rec_rec" "$cpp_rec_rev" "${CPP_RECIPE[@]}" || stale=1
+          done <<< "$cpp_rows"
+
+          # --- Swift xcframework (crates/spoke-connect/bindings/swift/xcframework) ---
+          # Source set = the xcframework rebuild pattern minus the four recipe
+          # files; recipe set = the files that define how the bundle is built.
+          XC_PROVENANCE=crates/spoke-connect/bindings/swift/xcframework/provenance.json
+          XC_SOURCE=(
+            Cargo.toml Cargo.lock .cargo rust-toolchain rust-toolchain.toml
+            crates/spoke-connect crates/spoke-schemas crates/spoke-operations
+          )
+          XC_RECIPE=(
+            tooling/connect/build-swift-xcframework.sh
+            tooling/connect/normalize-cargo-version.mjs
+            tooling/release/lockstep-surfaces.mjs
+            .github/workflows/xcframework.yml
+          )
+          xc_src_rev=$(last_revision "${XC_SOURCE[@]}")
+          xc_rec_rev=$(last_revision "${XC_RECIPE[@]}")
+          xc_rec_src=$(jq -r '.xcframework.sourceRevision // empty' "$XC_PROVENANCE" 2>/dev/null || true)
+          xc_rec_rec=$(jq -r '.xcframework.recipeRevision // empty' "$XC_PROVENANCE" 2>/dev/null || true)
+          compare "swift-xcframework" sourceRevision "$xc_rec_src" "$xc_src_rev" "${XC_SOURCE[@]}" || stale=1
+          compare "swift-xcframework" recipeRevision "$xc_rec_rec" "$xc_rec_rev" "${XC_RECIPE[@]}" || stale=1
+
+          if [ "$stale" -ne 0 ]; then
+            echo "::error::stale committed artifact baselines; refresh via the lane's apply tooling"
+            exit 1
+          fi

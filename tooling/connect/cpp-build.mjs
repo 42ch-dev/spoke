@@ -69,6 +69,26 @@ const BUILD_SOURCE_PATHS = [
   "crates/spoke-schemas",
 ];
 
+/**
+ * Scripts whose change rebuilds the binary differently; disjoint from
+ * BUILD_SOURCE_PATHS. Absent paths are filtered at use so a checkout that
+ * lacks a recipe file still records a revision. The artifact writeback
+ * (`crates/spoke-connect/bindings/cpp/native/**`) is a consumer of the
+ * build, never an input to either set.
+ */
+const BUILD_RECIPE_PATHS = [
+  "tooling/connect/cpp-build.mjs",
+  "tooling/connect/cpp-symbol-check.mjs",
+  "tooling/connect/cpp-smoke.mjs",
+  "tooling/connect/assemble-csharp-runtimes.sh",
+  "tooling/connect/cpp-nightly-refresh.mjs",
+];
+
+/** The recipe paths that exist in this checkout. */
+function presentRecipePaths() {
+  return BUILD_RECIPE_PATHS.filter((path) => existsSync(join(REPO_ROOT, path)));
+}
+
 const TARGETS = {
   "aarch64-apple-darwin": {
     rid: "osx-arm64",
@@ -156,29 +176,43 @@ function assertBuildSourcesCommitted() {
     "--porcelain",
     "--",
     ...BUILD_SOURCE_PATHS,
+    ...presentRecipePaths(),
   ]);
   if (status) {
     fail(
       `build sources are not committed; commit or stash them before staging so the ` +
-        `provenance revision describes the binary:\n${status}`,
+        `provenance revisions describe the binary:\n${status}`,
     );
   }
 }
 
 /**
- * The revision the binary was built from: the last commit that touched the
- * build sources. Using that commit rather than HEAD keeps the record stable
- * across staging refactors, and it names the code — not the artifact — that a
- * consumer resolves the native against.
+ * The last commit that touched `paths`, or null when none of them has
+ * history in this checkout. An empty path set must not reach `git log`: a
+ * bare `git log` falls back to HEAD and would record a revision that names
+ * nothing the build used.
  */
-function buildSourceRevision() {
+function lastRevision(paths) {
+  const existing = paths.filter((path) => existsSync(join(REPO_ROOT, path)));
+  if (existing.length === 0) return null;
   const revision = capture("git", [
     "log",
     "-1",
     "--format=%H",
     "--",
-    ...BUILD_SOURCE_PATHS,
+    ...existing,
   ]);
+  return revision || null;
+}
+
+/**
+ * The revision the binary was built from: the last commit that touched the
+ * build sources. Using that commit rather than HEAD keeps the record stable
+ * across staging refactors, and it names the code — not the artifact — that
+ * a consumer resolves the native against.
+ */
+function buildSourceRevision() {
+  const revision = lastRevision(BUILD_SOURCE_PATHS);
   if (!revision) {
     fail("could not resolve the revision of the build sources");
   }
@@ -293,6 +327,7 @@ function main() {
   const entry = {
     target: args.target,
     sourceRevision: buildSourceRevision(),
+    recipeRevision: lastRevision(BUILD_RECIPE_PATHS),
     rustcVersion: capture("rustc", args.toolchain ? [`+${args.toolchain}`, "-Vv"] : ["-Vv"]),
     compilerVersion: compilerVersion(args.target),
     buildFlags: { cargoArgs, rustFlags },
@@ -318,6 +353,7 @@ function main() {
   console.log(`  header sha256=${entry.headerSha256}`);
   console.log(`  hpp sha256=${entry.hppSha256}`);
   console.log(`  source revision=${entry.sourceRevision}`);
+  console.log(`  recipe revision=${entry.recipeRevision}`);
   console.log(`  provenance: ${relative(REPO_ROOT, PROVENANCE)}`);
 }
 

@@ -23,7 +23,7 @@ export type JudgmentEvidenceRef = JudgmentRef & {
  */
 export interface Judgment {
   /**
-   * Wire schema version (integer >= 1).
+   * Wire schema version (integer >= 1) in the interoperable integer domain.
    */
   schema_version: number;
   /**

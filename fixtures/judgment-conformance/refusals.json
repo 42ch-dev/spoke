@@ -726,6 +726,36 @@
         "extensions": { "zeta_ns": 7, "Alpha": {}, "9lives": {} }
       },
       "expect": { "field": "extensions.9lives" }
+    },
+    {
+      "id": "extensions-unicode-first-offender-codepoint-order",
+      "invariant": "§Wire-wide rules extension and module maps",
+      "what": "first offender is the lexicographically-first key in Unicode code-point order — the BMP key U+E000 precedes the supplementary key U+10000 even though the latter's first UTF-16 unit U+D800 is lower",
+      "judgment": {
+        "schema_version": 1,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": { "\ud800\udc00": {}, "\uE000": {} }
+      },
+      "expect": { "field": "extensions.\uE000" }
+    },
+    {
+      "id": "schema-version-above-interoperable-domain",
+      "invariant": "§Wire-wide rules interoperable integer domain",
+      "what": "schema_version 2^53 is above the [0, 2^53-1] interoperable domain ceiling and refuses at schema_version",
+      "judgment": {
+        "schema_version": 9007199254740992,
+        "judgment_id": "jd_x",
+        "judgment_kind": "review",
+        "target": { "kind": "knowledge_entry", "id": "ke_1" },
+        "evidence": [],
+        "verdict": { "outcome": "accepted" },
+        "extensions": {}
+      },
+      "expect": { "field": "schema_version" }
     }
   ]
 }

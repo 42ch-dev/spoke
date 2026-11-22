@@ -33,9 +33,9 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
-    AdoptionPort, ComputablePort, FindingPort, ForkTimelineQueryPort, HistoryPort, HostManifestPort,
-    KnowledgeEntryPort, KnowledgeQueryPort, MemoryPort, RelationPort, RuleQueryPort,
-    ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    AdoptionPort, ComputablePort, FindingPort, ForkTimelineQueryPort, HistoryPort,
+    HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, MemoryPort, RelationPort,
+    RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -48,36 +48,37 @@ use spoke_schemas::{
     ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
     HostCapabilityManifest, KnowledgeAdoptRequest, KnowledgeAdoptResponse, KnowledgeEntry,
     MemoryCandidatesDismissRequest, MemoryCandidatesDismissResponse, MemoryCandidatesGetRequest,
-    MemoryCandidatesGetResponse,
-    MemoryCandidatesListRequest, MemoryCandidatesListResponse, MemoryCandidatesReviewRequest,
-    MemoryCandidatesReviewResponse, MemoryCaptureRequest, MemoryCaptureResponse,
-    MemoryDescribeRequest, MemoryDescribeResponse, MemoryExportsCreateRequest,
-    MemoryExportsCreateResponse, MemoryExportsGetRequest, MemoryExportsGetResponse,
-    MemoryGrantsGrantRequest, MemoryGrantsGrantResponse, MemoryGrantsListRequest,
-    MemoryGrantsListResponse, MemoryGrantsRevokeRequest, MemoryGrantsRevokeResponse,
-    MemoryImportsActivateRequest, MemoryImportsActivateResponse, MemoryImportsDiscardRequest,
-    MemoryImportsDiscardResponse, MemoryImportsStageRequest, MemoryImportsStageResponse,
-    MemoryProfileGetRequest, MemoryProfileGetResponse, MemoryProfileUpdateRequest,
-    MemoryProfileUpdateResponse, MemoryRecallRequest, MemoryRecallResponse,
-    MemoryReceiptsGetRequest, MemoryReceiptsGetResponse, MemoryRecordsCreateRequest,
-    MemoryRecordsCreateResponse, MemoryRecordsDeleteRequest, MemoryRecordsDeleteResponse,
-    MemoryRecordsGetRequest, MemoryRecordsGetResponse, MemoryRecordsListRequest,
-    MemoryRecordsListResponse, MemoryRecordsPromoteRequest, MemoryRecordsPromoteResponse,
-    MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse, MemoryReflectionsGenerateRequest,
-    MemoryReflectionsGenerateResponse, MemoryReflectionsListRequest, MemoryReflectionsListResponse,
-    MemoryReflectionsStateRequest, MemoryReflectionsStateResponse, MemorySpacesFreezeRequest,
-    MemorySpacesFreezeResponse, MemorySpacesListRequest, MemorySpacesListResponse,
-    MemorySpacesUnfreezeRequest, MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest,
-    MemorySubjectsEnsureResponse, MemorySubjectsFenceRequest, MemorySubjectsFenceResponse,
-    MemorySubjectsGetRequest, MemorySubjectsGetResponse, Principal, ProjectRequest,
-    ProjectResponse, Relation, RevisionSnapshot, Rule, Scope, TimelineEvent,
+    MemoryCandidatesGetResponse, MemoryCandidatesListRequest, MemoryCandidatesListResponse,
+    MemoryCandidatesReviewRequest, MemoryCandidatesReviewResponse, MemoryCaptureRequest,
+    MemoryCaptureResponse, MemoryDescribeRequest, MemoryDescribeResponse,
+    MemoryExportsCreateRequest, MemoryExportsCreateResponse, MemoryExportsGetRequest,
+    MemoryExportsGetResponse, MemoryGrantsGrantRequest, MemoryGrantsGrantResponse,
+    MemoryGrantsListRequest, MemoryGrantsListResponse, MemoryGrantsRevokeRequest,
+    MemoryGrantsRevokeResponse, MemoryImportsActivateRequest, MemoryImportsActivateResponse,
+    MemoryImportsDiscardRequest, MemoryImportsDiscardResponse, MemoryImportsStageRequest,
+    MemoryImportsStageResponse, MemoryProfileGetRequest, MemoryProfileGetResponse,
+    MemoryProfileUpdateRequest, MemoryProfileUpdateResponse, MemoryRecallRequest,
+    MemoryRecallResponse, MemoryReceiptsGetRequest, MemoryReceiptsGetResponse,
+    MemoryRecordsCreateRequest, MemoryRecordsCreateResponse, MemoryRecordsDeleteRequest,
+    MemoryRecordsDeleteResponse, MemoryRecordsGetRequest, MemoryRecordsGetResponse,
+    MemoryRecordsListRequest, MemoryRecordsListResponse, MemoryRecordsPromoteRequest,
+    MemoryRecordsPromoteResponse, MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse,
+    MemoryReflectionsGenerateRequest, MemoryReflectionsGenerateResponse,
+    MemoryReflectionsListRequest, MemoryReflectionsListResponse, MemoryReflectionsStateRequest,
+    MemoryReflectionsStateResponse, MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
+    MemorySpacesListRequest, MemorySpacesListResponse, MemorySpacesUnfreezeRequest,
+    MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
+    MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
+    MemorySubjectsGetResponse, Principal, ProjectRequest, ProjectResponse, Relation,
+    RevisionSnapshot, Rule, Scope, TimelineEvent,
 };
 
 use crate::cognition::WIRE_INVALID_INPUT;
 use crate::core::{
-    check_response_correlation, derive_peer_id_from_ed25519_pubkey, dispatch_allowed, is_allowlisted,
-    sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, CoreError, Correlation,
-    EnvelopeAuthError, EnvelopeAuthErrorKind, InboundSequence, NonceStore, OutboundSequence,
+    check_response_correlation, derive_peer_id_from_ed25519_pubkey, dispatch_allowed,
+    is_allowlisted, sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, CoreError,
+    Correlation, EnvelopeAuthError, EnvelopeAuthErrorKind, InboundSequence, NonceStore,
+    OutboundSequence,
 };
 use crate::hello::generate_nonce;
 use crate::remote::transport::{Transport, TransportError};
@@ -449,8 +450,7 @@ struct PendingInvoke {
 /// branch (mapped via `toErrorEnvelope` semantics) and never crashes the
 /// receive loop (`catch_unwind` containment, mirroring the existing invoke
 /// path's panic containment).
-pub type ToolHandler =
-    Arc<dyn Fn(Value) -> BoxFuture<'static, SpokeResult<Value>> + Send + Sync>;
+pub type ToolHandler = Arc<dyn Fn(Value) -> BoxFuture<'static, SpokeResult<Value>> + Send + Sync>;
 
 /// Gate-phase outcome for a reverse invoke (see [`RemoteAdapter::run_reverse_gate`]).
 enum ReverseGateResult {
@@ -610,11 +610,7 @@ impl RemoteAdapter {
     /// `CAPABILITY_PORT_MISSING` with `details.wire_code` preserved). Reuses
     /// the `invoke_op` wire-order serialization and its deferred-send
     /// poison-close.
-    pub async fn invoke_tool(
-        &self,
-        capability_id: &str,
-        arguments: Value,
-    ) -> SpokeResult<Value> {
+    pub async fn invoke_tool(&self, capability_id: &str, arguments: Value) -> SpokeResult<Value> {
         // Fail fast on a non-tool capability id (the op string IS the
         // capability string; a non-`tools.` id is a programming error).
         match parse_tool_capability_id(capability_id) {
@@ -622,7 +618,10 @@ impl RemoteAdapter {
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         }
         // Tool invoke payload shape: `{ "arguments": <opaque JSON> }` (§4).
-        let response = match self.invoke_op(capability_id, json!({ "arguments": arguments })).await {
+        let response = match self
+            .invoke_op(capability_id, json!({ "arguments": arguments }))
+            .await
+        {
             Ok(response) => response,
             Err(error) => return internal_error(error.kind.as_str(), error.message),
         };
@@ -757,9 +756,7 @@ impl RemoteAdapter {
                         // misconfiguration / internal bug): fail closed like
                         // transport loss — a live session must not silently
                         // drop reverse invokes.
-                        self.close_session(&format!(
-                            "reverse invoke serving failed: {error}"
-                        ));
+                        self.close_session(&format!("reverse invoke serving failed: {error}"));
                         return;
                     }
                 }
@@ -906,13 +903,12 @@ impl RemoteAdapter {
                 session_id: session_id.to_owned(),
                 sequence,
                 request_id: request_id.to_owned(),
-                error: serde_json::from_value(Value::Object(error))
-                    .map_err(|error| {
-                        RemoteError::new(
-                            RemoteErrorKind::Transport,
-                            format!("error envelope build failed: {error}"),
-                        )
-                    })?,
+                error: serde_json::from_value(Value::Object(error)).map_err(|error| {
+                    RemoteError::new(
+                        RemoteErrorKind::Transport,
+                        format!("error envelope build failed: {error}"),
+                    )
+                })?,
             },
             HashMap::new(),
         )
@@ -1076,7 +1072,10 @@ impl RemoteAdapter {
             let Some(session) = session_guard.as_ref() else {
                 return Ok(()); // stray — belt-and-braces; the gate checked
             };
-            (session.local_secret, session.negotiated_capabilities.clone())
+            (
+                session.local_secret,
+                session.negotiated_capabilities.clone(),
+            )
         };
         let (Some(op), Some(session_id), Some(sequence), Some(request_id)) = (
             doc.get("op").and_then(Value::as_str),
@@ -1172,11 +1171,11 @@ impl RemoteAdapter {
                 Ok(())
             }
             SpokeResult::Reject(reject) => {
-                let error: WireErrorEnvelope =
-                    serde_json::from_value(serde_json::to_value(to_error_envelope(&reject)).expect(
-                        "ops error envelope serializes",
-                    ))
-                    .expect("field-identical error envelope converts");
+                let error: WireErrorEnvelope = serde_json::from_value(
+                    serde_json::to_value(to_error_envelope(&reject))
+                        .expect("ops error envelope serializes"),
+                )
+                .expect("field-identical error envelope converts");
                 let signed = crate::core::authenticate_invoke_response(
                     &local_secret,
                     &crate::core::InvokeResponseSignInput::Error {
@@ -1260,14 +1259,12 @@ impl RemoteAdapter {
                 },
             )?;
         let _: spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequestRequestId =
-            request_id
-                .parse()
-                .map_err(|error| {
-                    RemoteError::new(
-                        RemoteErrorKind::Transport,
-                        format!("invalid request_id: {error}"),
-                    )
-                })?;
+            request_id.parse().map_err(|error| {
+                RemoteError::new(
+                    RemoteErrorKind::Transport,
+                    format!("invalid request_id: {error}"),
+                )
+            })?;
         let _: spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequestSessionId =
             session.session_id.parse().map_err(|error| {
                 RemoteError::new(
@@ -1538,14 +1535,16 @@ impl ComputablePort for RemoteAdapter {
     /// denies (wire `op_unsupported` / `capability_missing`) and the D7 row
     /// maps to `CAPABILITY_PORT_MISSING` with `details.wire_code` preserved.
     async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse> {
-        self.invoke_mapped("port.computable.project", json!(request)).await
+        self.invoke_mapped("port.computable.project", json!(request))
+            .await
     }
 
     /// Optional l2-computable face (frozen contract §5.2): apply / settle
     /// computable updates on the remote peer. Same deny mapping as
     /// `project`.
     async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse> {
-        self.invoke_mapped("port.computable.compute", json!(request)).await
+        self.invoke_mapped("port.computable.compute", json!(request))
+            .await
     }
 }
 
@@ -1614,7 +1613,8 @@ impl MemoryPort for RemoteAdapter {
         _principal: &Principal,
         request: MemorySpacesListRequest,
     ) -> SpokeResult<MemorySpacesListResponse> {
-        self.invoke_mapped("memory.spaces.list", json!(request)).await
+        self.invoke_mapped("memory.spaces.list", json!(request))
+            .await
     }
 
     async fn freeze_space(
@@ -1667,7 +1667,8 @@ impl MemoryPort for RemoteAdapter {
         _principal: &Principal,
         request: MemoryGrantsListRequest,
     ) -> SpokeResult<MemoryGrantsListResponse> {
-        self.invoke_mapped("memory.grants.list", json!(request)).await
+        self.invoke_mapped("memory.grants.list", json!(request))
+            .await
     }
 
     async fn grant(
@@ -1675,7 +1676,8 @@ impl MemoryPort for RemoteAdapter {
         _principal: &Principal,
         request: MemoryGrantsGrantRequest,
     ) -> SpokeResult<MemoryGrantsGrantResponse> {
-        self.invoke_mapped("memory.grants.grant", json!(request)).await
+        self.invoke_mapped("memory.grants.grant", json!(request))
+            .await
     }
 
     async fn revoke_grant(
@@ -1745,7 +1747,8 @@ impl MemoryPort for RemoteAdapter {
         _principal: &Principal,
         request: MemoryRecordsGetRequest,
     ) -> SpokeResult<MemoryRecordsGetResponse> {
-        self.invoke_mapped("memory.records.get", json!(request)).await
+        self.invoke_mapped("memory.records.get", json!(request))
+            .await
     }
 
     async fn update_record(
@@ -1797,7 +1800,8 @@ impl MemoryPort for RemoteAdapter {
         _principal: &Principal,
         request: MemoryProfileGetRequest,
     ) -> SpokeResult<MemoryProfileGetResponse> {
-        self.invoke_mapped("memory.profile.get", json!(request)).await
+        self.invoke_mapped("memory.profile.get", json!(request))
+            .await
     }
 
     async fn update_profile(
@@ -1841,7 +1845,8 @@ impl MemoryPort for RemoteAdapter {
         _principal: &Principal,
         request: MemoryReceiptsGetRequest,
     ) -> SpokeResult<MemoryReceiptsGetResponse> {
-        self.invoke_mapped("memory.receipts.get", json!(request)).await
+        self.invoke_mapped("memory.receipts.get", json!(request))
+            .await
     }
 
     async fn create_export(
@@ -1858,7 +1863,8 @@ impl MemoryPort for RemoteAdapter {
         _principal: &Principal,
         request: MemoryExportsGetRequest,
     ) -> SpokeResult<MemoryExportsGetResponse> {
-        self.invoke_mapped("memory.exports.get", json!(request)).await
+        self.invoke_mapped("memory.exports.get", json!(request))
+            .await
     }
 
     async fn stage_import(
@@ -2037,18 +2043,11 @@ impl AdoptionPort for RemoteAdapter {
         _scope: &Scope,
         request: &KnowledgeAdoptRequest,
     ) -> SpokeResult<KnowledgeAdoptResponse> {
-        // The contract's ExtensionMap presence rule: an explicitly empty
-        // `extensions: {}` is a present member and must stay present
-        // (the serving side hashes the whole wire payload) — the
-        // generated typed serializer drops an empty map, so the emitted
-        // object reinstates the member unconditionally. A typed request
-        // always serializes.
-        let mut payload = serde_json::to_value(request)
-            .expect("a typed KnowledgeAdoptRequest always serializes");
-        payload
-            .as_object_mut()
-            .expect("a request serializes to an object")
-            .insert("extensions".into(), json!(request.extensions));
+        // C4: the typed request serializer emits `extensions` even when
+        // empty (wire-presence rule) — a plain serialization IS the wire
+        // form; no per-adapter repair.
+        let payload =
+            serde_json::to_value(request).expect("a typed KnowledgeAdoptRequest always serializes");
         self.invoke_mapped("knowledge.adopt", payload).await
     }
 }
@@ -2392,7 +2391,10 @@ mod tests {
     /// accidentally.
     async fn dial_cognition_session(
         capabilities: &[&str],
-    ) -> (Arc<RemoteAdapter>, Arc<crate::remote::responder::ConnectResponder>) {
+    ) -> (
+        Arc<RemoteAdapter>,
+        Arc<crate::remote::responder::ConnectResponder>,
+    ) {
         use crate::remote::responder::{connect_responder, ConnectResponderOptions};
 
         let pair = loopback_transport_pair();

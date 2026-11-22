@@ -19,7 +19,9 @@ use std::sync::Arc;
 use memory_host::{MemoryHost, Store, DEFAULT_SPACE as SPACE, DEFAULT_SUBJECT as SUBJECT};
 use serde::Serialize;
 use serde_json::{json, Value};
-use spoke_fixture_memory_engine::transfer::{bundle_digest, chunk_digest, reassemble, verify_reassembly};
+use spoke_fixture_memory_engine::transfer::{
+    bundle_digest, chunk_digest, reassemble, verify_reassembly,
+};
 use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
 use spoke_operations::{MemoryPort, SpokeReject, SpokeRejectCode, SpokeResult};
 use spoke_schemas::Principal;
@@ -69,8 +71,20 @@ fn transfer_host() -> Arc<MemoryHost> {
         &[],
         false,
     );
-    store.add_grant(OPERATOR, OTHER_SPACE, None, &["transfer", "admin"], &[], false);
-    store.seed_record(SPACE, CONTEXT, "fact", "The gate key is under the third barrel.");
+    store.add_grant(
+        OPERATOR,
+        OTHER_SPACE,
+        None,
+        &["transfer", "admin"],
+        &[],
+        false,
+    );
+    store.seed_record(
+        SPACE,
+        CONTEXT,
+        "fact",
+        "The gate key is under the third barrel.",
+    );
     store.seed_record(SPACE, "", "note", "A shared tally by the gate.");
     Arc::new(MemoryHost {
         store: Arc::new(store),
@@ -119,10 +133,7 @@ async fn stage_chunks(host: &Arc<MemoryHost>, space: &str, chunks: &[Value]) -> 
         if ordinal == 0 {
             request["conflict_policy"] = json!("fail");
         }
-        let receipt = expect_ok(
-            host.store
-                .stage_import_value(&principal(OPERATOR), request),
-        );
+        let receipt = expect_ok(host.store.stage_import_value(&principal(OPERATOR), request));
         final_receipt = receipt;
         assert_eq!(
             final_receipt["result"]["chunks_received"],
@@ -158,17 +169,22 @@ async fn export_chunks_round_trip_with_verifiable_digests() {
     let created = wire(&created);
     assert_eq!(created["status"], "committed", "{created}");
     assert_eq!(created["result"]["counts"]["records"], 2, "{created}");
-    let chunk_count = created["result"]["chunk_count"].as_u64().expect("chunk count");
+    let chunk_count = created["result"]["chunk_count"]
+        .as_u64()
+        .expect("chunk count");
     let advertised = created["result"]["bundle_digest"]
         .as_str()
         .expect("bundle digest")
         .to_string();
     // Same key + same payload replays the original receipt without a second
     // export being created.
-    assert_eq!(created["receipt_id"], wire(&expect_ok(
-        host.create_export(&principal(OPERATOR), typed(export_request("exp-1")))
-            .await
-    ))["receipt_id"]);
+    assert_eq!(
+        created["receipt_id"],
+        wire(&expect_ok(
+            host.create_export(&principal(OPERATOR), typed(export_request("exp-1")))
+                .await
+        ))["receipt_id"]
+    );
 
     let mut chunks = Vec::new();
     for ordinal in 0..chunk_count {
@@ -207,7 +223,10 @@ async fn export_chunks_round_trip_with_verifiable_digests() {
     assert_eq!(bundle["digest"], json!(advertised));
     // The bundle reports the source engine policy version (§7.31 declared
     // policy check on activation).
-    assert_eq!(bundle["source"]["engine_policy_version"], ENGINE_POLICY_VERSION);
+    assert_eq!(
+        bundle["source"]["engine_policy_version"],
+        ENGINE_POLICY_VERSION
+    );
 
     assert_eq!(
         expect_reject(
@@ -386,7 +405,10 @@ async fn staged_import_reports_counts_and_activates_atomically_into_an_empty_tar
         activated["result"]["authority_generation"], 2,
         "activation bumps the space authority generation: {activated}"
     );
-    assert_eq!(activated["result"]["activated"]["records"], 2, "{activated}");
+    assert_eq!(
+        activated["result"]["activated"]["records"], 2,
+        "{activated}"
+    );
     assert_eq!(
         host.store.import_status(&import_id).as_deref(),
         Some("activated")
@@ -434,14 +456,8 @@ async fn staged_import_reports_counts_and_activates_atomically_into_an_empty_tar
 async fn import_adoption_is_explicit_only_and_non_amplified() {
     let host = transfer_host();
     // A reader grant in the source bundle: recall, context-restricted.
-    host.store.add_grant(
-        READER,
-        SPACE,
-        Some(SUBJECT),
-        &["recall"],
-        &[CONTEXT],
-        false,
-    );
+    host.store
+        .add_grant(READER, SPACE, Some(SUBJECT), &["recall"], &[CONTEXT], false);
     let (_export_id, chunks) = export_chunks(&host, "exp-adopt").await;
 
     // Only the listed grant is adopted; the operator's own source grant is
@@ -517,10 +533,7 @@ async fn stage_chunks_with_adopt(
             request["conflict_policy"] = json!("fail");
             request["adopt_grants"] = adopt.clone();
         }
-        let receipt = expect_ok(
-            host.store
-                .stage_import_value(&principal(OPERATOR), request),
-        );
+        let receipt = expect_ok(host.store.stage_import_value(&principal(OPERATOR), request));
         final_receipt = receipt;
         assert_eq!(
             final_receipt["result"]["chunks_received"],
@@ -558,7 +571,12 @@ async fn adoption_rejects_amplification_against_the_stager() {
         false,
     );
     store.add_grant(READER, SPACE, Some(SUBJECT), &["recall"], &[], false);
-    store.seed_record(SPACE, CONTEXT, "fact", "The gate key is under the third barrel.");
+    store.seed_record(
+        SPACE,
+        CONTEXT,
+        "fact",
+        "The gate key is under the third barrel.",
+    );
     let host = Arc::new(MemoryHost {
         store: Arc::new(store),
     });
@@ -657,20 +675,20 @@ async fn subject_collision_rejects_or_renames_per_conflict_policy() {
 
     // The source subject already exists in the source space: `fail` rejects
     // on the final chunk and leaves nothing staged.
-    let rejected = expect_reject(
-        host.store
-            .stage_import_value(&principal(OPERATOR), stage_request(SPACE, &chunks[0], "fail", None)),
-    );
+    let rejected = expect_reject(host.store.stage_import_value(
+        &principal(OPERATOR),
+        stage_request(SPACE, &chunks[0], "fail", None),
+    ));
     assert_eq!(rejected.code, SpokeRejectCode::NotAuthorized);
 
     // With transfer+admin on the source space, `fail` rejects on the
     // subject collision itself.
     host.store
         .add_grant(OPERATOR, SPACE, None, &["transfer", "admin"], &[], false);
-    let collided = expect_reject(
-        host.store
-            .stage_import_value(&principal(OPERATOR), stage_request(SPACE, &chunks[0], "fail", None)),
-    );
+    let collided = expect_reject(host.store.stage_import_value(
+        &principal(OPERATOR),
+        stage_request(SPACE, &chunks[0], "fail", None),
+    ));
     assert_eq!(
         collided.code,
         SpokeRejectCode::ImportConflict,
@@ -679,12 +697,10 @@ async fn subject_collision_rejects_or_renames_per_conflict_policy() {
 
     // `rename_subject` remaps the colliding subject and activates under the
     // renamed identity.
-    let staged = expect_ok(
-        host.store.stage_import_value(
-            &principal(OPERATOR),
-            stage_request(SPACE, &chunks[0], "rename_subject", None),
-        ),
-    );
+    let staged = expect_ok(host.store.stage_import_value(
+        &principal(OPERATOR),
+        stage_request(SPACE, &chunks[0], "rename_subject", None),
+    ));
     let staged = wire(&staged);
     let report = &staged["result"]["staged_report"];
     let renamed = format!("{SUBJECT}_imported_1");
@@ -719,7 +735,12 @@ async fn subject_collision_rejects_or_renames_per_conflict_policy() {
     );
 }
 
-fn stage_request(space: &str, chunk: &Value, conflict_policy: &str, adopt: Option<&Value>) -> Value {
+fn stage_request(
+    space: &str,
+    chunk: &Value,
+    conflict_policy: &str,
+    adopt: Option<&Value>,
+) -> Value {
     let mut request = json!({
         "space_id": space,
         "chunk": chunk,

@@ -38,11 +38,10 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use spoke_connect::core::derive_peer_id_from_ed25519_pubkey;
 use spoke_connect::remote::{
-    connect_remote_adapter, connect_responder, loopback_transport_pair,
-    AdoptionPortService, ConnectResponder, ConnectResponderOptions, HistoryAdmission,
-    InMemoryHistoryDedupStore, KnowledgeAdmission, RemoteAdapter, RemoteAdapterOptions,
-    RemoteAdoptionService, RemoteIdentity, RemoteKnowledgeFace, RemoteServePorts,
-    RemoteServePortsComposite,
+    connect_remote_adapter, connect_responder, loopback_transport_pair, AdoptionPortService,
+    ConnectResponder, ConnectResponderOptions, HistoryAdmission, InMemoryHistoryDedupStore,
+    KnowledgeAdmission, RemoteAdapter, RemoteAdapterOptions, RemoteAdoptionService, RemoteIdentity,
+    RemoteKnowledgeFace, RemoteServePorts, RemoteServePortsComposite,
 };
 use spoke_operations::{
     assert_adoption_anchor_preserved, resolve_retirement_chain, spoke_ok, spoke_reject,
@@ -101,7 +100,10 @@ impl FixtureState {
     fn load(input: &Value) -> Arc<Self> {
         let mut sources = BTreeMap::new();
         for source in input["sources"].as_array().into_iter().flatten() {
-            let id = source["entry_id"].as_str().expect("source entry_id").to_string();
+            let id = source["entry_id"]
+                .as_str()
+                .expect("source entry_id")
+                .to_string();
             let entry = source["entry"].clone();
             assert_eq!(
                 entry["entry_id"].as_str(),
@@ -132,7 +134,10 @@ impl FixtureState {
         }
         let mut destinations = BTreeMap::new();
         for entry in input["destinations"].as_array().into_iter().flatten() {
-            let id = entry["entry_id"].as_str().expect("destination entry_id").to_string();
+            let id = entry["entry_id"]
+                .as_str()
+                .expect("destination entry_id")
+                .to_string();
             destinations.insert(id, entry.clone());
         }
         let admitted_scopes = input
@@ -144,7 +149,12 @@ impl FixtureState {
                     .map(|s| s.as_str().expect("admitted scope").to_string())
                     .collect()
             })
-            .unwrap_or_else(|| DEFAULT_ADMITTED_SCOPES.iter().map(|s| s.to_string()).collect());
+            .unwrap_or_else(|| {
+                DEFAULT_ADMITTED_SCOPES
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            });
         Arc::new(Self {
             sources: Mutex::new(sources),
             destinations: Mutex::new(destinations),
@@ -272,6 +282,21 @@ impl AdoptionPort for ScriptedAdoptionPort {
             .iter()
             .any(|s| s == destination_scope_id)
         {
+            return spoke_reject(
+                SpokeRejectCode::NotAuthorized,
+                "adoption destination scope is outside the admitted context",
+                None,
+            );
+        }
+        // Source admission: every invisible source is the same generic
+        // absence as a missing entry (NOT_FOUND, no source-identifying
+        // details).
+        if !self
+            .state
+            .admitted_scopes
+            .iter()
+            .any(|s| s == source_scope_id)
+        {
             return FixtureState::generic_not_found();
         }
         // Source load: missing or owner-private to another viewpoint is
@@ -349,9 +374,7 @@ impl AdoptionPort for ScriptedAdoptionPort {
                 "{}|{}",
                 terminal.source_scope_id, terminal.source_entry_id
             ))
-            .or_else(|| {
-                sources.get(&format!("{source_scope_id}|{}", terminal.source_entry_id))
-            });
+            .or_else(|| sources.get(&format!("{source_scope_id}|{}", terminal.source_entry_id)));
         let Some(terminal_entry) = terminal_seeded.map(|seeded| seeded.entry.clone()) else {
             return spoke_reject(
                 SpokeRejectCode::InternalError,
@@ -509,28 +532,32 @@ impl ScopedKnowledgePort for FixtureScopedStore {
                     );
                 }
             }
-            Some(expected) => match stored.as_ref() {
-                None => {
-                    return spoke_reject(
-                        SpokeRejectCode::StoredRevisionStale,
-                        format!("KnowledgeEntry not found for update: {}", entry.entry_id),
-                        None,
-                    )
-                }
-                Some(stored) => {
-                    let current = stored.revision.unwrap_or(0);
-                    if current != expected {
+            Some(expected) => {
+                match stored.as_ref() {
+                    None => {
                         return spoke_reject(
+                            SpokeRejectCode::StoredRevisionStale,
+                            format!("KnowledgeEntry not found for update: {}", entry.entry_id),
+                            None,
+                        )
+                    }
+                    Some(stored) => {
+                        let current = stored.revision.unwrap_or(0);
+                        if current != expected {
+                            return spoke_reject(
                             SpokeRejectCode::StoredRevisionStale,
                             format!("Store revision {current} does not match expected base {expected}"),
                             None,
                         );
+                        }
                     }
                 }
-            },
+            }
         }
-        destinations
-            .insert(entry.entry_id.clone(), serde_json::to_value(&entry).expect("entry serializes"));
+        destinations.insert(
+            entry.entry_id.clone(),
+            serde_json::to_value(&entry).expect("entry serializes"),
+        );
         spoke_ok(entry)
     }
 
@@ -617,8 +644,7 @@ fn adoption_service(
 /// `DESTINATION_SCOPE` for every authenticated peer — the read/write
 /// path exercised by the `port.knowledge.get`/`put` steps.
 fn knowledge_face(state: Arc<FixtureState>) -> Arc<RemoteKnowledgeFace> {
-    let admission: KnowledgeAdmission =
-        Arc::new(|_peer| spoke_ok(scope(DESTINATION_SCOPE)));
+    let admission: KnowledgeAdmission = Arc::new(|_peer| spoke_ok(scope(DESTINATION_SCOPE)));
     Arc::new(RemoteKnowledgeFace {
         store: Arc::new(FixtureScopedStore { state }),
         admission,
@@ -738,8 +764,8 @@ async fn run_step(
     let client_scope = scope(DESTINATION_SCOPE);
     match step.op.as_str() {
         "knowledge.adopt" => {
-            let request: KnowledgeAdoptRequest = serde_json::from_value(step.request.clone())
-                .expect("adopt step request decodes");
+            let request: KnowledgeAdoptRequest =
+                serde_json::from_value(step.request.clone()).expect("adopt step request decodes");
             match host
                 .client
                 .adopt_knowledge_entry(&client_principal, &client_scope, &request)
@@ -798,9 +824,11 @@ fn path_get<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
 /// corresponding member of `actual`.
 fn details_contain(actual: &Value, expected: &Value) -> bool {
     match (actual, expected) {
-        (Value::Object(actual), Value::Object(expected)) => expected
-            .iter()
-            .all(|(key, want)| actual.get(key).is_some_and(|have| details_contain(have, want))),
+        (Value::Object(actual), Value::Object(expected)) => expected.iter().all(|(key, want)| {
+            actual
+                .get(key)
+                .is_some_and(|have| details_contain(have, want))
+        }),
         _ => actual == expected,
     }
 }
@@ -811,12 +839,7 @@ fn reject_code_str(reject: &SpokeReject) -> &str {
 
 /// Assert one expect object against an observed outcome. `provider_calls`
 /// is the cumulative scripted-port call count at this point.
-fn check_expect(
-    case_id: &str,
-    expect: &Value,
-    outcome: &StepOutcome,
-    provider_calls: usize,
-) {
+fn check_expect(case_id: &str, expect: &Value, outcome: &StepOutcome, provider_calls: usize) {
     if let Some(code) = expect.get("error_code").and_then(Value::as_str) {
         let StepOutcome::Reject(reject) = outcome else {
             panic!("case {case_id}: expected reject {code}, got success {outcome:?}");
@@ -835,11 +858,7 @@ fn check_expect(
                     .as_ref()
                     .and_then(|d| d.get("wire_code"))
                     .and_then(Value::as_str);
-                assert_eq!(
-                    wire_code,
-                    Some(code),
-                    "case {case_id}: details.wire_code"
-                );
+                assert_eq!(wire_code, Some(code), "case {case_id}: details.wire_code");
             }
             known => {
                 assert_eq!(
@@ -859,10 +878,7 @@ fn check_expect(
         if let Some(absent) = expect.get("absent_details").and_then(Value::as_array) {
             for key in absent {
                 let key = key.as_str().expect("absent_details member");
-                let present = reject
-                    .details
-                    .as_ref()
-                    .is_some_and(|d| d.contains_key(key));
+                let present = reject.details.as_ref().is_some_and(|d| d.contains_key(key));
                 assert!(
                     !present,
                     "case {case_id}: details.{key} must be absent (generic absence), got {:?}",
@@ -977,7 +993,11 @@ const EXPECT_KEYS: [&str; 8] = [
     "provider_calls",
 ];
 
-const CORPUS_OPS: [&str; 3] = ["knowledge.adopt", "port.knowledge.get", "port.knowledge.put"];
+const CORPUS_OPS: [&str; 3] = [
+    "knowledge.adopt",
+    "port.knowledge.get",
+    "port.knowledge.put",
+];
 
 #[test]
 fn corpus_integrity() {
@@ -1056,7 +1076,11 @@ async fn adoption_wire_conformance() {
             }
         }
     }
-    assert!(failures.is_empty(), "conformance failures:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "conformance failures:\n{}",
+        failures.join("\n")
+    );
 }
 
 /// Run one case; a step panic is captured as the case's failure line so one
@@ -1075,8 +1099,7 @@ async fn run_case(case: &Value) -> Result<(), String> {
         .and_then(Value::as_u64)
         .map(|c| c as usize);
     let viewpoint = input.get("admitted_viewpoint").and_then(Value::as_str);
-    let service: Arc<dyn RemoteAdoptionService> =
-        adoption_service(port, viewpoint, dedup_capacity);
+    let service: Arc<dyn RemoteAdoptionService> = adoption_service(port, viewpoint, dedup_capacity);
     let adoption_face = input
         .get("adoption_face")
         .and_then(Value::as_bool)

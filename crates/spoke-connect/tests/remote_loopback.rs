@@ -44,8 +44,8 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::Serialize;
 use serde_json::{json, Value};
 use spoke_connect::core::{
-    derive_peer_id_from_ed25519_pubkey, sign_hello_ed25519, verify_hello_ed25519,
-    CapabilityClaims, CapabilityTokenProof, CoreInvokeError,
+    derive_peer_id_from_ed25519_pubkey, sign_hello_ed25519, verify_hello_ed25519, CapabilityClaims,
+    CapabilityTokenProof, CoreInvokeError,
 };
 use spoke_connect::remote::{
     connect_multi_peer_router, connect_remote_adapter, connect_responder, loopback_transport_pair,
@@ -65,9 +65,9 @@ use spoke_operations::{
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
-use spoke_schemas::host_capability_manifest::ExtensionKey;
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
+use spoke_schemas::host_capability_manifest::ExtensionKey;
 use spoke_schemas::{
     CheckRequest, ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
     HostCapabilityManifest, KnowledgeEntry, ProjectRequest, ProjectResponse, Relation, Rule, Scope,
@@ -114,7 +114,10 @@ impl Transport for RecordingTransport {
 
     async fn recv(&self) -> Result<Vec<u8>, TransportError> {
         let bytes = self.inner.recv().await?;
-        self.captured.lock().expect("captured lock").push(bytes.clone());
+        self.captured
+            .lock()
+            .expect("captured lock")
+            .push(bytes.clone());
         Ok(bytes)
     }
 
@@ -160,9 +163,7 @@ impl Transport for TamperTransport {
         };
         let doc: Value = serde_json::from_slice(&bytes).map_err(|_| TransportError::Closed)?;
         match mutate(doc) {
-            Some(mutated) => {
-                Ok(serde_json::to_vec(&mutated).map_err(|_| TransportError::Closed)?)
-            }
+            Some(mutated) => Ok(serde_json::to_vec(&mutated).map_err(|_| TransportError::Closed)?),
             None => Ok(bytes),
         }
     }
@@ -1467,7 +1468,9 @@ async fn concurrent_invokes_reach_the_wire_in_allocation_order() {
         .iter()
         .filter_map(|bytes| {
             let doc: Value = serde_json::from_slice(bytes).ok()?;
-            doc.get("op").is_some().then(|| doc.get("sequence")?.as_i64())
+            doc.get("op")
+                .is_some()
+                .then(|| doc.get("sequence")?.as_i64())
         })
         .flatten()
         .collect();
@@ -1500,14 +1503,11 @@ async fn host_answers_invalid_request_non_fatally_when_verified_extensions_are_m
                 Arc::new(TamperTransport {
                     inner: client_end,
                     outbound: Some(Arc::new(move |doc| {
-                        if doc.get("op").is_some() && !mutated_flag.swap(true, Ordering::SeqCst)
-                        {
+                        if doc.get("op").is_some() && !mutated_flag.swap(true, Ordering::SeqCst) {
                             let mut doc = doc;
                             if let Some(object) = doc.as_object_mut() {
-                                object.insert(
-                                    "extensions".into(),
-                                    json!({ "Bad_Key": { "n": 1 } }),
-                                );
+                                object
+                                    .insert("extensions".into(), json!({ "Bad_Key": { "n": 1 } }));
                             }
                             Some(doc)
                         } else {
@@ -1861,27 +1861,19 @@ async fn multi_peer_router_composes_host_manifests_over_loopback_peers() {
                 .iter()
                 .find(|manifest| manifest.host_id.as_str() == "host-a")
                 .expect("host-a entry");
-            let host_a_roles: Vec<&str> =
-                host_a.roles.iter().map(|role| role.as_str()).collect();
+            let host_a_roles: Vec<&str> = host_a.roles.iter().map(|role| role.as_str()).collect();
             assert_eq!(host_a_roles, vec!["data-store", "checker"]);
-            let host_a_namespaces: Vec<&str> = host_a
-                .namespaces
-                .iter()
-                .map(|ns| ns.as_str())
-                .collect();
+            let host_a_namespaces: Vec<&str> =
+                host_a.namespaces.iter().map(|ns| ns.as_str()).collect();
             assert_eq!(host_a_namespaces, vec!["alpha", "beta"]);
             let host_b = manifests
                 .iter()
                 .find(|manifest| manifest.host_id.as_str() == "host-b")
                 .expect("host-b entry");
-            let host_b_roles: Vec<&str> =
-                host_b.roles.iter().map(|role| role.as_str()).collect();
+            let host_b_roles: Vec<&str> = host_b.roles.iter().map(|role| role.as_str()).collect();
             assert_eq!(host_b_roles, vec!["data-store", "assembler"]);
-            let host_b_namespaces: Vec<&str> = host_b
-                .namespaces
-                .iter()
-                .map(|ns| ns.as_str())
-                .collect();
+            let host_b_namespaces: Vec<&str> =
+                host_b.namespaces.iter().map(|ns| ns.as_str()).collect();
             assert_eq!(host_b_namespaces, vec!["beta", "gamma"]);
         }
         SpokeResult::Reject(reject) => panic!("per-peer list must succeed: {reject:?}"),
@@ -2028,8 +2020,8 @@ impl Transport for TamperFirstRequestTransport {
         if doc.get("op").is_some() && !self.tampered.swap(true, Ordering::SeqCst) {
             let mut doc = doc;
             doc["payload"]["tampered"] = json!(true);
-            let bytes = serde_json::to_vec(&doc)
-                .map_err(|error| TransportError::Io(error.to_string()))?;
+            let bytes =
+                serde_json::to_vec(&doc).map_err(|error| TransportError::Io(error.to_string()))?;
             return self.inner.send(&bytes).await;
         }
         self.inner.send(envelope).await
@@ -2107,10 +2099,7 @@ async fn serves_a_reverse_invoke_issued_by_the_responder() {
         calls.lock().expect("calls lock").as_slice(),
         &[json!({ "a": 2, "b": 3 })]
     );
-    assert_eq!(
-        responder.stats.responses_verified.load(Ordering::SeqCst),
-        1
-    );
+    assert_eq!(responder.stats.responses_verified.load(Ordering::SeqCst), 1);
     // The session stays Established on both ends.
     assert_eq!(client.state(), RemoteAdapterState::Established);
     client.close();
@@ -2126,9 +2115,10 @@ async fn does_not_demux_a_reverse_request_as_a_response_while_a_forward_waiter_i
     // the responder's reverse invoke. Under the pre-fix discriminator the
     // reverse request (op-bearing, response-shaped) would be swallowed by
     // the request_id demux and the responder would time out.
-    responder.register_tool_handler("tools.echo.echo", Arc::new(|args: Value| {
-        Box::pin(async move { spoke_ok(args) })
-    }));
+    responder.register_tool_handler(
+        "tools.echo.echo",
+        Arc::new(|args: Value| Box::pin(async move { spoke_ok(args) })),
+    );
     let (forward, reverse) = tokio::join!(
         client.invoke_tool("tools.echo.echo", json!({ "v": 1 })),
         responder.issue_invoke("tools.math.add", json!({ "a": 10, "b": 32 }), None),
@@ -2195,7 +2185,8 @@ async fn denies_a_reverse_invoke_with_op_unsupported_when_the_tool_is_not_negoti
     // The client manifest carries no tools: the negotiated set lacks the
     // tool capability, so the client's dispatch gate denies the invoke
     // (frozen deny matrix: gate fail → op_unsupported).
-    let (client, responder) = dial_with_tools(Some(no_tools_manifest("test-client")), None, None).await;
+    let (client, responder) =
+        dial_with_tools(Some(no_tools_manifest("test-client")), None, None).await;
     let result = responder
         .issue_invoke("tools.math.add", json!({ "a": 1, "b": 2 }), None)
         .await;
@@ -2214,17 +2205,14 @@ async fn denies_a_reverse_invoke_with_op_unsupported_when_the_tool_is_not_negoti
             );
         }
     }
-    assert_eq!(
-        responder.stats.responses_verified.load(Ordering::SeqCst),
-        1
-    );
+    assert_eq!(responder.stats.responses_verified.load(Ordering::SeqCst), 1);
     client.close();
     responder.close();
 }
 
 #[tokio::test]
-async fn rejects_a_tampered_reverse_request_with_auth_failed_and_does_not_advance_the_inbound_counter()
-{
+async fn rejects_a_tampered_reverse_request_with_auth_failed_and_does_not_advance_the_inbound_counter(
+) {
     let calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
     let (client, responder) = dial_with_tools(
         None,
@@ -2361,10 +2349,9 @@ async fn adapter_answers_invalid_sequence_for_a_present_but_non_numeric_sequence
     // Raw responder-side handshake (mirror of the minimal responder's):
     // read the initiator hello, answer with a dial-bound responder hello
     // (`peer_nonce` = initiator nonce) + signed session snapshot.
-    let initiator_hello: ConnectHello = serde_json::from_slice(
-        &pair.server.recv().await.expect("initiator hello recv"),
-    )
-    .expect("initiator hello decode");
+    let initiator_hello: ConnectHello =
+        serde_json::from_slice(&pair.server.recv().await.expect("initiator hello recv"))
+            .expect("initiator hello decode");
     assert_eq!(initiator_hello.peer_id.as_str(), peer_id_client.as_str());
     let nonce = "raw-peer-nonce-0001".to_owned();
     let responder_hello = sign_hello_ed25519(
@@ -2456,11 +2443,14 @@ async fn adapter_answers_invalid_sequence_for_a_present_but_non_numeric_sequence
 #[tokio::test]
 async fn answers_the_error_branch_when_a_handler_panics_without_loop_damage() {
     let (client, responder) = dial_with_tools(None, None, None).await;
-    client.register_tool_handler("tools.echo.boom", Arc::new(|_args: Value| {
-        Box::pin(async move {
-            panic!("provider exploded");
-        })
-    }));
+    client.register_tool_handler(
+        "tools.echo.boom",
+        Arc::new(|_args: Value| {
+            Box::pin(async move {
+                panic!("provider exploded");
+            })
+        }),
+    );
     client.register_tool_handler(
         "tools.math.add",
         add_handler(Arc::new(Mutex::new(Vec::new()))),
@@ -2495,15 +2485,18 @@ async fn answers_the_error_branch_when_a_handler_panics_without_loop_damage() {
 #[tokio::test]
 async fn answers_the_error_branch_with_the_handlers_spoke_reject_code() {
     let (client, responder) = dial_with_tools(None, None, None).await;
-    client.register_tool_handler("tools.echo.echo", Arc::new(|_args: Value| {
-        Box::pin(async move {
-            SpokeResult::<Value>::Reject(SpokeReject {
-                code: SpokeRejectCode::RevisionConflict,
-                message: "the tool's backing store has a newer revision".to_owned(),
-                details: None,
+    client.register_tool_handler(
+        "tools.echo.echo",
+        Arc::new(|_args: Value| {
+            Box::pin(async move {
+                SpokeResult::<Value>::Reject(SpokeReject {
+                    code: SpokeRejectCode::RevisionConflict,
+                    message: "the tool's backing store has a newer revision".to_owned(),
+                    details: None,
+                })
             })
-        })
-    }));
+        }),
+    );
     let result = responder
         .issue_invoke("tools.echo.echo", json!({ "v": 1 }), None)
         .await;
@@ -2511,7 +2504,10 @@ async fn answers_the_error_branch_with_the_handlers_spoke_reject_code() {
         SpokeResult::Ok(_) => panic!("handler reject must surface"),
         SpokeResult::Reject(reject) => {
             assert_eq!(reject.code, SpokeRejectCode::RevisionConflict);
-            assert_eq!(reject.message, "the tool's backing store has a newer revision");
+            assert_eq!(
+                reject.message,
+                "the tool's backing store has a newer revision"
+            );
         }
     }
     client.close();
@@ -2535,7 +2531,10 @@ async fn forwards_a_tool_invoke_via_invoke_tool_to_the_responders_handler() {
         &[json!({ "a": 21, "b": 21 })]
     );
     assert_eq!(responder.stats.handlers_run.load(Ordering::SeqCst), 1);
-    assert_eq!(responder.stats.sequence_rejections.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        responder.stats.sequence_rejections.load(Ordering::SeqCst),
+        0
+    );
     assert_eq!(responder.stats.auth_rejections.load(Ordering::SeqCst), 0);
     client.close();
     responder.close();
@@ -2631,7 +2630,10 @@ async fn invoke_tool_fails_fast_with_invalid_input_on_a_non_tool_capability_id()
     }
     // No wire traffic: the grammar gate is local.
     assert_eq!(
-        responder.stats.reverse_invokes_issued.load(Ordering::SeqCst),
+        responder
+            .stats
+            .reverse_invokes_issued
+            .load(Ordering::SeqCst),
         0
     );
     client.close();
@@ -2740,19 +2742,18 @@ async fn multi_peer_router_routes_tool_invokes_to_the_serving_responder() {
         Arc::new(move |args: Value| {
             let echo_calls_served = Arc::clone(&echo_calls_served);
             Box::pin(async move {
-                echo_calls_served.lock().expect("calls lock").push(args.clone());
+                echo_calls_served
+                    .lock()
+                    .expect("calls lock")
+                    .push(args.clone());
                 spoke_ok(args)
             })
         }),
     );
 
     let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
-    router
-        .register_peer(client_a.clone())
-        .expect("register a");
-    router
-        .register_peer(client_b.clone())
-        .expect("register b");
+    router.register_peer(client_a.clone()).expect("register a");
+    router.register_peer(client_b.clone()).expect("register b");
 
     // tools.math.add is advertised + served only by responder A.
     let add = router
@@ -2806,12 +2807,8 @@ async fn multi_peer_router_rejects_no_capable_peer_for_an_unadvertised_tool() {
     .await;
 
     let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
-    router
-        .register_peer(client_a.clone())
-        .expect("register a");
-    router
-        .register_peer(client_b.clone())
-        .expect("register b");
+    router.register_peer(client_a.clone()).expect("register a");
+    router.register_peer(client_b.clone()).expect("register b");
 
     // No registered peer's cached manifest offers tools.echo.boom.
     let result = router.invoke_tool("tools.echo.boom", json!({})).await;
@@ -2848,14 +2845,8 @@ async fn multi_peer_router_rejects_no_capable_peer_for_an_unadvertised_tool() {
         SpokeResult::Ok(_) => panic!("no capable peer must reject"),
     }
     // Terminal: no responder served anything (selection rejects pre-wire).
-    assert_eq!(
-        responder_a.stats.handlers_run.load(Ordering::SeqCst),
-        0
-    );
-    assert_eq!(
-        responder_b.stats.handlers_run.load(Ordering::SeqCst),
-        0
-    );
+    assert_eq!(responder_a.stats.handlers_run.load(Ordering::SeqCst), 0);
+    assert_eq!(responder_b.stats.handlers_run.load(Ordering::SeqCst), 0);
 
     client_a.close();
     client_b.close();
@@ -2946,7 +2937,11 @@ struct ResponderDialOptions {
 /// the background; the client's dial is the synchronization point.
 async fn dial_with_responder(
     options: ResponderDialOptions,
-) -> (Arc<ConnectResponder>, Arc<RemoteAdapter>, LoopbackTransportPair) {
+) -> (
+    Arc<ConnectResponder>,
+    Arc<RemoteAdapter>,
+    LoopbackTransportPair,
+) {
     let pair = loopback_transport_pair();
     let server_end: Arc<dyn Transport> = match options.responder_transport {
         Some(wrap) => wrap(Arc::new(pair.server.clone())),
@@ -2956,9 +2951,7 @@ async fn dial_with_responder(
     let peer_id_responder = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
     let responder = connect_responder(ConnectResponderOptions {
         transport: server_end,
-        identity: RemoteIdentity {
-            seed: seed_host(),
-        },
+        identity: RemoteIdentity { seed: seed_host() },
         manifest: options
             .responder_manifest
             .unwrap_or_else(|| tool_manifest("test-responder")),
@@ -3030,9 +3023,7 @@ async fn responder_rejects_a_non_allowlisted_peer_during_the_handshake() {
     // the regular fixture identity, which is not on it.
     let responder = connect_responder(ConnectResponderOptions {
         transport: Arc::new(pair.server),
-        identity: RemoteIdentity {
-            seed: seed_host(),
-        },
+        identity: RemoteIdentity { seed: seed_host() },
         manifest: tool_manifest("test-responder"),
         allowlist: vec![peer_id_stranger.clone()],
         peer_keys: HashMap::from([(peer_id_stranger.clone(), pubkey_stranger)]),
@@ -3112,13 +3103,13 @@ async fn responder_round_trips_port_ops_into_the_injected_baseline_ports() {
         }
     }
     // port.scope.list_knowledge_entries — includes the created entry.
-    let scope: Scope = serde_json::from_value(json!({ "scope_id": "toy-scope-001" }))
-        .expect("valid Scope");
+    let scope: Scope =
+        serde_json::from_value(json!({ "scope_id": "toy-scope-001" })).expect("valid Scope");
     let listed = client.list_knowledge_entries(&scope).await;
     match listed {
-        SpokeResult::Ok(entries) => assert!(
-            entries.iter().any(|entry| entry.entry_id.as_str() == compass.entry_id.as_str())
-        ),
+        SpokeResult::Ok(entries) => assert!(entries
+            .iter()
+            .any(|entry| entry.entry_id.as_str() == compass.entry_id.as_str())),
         SpokeResult::Reject(reject) => panic!("list must succeed: {reject:?}"),
     }
     // port.host.list_peer_manifests — the adapter's product-seeded peers.
@@ -3283,12 +3274,13 @@ async fn responder_times_out_the_waiter_without_closing_the_session() {
         ..ResponderDialOptions::default()
     })
     .await;
-    client.register_tool_handler("tools.echo.boom", Arc::new(|_args: Value| {
-        Box::pin(async move { futures::future::pending::<SpokeResult<Value>>().await })
-    }));
-    let timed_out = responder
-        .invoke_tool("tools.echo.boom", json!({}))
-        .await;
+    client.register_tool_handler(
+        "tools.echo.boom",
+        Arc::new(|_args: Value| {
+            Box::pin(async move { futures::future::pending::<SpokeResult<Value>>().await })
+        }),
+    );
+    let timed_out = responder.invoke_tool("tools.echo.boom", json!({})).await;
     match timed_out {
         SpokeResult::Ok(_) => panic!("never-settling handler must time out"),
         SpokeResult::Reject(reject) => {
@@ -3343,7 +3335,10 @@ impl Transport for DelayedFirstSendTransport {
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
             let sequence = doc.get("sequence").and_then(Value::as_i64).unwrap_or(-1);
-            self.sent_sequences.lock().expect("sent lock").push(sequence);
+            self.sent_sequences
+                .lock()
+                .expect("sent lock")
+                .push(sequence);
         }
         self.inner.send(envelope).await
     }
@@ -3418,10 +3413,7 @@ async fn responder_closes_the_session_when_a_timed_out_queued_reverse_invoke_sen
     .await;
     // Only the first reverse invoke ever reached the wire; the timed-out-
     // while-queued second invoke was never transmitted.
-    assert_eq!(
-        sent_sequences.lock().expect("sent lock").as_slice(),
-        &[0]
-    );
+    assert_eq!(sent_sequences.lock().expect("sent lock").as_slice(), &[0]);
     // The session is closed, not poisoned: a follow-up reverse invoke fails
     // with session_closed instead of hanging or being mis-rejected by the
     // dialer's stuck inbound gate.
@@ -3432,7 +3424,9 @@ async fn responder_closes_the_session_when_a_timed_out_queued_reverse_invoke_sen
         SpokeResult::Ok(_) => panic!("post-close invoke must fail"),
         SpokeResult::Reject(reject) => {
             assert_eq!(reject.code, SpokeRejectCode::InternalError);
-            assert!(reject.message.contains("connect session is not established"));
+            assert!(reject
+                .message
+                .contains("connect session is not established"));
             assert_eq!(
                 reject
                     .details
@@ -3515,7 +3509,9 @@ async fn responder_concurrent_reverse_invokes_reach_the_wire_in_allocation_order
         .iter()
         .filter_map(|bytes| {
             let doc: Value = serde_json::from_slice(bytes).ok()?;
-            doc.get("op").is_some().then(|| doc.get("sequence")?.as_i64())
+            doc.get("op")
+                .is_some()
+                .then(|| doc.get("sequence")?.as_i64())
         })
         .flatten()
         .collect();
@@ -3553,11 +3549,14 @@ async fn responder_serves_a_forward_invoke_tool_through_a_registered_handler() {
 #[tokio::test]
 async fn responder_answers_the_error_branch_when_a_served_handler_panics_without_loop_damage() {
     let (responder, client, _pair) = dial_with_responder(ResponderDialOptions::default()).await;
-    responder.register_tool_handler("tools.echo.boom", Arc::new(|_args: Value| {
-        Box::pin(async move {
-            panic!("provider exploded");
-        })
-    }));
+    responder.register_tool_handler(
+        "tools.echo.boom",
+        Arc::new(|_args: Value| {
+            Box::pin(async move {
+                panic!("provider exploded");
+            })
+        }),
+    );
     let thrown = client.invoke_tool("tools.echo.boom", json!({})).await;
     match thrown {
         SpokeResult::Ok(_) => panic!("panicking handler must answer the error branch"),
@@ -3617,7 +3616,10 @@ async fn responder_registration_returns_the_library_result_and_serves_the_handle
         SpokeResult::Ok(()) => {}
         SpokeResult::Reject(reject) => panic!("valid grammar must register: {reject:?}"),
     }
-    match client.invoke_tool("tools.math.add", json!({ "a": 20, "b": 22 })).await {
+    match client
+        .invoke_tool("tools.math.add", json!({ "a": 20, "b": 22 }))
+        .await
+    {
         SpokeResult::Ok(value) => assert_eq!(value, json!({ "sum": 42 })),
         SpokeResult::Reject(reject) => panic!("registered handler must serve: {reject:?}"),
     }
@@ -3635,11 +3637,9 @@ async fn responder_registration_returns_the_library_result_and_serves_the_handle
 async fn responder_registration_rejects_invalid_grammar_without_touching_the_registry() {
     let seeded_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
     let (responder, client, _pair) = dial_with_responder(ResponderDialOptions::default()).await;
-    assert!(
-        responder
-            .register_tool_handler("tools.math.add", add_handler(Arc::clone(&seeded_calls)))
-            .is_ok()
-    );
+    assert!(responder
+        .register_tool_handler("tools.math.add", add_handler(Arc::clone(&seeded_calls)))
+        .is_ok());
 
     // Neither a non-`tools.` id nor a malformed `tools.` id panics: each
     // returns the library grammar reject verbatim, with zero side effect.
@@ -3659,9 +3659,14 @@ async fn responder_registration_rejects_invalid_grammar_without_touching_the_reg
 
     // The registry survived the rejected attempts: the registration that
     // preceded them still serves, exactly once.
-    match client.invoke_tool("tools.math.add", json!({ "a": 40, "b": 2 })).await {
+    match client
+        .invoke_tool("tools.math.add", json!({ "a": 40, "b": 2 }))
+        .await
+    {
         SpokeResult::Ok(value) => assert_eq!(value, json!({ "sum": 42 })),
-        SpokeResult::Reject(reject) => panic!("registry must survive a rejected registration: {reject:?}"),
+        SpokeResult::Reject(reject) => {
+            panic!("registry must survive a rejected registration: {reject:?}")
+        }
     }
     assert_eq!(seeded_calls.lock().expect("calls lock").len(), 1);
 
@@ -3675,18 +3680,20 @@ async fn responder_registration_last_wins_replaces_the_registered_handler() {
     let second_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
     let (responder, client, _pair) = dial_with_responder(ResponderDialOptions::default()).await;
 
-    assert!(
-        responder
-            .register_tool_handler("tools.math.add", add_handler(Arc::clone(&first_calls)))
-            .is_ok()
-    );
-    assert!(
-        responder
-            .register_tool_handler("tools.math.add", replacing_handler(Arc::clone(&second_calls)))
-            .is_ok()
-    );
+    assert!(responder
+        .register_tool_handler("tools.math.add", add_handler(Arc::clone(&first_calls)))
+        .is_ok());
+    assert!(responder
+        .register_tool_handler(
+            "tools.math.add",
+            replacing_handler(Arc::clone(&second_calls))
+        )
+        .is_ok());
 
-    match client.invoke_tool("tools.math.add", json!({ "a": 1, "b": 2 })).await {
+    match client
+        .invoke_tool("tools.math.add", json!({ "a": 1, "b": 2 }))
+        .await
+    {
         SpokeResult::Ok(value) => assert_eq!(value, json!({ "handler": "second" })),
         SpokeResult::Reject(reject) => panic!("the replacement handler must serve: {reject:?}"),
     }
@@ -3753,12 +3760,7 @@ async fn responder_closes_the_connection_on_an_unparseable_inbound_frame() {
     )
     .await;
     // The dialer observes transport loss and closes too.
-    until_state(
-        || client.state(),
-        RemoteAdapterState::Closed,
-        "client",
-    )
-    .await;
+    until_state(|| client.state(), RemoteAdapterState::Closed, "client").await;
     client.close();
     responder.close();
 }
@@ -3776,9 +3778,7 @@ async fn start_raw_responder() -> (
     let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
     let responder = connect_responder(ConnectResponderOptions {
         transport: Arc::new(pair.server.clone()),
-        identity: RemoteIdentity {
-            seed: seed_host(),
-        },
+        identity: RemoteIdentity { seed: seed_host() },
         manifest: tool_manifest("test-responder"),
         allowlist: vec![peer_id_client.clone()],
         peer_keys: HashMap::from([(peer_id_client.clone(), pubkey_client())]),
@@ -3807,10 +3807,9 @@ async fn raw_handshake(
         .send(&serde_json::to_vec(&hello).expect("hello bytes"))
         .await
         .expect("hello send");
-    let _responder_hello: ConnectHello = serde_json::from_slice(
-        &client.recv().await.expect("responder hello recv"),
-    )
-    .expect("responder hello decode");
+    let _responder_hello: ConnectHello =
+        serde_json::from_slice(&client.recv().await.expect("responder hello recv"))
+            .expect("responder hello decode");
     let bytes = client.recv().await.expect("snapshot recv");
     let session: ConnectSession = serde_json::from_slice(&bytes).expect("session decode");
     session.session_id.to_string()
@@ -4056,12 +4055,10 @@ async fn responder_answers_an_unknown_port_method_with_the_dispatch_deny_branch(
     let response: Value =
         serde_json::from_slice(&pair.client.recv().await.expect("recv")).expect("decode");
     assert_eq!(response["error"]["code"], "op_unsupported");
-    assert!(
-        response["error"]["message"]
-            .as_str()
-            .expect("message")
-            .contains("port.nope")
-    );
+    assert!(response["error"]["message"]
+        .as_str()
+        .expect("message")
+        .contains("port.nope"));
     assert_eq!(response["signature"].as_str().expect("sig").len(), 86);
     responder.close();
 }
@@ -4152,9 +4149,7 @@ async fn round_trips_compute_over_the_loopback() {
     let result = client.compute(request).await;
     match result {
         SpokeResult::Ok(ComputeResponse::Variant0 {
-            computable,
-            state,
-            ..
+            computable, state, ..
         }) => {
             // The request computable is echoed and the settle response
             // carries the merged static state.
@@ -4443,9 +4438,7 @@ async fn responder_round_trips_compute_over_the_loopback() {
     let result = client.compute(request).await;
     match result {
         SpokeResult::Ok(ComputeResponse::Variant0 {
-            computable,
-            state,
-            ..
+            computable, state, ..
         }) => {
             // The request computable is echoed and the settle response
             // carries the merged static state.
@@ -4646,7 +4639,9 @@ async fn responder_denies_all_three_optional_ops_when_the_capability_is_declared
     match project_result {
         SpokeResult::Reject(reject) => {
             assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
-            assert!(reject.message.contains("requires optional port method project"));
+            assert!(reject
+                .message
+                .contains("requires optional port method project"));
             assert_eq!(
                 reject
                     .details
@@ -4670,7 +4665,9 @@ async fn responder_denies_all_three_optional_ops_when_the_capability_is_declared
     match compute_result {
         SpokeResult::Reject(reject) => {
             assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
-            assert!(reject.message.contains("requires optional port method compute"));
+            assert!(reject
+                .message
+                .contains("requires optional port method compute"));
             assert_eq!(
                 reject
                     .details
@@ -5005,9 +5002,11 @@ fn extract_error_branch() -> ExtractResponse {
 /// negotiated).
 fn ke_remote_manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
     let mut manifest = tool_manifest(host_id);
-    manifest
-        .capabilities
-        .extend(capabilities.iter().map(|capability| (*capability).to_owned()));
+    manifest.capabilities.extend(
+        capabilities
+            .iter()
+            .map(|capability| (*capability).to_owned()),
+    );
     manifest
 }
 
@@ -5296,7 +5295,9 @@ async fn ke_remote_dial(
             let mut ports = RemoteServePortsComposite::new(baseline.clone(), None, None)
                 .with_knowledge(knowledge_face_over(
                     baseline,
-                    options.admitted_scope.unwrap_or_else(default_admitted_scope),
+                    options
+                        .admitted_scope
+                        .unwrap_or_else(default_admitted_scope),
                 ));
             if let Some(extract) = options.extract {
                 ports = ports.with_extract(Arc::new(extract));
@@ -5366,9 +5367,7 @@ async fn start_raw_ke_responder_with_budget(
     let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
     let responder = connect_responder(ConnectResponderOptions {
         transport: Arc::new(pair.server.clone()),
-        identity: RemoteIdentity {
-            seed: seed_host(),
-        },
+        identity: RemoteIdentity { seed: seed_host() },
         manifest: ke_remote_manifest("test-responder", capabilities),
         allowlist: vec![peer_id_client.clone()],
         peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
@@ -5413,7 +5412,9 @@ async fn ke_remote_extract_round_trips_a_provisional_batch_without_the_loader_va
 
     let result = client.extract(request).await;
     match result {
-        SpokeResult::Ok(ExtractResponse::Variant0 { candidates, run, .. }) => {
+        SpokeResult::Ok(ExtractResponse::Variant0 {
+            candidates, run, ..
+        }) => {
             // Correlation: the batch id is echoed verbatim.
             assert_eq!(run.run_id.as_str(), "run-ke-remote-1");
             assert_eq!(candidates.len(), 2);
@@ -5481,8 +5482,13 @@ async fn ke_remote_extract_serves_a_successful_empty_candidate_batch() {
     .expect("valid ExtractRequest");
 
     match client.extract(request).await {
-        SpokeResult::Ok(ExtractResponse::Variant0 { candidates, run, .. }) => {
-            assert!(candidates.is_empty(), "zero results is a success, not a deny");
+        SpokeResult::Ok(ExtractResponse::Variant0 {
+            candidates, run, ..
+        }) => {
+            assert!(
+                candidates.is_empty(),
+                "zero results is a success, not a deny"
+            );
             assert_eq!(run.run_id.as_str(), "run-ke-remote-empty");
         }
         SpokeResult::Ok(ExtractResponse::Variant1 { error, .. }) => {
@@ -5541,7 +5547,8 @@ async fn ke_remote_extract_denies_when_ke_extraction_is_not_negotiated() {
 }
 
 #[tokio::test]
-async fn ke_remote_extract_probe_denies_when_the_capability_is_declared_but_the_service_is_absent() {
+async fn ke_remote_extract_probe_denies_when_the_capability_is_declared_but_the_service_is_absent()
+{
     // `ke-extraction` is negotiated but the composed ports face carries no
     // extract service: the existing not-serving dispatch-deny branch, which
     // is distinct from the negotiated-capability deny above.
@@ -5642,7 +5649,9 @@ async fn ke_remote_extract_normalizes_the_response_error_branch_to_the_reject_pa
     .expect("valid ExtractRequest");
 
     match client.extract(request).await {
-        SpokeResult::Ok(response) => panic!("the error branch must not answer success: {response:?}"),
+        SpokeResult::Ok(response) => {
+            panic!("the error branch must not answer success: {response:?}")
+        }
         SpokeResult::Reject(reject) => {
             assert_eq!(reject.code, SpokeRejectCode::KnowledgeEntryNotFound);
             assert!(reject.message.contains("referenced source is gone"));
@@ -5662,7 +5671,11 @@ async fn ke_remote_extract_normalizes_the_response_error_branch_to_the_reject_pa
             .and_then(Value::as_str),
         Some("KNOWLEDGE_ENTRY_NOT_FOUND")
     );
-    assert_eq!(host.calls(), (0, 1), "the error branch never loads a source");
+    assert_eq!(
+        host.calls(),
+        (0, 1),
+        "the error branch never loads a source"
+    );
 
     client.close();
     responder.close();
@@ -5697,7 +5710,9 @@ async fn extract_send_bridge_drives_a_spawned_task_with_async_host_stages() {
     };
 
     match result {
-        SpokeResult::Ok(ExtractResponse::Variant0 { candidates, run, .. }) => {
+        SpokeResult::Ok(ExtractResponse::Variant0 {
+            candidates, run, ..
+        }) => {
             // Correlation: the run id crosses the bridge verbatim.
             assert_eq!(run.run_id.as_str(), "run-extract-send-bridge");
             assert_eq!(candidates.len(), 2);
@@ -5798,7 +5813,11 @@ async fn ke_remote_scope_viewpoint_with_ownership_negotiated_reaches_the_provide
     // the opaque extension values are not stripped to make the request
     // succeed.
     let received = recording.scopes();
-    assert_eq!(received.len(), 1, "the provider must be reached exactly once");
+    assert_eq!(
+        received.len(),
+        1,
+        "the provider must be reached exactly once"
+    );
     assert_eq!(received[0]["viewpoint"], json!("kb_tw_mira"));
     assert_eq!(received[0]["entry_types"], json!(["note"]));
     assert_eq!(
@@ -5806,7 +5825,10 @@ async fn ke_remote_scope_viewpoint_with_ownership_negotiated_reaches_the_provide
         json!("decoy"),
         "an extension value that merely resembles the gate carrier is preserved"
     );
-    assert_eq!(received[0]["extensions"]["product"]["owner"], json!("someone"));
+    assert_eq!(
+        received[0]["extensions"]["product"]["owner"],
+        json!("someone")
+    );
 
     client.close();
     responder.close();
@@ -5841,7 +5863,11 @@ async fn ke_remote_scope_present_empty_refinements_reach_the_provider_unchanged(
     // The responder's typed decode must not widen an explicitly present `[]`
     // to an omitted list before the provider sees it.
     let received = recording.scopes();
-    assert_eq!(received.len(), 1, "the provider must be reached exactly once");
+    assert_eq!(
+        received.len(),
+        1,
+        "the provider must be reached exactly once"
+    );
     assert_eq!(received[0]["entry_ids"], json!([]));
     assert_eq!(received[0]["entry_types"], json!([]));
     assert_eq!(received[0]["timeline_event_ids"], json!([]));
@@ -5918,11 +5944,9 @@ async fn ke_remote_scope_viewpoint_absent_keeps_baseline_serving() {
     let scope: Scope =
         serde_json::from_value(json!({ "scope_id": "toy-scope-001" })).expect("valid Scope");
     match client.list_knowledge_entries(&scope).await {
-        SpokeResult::Ok(entries) => assert!(
-            entries
-                .iter()
-                .any(|entry| entry.entry_id.as_str() == "kb_tw_mira")
-        ),
+        SpokeResult::Ok(entries) => assert!(entries
+            .iter()
+            .any(|entry| entry.entry_id.as_str() == "kb_tw_mira")),
         SpokeResult::Reject(reject) => panic!("baseline serving must stay green: {reject:?}"),
     }
     assert_eq!(recording.scopes().len(), 1);
@@ -5998,8 +6022,8 @@ async fn ke_remote_scope_malformed_declaration_rejects_invalid_input_before_the_
         .send(&serde_json::to_vec(&valid).expect("bytes"))
         .await
         .expect("send");
-    let response: Value = serde_json::from_slice(&pair.client.recv().await.expect("recv"))
-        .expect("response decode");
+    let response: Value =
+        serde_json::from_slice(&pair.client.recv().await.expect("recv")).expect("response decode");
     assert!(
         response.get("error").is_none(),
         "the valid viewpoint must serve, got {response}"
@@ -6031,8 +6055,8 @@ async fn raw_invoke(
 }
 
 #[tokio::test]
-async fn ke_remote_scope_malformed_declaration_is_an_input_failure_without_the_ownership_capability()
-{
+async fn ke_remote_scope_malformed_declaration_is_an_input_failure_without_the_ownership_capability(
+) {
     // The requirement predicate is false for a malformed viewpoint, so a
     // malformed declared Scope answers an input failure even when
     // `ke-ownership` was never negotiated — never a capability deny.
@@ -6041,12 +6065,8 @@ async fn ke_remote_scope_malformed_declaration_is_an_input_failure_without_the_o
     let ports: Arc<dyn RemoteServePorts + Send + Sync> =
         Arc::new(RemoteServePortsComposite::new(baseline, None, None));
     let (responder, pair, seed) = start_raw_ke_responder(ports, &[]).await;
-    let session_id = raw_handshake(
-        &pair.client,
-        seed,
-        &ke_remote_manifest("test-client", &[]),
-    )
-    .await;
+    let session_id =
+        raw_handshake(&pair.client, seed, &ke_remote_manifest("test-client", &[])).await;
 
     let malformed = raw_invoke(
         &pair.client,
@@ -6226,13 +6246,12 @@ async fn ke_remote_extract_decodes_the_request_after_the_provider_probe() {
     );
     responder.close();
 
-    let unserved: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
-        RemoteServePortsComposite::new(
+    let unserved: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(
             Arc::new(ToyWorldAdapter::with_committed_fixtures()),
             None,
             None,
-        ),
-    );
+        ));
     let (responder, pair, seed) = start_raw_ke_responder(unserved, &["ke-extraction"]).await;
     let session_id = raw_handshake(
         &pair.client,
@@ -6321,7 +6340,10 @@ impl ParkingServePorts {
     /// [`ParkProbe`] marks the future's drop: a serve-budget expiry drops the
     /// parked future, so `released` stays 0 while `dropped` rises.
     async fn park(&self, method: &str) {
-        self.calls.lock().expect("calls lock").push(method.to_owned());
+        self.calls
+            .lock()
+            .expect("calls lock")
+            .push(method.to_owned());
         self.parked.fetch_add(1, Ordering::SeqCst);
         let _probe = ParkProbe(Arc::clone(&self.dropped));
         self.release.notified().await;
@@ -6418,9 +6440,7 @@ async fn close_race_dial(ports: Arc<dyn RemoteServePorts + Send + Sync>) -> Clos
             sent: Arc::clone(&sent),
             recv_entries: Arc::clone(&recv_entries),
         }),
-        identity: RemoteIdentity {
-            seed: seed_host(),
-        },
+        identity: RemoteIdentity { seed: seed_host() },
         manifest: ke_remote_manifest("test-responder", &[]),
         allowlist: vec![peer_id_client.clone()],
         peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
@@ -6610,7 +6630,9 @@ fn assert_served_timeout_frame(frame: &Value, budget_ms: u64) {
         frame["error"]["message"]
             .as_str()
             .unwrap_or_default()
-            .contains(&format!("serve wait exceeded the local budget of {budget_ms}ms")),
+            .contains(&format!(
+                "serve wait exceeded the local budget of {budget_ms}ms"
+            )),
         "the served expiry must name the responder's own budget (never the dialer's): {frame}"
     );
 }
@@ -6825,7 +6847,10 @@ async fn serve_timeout_zero_budget_answers_before_any_provider_call() {
             );
         }
     }
-    assert!(ports.calls().is_empty(), "zero provider calls for a zero budget");
+    assert!(
+        ports.calls().is_empty(),
+        "zero provider calls for a zero budget"
+    );
     assert_eq!(ports.dropped(), 0);
     let errors = captured_frames_with(&received, "error");
     assert_eq!(errors.len(), 1, "exactly one error response: {errors:?}");
@@ -6922,12 +6947,8 @@ async fn serve_timeout_zero_budget_keeps_scope_validation_precedence() {
     let (responder, pair, seed) =
         start_raw_ke_responder_with_budget(serve_wait_ports(&ports, scope_of("s1")), &[], Some(0))
             .await;
-    let session_id = raw_handshake(
-        &pair.client,
-        seed,
-        &ke_remote_manifest("test-client", &[]),
-    )
-    .await;
+    let session_id =
+        raw_handshake(&pair.client, seed, &ke_remote_manifest("test-client", &[])).await;
 
     let malformed = raw_invoke(
         &pair.client,
@@ -6982,12 +7003,8 @@ async fn serve_timeout_zero_budget_keeps_port_payload_validation_precedence() {
         Some(0),
     )
     .await;
-    let session_id = raw_handshake(
-        &pair.client,
-        seed,
-        &ke_remote_manifest("test-client", &[]),
-    )
-    .await;
+    let session_id =
+        raw_handshake(&pair.client, seed, &ke_remote_manifest("test-client", &[])).await;
 
     let malformed = raw_invoke(
         &pair.client,
@@ -7132,7 +7149,11 @@ async fn serve_timeout_close_racing_a_serve_dispatch_arms_no_wait() {
     // entered the provider and armed a 25ms serve wait the close had already
     // finished draining past.
     let ports = Arc::new(ParkingServePorts::new());
-    let dial = close_race_dial(serve_wait_ports(&ports, scope_of("serve-timeout-close-race"))).await;
+    let dial = close_race_dial(serve_wait_ports(
+        &ports,
+        scope_of("serve-timeout-close-race"),
+    ))
+    .await;
     let session_id = raw_handshake(
         &dial.pair.client,
         dial.seed,
@@ -7211,7 +7232,10 @@ type ScopeKey = (String, Option<String>);
 fn scope_key(scope: &Scope) -> ScopeKey {
     (
         scope.scope_id.clone(),
-        scope.viewpoint.as_ref().map(|viewpoint| String::from(viewpoint.clone())),
+        scope
+            .viewpoint
+            .as_ref()
+            .map(|viewpoint| String::from(viewpoint.clone())),
     )
 }
 
@@ -7273,9 +7297,8 @@ impl ScopedKnowledgePort for ScopedKnowledgeStore {
             .lock()
             .expect("entries lock")
             .iter()
-            .find(|(entry_key, entry)| {
-                *entry_key == key && entry.entry_id.as_str() == entry_id
-            }) {
+            .find(|(entry_key, entry)| *entry_key == key && entry.entry_id.as_str() == entry_id)
+        {
             Some((_, entry)) => spoke_ok(entry.clone()),
             None => spoke_reject(
                 SpokeRejectCode::KnowledgeEntryNotFound,
@@ -7402,9 +7425,7 @@ async fn start_knowledge_peer(
     let manifest = knowledge_only_manifest("test-responder", capabilities);
     let responder = connect_responder(ConnectResponderOptions {
         transport: Arc::new(pair.server.clone()),
-        identity: RemoteIdentity {
-            seed: seed_host(),
-        },
+        identity: RemoteIdentity { seed: seed_host() },
         manifest: manifest.clone(),
         allowlist: vec![peer_id_client.clone()],
         peer_keys: HashMap::from([(peer_id_client, pubkey_of(client_seed))]),
@@ -7476,7 +7497,10 @@ async fn knowledge_face_serves_get_put_and_list_on_a_knowledge_only_host() {
         "port.knowledge.put",
         "port.scope.list_knowledge_entries",
     ] {
-        assert!(wire_ops.iter().any(|wire_op| wire_op == op), "{op} on the wire");
+        assert!(
+            wire_ops.iter().any(|wire_op| wire_op == op),
+            "{op} on the wire"
+        );
     }
 
     client.close();
@@ -7501,11 +7525,7 @@ async fn knowledge_face_isolates_two_peers_by_their_admitted_scope() {
         } else if peer_id == peer_b {
             spoke_ok(scope_b.clone())
         } else {
-            spoke_reject(
-                SpokeRejectCode::NotAuthorized,
-                "not bound to a scope",
-                None,
-            )
+            spoke_reject(SpokeRejectCode::NotAuthorized, "not bound to a scope", None)
         }
     });
 
@@ -7600,8 +7620,7 @@ async fn knowledge_face_refuses_an_unbound_peer_without_touching_the_store() {
         )
     });
     let seed_a = seed(0x83);
-    let (responder, pair, session) =
-        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+    let (responder, pair, session) = start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
 
     let responses = [
         raw_invoke(
@@ -7736,8 +7755,7 @@ async fn knowledge_face_stale_expected_revision_rejects_without_replacement() {
     store.seed(&scope, seeded);
     let face = knowledge_face(Arc::clone(&store), move |_| spoke_ok(scope.clone()));
     let seed_a = seed(0x85);
-    let (responder, pair, session) =
-        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+    let (responder, pair, session) = start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
 
     let stale = raw_invoke(
         &pair.client,
@@ -7775,8 +7793,7 @@ async fn knowledge_only_host_denies_assemble_and_every_baseline_op() {
     let store = Arc::new(ScopedKnowledgeStore::default());
     let face = knowledge_face(Arc::clone(&store), |_| spoke_ok(scope_of("scope-a")));
     let seed_a = seed(0x86);
-    let (responder, pair, session) =
-        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+    let (responder, pair, session) = start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
 
     for (sequence, op) in ["assemble", "port.relation.get"].iter().enumerate() {
         let response = raw_invoke(
@@ -7806,8 +7823,7 @@ async fn knowledge_face_keeps_the_ownership_and_cognition_conjuncts() {
     let seed_a = seed(0x87);
     // `spoke-knowledge` alone: neither `ke-ownership` nor `spoke-cognition`
     // was negotiated.
-    let (responder, pair, session) =
-        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+    let (responder, pair, session) = start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
 
     let viewpoint = raw_invoke(
         &pair.client,
@@ -7836,7 +7852,10 @@ async fn knowledge_face_keeps_the_ownership_and_cognition_conjuncts() {
         }),
     )
     .await;
-    assert_eq!(cognition["error"]["code"], "capability_missing", "{cognition}");
+    assert_eq!(
+        cognition["error"]["code"], "capability_missing",
+        "{cognition}"
+    );
     assert!(store.calls().is_empty());
 
     responder.close();
@@ -7928,8 +7947,7 @@ async fn absent_knowledge_face_answers_the_dispatch_deny_wire_code() {
     // and reaches the probe.
     let ports: Arc<dyn RemoteServePorts + Send + Sync> =
         Arc::new(RemoteServePortsComposite::new(baseline, None, None));
-    let (responder, pair, seed) =
-        start_raw_ke_responder(ports, &["spoke-knowledge"]).await;
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &["spoke-knowledge"]).await;
     let session_id = raw_handshake(
         &pair.client,
         seed,
@@ -7999,7 +8017,10 @@ async fn serve_timeout_bounds_a_parked_admission_without_reaching_the_store() {
     let elapsed = started.elapsed();
 
     assert_eq!(response["error"]["code"], "INTERNAL_ERROR", "{response}");
-    assert_eq!(response["error"]["details"]["kind"], "timeout", "{response}");
+    assert_eq!(
+        response["error"]["details"]["kind"], "timeout",
+        "{response}"
+    );
     assert!(
         response["error"]["message"]
             .as_str()
@@ -8103,7 +8124,10 @@ async fn knowledge_serve_shares_one_deadline_between_admission_and_the_store() {
     .expect("the shared deadline answers without waiting out the store");
 
     assert_eq!(response["error"]["code"], "INTERNAL_ERROR", "{response}");
-    assert_eq!(response["error"]["details"]["kind"], "timeout", "{response}");
+    assert_eq!(
+        response["error"]["details"]["kind"], "timeout",
+        "{response}"
+    );
     assert!(
         response["error"]["message"]
             .as_str()
@@ -8361,8 +8385,7 @@ async fn knowledge_face_intersects_the_list_scope_with_the_admission() {
     store.seed(&scope_of("scope-a"), scoped_entry("ke-b", "beta"));
     let face = knowledge_face(Arc::clone(&store), move |_| spoke_ok(admitted.clone()));
     let seed_a = seed(0x86);
-    let (responder, pair, session) =
-        start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
+    let (responder, pair, session) = start_knowledge_peer(face, seed_a, &["spoke-knowledge"]).await;
 
     let entry_ids = |response: &Value| -> Vec<String> {
         response["payload"]
@@ -8472,7 +8495,10 @@ async fn knowledge_face_intersects_the_list_scope_with_the_admission() {
         }),
     )
     .await;
-    assert_eq!(wider_types["error"]["code"], "NOT_AUTHORIZED", "{wider_types}");
+    assert_eq!(
+        wider_types["error"]["code"], "NOT_AUTHORIZED",
+        "{wider_types}"
+    );
     assert_eq!(
         store.calls().len(),
         calls_before,

@@ -82,18 +82,17 @@ use spoke_schemas::{
 use crate::cognition::{unsupported_cognition_requirement, WIRE_INVALID_INPUT};
 use crate::core::{
     authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
-    check_response_correlation, cognition_requirement_present,
-    derive_peer_id_from_ed25519_pubkey, is_allowlisted, required_capability,
-    sign_hello_ed25519, verify_hello_ed25519, verify_invoke_request_auth, verify_invoke_response_auth,
-    Correlation, EnvelopeAuthError, InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput,
-    NonceStore, OutboundSequence, SessionSignInput, CAPABILITY_KE_OWNERSHIP,
-    CAPABILITY_SPOKE_COGNITION,
+    check_response_correlation, cognition_requirement_present, derive_peer_id_from_ed25519_pubkey,
+    is_allowlisted, required_capability, sign_hello_ed25519, verify_hello_ed25519,
+    verify_invoke_request_auth, verify_invoke_response_auth, Correlation, EnvelopeAuthError,
+    InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput, NonceStore, OutboundSequence,
+    SessionSignInput, CAPABILITY_KE_OWNERSHIP, CAPABILITY_SPOKE_COGNITION,
 };
 use crate::hello::generate_nonce;
 use crate::remote::remote_adapter::{
     connect_manifest, internal_error, is_connect_invoke_request, map_error_envelope,
-    wire_response_correlation, RemoteError as ResponderError, RemoteErrorKind as ResponderErrorKind,
-    RemoteIdentity, ToolHandler,
+    wire_response_correlation, RemoteError as ResponderError,
+    RemoteErrorKind as ResponderErrorKind, RemoteIdentity, ToolHandler,
 };
 use crate::remote::serve_ports::RemoteServePorts;
 use crate::remote::transport::Transport;
@@ -409,7 +408,9 @@ fn effective_scope(requested: &Scope, admitted: &Scope) -> Option<Scope> {
         // The request narrows the admitted set: any value outside it would
         // widen the query, so only a subset is served (as the request's set).
         (Some(admitted), Some(requested))
-            if !requested.iter().all(|entry_type| admitted.contains(entry_type)) =>
+            if !requested
+                .iter()
+                .all(|entry_type| admitted.contains(entry_type)) =>
         {
             return None;
         }
@@ -508,8 +509,7 @@ async fn call_knowledge_op(
                     let absent = existing.is_none();
                     if absent || current != expected {
                         let mut details = Map::new();
-                        details
-                            .insert("entry_id".into(), Value::String(entry.entry_id.clone()));
+                        details.insert("entry_id".into(), Value::String(entry.entry_id.clone()));
                         details.insert("expectedBaseRevision".into(), json!(expected));
                         if !absent {
                             details.insert("storeRevision".into(), json!(current));
@@ -517,10 +517,7 @@ async fn call_knowledge_op(
                         return spoke_reject(
                             SpokeRejectCode::StoredRevisionStale,
                             if absent {
-                                format!(
-                                    "KnowledgeEntry not found for update: {}",
-                                    entry.entry_id
-                                )
+                                format!("KnowledgeEntry not found for update: {}", entry.entry_id)
                             } else {
                                 format!(
                                     "Store revision {current} does not match expected base {expected}"
@@ -901,7 +898,9 @@ impl ConnectResponder {
             peer_keys: options.peer_keys,
             ports: options.ports,
             invoke_timeout: Duration::from_millis(
-                options.invoke_timeout_ms.unwrap_or(DEFAULT_INVOKE_TIMEOUT_MS),
+                options
+                    .invoke_timeout_ms
+                    .unwrap_or(DEFAULT_INVOKE_TIMEOUT_MS),
             ),
             nonce_store: Mutex::new(NonceStore::new()),
             state: Mutex::new(ConnectResponderState::Disconnected),
@@ -1126,10 +1125,8 @@ impl ConnectResponder {
             serde_json::from_value(serde_json::to_value(&wire).expect("hello host serializes"))
                 .map_err(|error| format!("dialer hello host decode failed: {error}"))?
         };
-        let negotiated: Vec<String> = negotiated_capabilities(
-            &self.manifest.capabilities,
-            &remote_manifest.capabilities,
-        );
+        let negotiated: Vec<String> =
+            negotiated_capabilities(&self.manifest.capabilities, &remote_manifest.capabilities);
 
         *self.session.lock().expect("session lock") = Some(ResponderSession {
             session_id: format!("{SESSION_ID_PREFIX}{derived_client_peer_id}"),
@@ -1153,7 +1150,10 @@ impl ConnectResponder {
         )
         .map_err(|error| format!("responder hello sign failed: {error}"))?;
         let bytes = serde_json::to_vec(&hello).map_err(|error| error.to_string())?;
-        self.transport.send(&bytes).await.map_err(|error| error.to_string())?;
+        self.transport
+            .send(&bytes)
+            .await
+            .map_err(|error| error.to_string())?;
         // The session snapshot is signed with the responder identity
         // (`spoke-connect-session-jcs-v1`) — the dialer verifies it against
         // this responder's hello public key. The wire snapshot requires ≥1
@@ -1179,7 +1179,10 @@ impl ConnectResponder {
         )
         .map_err(|error| error.to_string())?;
         let bytes = serde_json::to_vec(&snapshot).map_err(|error| error.to_string())?;
-        self.transport.send(&bytes).await.map_err(|error| error.to_string())?;
+        self.transport
+            .send(&bytes)
+            .await
+            .map_err(|error| error.to_string())?;
         Ok(())
     }
 
@@ -1498,7 +1501,8 @@ impl ConnectResponder {
                 .get_mut("payload")
                 .map(Value::take)
                 .unwrap_or_else(|| json!({}));
-            self.dispatch_history_invoke(doc, payload, &negotiated).await?;
+            self.dispatch_history_invoke(doc, payload, &negotiated)
+                .await?;
             return Ok(());
         }
         // `knowledge.*` ops are served by the optional injected
@@ -1626,8 +1630,10 @@ impl ConnectResponder {
             }
             SpokeResult::Reject(reject) => {
                 let error: spoke_schemas::connect::connect_invoke_response::ErrorEnvelope =
-                    serde_json::from_value(serde_json::to_value(to_error_envelope(&reject))
-                        .expect("ops error envelope serializes"))
+                    serde_json::from_value(
+                        serde_json::to_value(to_error_envelope(&reject))
+                            .expect("ops error envelope serializes"),
+                    )
                     .expect("field-identical error envelope converts");
                 let signed = authenticate_invoke_response(
                     &secret,
@@ -1672,11 +1678,7 @@ impl ConnectResponder {
         // and a ports face without the `extract` service are the same
         // documented dispatch-deny branch — the host declared the capability
         // without providing the service.
-        let Some(service) = self
-            .ports
-            .as_ref()
-            .and_then(|ports| ports.as_extract())
-        else {
+        let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_extract()) else {
             self.send_reverse_error_envelope(
                 doc,
                 "op_unsupported",
@@ -1746,7 +1748,9 @@ impl ConnectResponder {
         if let ExtractResponse::Variant1 { error, .. } = &response {
             let reject = serde_json::to_value(error)
                 .ok()
-                .and_then(|value| serde_json::from_value::<spoke_schemas::ErrorEnvelope>(value).ok())
+                .and_then(|value| {
+                    serde_json::from_value::<spoke_schemas::ErrorEnvelope>(value).ok()
+                })
                 .map_or_else(
                     || SpokeReject {
                         code: SpokeRejectCode::InternalError,
@@ -2436,9 +2440,7 @@ impl ConnectResponder {
             }
         };
         if requires_ownership_capability(op, payload)
-            && !negotiated
-                .iter()
-                .any(|cap| cap == CAPABILITY_KE_OWNERSHIP)
+            && !negotiated.iter().any(|cap| cap == CAPABILITY_KE_OWNERSHIP)
         {
             // The frozen deny matrix fixes the ownership conjunct to
             // `op_unsupported` (spoke-connect §Op dispatch gate), unlike the
@@ -2656,13 +2658,12 @@ impl ConnectResponder {
                 session_id: session_id.to_owned(),
                 sequence,
                 request_id: request_id.to_owned(),
-                error: serde_json::from_value(Value::Object(error))
-                    .map_err(|error| {
-                        ResponderError::new(
-                            ResponderErrorKind::Transport,
-                            format!("error envelope build failed: {error}"),
-                        )
-                    })?,
+                error: serde_json::from_value(Value::Object(error)).map_err(|error| {
+                    ResponderError::new(
+                        ResponderErrorKind::Transport,
+                        format!("error envelope build failed: {error}"),
+                    )
+                })?,
             },
             HashMap::new(),
         )
@@ -2679,11 +2680,7 @@ impl ConnectResponder {
     }
 
     /// Sign + send a success-branch response (raw port value, D4 shape).
-    async fn send_ok_response(
-        &self,
-        doc: &Value,
-        payload: Value,
-    ) -> Result<(), ResponderError> {
+    async fn send_ok_response(&self, doc: &Value, payload: Value) -> Result<(), ResponderError> {
         let Some(session_id) = doc.get("session_id").and_then(Value::as_str) else {
             return Ok(());
         };
@@ -2693,7 +2690,11 @@ impl ConnectResponder {
         let Some(request_id) = doc.get("request_id").and_then(Value::as_str) else {
             return Ok(());
         };
-        let payload = if payload.is_null() { json!({}) } else { payload };
+        let payload = if payload.is_null() {
+            json!({})
+        } else {
+            payload
+        };
         let signed = authenticate_invoke_response(
             &self.local_secret,
             &InvokeResponseSignInput::Success {
@@ -2843,8 +2844,9 @@ impl ConnectResponder {
             };
             session.session_id.clone()
         };
-        let request_id = generate_request_id()
-            .map_err(|error| ResponderError::new(ResponderErrorKind::Transport, error.to_string()))?;
+        let request_id = generate_request_id().map_err(|error| {
+            ResponderError::new(ResponderErrorKind::Transport, error.to_string())
+        })?;
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let timeout_task = {
             let pending = Arc::clone(&self.pending);
@@ -2954,7 +2956,12 @@ impl ConnectResponder {
         // allocated outbound sequence never hit the wire — close the session
         // and settle with the error the waiter already observed (the
         // timeout/close message is queued on the channel).
-        if !self.pending.lock().expect("pending lock").contains_key(&request_id) {
+        if !self
+            .pending
+            .lock()
+            .expect("pending lock")
+            .contains_key(&request_id)
+        {
             self.close_session(
                 "deferred invoke skipped (settled while queued) — outbound sequence never transmitted",
             );
@@ -3146,7 +3153,9 @@ mod tests {
             }));
             let negotiated = negotiated_capabilities(&local, &remote);
             assert_eq!(
-                negotiated.iter().any(|cap| cap == CAPABILITY_SPOKE_COGNITION),
+                negotiated
+                    .iter()
+                    .any(|cap| cap == CAPABILITY_SPOKE_COGNITION),
                 case.get("negotiated_includes_cognition")
                     .and_then(Value::as_bool)
                     .expect("negotiated_includes_cognition"),
@@ -3172,11 +3181,13 @@ mod tests {
             ports: None,
             invoke_timeout_ms: None,
         });
-        let caps = |list: &[&str]| -> Vec<String> {
-            list.iter().map(|cap| (*cap).to_owned()).collect()
-        };
+        let caps =
+            |list: &[&str]| -> Vec<String> { list.iter().map(|cap| (*cap).to_owned()).collect() };
         for op in ["port.knowledge.get", "port.scope.list_knowledge_entries"] {
-            assert!(responder.gate_allows(op, &caps(&["spoke-knowledge"])), "{op}");
+            assert!(
+                responder.gate_allows(op, &caps(&["spoke-knowledge"])),
+                "{op}"
+            );
             assert!(
                 responder.gate_allows(op, &caps(&["spoke-baseline", "spoke-knowledge"])),
                 "{op}"
@@ -3392,8 +3403,7 @@ mod tests {
     }
 
     fn put_scope() -> Scope {
-        serde_json::from_value(json!({"scope_id": "s1", "extensions": {}}))
-            .expect("valid Scope")
+        serde_json::from_value(json!({"scope_id": "s1", "extensions": {}})).expect("valid Scope")
     }
 
     /// QC2-11 / qc1 F-012 regression: a scoped `get` answering
@@ -3498,10 +3508,7 @@ mod tests {
 
         // A create-only request cannot replace the occupied slot.
         let create = call_knowledge_op(
-            KnowledgeCall::PutKnowledgeEntry(
-                put_entry("anchored-entry", Some(put_anchor())),
-                None,
-            ),
+            KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", Some(put_anchor())), None),
             &face,
             &put_scope(),
             None,

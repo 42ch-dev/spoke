@@ -2,7 +2,8 @@
 # Regenerate committed Swift bindings + multi-slice xcframework for SPM.
 #
 # Usage (from repo root):
-#   ./tooling/connect/build-swift-xcframework.sh
+#   ./tooling/connect/build-swift-xcframework.sh [--phase <host|slice|assemble|all>]
+#                                                [--slice-id <id>] [--target <triple>]
 #
 # Outputs (committed paths):
 #   crates/spoke-connect/bindings/swift/generated/
@@ -24,8 +25,63 @@
 # macOS slice share dependency artifacts when the compiler's host triple equals
 # the slice triple (aarch64-apple-darwin).
 # All four staticlib slices then build sequentially in that same target dir.
+#
+# Phases (CI splits the pipeline into one job per phase; default `all`
+# preserves the single-invocation behaviour for local runs):
+#   host      normalize Cargo versions, build the host cdylib +
+#             uniffi-bindgen, generate Swift bindings + headers/modulemap into
+#             $XCFRAMEWORK_OUTPUT_DIR/{generated,Headers}. No slices, no
+#             xcodebuild.
+#   slice     normalize Cargo versions, build one staticlib for
+#             --slice-id/--target, copy it to
+#             $XCFRAMEWORK_OUTPUT_DIR/slices/<slice-id>/libspoke_connect.a.
+#             Requires --slice-id and --target; no bindgen, no xcodebuild.
+#   assemble  lipo the simulator slices in $XCFRAMEWORK_OUTPUT_DIR/slices/,
+#             run xcodebuild -create-xcframework with
+#             $XCFRAMEWORK_OUTPUT_DIR/Headers, normalize Info.plist and
+#             validate. No cargo.
+#   all       host + every slice + assemble (the historical local path).
 
 set -euo pipefail
+
+usage() {
+  sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d'
+}
+
+PHASE="all"
+SLICE_ID=""
+SLICE_TARGET=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --phase)
+      [[ $# -ge 2 ]] || { echo "error: --phase requires a value" >&2; exit 2; }
+      PHASE="$2"; shift 2 ;;
+    --slice-id)
+      [[ $# -ge 2 ]] || { echo "error: --slice-id requires a value" >&2; exit 2; }
+      SLICE_ID="$2"; shift 2 ;;
+    --target)
+      [[ $# -ge 2 ]] || { echo "error: --target requires a value" >&2; exit 2; }
+      SLICE_TARGET="$2"; shift 2 ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *)
+      echo "error: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
+  esac
+done
+case "${PHASE}" in
+  host|slice|assemble|all) ;;
+  *)
+    echo "error: --phase must be one of host|slice|assemble|all, got '${PHASE}'" >&2
+    exit 2 ;;
+esac
+if [[ -n "${SLICE_ID}${SLICE_TARGET}" && "${PHASE}" != "slice" ]]; then
+  echo "error: --slice-id/--target only apply to --phase slice" >&2
+  exit 2
+fi
+if [[ "${PHASE}" == "slice" && ( -z "${SLICE_ID}" || -z "${SLICE_TARGET}" ) ]]; then
+  echo "error: --phase slice requires --slice-id <id> and --target <triple>" >&2
+  exit 2
+fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "${REPO_ROOT}"
@@ -38,6 +94,22 @@ XCFRAMEWORK="${SWIFT_BINDINGS}/xcframework/spoke_connectFFI.xcframework"
 if [[ -n "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
   GENERATED="${XCFRAMEWORK_OUTPUT_DIR}/generated"
   XCFRAMEWORK="${XCFRAMEWORK_OUTPUT_DIR}/spoke_connectFFI.xcframework"
+fi
+
+# Slice id -> Apple target triple. All four builds are explicit `--target`.
+SLICES=(
+  "macos-arm64|aarch64-apple-darwin"
+  "ios-arm64|aarch64-apple-ios"
+  "ios-arm64-simulator|aarch64-apple-ios-sim"
+  "ios-x86_64-simulator|x86_64-apple-ios"
+)
+
+# Directory holding <slice-id>/libspoke_connect.a inputs. The `all` phase stages
+# into mktemp as before; `slice` writes and `assemble` reads under
+# $XCFRAMEWORK_OUTPUT_DIR/slices/.
+SLICES_DIR=""
+if [[ -n "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
+  SLICES_DIR="${XCFRAMEWORK_OUTPUT_DIR}/slices"
 fi
 
 # CI affordance: --locked pins the committed Cargo.lock for reproducible CI
@@ -243,29 +315,29 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-acquire_xcframework_version_lock
-CARGO_VERSION_BACKUP="$(mktemp -d)"
-node "${REPO_ROOT}/tooling/connect/normalize-cargo-version.mjs" apply \
-  "${REPO_ROOT}" "${CARGO_VERSION_BACKUP}" "${CARGO_VERSION_SENTINEL}"
 
-# Slice id -> Apple target triple. All four builds are explicit `--target`.
-SLICES=(
-  "macos-arm64|aarch64-apple-darwin"
-  "ios-arm64|aarch64-apple-ios"
-  "ios-arm64-simulator|aarch64-apple-ios-sim"
-  "ios-x86_64-simulator|x86_64-apple-ios"
-)
+# Every cargo phase (host, slice, all) normalizes the lockstep version before
+# compiling and restores it via the EXIT trap. The assemble phase never
+# compiles, so it skips the lock and the sentinel entirely.
+normalize_cargo_versions() {
+  acquire_xcframework_version_lock
+  CARGO_VERSION_BACKUP="$(mktemp -d)"
+  node "${REPO_ROOT}/tooling/connect/normalize-cargo-version.mjs" apply \
+    "${REPO_ROOT}" "${CARGO_VERSION_BACKUP}" "${CARGO_VERSION_SENTINEL}"
+}
 
-echo "==> assert Apple target triples installed"
-if command -v rustup >/dev/null 2>&1; then
-  # Assert against the same toolchain that builds (nightly locally, default in CI).
-  # bash 3.2 (macOS system bash) treats an empty "${arr[@]}" under set -u as
-  # an unbound variable; the + idiom expands to nothing when the array is
-  # empty (the CI-stable path has no --toolchain flag).
+# Assert the given triples are installed on the toolchain that will build
+# (nightly locally, default in CI). bash 3.2 (macOS system bash) treats an
+# empty "${arr[@]}" under set -u as an unbound variable; the + idiom expands
+# to nothing when the array is empty (the CI-stable path has no --toolchain
+# flag).
+assert_rustup_targets() {
+  local entry triple
+  command -v rustup >/dev/null 2>&1 || return 0
+  local INSTALLED
   INSTALLED="$(rustup target list --installed ${RUSTUP_TOOLCHAIN[@]+"${RUSTUP_TOOLCHAIN[@]}"})"
-  MISSING=()
-  for entry in "${SLICES[@]}"; do
-    triple="${entry#*|}"
+  local MISSING=()
+  for triple in "$@"; do
     if ! grep -qx "${triple}" <<<"${INSTALLED}"; then
       MISSING+=("${triple}")
     fi
@@ -279,85 +351,173 @@ if command -v rustup >/dev/null 2>&1; then
     fi
     exit 1
   fi
-fi
+}
 
-TARGET_DIR="$("${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+cargo_target_dir() {
+  "${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])'
+}
 
 FFI_FEATURES="ffi,remote-adapter"
+
 # An explicit RUSTC is probed as-is (no toolchain flag); only the rustup proxy
 # may take +nightly.
-RUSTC_PROBE=("${RUSTC:-rustc}")
-if [[ -z "${RUSTC:-}" ]] && [[ "${#RUSTC_TOOLCHAIN[@]}" -gt 0 ]]; then
-  RUSTC_PROBE+=("${RUSTC_TOOLCHAIN[@]}")
-fi
-HOST_TRIPLE="$("${RUSTC_PROBE[@]}" -vV | sed -n 's/^host: //p')"
-if [[ -z "${HOST_TRIPLE}" ]]; then
-  echo "error: could not determine the toolchain host triple from rustc -vV" >&2
-  exit 1
-fi
-HOST_BUILD_DIR="${TARGET_DIR}/${HOST_TRIPLE}/release"
+host_triple() {
+  local probe=("${RUSTC:-rustc}") triple
+  if [[ -z "${RUSTC:-}" ]] && [[ "${#RUSTC_TOOLCHAIN[@]}" -gt 0 ]]; then
+    probe+=("${RUSTC_TOOLCHAIN[@]}")
+  fi
+  triple="$("${probe[@]}" -vV | sed -n 's/^host: //p')"
+  if [[ -z "${triple}" ]]; then
+    echo "error: could not determine the toolchain host triple from rustc -vV" >&2
+    exit 1
+  fi
+  printf '%s' "${triple}"
+}
 
-echo "==> build ffi cdylib + uniffi-bindgen (bindgen metadata source; production surface — no ffi-smoke-host)"
-"${CARGO[@]}" build ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES},bindgen-cli" --release --target "${HOST_TRIPLE}"
-CDYLIB="${HOST_BUILD_DIR}/libspoke_connect.dylib"
-if [[ ! -f "${CDYLIB}" ]]; then
-  echo "missing cdylib: ${CDYLIB}" >&2
-  exit 1
-fi
+# Phase `host` entry point; the build itself is shared with `all`.
+phase_host() {
+  normalize_cargo_versions
+  phase_host_body
+}
 
-echo "==> generate Swift bindings"
-mkdir -p "${GENERATED}"
-"${HOST_BUILD_DIR}/uniffi-bindgen" generate --library "${CDYLIB}" \
-  --language swift \
-  --out-dir "${GENERATED}"
+# Host cdylib + uniffi-bindgen, Swift bindings into $GENERATED, and the shared
+# headers/modulemap — into $XCFRAMEWORK_OUTPUT_DIR/Headers for the standalone
+# phase, or the staging dir's Headers/ under `all`. One body so the two paths
+# cannot drift apart.
+phase_host_body() {
+  local target_dir host host_build_dir
+  target_dir="$(cargo_target_dir)"
+  host="$(host_triple)"
+  host_build_dir="${target_dir}/${host}/release"
 
-# Stage each staticlib under <tmp>/<slice-id>/; headers are shared across
-# slices (xcodebuild copies them into each slice's Headers/).
-STAGE="$(mktemp -d)"
-HDRS="${STAGE}/Headers"
-mkdir -p "${HDRS}"
-cp "${GENERATED}/spoke_connectFFI.h" "${HDRS}/"
-cat > "${HDRS}/module.modulemap" <<'EOF'
+  echo "==> build ffi cdylib + uniffi-bindgen (bindgen metadata source; production surface — no ffi-smoke-host)"
+  "${CARGO[@]}" build ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES},bindgen-cli" --release --target "${host}"
+  local cdylib="${host_build_dir}/libspoke_connect.dylib"
+  if [[ ! -f "${cdylib}" ]]; then
+    echo "missing cdylib: ${cdylib}" >&2
+    exit 1
+  fi
+
+  echo "==> generate Swift bindings"
+  mkdir -p "${GENERATED}"
+  "${host_build_dir}/uniffi-bindgen" generate --library "${cdylib}" \
+    --language swift \
+    --out-dir "${GENERATED}"
+
+  headers_dir
+  stage_headers "${HEADERS_DIR}"
+}
+
+stage_headers() {
+  local hdrs="$1"
+  mkdir -p "${hdrs}"
+  cp "${GENERATED}/spoke_connectFFI.h" "${hdrs}/"
+  cat > "${hdrs}/module.modulemap" <<'EOF'
 module spoke_connectFFI {
     header "spoke_connectFFI.h"
     export *
 }
 EOF
+}
 
-echo "==> build staticlib slices (shared target dir)"
-for entry in "${SLICES[@]}"; do
-  slice="${entry%%|*}"
-  triple="${entry#*|}"
+# One header tree for every phase: the staged output dir when set, otherwise
+# the invocation's own staging dir (phase `all`, or a lazily allocated one for
+# the standalone `host` phase). Sets HEADERS_DIR in the caller — never invoke
+# it inside $( ), or a lazy STAGE allocation would die with the subshell and
+# leak the temp dir the EXIT trap cleans.
+headers_dir() {
+  if [[ -n "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
+    HEADERS_DIR="${XCFRAMEWORK_OUTPUT_DIR}/Headers"
+  else
+    STAGE="${STAGE:-$(mktemp -d)}"
+    HEADERS_DIR="${STAGE}/Headers"
+  fi
+}
+
+# Phase `slice`: one staticlib for --slice-id/--target into
+# $SLICES_DIR/<slice-id>/libspoke_connect.a.
+phase_slice() {
+  local expected=""
+  local entry
+  for entry in "${SLICES[@]}"; do
+    if [[ "${entry%%|*}" == "${SLICE_ID}" ]]; then
+      expected="${entry#*|}"
+      break
+    fi
+  done
+  if [[ -z "${expected}" ]]; then
+    echo "error: unknown slice id '${SLICE_ID}' (known: $(printf '%s ' "${SLICES[@]%%|*}"))" >&2
+    exit 2
+  fi
+  if [[ "${SLICE_TARGET}" != "${expected}" ]]; then
+    echo "error: slice '${SLICE_ID}' builds for '${expected}', not '${SLICE_TARGET}'" >&2
+    exit 2
+  fi
+  if [[ -z "${SLICES_DIR}" ]]; then
+    echo "error: --phase slice requires XCFRAMEWORK_OUTPUT_DIR" >&2
+    exit 2
+  fi
+
+  normalize_cargo_versions
+  assert_rustup_targets "${SLICE_TARGET}"
+  local target_dir
+  target_dir="$(cargo_target_dir)"
+  build_slice_staticlib "${SLICE_ID}" "${SLICE_TARGET}" "${target_dir}" "${SLICES_DIR}/${SLICE_ID}"
+}
+
+build_slice_staticlib() {
+  local slice="$1" triple="$2" target_dir="$3" dest="$4"
   echo "  -> ${slice} (${triple})"
   "${CARGO[@]}" rustc ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}"
-  STATICLIB="${TARGET_DIR}/${triple}/release/libspoke_connect.a"
-  if [[ ! -f "${STATICLIB}" ]]; then
-    echo "missing staticlib: ${STATICLIB}" >&2
+  local staticlib="${target_dir}/${triple}/release/libspoke_connect.a"
+  if [[ ! -f "${staticlib}" ]]; then
+    echo "missing staticlib: ${staticlib}" >&2
     exit 1
   fi
-  mkdir -p "${STAGE}/${slice}"
-  cp "${STATICLIB}" "${STAGE}/${slice}/"
-done
+  mkdir -p "${dest}"
+  cp "${staticlib}" "${dest}/"
+}
 
-echo "==> lipo simulator staticlibs into one multi-arch slice"
-mkdir -p "${STAGE}/ios-simulator"
-lipo -create \
-  "${STAGE}/ios-arm64-simulator/libspoke_connect.a" \
-  "${STAGE}/ios-x86_64-simulator/libspoke_connect.a" \
-  -output "${STAGE}/ios-simulator/libspoke_connect.a"
+# Phase `assemble`: lipo the two simulator staticlibs, create the xcframework,
+# normalize Info.plist and validate. Reads $SLICES_DIR + the Headers tree the
+# host phase produced; never touches cargo.
+phase_assemble() {
+  if [[ -z "${SLICES_DIR}" || -z "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
+    echo "error: --phase assemble requires XCFRAMEWORK_OUTPUT_DIR" >&2
+    exit 2
+  fi
+  headers_dir
+  local hdrs="${HEADERS_DIR}"
+  if [[ ! -f "${hdrs}/spoke_connectFFI.h" ]]; then
+    echo "error: missing host headers: ${hdrs}/spoke_connectFFI.h" >&2
+    exit 1
+  fi
+  STAGE="${STAGE:-$(mktemp -d)}"
+  assemble_xcframework "${SLICES_DIR}" "${hdrs}"
+}
 
-echo "==> create xcframework (3 libraries, 4 target triples)"
-rm -rf "${XCFRAMEWORK}"
-mkdir -p "$(dirname "${XCFRAMEWORK}")"
-xcodebuild -create-xcframework \
-  -library "${STAGE}/macos-arm64/libspoke_connect.a" -headers "${HDRS}" \
-  -library "${STAGE}/ios-arm64/libspoke_connect.a" -headers "${HDRS}" \
-  -library "${STAGE}/ios-simulator/libspoke_connect.a" -headers "${HDRS}" \
-  -output "${XCFRAMEWORK}"
+assemble_xcframework() {
+  local slices_dir="$1" hdrs="$2"
 
-# Normalize xcodebuild's nondeterministic AvailableLibraries ordering.
-echo "==> normalize Info.plist library ordering"
-XCFRAMEWORK="${XCFRAMEWORK}" python3 - <<'PY'
+  echo "==> lipo simulator staticlibs into one multi-arch slice"
+  mkdir -p "${STAGE}/ios-simulator"
+  lipo -create \
+    "${slices_dir}/ios-arm64-simulator/libspoke_connect.a" \
+    "${slices_dir}/ios-x86_64-simulator/libspoke_connect.a" \
+    -output "${STAGE}/ios-simulator/libspoke_connect.a"
+
+  echo "==> create xcframework (3 libraries, 4 target triples)"
+  rm -rf "${XCFRAMEWORK}"
+  mkdir -p "$(dirname "${XCFRAMEWORK}")"
+  xcodebuild -create-xcframework \
+    -library "${slices_dir}/macos-arm64/libspoke_connect.a" -headers "${hdrs}" \
+    -library "${slices_dir}/ios-arm64/libspoke_connect.a" -headers "${hdrs}" \
+    -library "${STAGE}/ios-simulator/libspoke_connect.a" -headers "${hdrs}" \
+    -output "${XCFRAMEWORK}"
+
+  # Normalize xcodebuild's nondeterministic AvailableLibraries ordering.
+  echo "==> normalize Info.plist library ordering"
+  XCFRAMEWORK="${XCFRAMEWORK}" python3 - <<'PY'
 import os
 import plistlib
 
@@ -371,8 +531,10 @@ with open(path, "wb") as f:
     plistlib.dump(plist, f, sort_keys=True)
 PY
 
-echo "==> validate xcframework"
-plutil -lint "${XCFRAMEWORK}/Info.plist"
+  echo "==> validate xcframework"
+  plutil -lint "${XCFRAMEWORK}/Info.plist"
+  validate_xcframework_slices "${XCFRAMEWORK}"
+}
 
 # Check the exact consumer slice set and architectures, including missing slices.
 EXPECTED_SLICES=(ios-arm64 ios-arm64_x86_64-simulator macos-arm64)
@@ -416,7 +578,41 @@ validate_xcframework_slices() {
   done
 }
 
-validate_xcframework_slices "${XCFRAMEWORK}"
+# Phase `all`: the historical single-invocation path — host work, every slice
+# in sequence into a staging dir, then assembly. Equivalent to running the
+# three phases locally but keeps the mktemp staging layout.
+phase_all() {
+  normalize_cargo_versions
+
+  echo "==> assert Apple target triples installed"
+  local all_triples=()
+  local entry
+  for entry in "${SLICES[@]}"; do
+    all_triples+=("${entry#*|}")
+  done
+  assert_rustup_targets "${all_triples[@]}"
+
+  STAGE="$(mktemp -d)"
+  phase_host_body
+  local target_dir
+  target_dir="$(cargo_target_dir)"
+  echo "==> build staticlib slices (shared target dir)"
+  for entry in "${SLICES[@]}"; do
+    build_slice_staticlib "${entry%%|*}" "${entry#*|}" "${target_dir}" "${STAGE}/${entry%%|*}"
+  done
+
+  headers_dir
+  assemble_xcframework "${STAGE}" "${HEADERS_DIR}"
+}
+
+
+# Dispatch. `phase_host` wraps the shared body for the single-phase CI job.
+case "${PHASE}" in
+  host)     phase_host ;;
+  slice)    phase_slice ;;
+  assemble) phase_assemble ;;
+  all)      phase_all ;;
+esac
 
 echo "==> done"
 echo "  generated: ${GENERATED}"

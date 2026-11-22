@@ -116,7 +116,7 @@ Pages summarize each topic and link the normative body in `.agents/specs/` — t
 
 ## Refreshing the Swift xcframework
 
-The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-15` from the checkout's Rust sources — pinned toolchain 1.98.1, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. Every pull request runs it; pushes run it on every non-docs change. The job builds the committed Swift package and runs the functional smoke against its macOS library. The built xcframework and its hash manifest are uploaded as a refresh artifact.
+The three-slice `spoke_connectFFI.xcframework` is assembled in CI on `macos-15` from the checkout's Rust sources — pinned toolchain 1.98.1, four Apple targets, `--locked` builds via `tooling/connect/build-swift-xcframework.sh --phase …`. [`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml) splits the rebuild across six jobs gated on `changes.outputs.rebuild`: a `host` job for the cdylib + Swift bindings, one `slice-*` job per Apple target, and an `assemble` job that downloads the five worker artifacts, validates they share one run attempt, assembles the xcframework, and uploads it with its hash manifest and a `producer.json` record as refresh artifacts. The required `xcframework` job always runs: it asserts every worker result and keeps the committed Swift consumer smoke on `code`.
 
 Refresh the committed artifact from a run in one command (requires the `gh` CLI, `rsync`, `python3`, and `shasum`):
 

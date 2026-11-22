@@ -22,6 +22,8 @@ function runFixture({
   status = "completed", conclusion = "failure",
   jobStatus = "completed", jobConclusion, cancelledStep, advanceHead, allowSha, transferWithoutDelivery,
   gateJobs = [], mergeCheckout, driftCheckout, siblingDrift,
+  graph, workerConclusion, workerAttempts, assembleAttempt = 1, assembleStepFailures = [],
+  assertFails, noProducer, producerExpired, noFinal, finalExpired,
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "xcframework-apply-"));
   const put = (path, content, options) => {
@@ -40,7 +42,16 @@ function runFixture({
     mkdirSync(dirname(script), { recursive: true });
     copyFileSync(fileURLToPath(new URL("./apply-xcframework-artifact.sh", import.meta.url)), script);
     put(".gitattributes", `${bundle}/**/*.a filter=lfs diff=lfs merge=lfs -text\n`);
-    put(".github/workflows/xcframework.yml", 'toolchain: 1.98.1\ntargets: aarch64-apple-darwin\nXCFRAMEWORK_LOCKED: "1"\n');
+    put(".github/workflows/xcframework.yml", [
+      "toolchain: 1.98.1",
+      "targets: aarch64-apple-darwin",
+      "targets: aarch64-apple-ios",
+      "targets: aarch64-apple-ios-sim",
+      "targets: x86_64-apple-ios",
+      "targets: aarch64-apple-darwin",
+      'XCFRAMEWORK_LOCKED: "1"',
+      "",
+    ].join("\n"));
     put(`${bundle}/Info.plist`, "old plist\n");
     put(`${bundle}/macos-arm64/libspoke_connect.a`, "old native\n");
     git("init", "-q");
@@ -96,9 +107,100 @@ function runFixture({
       status: "completed",
       conclusion: name === cancelledStep ? "cancelled" : failures.includes(name) ? "failure" : "success",
     }));
-    put("jobs.json", JSON.stringify({ jobs: [...gateJobs, { name: "xcframework", status: jobStatus, conclusion: jobConclusion ?? conclusion, steps }] }));
+    const done = (name, extra = {}) => ({ name, status: "completed", conclusion: "success", run_attempt: 1, ...extra });
+    const step = (name, conclusion = "success") => ({ name, status: "completed", conclusion });
+    const graphWorkers = ["host", "slice-macos", "slice-ios-arm64", "slice-ios-arm64-sim", "slice-ios-x86_64-sim"]
+      .map((name, index) => done(name, {
+        conclusion: workerConclusion?.[name] ?? "success",
+        run_attempt: workerAttempts?.[index] ?? 1,
+        steps: [],
+      }));
+    const assembleRequired = [
+      "Assemble xcframework from slices",
+      "Write xcframework hash manifest",
+      "Record producer record",
+      "Upload xcframework artifact",
+    ];
+    const graphJobs = graph === undefined ? [] : [
+      done("changes"),
+      ...graphWorkers,
+      done("assemble", {
+        conclusion: graph.assemble ?? "success",
+        run_attempt: assembleAttempt,
+        steps: assembleRequired.map((name) => step(name, assembleStepFailures.includes(name) ? "failure" : "success")),
+      }),
+      done("xcframework", {
+        conclusion,
+        steps: [
+          step("Assert gate inputs and worker results", assertFails ? "failure" : "success"),
+          step("Run committed Swift consumer smoke"),
+          step("Fail on committed Swift consumer smoke", conclusion === "failure" ? "failure" : "skipped"),
+          step("Fail on required-check assertion", conclusion === "failure" && assertFails ? "failure" : "skipped"),
+        ],
+      }),
+    ];
+    put("jobs.json", JSON.stringify({ jobs: graph === undefined ? [...gateJobs, { name: "xcframework", status: jobStatus, conclusion: jobConclusion ?? conclusion, steps }] : graphJobs }));
+    if (graph !== undefined) {
+      const producerName = `spoke-connect-xcframework-producer-123-${assembleAttempt}`;
+      const finalName = `spoke-connect-xcframework-123-${assembleAttempt}`;
+      put("artifacts.json", JSON.stringify({ artifacts: [
+        ...(noProducer ? [] : [{ id: 501, name: producerName, expired: Boolean(producerExpired) }]),
+        ...(noFinal ? [] : [{ id: 502, name: finalName, expired: Boolean(finalExpired) }]),
+      ] }));
+      put(`artifact/${producerName}/producer.json`, JSON.stringify({
+        validated: true, runId: 123, runAttempt: assembleAttempt, workerAttempt: workerAttempts?.[0] ?? 1,
+        workers: {
+          host: { result: graphWorkers[0].conclusion, attempt: graphWorkers[0].run_attempt, "artifact-name": `xc-host-123-${graphWorkers[0].run_attempt}`, "artifact-id": "601" },
+          "slice-macos": { result: graphWorkers[1].conclusion, attempt: graphWorkers[1].run_attempt, "artifact-name": `xc-slice-macos-arm64-123-${graphWorkers[1].run_attempt}`, "artifact-id": "602" },
+          "slice-ios-arm64": { result: graphWorkers[2].conclusion, attempt: graphWorkers[2].run_attempt, "artifact-name": `xc-slice-ios-arm64-123-${graphWorkers[2].run_attempt}`, "artifact-id": "603" },
+          "slice-ios-arm64-sim": { result: graphWorkers[3].conclusion, attempt: graphWorkers[3].run_attempt, "artifact-name": `xc-slice-ios-arm64-simulator-123-${graphWorkers[3].run_attempt}`, "artifact-id": "604" },
+          "slice-ios-x86_64-sim": { result: graphWorkers[4].conclusion, attempt: graphWorkers[4].run_attempt, "artifact-name": `xc-slice-ios-x86_64-simulator-123-${graphWorkers[4].run_attempt}`, "artifact-id": "605" },
+        },
+        finalArtifact: { id: 502, name: finalName },
+      }));
+      put(`artifact/${finalName}/spoke_connectFFI.xcframework/Info.plist`, plist);
+      put(`artifact/${finalName}/spoke_connectFFI.xcframework/macos-arm64/libspoke_connect.a`, native);
+      put(`artifact/${finalName}/spoke_connectFFI.xcframework.sha256`, manifest);
+      put(`artifact/${finalName}/provenance.json`, JSON.stringify({
+        sourceHead: producerSha, checkoutRevision, manifest, rustcVersion: "rustc fixture",
+        sourceRevision: producerSha, recipeRevision: producerSha,
+      }));
+    }
     put("metadata", `Xcframework|${invalidSource ? "0".repeat(40) : producerSha}|${status}|${conclusion}`);
-    put("bin/gh", `#!/bin/sh\nif [ "$2" = view ]; then\n  case "$*" in *--template*) cat "$FIXTURE_ROOT/metadata" ;; *) cat "$FIXTURE_ROOT/jobs.json" ;; esac\nelif [ "$2" = download ]; then\n  dir=""\n  prev=""\n  for arg in "$@"; do\n    [ "$prev" = "--dir" ] && dir="$arg"\n    case "$arg" in --dir=*) dir="\${arg#--dir=}" ;; esac\n    prev="$arg"\n  done\n  cp -Rp "$FIXTURE_ROOT/artifact/." "$dir"\nelse exit 1; fi\n`, { mode: 0o755 });
+    put("bin/gh", [
+      "#!/bin/sh",
+      "case \"$1\" in",
+      "  api)",
+      "    case \"$2\" in",
+      "      *jobs*) cat \"$FIXTURE_ROOT/jobs.json\" ;;",
+      "      *artifacts*) cat \"$FIXTURE_ROOT/artifacts.json\" ;;",
+      "      *) exit 1 ;;",
+      "    esac ;;",
+      "  run)",
+      "    if [ \"$2\" = view ]; then",
+      "      case \"$*\" in *--template*) cat \"$FIXTURE_ROOT/metadata\" ;; *) cat \"$FIXTURE_ROOT/jobs.json\" ;; esac",
+      "    elif [ \"$2\" = download ]; then",
+      "      dir=\"\"; name=\"\"; prev=\"\"",
+      "      for arg in \"$@\"; do",
+      "        [ \"$prev\" = \"--dir\" ] && dir=\"$arg\"",
+      "        [ \"$prev\" = \"--name\" ] && name=\"$arg\"",
+      "        case \"$arg\" in --dir=*) dir=\"${arg#--dir=}\" ;; --name=*) name=\"${arg#--name=}\" ;; esac",
+      "        prev=\"$arg\"",
+      "      done",
+      "      if [ \"$name\" = \"spoke-connect-xcframework\" ]; then",
+      "        cp -Rp \"$FIXTURE_ROOT/artifact/.\" \"$dir\"",
+      "      elif [ -d \"$FIXTURE_ROOT/artifact/$name\" ]; then",
+      "        mkdir -p \"$dir\"",
+      "        cp -Rp \"$FIXTURE_ROOT/artifact/$name\" \"$dir/\"",
+      "      else",
+      "        echo \"no artifact matches any of the names or patterns provided\" >&2",
+      "        exit 1",
+      "      fi",
+      "    else exit 1; fi ;;",
+      "  *) exit 1 ;;",
+      "esac",
+      "",
+    ].join("\n"), { mode: 0o755 });
     if (transferWithoutDelivery) {
       // Transfer boundary stub that reports success without delivering any
       // bytes: the script must refuse via the delivered-byte verification
@@ -126,6 +228,8 @@ describe("workflow gate jobs beside the producer", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(contents, "new native\n");
     assert.equal(record.xcframework.headSha, producerSha);
+    assert.equal(record.xcframework.sourceRevision, "unknown");
+    assert.equal(record.xcframework.recipeRevision, "unknown");
   });
 
   it("refuses a gate job that did not succeed", () => {
@@ -248,5 +352,70 @@ describe("delivered-byte verification", () => {
     assert.notEqual(result.status, 0, result.stdout);
     assert.equal(contents, "old native\n");
     assert.equal(record, undefined);
+  });
+});
+
+describe("split producer graph", () => {
+  it("applies a validated rebuild artifact resolved through producer.json", () => {
+    const { result, contents, record, producerSha } = runFixture({ graph: {}, conclusion: "success", failures: [] });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(contents, "new native\n");
+    assert.equal(record.xcframework.headSha, producerSha);
+    assert.equal(record.xcframework.artifact, "spoke-connect-xcframework-123-1");
+    assert.equal(record.xcframework.sourceRevision, producerSha);
+    assert.equal(record.xcframework.recipeRevision, producerSha);
+    assert.deepEqual(record.xcframework.declaredRecipe.targets,
+      ["aarch64-apple-darwin", "aarch64-apple-ios", "aarch64-apple-ios-sim", "x86_64-apple-ios"]);
+  });
+
+  it("applies a rebuild artifact when only the committed smoke failed", () => {
+    const { result, contents, record, producerSha } = runFixture({ graph: {}, conclusion: "failure", failures: [] });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(contents, "new native\n");
+    assert.equal(record.xcframework.headSha, producerSha);
+    assert.equal(record.xcframework.runConclusion, "failure");
+  });
+
+  it("refuses mixed worker attempts", () => {
+    const { result, contents } = runFixture({ graph: {}, conclusion: "success", failures: [], workerAttempts: [1, 2, 1, 1, 1] });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+  });
+
+  it("refuses mixed worker conclusions", () => {
+    const { result, contents } = runFixture({ graph: {}, conclusion: "success", failures: [], workerConclusion: { "slice-macos": "failure" } });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+  });
+
+  it("refuses workers left behind by a partial rerun", () => {
+    const { result, contents } = runFixture({ graph: {}, conclusion: "success", failures: [], assembleAttempt: 2 });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+  });
+
+  it("refuses a run whose workers were all skipped", () => {
+    const skipped = Object.fromEntries(["host", "slice-macos", "slice-ios-arm64", "slice-ios-arm64-sim", "slice-ios-x86_64-sim"].map((name) => [name, "skipped"]));
+    const { result, contents } = runFixture({ graph: { assemble: "skipped" }, conclusion: "success", failures: [], workerConclusion: skipped });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+  });
+
+  it("refuses a missing producer record artifact", () => {
+    const { result, contents } = runFixture({ graph: {}, conclusion: "success", failures: [], noProducer: true });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+  });
+
+  it("refuses an expired final artifact", () => {
+    const { result, contents } = runFixture({ graph: {}, conclusion: "success", failures: [], finalExpired: true });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
+  });
+
+  it("refuses an assemble job that skipped its upload step", () => {
+    const { result, contents } = runFixture({ graph: {}, conclusion: "success", failures: [], assembleStepFailures: ["Upload xcframework artifact"] });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.equal(contents, "old native\n");
   });
 });

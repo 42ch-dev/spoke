@@ -2,6 +2,10 @@ name: Xcframework
 
 # Build the three-slice xcframework from source and exercise the committed
 # consumer package. Every pull request runs this required check.
+#
+# The rebuild is split into six worker jobs (host + four slices + assemble)
+# gated on changes.outputs.rebuild; the required `xcframework` job always
+# runs, asserts every worker result, and keeps the committed Swift smoke.
 on:
   pull_request:
   push:
@@ -71,21 +75,466 @@ jobs:
           echo "rebuild=$rebuild" >> "$GITHUB_OUTPUT"
           echo "code=$code rebuild=$rebuild" >> "$GITHUB_STEP_SUMMARY"
 
-  xcframework:
+  host:
+    name: host
     needs: changes
+    if: needs.changes.outputs.rebuild == 'true'
+    runs-on: macos-15
+    outputs:
+      artifact-name: xc-host-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          lfs: true
+      - name: Setup Rust toolchain (pinned exact stable)
+        # dtolnay/rust-toolchain@stable (2026-07-16), pinned for the build.
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.98.1
+          targets: aarch64-apple-darwin
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust-xcframework-host
+          workspaces: .
+      - name: Build host cdylib and Swift bindings
+        # Host phase only: bindgen metadata source + generated/ + Headers/.
+        env:
+          XCFRAMEWORK_LOCKED: "1"
+          XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/xc-out
+        run: ./tooling/connect/build-swift-xcframework.sh --phase host
+      - name: Record rustc version
+        # The aggregate requires every worker to report the same compiler.
+        run: rustc -Vv > "${{ runner.temp }}/xc-out/rustc-version.txt"
+      - name: Upload host artifact
+        # actions/upload-artifact@v4.6.2
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: xc-host-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xc-out
+          if-no-files-found: error
+          retention-days: 1
+
+  slice-macos:
+    name: slice-macos
+    needs: changes
+    if: needs.changes.outputs.rebuild == 'true'
+    runs-on: macos-15
+    outputs:
+      artifact-name: xc-slice-macos-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2 — source only, no committed LFS libraries.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Setup Rust toolchain (pinned exact stable)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.98.1
+          targets: aarch64-apple-darwin
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust-xcframework-macos-arm64
+          workspaces: .
+      - name: Build macos-arm64 staticlib slice
+        env:
+          XCFRAMEWORK_LOCKED: "1"
+          XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/xc-out
+        run: >-
+          ./tooling/connect/build-swift-xcframework.sh --phase slice
+          --slice-id macos-arm64 --target aarch64-apple-darwin
+      - name: Record rustc version
+        run: rustc -Vv > "${{ runner.temp }}/xc-out/slices/macos-arm64/rustc-version.txt"
+      - name: Upload slice artifact
+        # actions/upload-artifact@v4.6.2
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: xc-slice-macos-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xc-out/slices/macos-arm64
+          if-no-files-found: error
+          retention-days: 1
+
+  slice-ios-arm64:
+    name: slice-ios-arm64
+    needs: changes
+    if: needs.changes.outputs.rebuild == 'true'
+    runs-on: macos-15
+    outputs:
+      artifact-name: xc-slice-ios-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2 — source only, no committed LFS libraries.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Setup Rust toolchain (pinned exact stable)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.98.1
+          targets: aarch64-apple-ios
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust-xcframework-ios-arm64
+          workspaces: .
+      - name: Build ios-arm64 staticlib slice
+        env:
+          XCFRAMEWORK_LOCKED: "1"
+          XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/xc-out
+        run: >-
+          ./tooling/connect/build-swift-xcframework.sh --phase slice
+          --slice-id ios-arm64 --target aarch64-apple-ios
+      - name: Record rustc version
+        run: rustc -Vv > "${{ runner.temp }}/xc-out/slices/ios-arm64/rustc-version.txt"
+      - name: Upload slice artifact
+        # actions/upload-artifact@v4.6.2
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: xc-slice-ios-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xc-out/slices/ios-arm64
+          if-no-files-found: error
+          retention-days: 1
+
+  slice-ios-arm64-sim:
+    name: slice-ios-arm64-sim
+    needs: changes
+    if: needs.changes.outputs.rebuild == 'true'
+    runs-on: macos-15
+    outputs:
+      artifact-name: xc-slice-ios-arm64-simulator-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2 — source only, no committed LFS libraries.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Setup Rust toolchain (pinned exact stable)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.98.1
+          targets: aarch64-apple-ios-sim
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust-xcframework-ios-arm64-simulator
+          workspaces: .
+      - name: Build ios-arm64-simulator staticlib slice
+        env:
+          XCFRAMEWORK_LOCKED: "1"
+          XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/xc-out
+        run: >-
+          ./tooling/connect/build-swift-xcframework.sh --phase slice
+          --slice-id ios-arm64-simulator --target aarch64-apple-ios-sim
+      - name: Record rustc version
+        run: rustc -Vv > "${{ runner.temp }}/xc-out/slices/ios-arm64-simulator/rustc-version.txt"
+      - name: Upload slice artifact
+        # actions/upload-artifact@v4.6.2
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: xc-slice-ios-arm64-simulator-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xc-out/slices/ios-arm64-simulator
+          if-no-files-found: error
+          retention-days: 1
+
+  slice-ios-x86_64-sim:
+    name: slice-ios-x86_64-sim
+    needs: changes
+    if: needs.changes.outputs.rebuild == 'true'
+    runs-on: macos-15
+    outputs:
+      artifact-name: xc-slice-ios-x86_64-simulator-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2 — source only, no committed LFS libraries.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Setup Rust toolchain (pinned exact stable)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.98.1
+          targets: x86_64-apple-ios
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust-xcframework-ios-x86_64-simulator
+          workspaces: .
+      - name: Build ios-x86_64-simulator staticlib slice
+        env:
+          XCFRAMEWORK_LOCKED: "1"
+          XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/xc-out
+        run: >-
+          ./tooling/connect/build-swift-xcframework.sh --phase slice
+          --slice-id ios-x86_64-simulator --target x86_64-apple-ios
+      - name: Record rustc version
+        run: rustc -Vv > "${{ runner.temp }}/xc-out/slices/ios-x86_64-simulator/rustc-version.txt"
+      - name: Upload slice artifact
+        # actions/upload-artifact@v4.6.2
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: xc-slice-ios-x86_64-simulator-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xc-out/slices/ios-x86_64-simulator
+          if-no-files-found: error
+          retention-days: 1
+
+  assemble:
+    name: assemble
+    needs: [changes, host, slice-macos, slice-ios-arm64, slice-ios-arm64-sim, slice-ios-x86_64-sim]
+    # Runs only on a rebuild with every worker green. A failed worker skips
+    # this job; the aggregate assert turns that into a red required check.
+    if: >-
+      needs.changes.outputs.rebuild == 'true' &&
+      needs.host.result == 'success' &&
+      needs['slice-macos'].result == 'success' &&
+      needs['slice-ios-arm64'].result == 'success' &&
+      needs['slice-ios-arm64-sim'].result == 'success' &&
+      needs['slice-ios-x86_64-sim'].result == 'success'
+    runs-on: macos-15
+    env:
+      XCFRAMEWORK_OUTPUT_DIR: /tmp/spoke-xc-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2 — recipe + manifest tool, no LFS. Full
+        # history so the provenance git-log baselines resolve real commits.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Validate worker attempts
+        id: attempts
+        # Every worker artifact name ends in -<run_id>-<attempt>. All five
+        # must share the aggregate's own attempt: a partial rerun that leaves
+        # workers behind also strands the refresh (producer.json binds the
+        # workerAttempt into the record), so anything but an exact match is
+        # refused here — before any download, assembly, manifest or upload.
+        env:
+          NAMES: >-
+            ${{ needs.host.outputs.artifact-name }}
+            ${{ needs['slice-macos'].outputs.artifact-name }}
+            ${{ needs['slice-ios-arm64'].outputs.artifact-name }}
+            ${{ needs['slice-ios-arm64-sim'].outputs.artifact-name }}
+            ${{ needs['slice-ios-x86_64-sim'].outputs.artifact-name }}
+        run: |
+          worker_attempt=""
+          for name in ${NAMES}; do
+            if [[ ! "${name}" =~ -${GITHUB_RUN_ID}-([0-9]+)$ ]]; then
+              echo "error: worker artifact name '${name}' does not end in -${GITHUB_RUN_ID}-<attempt>" >&2
+              exit 1
+            fi
+            attempt="${BASH_REMATCH[1]}"
+            if [[ -z "${worker_attempt}" ]]; then
+              worker_attempt="${attempt}"
+            elif [[ "${attempt}" != "${worker_attempt}" ]]; then
+              echo "error: mixed worker attempts (${worker_attempt} vs ${attempt} in '${name}') — rerun all jobs" >&2
+              exit 1
+            fi
+          done
+          if [[ "${worker_attempt}" != "${GITHUB_RUN_ATTEMPT}" ]]; then
+            echo "error: workerAttempt '${worker_attempt:-empty}' does not match aggregate attempt ${GITHUB_RUN_ATTEMPT} — rerun all jobs" >&2
+            exit 1
+          fi
+          echo "worker_attempt=${worker_attempt}" >> "$GITHUB_OUTPUT"
+          echo "workerAttempt=${worker_attempt}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download host artifact
+        # actions/download-artifact@v4.3.0 — generated/ + Headers/ +
+        # rustc-version.txt land at the stage root.
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.host.outputs.artifact-name }}
+          path: ${{ env.XCFRAMEWORK_OUTPUT_DIR }}
+
+      - name: Download slice artifacts
+        # actions/download-artifact@v4.3.0 — one directory per slice id.
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: xc-slice-*-${{ github.run_id }}-${{ steps.attempts.outputs.worker_attempt }}
+          path: ${{ env.XCFRAMEWORK_OUTPUT_DIR }}/slices
+          merge-multiple: false
+
+      - name: Check downloaded slice layout
+        # The pattern keeps each artifact under its own directory named
+        # xc-slice-<id>-<run>-<attempt>; move contents to slices/<id>/.
+        run: |
+          set -euo pipefail
+          cd "${XCFRAMEWORK_OUTPUT_DIR}/slices"
+          for d in xc-slice-*; do
+            [ -d "${d}" ] || continue
+            id="${d#xc-slice-}"
+            attempt="${{ steps.attempts.outputs.worker_attempt }}"
+            id="${id%-"${GITHUB_RUN_ID}"-"${attempt}"}"
+            mkdir -p "${id}"
+            mv "${d}"/* "${id}/"
+            rmdir "${d}"
+          done
+          for id in macos-arm64 ios-arm64 ios-arm64-simulator ios-x86_64-simulator; do
+            [ -f "${id}/libspoke_connect.a" ] || { echo "error: missing slices/${id}/libspoke_connect.a" >&2; exit 1; }
+          done
+
+      - name: Verify worker rustc versions
+        # All five workers must agree on the compiler; the agreed value is
+        # the archive's rustcVersion. A mismatch fails before assembly.
+        run: |
+          set -euo pipefail
+          files=(
+            "${XCFRAMEWORK_OUTPUT_DIR}/rustc-version.txt"
+            "${XCFRAMEWORK_OUTPUT_DIR}/slices/macos-arm64/rustc-version.txt"
+            "${XCFRAMEWORK_OUTPUT_DIR}/slices/ios-arm64/rustc-version.txt"
+            "${XCFRAMEWORK_OUTPUT_DIR}/slices/ios-arm64-simulator/rustc-version.txt"
+            "${XCFRAMEWORK_OUTPUT_DIR}/slices/ios-x86_64-simulator/rustc-version.txt"
+          )
+          for f in "${files[@]}"; do
+            [ -f "${f}" ] || { echo "error: missing worker rustc record ${f}" >&2; exit 1; }
+          done
+          for f in "${files[@]:1}"; do
+            cmp -s "${files[0]}" "${f}" || { echo "error: worker rustc versions differ (${files[0]} vs ${f})" >&2; exit 1; }
+          done
+
+      - name: Assemble xcframework from slices
+        run: ./tooling/connect/build-swift-xcframework.sh --phase assemble
+
+      - name: Write xcframework hash manifest
+        # The apply script verifies the transferred artifact against this manifest.
+        run: |
+          ./tooling/connect/xcframework-manifest.sh \
+            "${XCFRAMEWORK_OUTPUT_DIR}/spoke_connectFFI.xcframework" \
+            > "${XCFRAMEWORK_OUTPUT_DIR}/spoke_connectFFI.xcframework.sha256"
+
+      - name: Record xcframework build provenance
+        env:
+          SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # Freshness baselines (the freshness consumer workflow lands in a
+          # follow-up and recomputes the same sets at HEAD): the last commit
+          # touching the build-input source set and the recipe set. The
+          # artifact-writeback paths stay excluded from both so applying a
+          # refresh can never self-report stale. `git log -1` tolerates
+          # nonexistent pathspecs; an empty result records null.
+          EXCLUDES=(
+            ':(exclude)crates/spoke-connect/bindings/swift/xcframework/**'
+            ':(exclude)crates/spoke-connect/bindings/swift/generated/**'
+            ':(exclude)crates/spoke-connect/bindings/cpp/native/**'
+            ':(exclude)**/provenance.json'
+          )
+          SOURCE_REVISION="$(git log -1 --format=%H -- \
+            Cargo.toml Cargo.lock .cargo rust-toolchain rust-toolchain.toml \
+            crates/spoke-connect crates/spoke-schemas crates/spoke-operations \
+            Package.swift .github/workflows/xcframework.yml "${EXCLUDES[@]}" || true)"
+          RECIPE_REVISION="$(git log -1 --format=%H -- \
+            tooling/connect/build-swift-xcframework.sh \
+            tooling/connect/xcframework-manifest.sh \
+            tooling/connect/normalize-cargo-version.mjs \
+            tooling/release/lockstep-surfaces.mjs "${EXCLUDES[@]}" || true)"
+          jq -n \
+            --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --argjson runId "${GITHUB_RUN_ID}" \
+            --argjson runAttempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg head "${SOURCE_HEAD}" \
+            --arg checkout "$(git rev-parse HEAD)" \
+            --arg sourceRevision "${SOURCE_REVISION}" \
+            --arg recipeRevision "${RECIPE_REVISION}" \
+            --rawfile rustc "${XCFRAMEWORK_OUTPUT_DIR}/rustc-version.txt" \
+            --rawfile hashes "${XCFRAMEWORK_OUTPUT_DIR}/spoke_connectFFI.xcframework.sha256" \
+            '{evidence: "ci-artifact", run: $run, runId: $runId, runAttempt: $runAttempt, sourceHead: $head, checkoutRevision: $checkout, sourceRevision: ($sourceRevision | select(. != "") // null), recipeRevision: ($recipeRevision | select(. != "") // null), rustcVersion: $rustc, manifest: $hashes}' \
+            > "${XCFRAMEWORK_OUTPUT_DIR}/provenance.json"
+
+      - name: Upload xcframework artifact
+        # actions/upload-artifact@v4.6.2
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: spoke-connect-xcframework-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.XCFRAMEWORK_OUTPUT_DIR }}
+            !${{ env.XCFRAMEWORK_OUTPUT_DIR }}/slices/**
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Record producer record
+        # producer.json binds the validated attempt to the final artifact id
+        # (which exists only after the upload) — the apply tool resolves it.
+        env:
+          WORKER_ATTEMPT: ${{ steps.attempts.outputs.worker_attempt }}
+          HOST_RESULT: ${{ needs.host.result }}
+          MACOS_RESULT: ${{ needs['slice-macos'].result }}
+          IOS_RESULT: ${{ needs['slice-ios-arm64'].result }}
+          IOSSIM_RESULT: ${{ needs['slice-ios-arm64-sim'].result }}
+          IOSX86_RESULT: ${{ needs['slice-ios-x86_64-sim'].result }}
+          HOST_NAME: ${{ needs.host.outputs.artifact-name }}
+          MACOS_NAME: ${{ needs['slice-macos'].outputs.artifact-name }}
+          IOS_NAME: ${{ needs['slice-ios-arm64'].outputs.artifact-name }}
+          IOSSIM_NAME: ${{ needs['slice-ios-arm64-sim'].outputs.artifact-name }}
+          IOSX86_NAME: ${{ needs['slice-ios-x86_64-sim'].outputs.artifact-name }}
+          HOST_ID: ${{ needs.host.outputs.artifact-id }}
+          MACOS_ID: ${{ needs['slice-macos'].outputs.artifact-id }}
+          IOS_ID: ${{ needs['slice-ios-arm64'].outputs.artifact-id }}
+          IOSSIM_ID: ${{ needs['slice-ios-arm64-sim'].outputs.artifact-id }}
+          IOSX86_ID: ${{ needs['slice-ios-x86_64-sim'].outputs.artifact-id }}
+          FINAL_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          jq -n \
+            --argjson runId "${GITHUB_RUN_ID}" \
+            --argjson runAttempt "${GITHUB_RUN_ATTEMPT}" \
+            --argjson workerAttempt "${WORKER_ATTEMPT}" \
+            --arg hostResult "${HOST_RESULT}" --arg hostName "${HOST_NAME}" --arg hostId "${HOST_ID}" \
+            --arg macosResult "${MACOS_RESULT}" --arg macosName "${MACOS_NAME}" --arg macosId "${MACOS_ID}" \
+            --arg iosResult "${IOS_RESULT}" --arg iosName "${IOS_NAME}" --arg iosId "${IOS_ID}" \
+            --arg iossimResult "${IOSSIM_RESULT}" --arg iossimName "${IOSSIM_NAME}" --arg iossimId "${IOSSIM_ID}" \
+            --arg iosx86Result "${IOSX86_RESULT}" --arg iosx86Name "${IOSX86_NAME}" --arg iosx86Id "${IOSX86_ID}" \
+            --argjson finalId "${FINAL_ID}" \
+            --arg finalName "spoke-connect-xcframework-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            '{
+              validated: true,
+              runId: $runId,
+              runAttempt: $runAttempt,
+              workerAttempt: $workerAttempt,
+              workers: {
+                host: {result: $hostResult, attempt: $workerAttempt, "artifact-name": $hostName, "artifact-id": $hostId},
+                "slice-macos": {result: $macosResult, attempt: $workerAttempt, "artifact-name": $macosName, "artifact-id": $macosId},
+                "slice-ios-arm64": {result: $iosResult, attempt: $workerAttempt, "artifact-name": $iosName, "artifact-id": $iosId},
+                "slice-ios-arm64-sim": {result: $iossimResult, attempt: $workerAttempt, "artifact-name": $iossimName, "artifact-id": $iossimId},
+                "slice-ios-x86_64-sim": {result: $iosx86Result, attempt: $workerAttempt, "artifact-name": $iosx86Name, "artifact-id": $iosx86Id}
+              },
+              finalArtifact: {id: $finalId, name: $finalName}
+            }' > "${RUNNER_TEMP}/producer.json"
+
+      - name: Upload producer record
+        # actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: spoke-connect-xcframework-producer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/producer.json
+          if-no-files-found: error
+          retention-days: 5
+
+  xcframework:
+    needs: [changes, host, slice-macos, slice-ios-arm64, slice-ios-arm64-sim, slice-ios-x86_64-sim, assemble]
     name: xcframework
     # Never a condition that can evaluate false: a skipped required job
     # satisfies the required check without proving anything.
     if: ${{ always() }}
     runs-on: macos-15
     steps:
-      - name: Assert changes gate inputs
+      - name: Assert gate inputs and worker results
         id: assert
         shell: bash
         env:
           CHANGES: ${{ needs.changes.result }}
           CODE: ${{ needs.changes.outputs.code }}
           REBUILD: ${{ needs.changes.outputs.rebuild }}
+          HOST: ${{ needs.host.result }}
+          MACOS: ${{ needs['slice-macos'].result }}
+          IOS: ${{ needs['slice-ios-arm64'].result }}
+          IOSSIM: ${{ needs['slice-ios-arm64-sim'].result }}
+          IOSX86: ${{ needs['slice-ios-x86_64-sim'].result }}
+          ASSEMBLE: ${{ needs.assemble.result }}
         run: |
           problems=()
           [[ "${CHANGES}" == "success" ]] || problems+=("changes job result=${CHANGES}")
@@ -93,6 +542,18 @@ jobs:
           [[ "${REBUILD}" == "true" || "${REBUILD}" == "false" ]] || problems+=("missing/empty rebuild output '${REBUILD}'")
           if [[ "${REBUILD}" == "true" && "${CODE}" != "true" ]]; then
             problems+=("illegal combination rebuild=true code=${CODE}")
+          fi
+          workers=("host:${HOST}" "slice-macos:${MACOS}" "slice-ios-arm64:${IOS}" \
+                   "slice-ios-arm64-sim:${IOSSIM}" "slice-ios-x86_64-sim:${IOSX86}" \
+                   "assemble:${ASSEMBLE}")
+          if [[ "${REBUILD}" == "true" ]]; then
+            for pair in "${workers[@]}"; do
+              [[ "${pair#*:}" == "success" ]] || problems+=("worker ${pair%%:*}=${pair#*:} (success required on rebuild)")
+            done
+          else
+            for pair in "${workers[@]}"; do
+              [[ "${pair#*:}" == "skipped" ]] || problems+=("worker ${pair%%:*}=${pair#*:} (skipped required on ordinary PR)")
+            done
           fi
           if (( ${#problems[@]} )); then
             printf 'assert: %s\n' "${problems[@]}" >&2
@@ -108,22 +569,6 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           lfs: true
-
-      - name: Setup Rust toolchain (pinned exact stable + Apple targets)
-        # dtolnay/rust-toolchain@stable (2026-07-16), pinned for the build.
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
-        with:
-          toolchain: 1.98.1
-          targets: aarch64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
-
-      - name: Cache Rust dependencies
-        # Swatinem/rust-cache@v2.9.1
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
-        with:
-          shared-key: spoke-rust-xcframework
-          workspaces: .
 
       - name: Run committed Swift consumer smoke
         if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
@@ -142,48 +587,10 @@ jobs:
             crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework/macos-arm64/libspoke_connect.a
           "${RUNNER_TEMP}/swift-smoke"
 
-      - name: Build Swift xcframework (staged, locked)
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
-        # Preserve the committed consumer package; --locked pins Cargo.lock.
-        env:
-          XCFRAMEWORK_LOCKED: "1"
-          XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/xcframework-stage
-        run: ./tooling/connect/build-swift-xcframework.sh
-
-      - name: Write xcframework hash manifest
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
-        # The apply script verifies the transferred artifact against this manifest.
-        run: |
-          ./tooling/connect/xcframework-manifest.sh \
-            "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework" \
-            > "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework.sha256"
-
-      - name: Record xcframework build provenance
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
-        env:
-          SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          jq -n \
-            --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            --arg head "${SOURCE_HEAD}" \
-            --arg checkout "$(git rev-parse HEAD)" \
-            --arg rustc "$(rustc -Vv)" \
-            --rawfile hashes "${RUNNER_TEMP}/xcframework-stage/spoke_connectFFI.xcframework.sha256" \
-            '{evidence: "ci-artifact", run: $run, sourceHead: $head, checkoutRevision: $checkout, rustcVersion: $rustc, manifest: $hashes}' \
-            > "${RUNNER_TEMP}/xcframework-stage/provenance.json"
-
-
-
-      - name: Upload xcframework artifact
-        # actions/upload-artifact@v4.6.2
-        if: always() && steps.assert.outputs.ok == 'true' && needs.changes.outputs.rebuild == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: spoke-connect-xcframework
-          path: ${{ runner.temp }}/xcframework-stage
-          if-no-files-found: error
-          retention-days: 5
-
       - name: Fail on committed Swift consumer smoke
         if: always() && steps.committed_smoke.outcome == 'failure'
+        run: exit 1
+
+      - name: Fail on required-check assertion
+        if: always() && steps.assert.outputs.ok != 'true'
         run: exit 1

@@ -40,7 +40,8 @@ use serde_json::{json, Value};
 use spoke_connect::core::derive_peer_id_from_ed25519_pubkey;
 use spoke_connect::remote::{
     connect_remote_adapter, connect_responder, loopback_transport_pair, ConnectResponder,
-    ConnectResponderOptions, HistoryAdmission, HistoryPortService, InMemoryHistoryDedupStore,
+    ConnectResponderOptions, HistoryAdmission, HistoryDedupLookup, HistoryDedupRecord,
+    HistoryDedupStore, HistoryPortService, InMemoryHistoryDedupStore,
     KnowledgeAdmission, RemoteAdapter, RemoteAdapterOptions, RemoteHistoryService,
     RemoteIdentity, RemoteKnowledgeFace, RemoteServePorts, RemoteServePortsComposite,
 };
@@ -1167,4 +1168,33 @@ async fn expired_serve_budget_is_outcome_uncertain_then_replay_recovers() {
     assert_eq!(result.floor_revision, Some(2));
     assert_eq!(port.calls(), 1, "replay must not re-execute the port");
     host.close();
+}
+
+// §9.1: tombstones are permanent for the store's lifetime — capacity
+// eviction applies to records only, so a key whose recorded outcome was
+// evicted answers `Evicted` (→ `RECEIPT_EXPIRED`) no matter how many
+// later keys evict their own records; it never falls back to `Unseen`.
+#[tokio::test]
+async fn tombstones_survive_record_capacity() {
+    let store = InMemoryHistoryDedupStore::with_capacity(1);
+    let record = HistoryDedupRecord {
+        payload_digest: "d".to_string(),
+        outcome: spoke_ok(json!({ "deleted": 0, "floor_revision": null })),
+    };
+    // Three keys at capacity 1: k-1 and k-2 are both evicted; a bounded
+    // tombstone ring would already have forgotten k-1.
+    for key in ["k-1", "k-2", "k-3"] {
+        store.record(key, record.clone()).await;
+    }
+    assert_eq!(store.lookup("k-1").await, HistoryDedupLookup::Evicted);
+    assert_eq!(store.lookup("k-2").await, HistoryDedupLookup::Evicted);
+    assert!(
+        matches!(store.lookup("k-3").await, HistoryDedupLookup::Recorded(_)),
+        "the live record survives"
+    );
+    assert_eq!(
+        store.lookup("never-seen").await,
+        HistoryDedupLookup::Unseen,
+        "a never-recorded key still answers Unseen"
+    );
 }

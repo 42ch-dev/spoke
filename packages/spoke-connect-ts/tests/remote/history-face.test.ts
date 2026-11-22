@@ -382,6 +382,25 @@ describe("HistoryPortService — prune dedup", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("tombstones are permanent — an evicted key answers evicted forever, never unseen", async () => {
+    // §9.1: capacity eviction applies to records only. Three keys at
+    // maxEntries 1 evict k-1 then k-2; a bounded tombstone ring would
+    // already have forgotten k-1 and replayed it as unseen.
+    const dedup = new InMemoryHistoryDedupStore({ maxEntries: 1 });
+    const outcome = { deleted: 1, floor_revision: 2 };
+    for (const key of ["k-1", "k-2", "k-3"]) {
+      await dedup.record(key, "digest", outcome);
+    }
+    await expect(dedup.lookup("k-1")).resolves.toEqual({ status: "evicted" });
+    await expect(dedup.lookup("k-2")).resolves.toEqual({ status: "evicted" });
+    await expect(dedup.lookup("k-3")).resolves.toMatchObject({
+      status: "found",
+    });
+    await expect(dedup.lookup("never-seen")).resolves.toEqual({
+      status: "unseen",
+    });
+  });
+
   it("recorded refusals replay without re-executing the port", async () => {
     let n = 0;
     const { port } = countingPort({

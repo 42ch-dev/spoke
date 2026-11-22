@@ -303,12 +303,13 @@ export interface HistoryDedupStore {
  * bounded by an eviction policy the host MAY configure").
  *
  * Eviction keeps a tombstone so a replayed evicted key answers
- * `RECEIPT_EXPIRED` instead of re-executing. Tombstones are themselves
- * bounded by the same capacity.
+ * `RECEIPT_EXPIRED` instead of re-executing. Tombstones are NOT subject
+ * to capacity eviction (spoke-history contract §9.1): they are retained
+ * for the lifetime of the store, so a replayed evicted key answers
+ * `RECEIPT_EXPIRED` forever — never `unseen`.
  *
- * shortcut: a tombstone older than `maxEntries` later keys is itself
- * forgotten and the key then replays as `unseen`; a durable host store
- * never needs tombstone ageing.
+ * shortcut: tombstones grow unboundedly with distinct evicted keys; a
+ * durable host store owns the bounded-retention guarantee.
  */
 export class InMemoryHistoryDedupStore implements HistoryDedupStore {
   readonly #maxEntries: number;
@@ -354,13 +355,6 @@ export class InMemoryHistoryDedupStore implements HistoryDedupStore {
       }
       this.#records.delete(oldest);
       this.#tombstones.set(oldest, true);
-    }
-    while (this.#tombstones.size > this.#maxEntries) {
-      const oldest = this.#tombstones.keys().next().value;
-      if (oldest === undefined) {
-        break;
-      }
-      this.#tombstones.delete(oldest);
     }
   }
 }

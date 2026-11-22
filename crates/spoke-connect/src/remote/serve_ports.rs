@@ -334,14 +334,14 @@ pub trait HistoryDedupStore: Send + Sync {
 /// Bounded in-memory dedup store — the default when the host injects
 /// nothing (spoke-history contract §9.1: "the default in-memory store is
 /// bounded by an eviction policy the host MAY configure").
-///
 /// Eviction keeps a tombstone so a replayed evicted key answers
-/// `RECEIPT_EXPIRED` instead of re-executing; tombstones are bounded by
-/// the same capacity.
+/// `RECEIPT_EXPIRED` instead of re-executing. Tombstones are NOT subject
+/// to capacity eviction (spoke-history contract §9.1): they are retained
+/// for the lifetime of the store, so a replayed evicted key answers
+/// `RECEIPT_EXPIRED` forever — never `Unseen`.
 ///
-/// shortcut: a tombstone older than `max_entries` later keys is itself
-/// forgotten and the key then replays as `Unseen`; a durable host store
-/// never ages tombstones.
+/// shortcut: tombstones grow unboundedly with distinct evicted keys; a
+/// durable host store owns the bounded-retention guarantee.
 pub struct InMemoryHistoryDedupStore {
     max_entries: usize,
     state: Mutex<InMemoryDedupState>,
@@ -352,9 +352,10 @@ struct InMemoryDedupState {
     /// Live records, FIFO by insertion order.
     records: HashMap<String, HistoryDedupRecord>,
     order: VecDeque<String>,
-    /// Evicted keys, bounded FIFO by eviction order.
+    /// Evicted keys — permanent for the lifetime of the store (contract
+    /// §9.1): never evicted, so a replayed evicted key never returns
+    /// `Unseen`.
     tombstones: HashSet<String>,
-    tombstone_order: VecDeque<String>,
 }
 
 impl InMemoryHistoryDedupStore {
@@ -407,15 +408,7 @@ impl HistoryDedupStore for InMemoryHistoryDedupStore {
                 break;
             };
             state.records.remove(&oldest);
-            if state.tombstones.insert(oldest.clone()) {
-                state.tombstone_order.push_back(oldest);
-            }
-        }
-        while state.tombstones.len() > self.max_entries {
-            let Some(oldest) = state.tombstone_order.pop_front() else {
-                break;
-            };
-            state.tombstones.remove(&oldest);
+            state.tombstones.insert(oldest);
         }
     }
 }

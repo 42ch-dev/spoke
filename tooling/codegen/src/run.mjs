@@ -25,6 +25,13 @@ const BANNER = `/**
  */
 `;
 
+// The comment gate classifies any comment unit containing `@generated`; inject
+// the tag as the first line of every doc block so generated member comments
+// do not count as unclassified.
+function tagGeneratedDocBlocks(ts) {
+  return ts.replace(/^(\s*)\/\*\*$/gm, "$1/**\n$1 * @generated");
+}
+
 const SPOKE_SCHEMA_BASE = "https://spoke42.invalid/schemas/";
 
 function log(msg) {
@@ -221,7 +228,7 @@ async function generateTypeScript(schemaPaths) {
       strictIndexSignatures: true,
       declareExternallyReferenced: true,
     });
-    fs.writeFileSync(outFile, ts);
+    fs.writeFileSync(outFile, tagGeneratedDocBlocks(ts));
     log(`  wrote ${path.relative(REPO_ROOT, outFile)}`);
   }
 

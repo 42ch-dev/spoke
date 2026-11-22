@@ -372,8 +372,8 @@ export function isValidRevisionSnapshot(
   }
   const entity = value.snapshot;
   const isKnowledgeEntry =
-    isRecord(entity) && matchesShape(entity, KNOWLEDGE_ENTRY_SHAPE);
-  const isRelation = isRecord(entity) && matchesShape(entity, RELATION_SHAPE);
+    isRecord(entity) && isValidKnowledgeEntryDeep(entity);
+  const isRelation = isRecord(entity) && isValidRelationDeep(entity);
   if (value.entity_kind === "knowledge_entry" && !isKnowledgeEntry) {
     return false;
   }
@@ -426,6 +426,185 @@ const RELATION_SHAPE: SuccessShape = {
   kind: "object",
   fields: RELATION_FIELDS,
 };
+
+/**
+ * note: optional fields of the schema-declared `KnowledgeEntry` /
+ * `Relation` wire types (schemas/data/*.schema.json) — checked only when
+ * present. Required members stay in the `*_FIELDS` tables above.
+ */
+const KNOWLEDGE_ENTRY_OPTIONAL_FIELDS = [
+  { name: "source_anchor", kind: "object" },
+  { name: "revision", kind: "number" },
+  { name: "created_at", kind: "string" },
+  { name: "updated_at", kind: "string" },
+  { name: "modules", kind: "object" },
+  { name: "owner", kind: "string" },
+  { name: "disclosure", kind: "string" },
+] as const satisfies readonly Field[];
+
+const RELATION_OPTIONAL_FIELDS = [
+  { name: "label", kind: "string" },
+  { name: "metadata", kind: "object" },
+  { name: "revision", kind: "number" },
+  { name: "created_at", kind: "string" },
+  { name: "updated_at", kind: "string" },
+] as const satisfies readonly Field[];
+
+const SOURCE_ANCHOR_REQUIRED_FIELDS = [
+  { name: "schema_version", kind: "number" },
+  { name: "source_id", kind: "string" },
+  { name: "extensions", kind: "object" },
+] as const satisfies readonly Field[];
+
+const SOURCE_ANCHOR_OPTIONAL_FIELDS = [
+  { name: "span", kind: "object" },
+  { name: "label", kind: "string" },
+  { name: "mime_type", kind: "string" },
+] as const satisfies readonly Field[];
+
+const SOURCE_SPAN_REQUIRED_FIELDS = [
+  { name: "start", kind: "number" },
+  { name: "end", kind: "number" },
+] as const satisfies readonly Field[];
+
+const BODY_ATTRIBUTE_OPTIONAL_FIELDS = [
+  { name: "display_type", kind: "string" },
+  { name: "max_value", kind: "number" },
+] as const satisfies readonly Field[];
+
+/**
+ * note: every listed field is optional — only present members must match
+ * their declared JSON kind.
+ */
+function matchesOptionalFields(
+  value: Record<string, unknown>,
+  fields: readonly Field[],
+): boolean {
+  return fields.every(
+    (field) =>
+      !(field.name in value) ||
+      matchesFieldKind(value[field.name], field.kind),
+  );
+}
+
+function isValidSourceSpan(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    SOURCE_SPAN_REQUIRED_FIELDS.every(
+      (field) =>
+        field.name in value &&
+        matchesFieldKind(value[field.name], field.kind),
+    )
+  );
+}
+
+function isValidSourceAnchor(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    !SOURCE_ANCHOR_REQUIRED_FIELDS.every(
+      (field) =>
+        field.name in value &&
+        matchesFieldKind(value[field.name], field.kind),
+    ) ||
+    !isValidExtensionMap(value.extensions)
+  ) {
+    return false;
+  }
+  if (!matchesOptionalFields(value, SOURCE_ANCHOR_OPTIONAL_FIELDS)) {
+    return false;
+  }
+  return !("span" in value) || isValidSourceSpan(value.span);
+}
+
+/**
+ * note: `BodyAttribute` (common.schema.json): `trait_type` non-empty string,
+ * `value` string | number | boolean; optional `display_type` / `max_value`.
+ */
+function isValidBodyAttribute(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (typeof value.trait_type !== "string" || value.trait_type.length === 0) {
+    return false;
+  }
+  if (
+    !("value" in value) ||
+    (typeof value.value !== "string" &&
+      typeof value.value !== "number" &&
+      typeof value.value !== "boolean")
+  ) {
+    return false;
+  }
+  return matchesOptionalFields(value, BODY_ATTRIBUTE_OPTIONAL_FIELDS);
+}
+
+/**
+ * note: `KnowledgeEntry.body` (knowledge-entry.schema.json): optional
+ * `summary`/`tags`/`attributes`/`state`/`computable`, each typed — a
+ * present member with the wrong JSON kind is malformed, not absent.
+ */
+function isValidKnowledgeEntryBody(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if ("summary" in value && typeof value.summary !== "string") {
+    return false;
+  }
+  if (
+    "tags" in value &&
+    (!Array.isArray(value.tags) ||
+      !value.tags.every((tag) => typeof tag === "string"))
+  ) {
+    return false;
+  }
+  if (
+    "attributes" in value &&
+    (!Array.isArray(value.attributes) ||
+      !value.attributes.every(isValidBodyAttribute))
+  ) {
+    return false;
+  }
+  if ("state" in value && !isRecord(value.state)) {
+    return false;
+  }
+  return !("computable" in value) || isRecord(value.computable);
+}
+
+/**
+ * note: full schema-declared `KnowledgeEntry` field set — required
+ * members plus every optional member's declared JSON kind, recursively
+ * for `body` and `source_anchor`. Unknown extra keys are tolerated; only
+ * declared members are type-checked (Rust serde typed-decode parity).
+ */
+function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): boolean {
+  if (!matchesShape(entity, KNOWLEDGE_ENTRY_SHAPE)) {
+    return false;
+  }
+  if (!matchesOptionalFields(entity, KNOWLEDGE_ENTRY_OPTIONAL_FIELDS)) {
+    return false;
+  }
+  if (!isValidKnowledgeEntryBody(entity.body)) {
+    return false;
+  }
+  return (
+    !("source_anchor" in entity) ||
+    isValidSourceAnchor(entity.source_anchor)
+  );
+}
+
+/**
+ * note: full schema-declared `Relation` field set — required members plus
+ * every optional member's declared JSON kind. Unknown extra keys are
+ * tolerated (Rust serde typed-decode parity of the declared members).
+ */
+function isValidRelationDeep(entity: Record<string, unknown>): boolean {
+  return (
+    matchesShape(entity, RELATION_SHAPE) &&
+    matchesOptionalFields(entity, RELATION_OPTIONAL_FIELDS)
+  );
+}
 
 /**
  * note: strict `history.revisions.*` success shapes (spoke-history

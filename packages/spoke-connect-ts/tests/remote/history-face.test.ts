@@ -38,6 +38,7 @@ import {
   InMemoryHistoryDedupStore,
   type RemoteAdapter,
 } from "../../src/remote/index.js";
+import { isValidRevisionSnapshot } from "../../src/remote/payload.js";
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 
@@ -565,6 +566,152 @@ describe("HistoryPortService — served success validation", () => {
         JSON.parse(JSON.stringify(withEmpty)),
       );
     }
+  });
+});
+
+describe("RevisionSnapshot — nested entity deep shape", () => {
+  // note: QC-Re3rd F-004/F-008 — a malformed nested member must fail the
+  // decode at both faces (Rust's typed decode already rejects each case).
+  const malformed: Array<[string, Record<string, unknown>]> = [
+    ["created_at number", { created_at: 123 }],
+    ["updated_at number", { updated_at: 42 }],
+    ["owner number", { owner: 42 }],
+    ["disclosure number", { disclosure: 7 }],
+    ["modules array", { modules: [] }],
+    ["revision string", { revision: "3" }],
+    ["body.tags non-array", { body: { tags: "x" } }],
+    ["body.tags non-string item", { body: { tags: [1] } }],
+    ["body.state non-object", { body: { state: 5 } }],
+    ["body.summary number", { body: { summary: 1 } }],
+    ["body.attributes non-array", { body: { attributes: {} } }],
+    [
+      "body.attributes missing value",
+      { body: { attributes: [{ trait_type: "t" }] } },
+    ],
+    [
+      "body.attributes object value",
+      { body: { attributes: [{ trait_type: "t", value: {} }] } },
+    ],
+    [
+      "body.attributes bad max_value",
+      { body: { attributes: [{ trait_type: "t", value: "v", max_value: "x" }] } },
+    ],
+    ["source_anchor non-object", { source_anchor: 1 }],
+    [
+      "source_anchor missing source_id",
+      { source_anchor: { schema_version: 1, extensions: {} } },
+    ],
+    [
+      "source_anchor bad span",
+      {
+        source_anchor: {
+          schema_version: 1,
+          source_id: "s1",
+          span: { start: "0", end: 4 },
+          extensions: {},
+        },
+      },
+    ],
+  ];
+
+  it.each(malformed)(
+    "knowledge snapshot with %s fails isValidRevisionSnapshot",
+    (_name, extras) => {
+      expect(isValidRevisionSnapshot(snapshot("ke_1", 3, extras))).toBe(false);
+    },
+  );
+
+  it.each([
+    ["created_at number", { created_at: 123 }],
+    ["label number", { label: 42 }],
+    ["metadata array", { metadata: [] }],
+    ["revision string", { revision: "3" }],
+  ])(
+    "relation snapshot with %s fails isValidRevisionSnapshot",
+    (_name, extras) => {
+      const relation = snapshot("rel_1", 2);
+      const entity = relation.snapshot as unknown as Record<string, unknown>;
+      relation.entity_kind = "relation";
+      delete entity.entry_id;
+      delete entity.entry_type;
+      delete entity.canonical_name;
+      delete entity.status;
+      delete entity.body;
+      Object.assign(entity, {
+        relation_id: "rel_1",
+        relation_type: "located_in",
+        from_id: "ke_a",
+        to_id: "ke_b",
+        ...extras,
+      });
+      expect(isValidRevisionSnapshot(relation)).toBe(false);
+    },
+  );
+
+  it("a malformed nested member answers INTERNAL_ERROR on the serving face", async () => {
+    const { port } = countingPort({
+      get: async () => spokeOk(snapshot("ke_1", 3, { created_at: 123 })),
+    });
+    const service = new HistoryPortService(port, admission());
+    const result = await service.invoke("peer-a", "history.revisions.get", {
+      entity_kind: "knowledge_entry",
+      entity_id: "ke_1",
+      revision: 3,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "INTERNAL_ERROR",
+      details: { kind: "transport" },
+    });
+  });
+
+  it("a snapshot with declared optional members still decodes", () => {
+    const valid = snapshot("ke_1", 3, {
+      created_at: "2026-07-23T06:15:00Z",
+      updated_at: "2026-07-23T06:15:00Z",
+      owner: "ke_owner",
+      disclosure: "owner-private",
+      modules: { activation: { level: 1 } },
+      body: {
+        summary: "s",
+        tags: ["t1"],
+        attributes: [{ trait_type: "t", value: 4, display_type: "n" }],
+        state: { mood: "calm" },
+        computable: { score: 0.5 },
+      },
+      source_anchor: {
+        schema_version: 1,
+        source_id: "src_1",
+        span: { start: 0, end: 4 },
+        label: "l",
+        mime_type: "text/plain",
+        extensions: {},
+      },
+    });
+    expect(isValidRevisionSnapshot(valid)).toBe(true);
+    const relation = snapshot("rel_1", 2);
+    const entity = relation.snapshot as unknown as Record<string, unknown>;
+    relation.entity_kind = "relation";
+    for (const key of [
+      "entry_id",
+      "entry_type",
+      "canonical_name",
+      "status",
+      "body",
+    ]) {
+      delete entity[key];
+    }
+    Object.assign(entity, {
+      relation_id: "rel_1",
+      relation_type: "located_in",
+      from_id: "ke_a",
+      to_id: "ke_b",
+      label: "l",
+      metadata: { any: true },
+      created_at: "2026-07-23T06:15:00Z",
+      updated_at: "2026-07-23T06:15:00Z",
+    });
+    expect(isValidRevisionSnapshot(relation)).toBe(true);
   });
 });
 

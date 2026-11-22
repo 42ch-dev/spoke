@@ -18,7 +18,10 @@ export interface OneOf {
   /**
    * Success: the destination KnowledgeEntry; its adoption_anchor is required — a success entry lacking the anchor is malformed.
    */
-  entry: KnowledgeEntry;
+  entry: KnowledgeEntry & {
+    adoption_anchor: AdoptionAnchor1;
+    [k: string]: unknown | undefined;
+  };
   extensions?: ExtensionMap1;
 }
 /**
@@ -172,6 +175,28 @@ export interface ModuleMap {
       }
     | unknown[]
     | undefined;
+}
+/**
+ * Adoption provenance recorded on a destination KnowledgeEntry (spoke-knowledge-adoption). Points at the resolved terminal live source — retirement chains resolve before the anchor is written. Carried on the optional adoption_anchor field of KnowledgeEntry; a normal put must preserve it unchanged.
+ */
+export interface AdoptionAnchor1 {
+  /**
+   * Wire schema version (integer >= 1).
+   */
+  schema_version: number;
+  /**
+   * Scope id of the resolved terminal source.
+   */
+  source_scope_id: string;
+  /**
+   * Entry id of the resolved terminal source.
+   */
+  source_entry_id: string;
+  /**
+   * Revision of the resolved terminal source.
+   */
+  source_revision: number;
+  extensions: ExtensionMap;
 }
 /**
  * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.

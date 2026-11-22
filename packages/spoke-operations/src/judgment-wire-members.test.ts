@@ -117,26 +117,31 @@ describe("wire projection details", () => {
     expect(projected).toEqual({ ok: true, value: false });
   });
 
-  it("compacts a hidden array index instead of reading it", () => {
-    const validRef = { kind: "entry", id: "e-0", revision: 1 };
+  it("emits array members by position: hidden index serializes, holes emit null", () => {
     const judgment = baseJudgment() as Record<string, unknown>;
     const evidence = [
       { kind: "entry", id: "hidden-bad" },
-      validRef,
+      { kind: "entry", id: "e-0", revision: 1 },
     ] as Record<string, unknown>[];
-    // Index 0 is hidden: it is not a wire member, must not be read at all.
+    // JSON wire emission reads indices by position: a non-enumerable index
+    // still serializes its value, so the bad ref surfaces at evidence[0].
     Object.defineProperty(evidence, "0", { enumerable: false });
     judgment.evidence = evidence;
-    expect(validateJudgment(judgment as unknown as Judgment).ok).toBe(true);
+    const result = validateJudgment(judgment as unknown as Judgment);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.details?.field).toBe("evidence[0].revision");
+    }
 
-    const explicit = baseJudgment() as Record<string, unknown>;
-    explicit.evidence = [validRef];
-    expect(
-      judgmentsEqualCanonical(
-        judgment as unknown as Judgment,
-        explicit as unknown as Judgment,
-      ),
-    ).toEqual({ ok: true, value: true });
+    // A genuine hole emits null — preserved, never compacted — and the null
+    // element fails the JudgmentRef shape at its own position.
+    const holed = baseJudgment() as Record<string, unknown>;
+    holed.evidence = [, { kind: "entry", id: "e-0", revision: 1 }];
+    const holedResult = validateJudgment(holed as unknown as Judgment);
+    expect(holedResult.ok).toBe(false);
+    if (!holedResult.ok) {
+      expect(holedResult.details?.field).toBe("evidence[0]");
+    }
   });
 
   it("keeps extension values verbatim: odd and non-enumerable members untouched", () => {
@@ -164,8 +169,8 @@ describe("wire projection details", () => {
     const left = baseJudgment() as Record<string, unknown>;
     const right = baseJudgment() as Record<string, unknown>;
     left.verdict = { outcome: "upheld", detail: { note: "x" } };
-    // detail is opaque content copied verbatim; its toJSON hook fires during
-    // canonicalization just as it would during JSON.stringify emission.
+    // detail is opaque wire content; its toJSON hook fires during the wire
+    // emission with the member's key, exactly as on the wire.
     right.verdict = {
       outcome: "upheld",
       detail: { note: "x", toJSON: () => ({ note: "changed" }) },
@@ -185,5 +190,32 @@ describe("wire projection details", () => {
         explicit as unknown as Judgment,
       ),
     ).toEqual({ ok: true, value: true });
+  });
+});
+
+describe("engine wire emission", () => {
+  it("handles deep nesting through the engine's own emission without recursion limits", () => {
+    let deep: Record<string, unknown> = { note: "leaf" };
+    for (let i = 0; i < 5000; i += 1) {
+      deep = { nested: deep };
+    }
+    const judgment = baseJudgment() as Record<string, unknown>;
+    judgment.verdict = { outcome: "upheld", detail: deep };
+    expect(validateJudgment(judgment as unknown as Judgment).ok).toBe(true);
+  });
+
+  it("refuses values with no wire form (cycles, bigints)", () => {
+    const cyclic = baseJudgment() as Record<string, unknown>;
+    cyclic.self = cyclic;
+    const result = validateJudgment(cyclic as unknown as Judgment);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_INPUT");
+    }
+
+    const withBigint = baseJudgment() as Record<string, unknown>;
+    withBigint.basis = 1n;
+    const bigintResult = validateJudgment(withBigint as unknown as Judgment);
+    expect(bigintResult.ok).toBe(false);
   });
 });

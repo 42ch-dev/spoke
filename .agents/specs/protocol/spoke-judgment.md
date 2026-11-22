@@ -183,7 +183,11 @@ helper is deterministic and performs no I/O. The TS parameter type is the genera
 `validateJudgment` does **not** determine verdict truth, evidence existence or content correctness,
 authorization, business thresholds, or product-specific `detail` shape. Its reserved-member check
 protects protocol field locations only. It performs no registry lookup, storage access, reasoning,
-or product policy evaluation.
+or product policy evaluation. Decoding into a generated typed carrier is representation only: a
+decoded `Judgment` is valid only after passing the typed validation gate (Rust
+`validate_judgment_typed`, its TS counterpart, or this wire-form gate), which is where the
+wire-integer domain and every shape rule are enforced — a decoded-but-ungated carrier is a
+conformance defect.
 
 ### Refusal vocabulary
 
@@ -205,12 +209,11 @@ JSON the producer emitted or the validator accepted — rather than the canonica
 any typed decode of it, and returns `SpokeResult<bool>`; it rejects `INVALID_INPUT` when either
 value cannot be canonicalized. Typed representations normalize members in ways the wire keeps
 distinct, and those normalizations stay out of the comparison on both stacks. On a language stack
-that accepts producer objects rather than parsed wire JSON, the comparison first projects each
-value to its wire members (§ Wire-wide rules): non-enumerable own properties, inherited members,
-and members a JSON serializer would drop — including `toJSON` hooks on envelope objects — are
-excluded. Opaque payloads (`verdict.detail` member values, `extensions.<ns>` values) pass through
-verbatim as wire content, so a serializer hook inside one fires exactly as it would in wire
-emission. Off-wire producer detail outside those payloads can never change the compared bytes.
+that accepts producer objects rather than parsed wire JSON, the comparison first re-emits each
+value through the engine's own JSON wire emission (`JSON.stringify` → parse on TypeScript): the
+emitted members — own enumerable only, `toJSON` resolved with the member's key, array holes as
+`null` — are exactly what a wire reader parses, so no producer representation detail can change
+the compared bytes.
 
 Wire presence is comparison-significant: a present-and-empty `verdict.detail: {}` is a distinct
 member and compares unequal to an absent `detail`. `created_at` compares by its exact wire

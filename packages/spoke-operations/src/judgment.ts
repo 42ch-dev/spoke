@@ -96,59 +96,17 @@ function ownEnumerable(value: object, key: string): boolean {
   return Object.prototype.propertyIsEnumerable.call(value, key);
 }
 
-
-// note: Members whose values the contract keeps opaque — `verdict.detail`
-// member values and every `extensions.<ns>` value are product-owned wire
-// content; the envelope neither probes nor projects inside them. Their names
-// cannot collide with an envelope member elsewhere: the envelope objects are
-// closed, so these keys only ever appear at their opaque boundaries.
-const OPAQUE_MEMBER_KEYS: Record<string, true> = { detail: true, extensions: true };
-
-// note: The producer-facing wire projection — an object's wire members are
-// exactly its own enumerable JSON-typed properties (contract §Wire member
-// enumerability). Non-enumerable own members, inherited members, and values
-// JSON drops (undefined, functions, symbols, bigints — including `toJSON`
-// hooks at envelope level) never reach the wire, so validation and
-// canonicalization both run on this copy rather than the raw producer
-// object. Three details matter:
-//   - `Object.fromEntries` builds the copy so an own enumerable `__proto__`
-//     data key round-trips as a data property instead of a prototype write.
-//   - Array indices are gated on enumerability like object members; surviving
-//     indices are re-indexed (a hidden or absent index is a gap the wire
-//     compacts, never a read of the hidden element).
-//   - Opaque member values (OPAQUE_MEMBER_KEYS) are copied verbatim — the
-//     contract keeps their children opaque, so the projection does not look
-//     inside them.
-function wireCopy(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    const out: unknown[] = [];
-    for (let i = 0; i < value.length; i += 1) {
-      if (ownEnumerable(value, String(i))) {
-        out.push(wireCopy(value[i]));
-      }
-    }
-    return out;
-  }
-  if (!isPlainObject(value)) {
-    return value;
-  }
-  const entries: [string, unknown][] = [];
-  for (const key of Object.keys(value)) {
-    const member = value[key];
-    if (
-      member === undefined ||
-      typeof member === "function" ||
-      typeof member === "symbol" ||
-      typeof member === "bigint"
-    ) {
-      continue;
-    }
-    entries.push([
-      key,
-      OPAQUE_MEMBER_KEYS[key] === true ? member : wireCopy(member),
-    ]);
-  }
-  return Object.fromEntries(entries);
+// note: The producer-facing wire projection is the engine's own JSON wire
+// emission: `JSON.parse(JSON.stringify(value))` reproduces the wire bytes a
+// producer sends and a reader parses (contract §Wire member enumerability).
+// Own enumerable members only, `toJSON` invoked with the member's key exactly
+// as wire emission does, sparse array indices emitted as `null` holes (not
+// compacted), `__proto__` re-parsed as an own data member, and no
+// hand-rolled recursion — stringify's traversal is engine-implemented.
+// Throws on values no wire exists for (cycles, bigints); both call sites
+// translate a throw into an INVALID_INPUT refusal.
+function wireForm(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value));
 }
 
 // note: Lexicographic first-offender order is Unicode code-point order
@@ -217,9 +175,18 @@ function validateJudgmentRef(
  */
 export function validateJudgment(judgment: Judgment): SpokeResult<void> {
   // note: Validation reads wire members only — the producer object is first
-  // projected through `wireCopy` so inherited, non-enumerable, and JSON-
-  // droppable members are absent rather than merely skipped at each read.
-  judgment = wireCopy(judgment) as Judgment;
+  // re-emitted through the engine's JSON wire emission so off-wire members
+  // and serializer hooks resolve to their wire form (or refuse outright).
+  let wire: Judgment;
+  try {
+    wire = wireForm(judgment) as Judgment;
+  } catch {
+    return invalid(
+      "judgment",
+      "judgment is not representable on the JSON wire (cycle or unserializable member)",
+    );
+  }
+  judgment = wire;
   if (!isPlainObject(judgment)) {
     return invalid("judgment", "judgment must be an object");
   }
@@ -346,9 +313,9 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
  */
 function canonicalJson(value: unknown): string | undefined {
   try {
-    // note: `canonicalize` invokes enumerable `toJSON` hooks, which are not
-    // wire members; `wireCopy` strips them (and all off-wire members) first.
-    return canonicalize(wireCopy(value));
+    // note: the engine's JSON wire emission resolves `toJSON` hooks and
+    // off-wire members to their wire form before canonicalization.
+    return canonicalize(wireForm(value));
   } catch {
     return undefined;
   }

@@ -298,7 +298,7 @@ jobs:
       needs['slice-ios-x86_64-sim'].result == 'success'
     runs-on: macos-15
     env:
-      XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/xc-out
+      XCFRAMEWORK_OUTPUT_DIR: /tmp/spoke-xc-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2 — recipe + manifest tool, no LFS. Full
@@ -368,7 +368,8 @@ jobs:
           for d in xc-slice-*; do
             [ -d "${d}" ] || continue
             id="${d#xc-slice-}"
-            id="${id%-${GITHUB_RUN_ID}-${{ steps.attempts.outputs.worker_attempt }}}"
+            attempt="${{ steps.attempts.outputs.worker_attempt }}"
+            id="${id%-"${GITHUB_RUN_ID}"-"${attempt}"}"
             mkdir -p "${id}"
             mv "${d}"/* "${id}/"
             rmdir "${d}"

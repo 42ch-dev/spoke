@@ -23,6 +23,7 @@ export type { ReadSelection } from './read-selection';
 export type { Reflection } from './reflection';
 export type { Relation } from './relation';
 export type { RetainedRecord } from './retained-record';
+export type { RevisionSnapshot } from './revision-snapshot';
 export type { Rule } from './rule';
 export type { SourceAnchor } from './source-anchor';
 export type { Subject } from './subject';

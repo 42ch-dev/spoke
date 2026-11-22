@@ -15,7 +15,13 @@
  * schema package's job and is intentionally not duplicated here.
  */
 
-type FieldKind = "string" | "number" | "object" | "array" | "boolean";
+type FieldKind =
+  | "string"
+  | "number"
+  | "object"
+  | "array"
+  | "boolean"
+  | "datetime";
 
 interface Field {
   name: string;
@@ -93,7 +99,7 @@ const MEMORY_RECEIPT_FIELDS = [
   { name: "requester_principal_id", kind: "string" },
   { name: "payload_digest", kind: "string" },
   { name: "status", kind: "string" },
-  { name: "created_at", kind: "string" },
+  { name: "created_at", kind: "datetime" },
   { name: "extensions", kind: "object" },
 ] as const satisfies readonly Field[];
 
@@ -239,6 +245,8 @@ function matchesFieldKind(value: unknown, kind: FieldKind): boolean {
       return Array.isArray(value);
     case "boolean":
       return typeof value === "boolean";
+    case "datetime":
+      return isRfc3339Timestamp(value);
   }
 }
 
@@ -253,6 +261,56 @@ const EXTRACT_RESPONSE_WIRE_KEYS = new Set(["candidates", "run", "extensions"]);
 
 const EXTRACTION_RUN_WIRE_KEYS = new Set(["run_id", "method", "coverage_hint"]);
 
+/** note: chrono `DateTime<Utc>` serde parity — RFC 3339 (`date-time`):
+ * full date, `T`/`t` separator (chrono's serde impl accepts both cases),
+ * seconds, optional fractional seconds, `Z`/`z` or ±hh:mm offset.
+ * `Date.parse` (NaN rejects) covers the ±23:59 offset ceiling; calendar
+ * days and clock fields are range-checked here because `Date.parse`
+ * normalizes `2026-02-30` and `24:00:00` into valid dates while chrono
+ * rejects them, and `Date.parse` rejects second `:60` while chrono
+ * accepts leap seconds. */
+const RFC3339_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function isRfc3339Timestamp(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const match = RFC3339_PATTERN.exec(value);
+  if (match === null) {
+    return false;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  if (hour > 23 || minute > 59 || second > 60) {
+    return false;
+  }
+  // `Date.parse` normalizes out-of-range calendar days (`2026-02-30`
+  // rolls into March) while chrono rejects them, so bound the day here.
+  const daysInMonth =
+    month === 2 && year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+      ? 29
+      : (MONTH_DAYS[month - 1] ?? 0);
+  if (day < 1 || day > daysInMonth) {
+    return false;
+  }
+  const offset = /([+-])(\d{2}):(\d{2})$/.exec(value);
+  if (offset !== null && (Number(offset[2]) > 23 || Number(offset[3]) > 59)) {
+    return false;
+  }
+  // `:60` leap second is accepted by chrono but NaN in `Date.parse`;
+  // parse the clock one second earlier to reuse the remaining checks.
+  const normalized =
+    second === 60 ? `${value.slice(0, 17)}59${value.slice(19)}` : value;
+  return !Number.isNaN(Date.parse(normalized));
+}
+
 const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
 function isValidExtensionMap(value: unknown): boolean {
@@ -264,6 +322,25 @@ function isValidExtensionMap(value: unknown): boolean {
       return false;
     }
     if (!isRecord(namespaceValue)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** note: `KnowledgeEntry.modules` (knowledge-entry.schema.json) — Rust
+ * `HashMap<KnowledgeEntryModulesKey, KnowledgeEntryModulesValue>`:
+ * keys match the ExtensionKey pattern; values are object | array only
+ * (scalar module values fail Rust typed decode). */
+function isValidModulesMap(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const [key, moduleValue] of Object.entries(value)) {
+    if (!EXTENSION_MAP_KEY_PATTERN.test(key)) {
+      return false;
+    }
+    if (!isRecord(moduleValue) && !Array.isArray(moduleValue)) {
       return false;
     }
   }
@@ -335,7 +412,312 @@ function isValidExtractSuccessPayload(value: unknown): boolean {
   return true;
 }
 
+/** note: `revision` / `deleted` / `floor_revision` are `u64` on the wire — exact integers only, never rounded (spoke-history contract). */
+function isExactNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+  );
+}
+
+/**
+ * note: strict `RevisionSnapshot` decode (spoke-history contract
+ * §RevisionSnapshot): all six envelope members present and well-formed,
+ * `snapshot` a COMPLETE core shape (`KnowledgeEntry` or `Relation`
+ * required-field set — matching `port.knowledge.get` / `port.relation.get`
+ * strictness), the variant agreeing with `entity_kind` for the core
+ * kinds, and the nested entity's own id and revision equal to the
+ * envelope's. `selectors` — bound at the serving face and each
+ * `RemoteAdapter` — additionally requires the envelope to match the
+ * request (Rust parity: `validate_history_snapshot`). An open product
+ * kind declares its core shape, so the nested member must still decode
+ * under one consistent core shape.
+ */
+export function isValidRevisionSnapshot(
+  value: unknown,
+  selectors?: { entity_kind: string; entity_id: string; revision: number },
+): boolean {
+  if (!isRecord(value) || !isValidRevisionSnapshotEnvelope(value)) {
+    return false;
+  }
+  if (
+    selectors !== undefined &&
+    (value.entity_kind !== selectors.entity_kind ||
+      value.entity_id !== selectors.entity_id ||
+      value.revision !== selectors.revision)
+  ) {
+    return false;
+  }
+  const entity = value.snapshot;
+  const isKnowledgeEntry =
+    isRecord(entity) && isValidKnowledgeEntryDeep(entity);
+  const isRelation = isRecord(entity) && isValidRelationDeep(entity);
+  if (value.entity_kind === "knowledge_entry" && !isKnowledgeEntry) {
+    return false;
+  }
+  if (value.entity_kind === "relation" && !isRelation) {
+    return false;
+  }
+  if (!isKnowledgeEntry && !isRelation) {
+    return false;
+  }
+  // note: RevisionSnapshot equality rules — the nested entity's own id
+  // equals the envelope `entity_id` and its own `revision` equals the
+  // envelope `revision` (contract §RevisionSnapshot: "equals the selected
+  // entity snapshot's own revision"). The nested revision is required, not
+  // conditional: the authored response example carries them equal.
+  if (isKnowledgeEntry && entity.entry_id !== value.entity_id) {
+    return false;
+  }
+  if (isRelation && entity.relation_id !== value.entity_id) {
+    return false;
+  }
+  return (
+    isExactNonNegativeInteger(entity.revision) &&
+    entity.revision === value.revision
+  );
+}
+
+/**
+ * note: strict `RevisionSnapshot` envelope shape (spoke-history contract
+ * §RevisionSnapshot): all six required members present and well-formed.
+ */
+function isValidRevisionSnapshotEnvelope(snapshot: unknown): boolean {
+  return (
+    isRecord(snapshot) &&
+    typeof snapshot.schema_version === "number" &&
+    Number.isInteger(snapshot.schema_version) &&
+    typeof snapshot.entity_kind === "string" &&
+    typeof snapshot.entity_id === "string" &&
+    isExactNonNegativeInteger(snapshot.revision) &&
+    isRecord(snapshot.snapshot) &&
+    isValidExtensionMap(snapshot.extensions)
+  );
+}
+
+const KNOWLEDGE_ENTRY_SHAPE: SuccessShape = {
+  kind: "object",
+  fields: KNOWLEDGE_ENTRY_FIELDS,
+};
+
+const RELATION_SHAPE: SuccessShape = {
+  kind: "object",
+  fields: RELATION_FIELDS,
+};
+
+/**
+ * note: optional fields of the schema-declared `KnowledgeEntry` /
+ * `Relation` wire types (schemas/data/*.schema.json) — checked only when
+ * present. Required members stay in the `*_FIELDS` tables above.
+ */
+const KNOWLEDGE_ENTRY_OPTIONAL_FIELDS = [
+  { name: "source_anchor", kind: "object" },
+  { name: "revision", kind: "number" },
+  { name: "created_at", kind: "datetime" },
+  { name: "updated_at", kind: "datetime" },
+  { name: "modules", kind: "object" },
+  { name: "owner", kind: "string" },
+  { name: "disclosure", kind: "string" },
+] as const satisfies readonly Field[];
+
+const RELATION_OPTIONAL_FIELDS = [
+  { name: "label", kind: "string" },
+  { name: "metadata", kind: "object" },
+  { name: "revision", kind: "number" },
+  { name: "created_at", kind: "datetime" },
+  { name: "updated_at", kind: "datetime" },
+] as const satisfies readonly Field[];
+
+const SOURCE_ANCHOR_REQUIRED_FIELDS = [
+  { name: "schema_version", kind: "number" },
+  { name: "source_id", kind: "string" },
+  { name: "extensions", kind: "object" },
+] as const satisfies readonly Field[];
+
+const SOURCE_ANCHOR_OPTIONAL_FIELDS = [
+  { name: "span", kind: "object" },
+  { name: "label", kind: "string" },
+  { name: "mime_type", kind: "string" },
+] as const satisfies readonly Field[];
+
+const SOURCE_SPAN_REQUIRED_FIELDS = [
+  { name: "start", kind: "number" },
+  { name: "end", kind: "number" },
+] as const satisfies readonly Field[];
+
+const BODY_ATTRIBUTE_OPTIONAL_FIELDS = [
+  { name: "display_type", kind: "string" },
+  { name: "max_value", kind: "number" },
+] as const satisfies readonly Field[];
+
+/**
+ * note: every listed field is optional — only present members must match
+ * their declared JSON kind.
+ */
+function matchesOptionalFields(
+  value: Record<string, unknown>,
+  fields: readonly Field[],
+): boolean {
+  return fields.every(
+    (field) =>
+      !(field.name in value) ||
+      matchesFieldKind(value[field.name], field.kind),
+  );
+}
+
+function isValidSourceSpan(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    SOURCE_SPAN_REQUIRED_FIELDS.every(
+      (field) =>
+        field.name in value &&
+        matchesFieldKind(value[field.name], field.kind),
+    )
+  );
+}
+
+function isValidSourceAnchor(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    !SOURCE_ANCHOR_REQUIRED_FIELDS.every(
+      (field) =>
+        field.name in value &&
+        matchesFieldKind(value[field.name], field.kind),
+    ) ||
+    !isValidExtensionMap(value.extensions)
+  ) {
+    return false;
+  }
+  if (!matchesOptionalFields(value, SOURCE_ANCHOR_OPTIONAL_FIELDS)) {
+    return false;
+  }
+  return !("span" in value) || isValidSourceSpan(value.span);
+}
+
+/**
+ * note: `BodyAttribute` (common.schema.json): `trait_type` non-empty string,
+ * `value` string | number | boolean; optional `display_type` / `max_value`.
+ */
+function isValidBodyAttribute(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (typeof value.trait_type !== "string" || value.trait_type.length === 0) {
+    return false;
+  }
+  if (
+    !("value" in value) ||
+    (typeof value.value !== "string" &&
+      typeof value.value !== "number" &&
+      typeof value.value !== "boolean")
+  ) {
+    return false;
+  }
+  return matchesOptionalFields(value, BODY_ATTRIBUTE_OPTIONAL_FIELDS);
+}
+
+/**
+ * note: `KnowledgeEntry.body` (knowledge-entry.schema.json): optional
+ * `summary`/`tags`/`attributes`/`state`/`computable`, each typed — a
+ * present member with the wrong JSON kind is malformed, not absent.
+ */
+function isValidKnowledgeEntryBody(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if ("summary" in value && typeof value.summary !== "string") {
+    return false;
+  }
+  if (
+    "tags" in value &&
+    (!Array.isArray(value.tags) ||
+      !value.tags.every((tag) => typeof tag === "string"))
+  ) {
+    return false;
+  }
+  if (
+    "attributes" in value &&
+    (!Array.isArray(value.attributes) ||
+      !value.attributes.every(isValidBodyAttribute))
+  ) {
+    return false;
+  }
+  if ("state" in value && !isRecord(value.state)) {
+    return false;
+  }
+  return !("computable" in value) || isRecord(value.computable);
+}
+
+/**
+ * note: full schema-declared `KnowledgeEntry` field set — required
+ * members plus every optional member's declared JSON kind, recursively
+ * for `body` and `source_anchor`. Unknown extra keys are tolerated; only
+ * declared members are type-checked (Rust serde typed-decode parity).
+ */
+function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): boolean {
+  if (!matchesShape(entity, KNOWLEDGE_ENTRY_SHAPE)) {
+    return false;
+  }
+  if (!isValidExtensionMap(entity.extensions)) {
+    return false;
+  }
+  if ("modules" in entity && !isValidModulesMap(entity.modules)) {
+    return false;
+  }
+  if (!matchesOptionalFields(entity, KNOWLEDGE_ENTRY_OPTIONAL_FIELDS)) {
+    return false;
+  }
+  if (!isValidKnowledgeEntryBody(entity.body)) {
+    return false;
+  }
+  return (
+    !("source_anchor" in entity) ||
+    isValidSourceAnchor(entity.source_anchor)
+  );
+}
+
+/**
+ * note: full schema-declared `Relation` field set — required members plus
+ * every optional member's declared JSON kind. Unknown extra keys are
+ * tolerated (Rust serde typed-decode parity of the declared members).
+ */
+function isValidRelationDeep(entity: Record<string, unknown>): boolean {
+  return (
+    matchesShape(entity, RELATION_SHAPE) &&
+    isValidExtensionMap(entity.extensions) &&
+    matchesOptionalFields(entity, RELATION_OPTIONAL_FIELDS)
+  );
+}
+
+/**
+ * note: strict `history.revisions.*` success shapes (spoke-history
+ * contract §Connect operations): get requires a present `snapshot` member
+ * decoding as `RevisionSnapshot`; prune requires `deleted` integer ≥ 0
+ * and a present, nullable `floor_revision`. Malformed values fail the
+ * gate → `INTERNAL_ERROR` transport decode, never `Ok`.
+ */
+function isValidHistorySuccessPayload(op: string, value: unknown): boolean {
+  if (op === "history.revisions.get") {
+    return (
+      isRecord(value) &&
+      "snapshot" in value &&
+      isValidRevisionSnapshot(value.snapshot)
+    );
+  }
+  return (
+    isRecord(value) &&
+    isExactNonNegativeInteger(value.deleted) &&
+    "floor_revision" in value &&
+    (value.floor_revision === null ||
+      isExactNonNegativeInteger(value.floor_revision))
+  );
+}
+
 export function isValidSuccessPayload(op: string, value: unknown): boolean {
+  if (op === "history.revisions.get" || op === "history.revisions.prune") {
+    return isValidHistorySuccessPayload(op, value);
+  }
   const shape = SUCCESS_SHAPES[op];
   if (shape === undefined) {
     return true;

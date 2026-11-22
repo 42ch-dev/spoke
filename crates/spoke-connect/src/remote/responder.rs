@@ -635,6 +635,44 @@ fn map_result<T: Serialize>(result: SpokeResult<T>) -> SpokeResult<Value> {
     }
 }
 
+/// §14.2/§14.3, history face: the serve budget expired AFTER the history
+/// service was invoked, so the transport has no evidence that nothing
+/// committed — a prune may have applied. The response says the outcome is
+/// unknown instead of claiming a clean failure; provider work is neither
+/// cancelled nor rolled back by this end, and the settled prune is still
+/// recorded by the service dedup so a same-key replay recovers it
+/// (spoke-history contract §9.1).
+fn history_uncertain_reject(budget: Duration) -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("timeout".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: format!(
+            "history serve wait exceeded the local budget of {}ms; the outcome is unknown — replay the same idempotency key",
+            budget.as_millis()
+        ),
+        details: Some(details),
+    }
+}
+
+/// §14.2/§14.3: the detached history invoke panicked (or otherwise
+/// dropped its result channel) AFTER invocation, so the transport has no
+/// evidence that nothing committed — a clean `INTERNAL_ERROR` would
+/// assert no-effect. The response says the outcome is unknown instead
+/// (same containment as the memory panic path).
+fn history_panic_uncertain_reject() -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("panic".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: "history service failed after invocation; the outcome is unknown — replay the same idempotency key"
+            .to_string(),
+        details: Some(details),
+    }
+}
+
 /// A parked reverse invoke: correlation material + the waiter channel + the
 /// timeout task (mirror of the adapter's `PendingInvoke`).
 struct PendingReverseInvoke {
@@ -1249,8 +1287,8 @@ impl ConnectResponder {
     /// Dispatch phase — runs after the serialized gate; may interleave with
     /// other invokes. Fully contained: a throwing/panicking handler answers
     /// the error branch and never crashes the loop.
-    async fn dispatch_invoke(self: &Arc<Self>, doc: Value) {
-        if let Err(error) = self.try_dispatch_invoke(&doc).await {
+    async fn dispatch_invoke(self: &Arc<Self>, mut doc: Value) {
+        if let Err(error) = self.try_dispatch_invoke(&mut doc).await {
             // Unexpected serving failure (e.g. non-JSON-serializable handler
             // result): answer the error branch so the invoker never hangs,
             // and never crash the loop.
@@ -1266,7 +1304,7 @@ impl ConnectResponder {
     }
 
     /// Contained dispatch body (see [`ConnectResponder::dispatch_invoke`]).
-    async fn try_dispatch_invoke(&self, doc: &Value) -> Result<(), ResponderError> {
+    async fn try_dispatch_invoke(&self, doc: &mut Value) -> Result<(), ResponderError> {
         let negotiated = {
             let session_guard = self.session.lock().expect("session lock");
             let Some(session) = session_guard.as_ref() else {
@@ -1289,12 +1327,13 @@ impl ConnectResponder {
         // against `negotiated_capabilities` (never a raw requirements-map
         // composition, which would deny the self-describing tools family).
         if !self.gate_allows(op, &negotiated) {
-            // A `memory.*` op with a core-table row is a capability gap: the
-            // gate evaluates negotiated capabilities only, so a known op that
-            // was not negotiated answers `capability_missing` (protocol §4.1).
+            // A `memory.*` or `history.*` op with a core-table row is a
+            // capability gap: the gate evaluates negotiated capabilities
+            // only, so a known op that was not negotiated answers
+            // `capability_missing` (protocol §4.1 / spoke-history contract).
             // An op with no row at all stays `op_unsupported`.
-            let memory_deny = op.starts_with("memory.");
-            let code = if memory_deny && required_capability(op).is_some() {
+            let core_gated_deny = op.starts_with("memory.") || op.starts_with("history.");
+            let code = if core_gated_deny && required_capability(op).is_some() {
                 "capability_missing"
             } else {
                 "op_unsupported"
@@ -1302,7 +1341,8 @@ impl ConnectResponder {
             // §14.2: every memory-boundary denial — a known op missing its
             // capability and an op with no row at all — is classified
             // `terminal`, so the wire code choice never drops the metadata.
-            let memory_details = memory_deny.then(memory_terminal_details);
+            // History denials carry no extra details.
+            let memory_details = op.starts_with("memory.").then(memory_terminal_details);
             self.send_reverse_error_envelope(
                 doc,
                 code,
@@ -1320,6 +1360,20 @@ impl ConnectResponder {
         // [`RemoteMemoryService`](crate::remote::RemoteMemoryService) face.
         if op.starts_with("memory.") {
             self.dispatch_memory_invoke(doc, &negotiated).await?;
+            return Ok(());
+        }
+        // `history.*` ops are served by the optional injected
+        // `RemoteHistoryService` face (spoke-history contract): the same
+        // gate → probe → serve/deny order as `memory.*`.
+        if op.starts_with("history.") {
+            // The service owns the request Value: extract the payload
+            // member instead of cloning the whole request tree. The
+            // invoke echo never reads `payload` back.
+            let payload = doc
+                .get_mut("payload")
+                .map(Value::take)
+                .unwrap_or_else(|| json!({}));
+            self.dispatch_history_invoke(doc, payload, &negotiated).await?;
             return Ok(());
         }
         // `extract` is a core op served by an optional injected service
@@ -1700,6 +1754,143 @@ impl ConnectResponder {
                 serve_timeout_reject(self.invoke_timeout)
             } else {
                 memory_uncertain_reject(self.invoke_timeout)
+            };
+            self.send_reverse_error_envelope(
+                doc,
+                reject.code.as_str(),
+                &reject.message,
+                reject.details.as_ref(),
+            )
+            .await?;
+            return Ok(());
+        };
+        match result {
+            SpokeResult::Ok(value) => self.send_ok_response(doc, value).await?,
+            SpokeResult::Reject(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Serve a `history.*` invoke through the injected
+    /// [`RemoteHistoryService`](crate::remote::RemoteHistoryService) face
+    /// (spoke-history contract §Connect operations). The static capability
+    /// gate already passed in
+    /// [`ConnectResponder::try_dispatch_invoke`] — a known history op that
+    /// was not negotiated never reaches here (`capability_missing`). The
+    /// serving order mirrors the `memory.*` branch: cognition gate →
+    /// `as_history` probe → bounded service invoke → response envelope.
+    /// The service owns the closed request decode, peer admission,
+    /// effective-scope resolution and prune dedup; an absent face is the
+    /// documented dispatch-deny branch (the host declared `spoke-history`
+    /// without providing the service).
+    ///
+    /// The serve bound matches the `memory.*` ops: a zero budget answers
+    /// the plain timeout without invoking the service at all, while
+    /// expiry AFTER invocation means the admitted mutation may have
+    /// committed — that is `OUTCOME_UNCERTAIN`/`uncertain`
+    /// (§14.2/§14.3), recoverable through the service's recorded-outcome
+    /// dedup, never a clean internal error or a silent re-execution. The
+    /// service task keeps running past the deadline so a settling prune
+    /// still records its outcome.
+    async fn dispatch_history_invoke(
+        &self,
+        doc: &Value,
+        payload: Value,
+        negotiated: &[String],
+    ) -> Result<(), ResponderError> {
+        let Some(op) = doc.get("op").and_then(Value::as_str) else {
+            // Defensive: the dispatch gate routes only string ops here — a
+            // non-string op means a caller bypassed it. Fail closed instead
+            // of silently swallowing the invoke.
+            self.send_reverse_error_envelope(
+                doc,
+                SpokeRejectCode::InvalidInput.as_str(),
+                "invalid history invoke: op must be a string",
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // Payload-dependent cognition gate on the extracted payload: the
+        // history request `scope` carries the `Scope.cognition` selection
+        // slot, so a declared requirement needs `spoke-cognition`
+        // negotiated before the probe and any provider call.
+        if !self
+            .serve_cognition_gate(doc, &payload, negotiated, op)
+            .await?
+        {
+            return Ok(());
+        }
+        let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_history()) else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no history service configured for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // The admitted principal/scope derive from the authenticated
+        // session peer, never from the payload (MEM-R003; contract
+        // §Authorization).
+        let Some(peer_id) = self.remote_peer_id() else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no authenticated peer for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // Same serve bound as `memory.*`: a zero budget rejects before the
+        // service is invoked (the baseline serve-timeout rejection
+        // stands). A non-zero budget that expires AFTER invocation means
+        // the mutation may have committed: that is `OUTCOME_UNCERTAIN`,
+        // not a clean internal error. The admitted invoke is detached
+        // from the response deadline (spawned, matching the TS path's
+        // uncancellable promise): expiry answers the budget, it never
+        // cancels the provider task, and the dedup store still records
+        // the settled outcome for a same-key replay to recover.
+        let zero_budget = self.invoke_timeout.is_zero();
+        let bounded = if zero_budget {
+            None
+        } else {
+            let service = Arc::clone(&service);
+            let peer_id = peer_id.clone();
+            let op = op.to_string();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let _ = tx.send(service.invoke(&peer_id, &op, payload).await);
+            });
+            match tokio::time::timeout(self.invoke_timeout, rx).await {
+                Ok(Ok(result)) => Some(result),
+                // The detached task sends exactly once before dropping the
+                // sender; a receive failure means it panicked AFTER
+                // admission, so — like a budget expiry — the transport
+                // cannot assert no-effect (§14.3): answer uncertain,
+                // never a clean internal error.
+                Ok(Err(_)) => Some(SpokeResult::Reject(history_panic_uncertain_reject())),
+                Err(_) => None,
+            }
+        };
+        if self.state() == ConnectResponderState::Closed {
+            return Ok(());
+        }
+        let Some(result) = bounded else {
+            let reject = if zero_budget {
+                serve_timeout_reject(self.invoke_timeout)
+            } else {
+                history_uncertain_reject(self.invoke_timeout)
             };
             self.send_reverse_error_envelope(
                 doc,

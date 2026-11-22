@@ -149,6 +149,11 @@ export type { GrantRequirement, IssuedGrant } from "./memory/grants.js";
 export { jcsSha256Hex, jcsSha256HexExcluding } from "./memory/digests.js";
 
 export {
+  revisionSnapshotsEqualCanonical,
+  type HistoryPruneResult,
+} from "./history.js";
+
+export {
   SpokeRejectCode,
   spokeOk,
   spokeReject,
@@ -183,6 +188,8 @@ export type {
   OpaqueJson,
   MemoryPort,
   MemoryPorts,
+  HistoryPort,
+  HistoryPorts,
 } from "./adapter/ports.js";
 
 export {

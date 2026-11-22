@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/history-revisions-prune-request.schema.json",
+  "title": "HistoryRevisionsPruneRequest",
+  "description": "Explicit history pruning for one (scope, entity_kind, entity_id) target (spoke-history). Retains the newest keep checkpoints (the live row is not a checkpoint and never consumes keep); no write path prunes implicitly. Requires the negotiated spoke-history capability. Authorization is exactly the entity write (put) permission in the same scope — no history_admin grant, no history-specific refusal code. Mutating op: idempotency_key is required at the wire level (absent answers INVALID_INPUT); dedup namespace (scope, requester_principal_id, op, idempotency_key); same-key different-digest answers IDEMPOTENCY_CONFLICT; replay against an evicted outcome answers RECEIPT_EXPIRED.",
+  "type": "object",
+  "required": [
+    "entity_kind",
+    "entity_id",
+    "keep",
+    "idempotency_key"
+  ],
+  "properties": {
+    "entity_kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Open kind selector. Core vocabulary (documented, not enforced): knowledge_entry, relation."
+    },
+    "entity_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque entity id within scope."
+    },
+    "keep": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of newest checkpoints to retain, excluding the live row."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Caller-chosen, 1-128 characters; unique within the dedup namespace (scope, requester_principal_id, op, idempotency_key).",
+      "title": "IdempotencyKey"
+    },
+    "scope": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Scope",
+      "description": "Scope in which entity lookup and write authorization are evaluated; also the effective scope selector in the dedup namespace."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "entity_kind": "knowledge_entry",
+      "entity_id": "ke_mira_harbor",
+      "keep": 2,
+      "idempotency_key": "hist-prune-2026-11-23T10:00Z"
+    }
+  ]
+}

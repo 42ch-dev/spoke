@@ -1,0 +1,252 @@
+{
+  "id": "canonical-snapshot",
+  "title": "Canonical RevisionSnapshot replay — envelope/nested revision equality, presence, round-trip",
+  "protocol_refs": [
+    "§RevisionSnapshot",
+    "§Connect operations"
+  ],
+  "cases": [
+    {
+      "id": "canonical-nested-revision-equality",
+      "invariant": "§RevisionSnapshot",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a replayed snapshot carries the nested entity revision equal to the envelope revision and passes both decode boundaries",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_mira_harbor",
+            "checkpoints": [3],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_mira_harbor",
+              "revision": 3,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_mira_harbor",
+                "entry_type": "character",
+                "canonical_name": "Mira",
+                "status": "confirmed",
+                "revision": 3,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_mira_harbor",
+        "revision": 3
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          { "path": "snapshot.revision", "equals": 3 },
+          { "path": "snapshot.snapshot.revision", "equals": 3 },
+          { "path": "snapshot.snapshot.entry_id", "equals": "ke_mira_harbor" }
+        ],
+        "canonical_equal": { "path": "snapshot", "from": "stored_snapshot" },
+        "provider_calls": 1
+      }
+    },
+    {
+      "id": "canonical-presence-empty-members",
+      "invariant": "§RevisionSnapshot",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "explicitly-present empty members (modules {}, body.tags [], body.state {}, body.attributes []) survive replay byte-identically under RFC 8785",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_presence",
+            "checkpoints": [2],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_presence",
+              "revision": 2,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_presence",
+                "entry_type": "note",
+                "canonical_name": "presence-fixture",
+                "status": "confirmed",
+                "revision": 2,
+                "body": { "tags": [], "state": {}, "attributes": [] },
+                "modules": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_presence",
+        "revision": 2
+      },
+      "expect": {
+        "success": true,
+        "present": [
+          "snapshot.snapshot.modules",
+          "snapshot.snapshot.body.tags",
+          "snapshot.snapshot.body.state",
+          "snapshot.snapshot.body.attributes"
+        ],
+        "state": [
+          { "path": "snapshot.snapshot.modules", "equals": {} },
+          { "path": "snapshot.snapshot.body.tags", "equals": [] },
+          { "path": "snapshot.snapshot.body.state", "equals": {} },
+          { "path": "snapshot.snapshot.body.attributes", "equals": [] }
+        ],
+        "canonical_equal": { "path": "snapshot", "from": "stored_snapshot" }
+      }
+    },
+    {
+      "id": "canonical-extensions-round-trip",
+      "invariant": "§RevisionSnapshot",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "unknown extension namespaces on both the envelope and the entity round-trip unchanged",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_ext",
+            "checkpoints": [7],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_ext",
+              "revision": 7,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_ext",
+                "entry_type": "note",
+                "canonical_name": "ext-fixture",
+                "status": "confirmed",
+                "revision": 7,
+                "body": { "summary": "carried" },
+                "extensions": { "vendor_alpha": { "nested": [1, 2], "flag": true } }
+              },
+              "extensions": { "vendor_beta": { "signature": "deadbeef" } }
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_ext",
+        "revision": 7
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          { "path": "snapshot.extensions.vendor_beta.signature", "equals": "deadbeef" },
+          { "path": "snapshot.snapshot.extensions.vendor_alpha.flag", "equals": true }
+        ],
+        "canonical_equal": { "path": "snapshot", "from": "stored_snapshot" }
+      }
+    },
+    {
+      "id": "canonical-relation-snapshot",
+      "invariant": "§RevisionSnapshot",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "the relation kind binds the Relation snapshot variant and replays its envelope intact",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "relation",
+            "entity_id": "rel_mira_harbor",
+            "checkpoints": [4],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "relation",
+              "entity_id": "rel_mira_harbor",
+              "revision": 4,
+              "snapshot": {
+                "schema_version": 1,
+                "relation_id": "rel_mira_harbor",
+                "relation_type": "anchored_at",
+                "from_id": "ke_mira_harbor",
+                "to_id": "ke_harbor_dawn",
+                "label": "anchored at",
+                "revision": 4,
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "relation",
+        "entity_id": "rel_mira_harbor",
+        "revision": 4
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          { "path": "snapshot.snapshot.relation_id", "equals": "rel_mira_harbor" },
+          { "path": "snapshot.snapshot.revision", "equals": 4 }
+        ],
+        "canonical_equal": { "path": "snapshot", "from": "stored_snapshot" }
+      }
+    },
+    {
+      "id": "canonical-member-order-insensitive",
+      "invariant": "§RevisionSnapshot",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "two providers producing the same snapshot at the same revision produce identical RFC 8785 bytes regardless of member order",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_reorder",
+            "checkpoints": [1],
+            "stored_snapshot": {
+              "extensions": {},
+              "snapshot": {
+                "extensions": {},
+                "body": { "summary": "reordered" },
+                "status": "confirmed",
+                "revision": 1,
+                "canonical_name": "reorder-fixture",
+                "entry_type": "note",
+                "entry_id": "ke_reorder",
+                "schema_version": 1
+              },
+              "revision": 1,
+              "entity_id": "ke_reorder",
+              "entity_kind": "knowledge_entry",
+              "schema_version": 1
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_reorder",
+        "revision": 1
+      },
+      "expect": {
+        "success": true,
+        "canonical_equal": { "path": "snapshot", "from": "stored_snapshot" }
+      }
+    }
+  ]
+}

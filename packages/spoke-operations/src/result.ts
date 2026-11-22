@@ -61,6 +61,13 @@ export const SpokeRejectCode = {
   RECEIPT_EXPIRED: "RECEIPT_EXPIRED",
   /** note: Pagination cursor invalidated by state or grant change (§7.0.7). */
   CURSOR_INVALID: "CURSOR_INVALID",
+  // note: History-family vocabulary (spoke-history contract §Refusal vocabulary).
+  /** note: The requested revision existed below the current retained floor and its checkpoint history was discarded (details.floor_revision). */
+  HISTORY_TRUNCATED: "HISTORY_TRUNCATED",
+  /** note: The request passed the spoke-history connect gate, but the host does not serve the requested entity_kind (details.entity_kind). */
+  HISTORY_ENTITY_UNSUPPORTED: "HISTORY_ENTITY_UNSUPPORTED",
+  /** note: The requested revision is at or above the floor but cannot be reconstructed — an implementation-declared retention gap (details.retention_reason). */
+  HISTORY_NOT_RETAINED: "HISTORY_NOT_RETAINED",
 } as const;
 
 export type SpokeRejectCode =

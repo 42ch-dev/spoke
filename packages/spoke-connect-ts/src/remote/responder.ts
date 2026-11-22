@@ -114,8 +114,10 @@ import {
   isConnectInvokeRequest,
   isConnectInvokeResponse,
 } from "./guards.js";
+import type { RemoteHistoryService } from "./serve_ports.js";
 import type { RemoteIdentity, ToolHandler } from "./remote-adapter.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
+
 
 const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
 
@@ -289,7 +291,7 @@ export function scopeOpRequiresOwnershipCapability(
   return typeof viewpoint === "string" && viewpoint.length > 0;
 }
 
-function isJsonObject(value: unknown): value is Record<string, unknown> {
+export function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -423,8 +425,8 @@ function isStringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-/** note: structural decode/validate for a declared Scope (mirrors Rust `Scope::deserialize`). */
-function validateDeclaredScope(scope: Record<string, unknown>): string | null {
+/** note: structural decode/validate for a declared Scope (mirrors Rust `Scope::deserialize`); exported for the history serving face (`serve_ports.ts`). */
+export function validateDeclaredScope(scope: Record<string, unknown>): string | null {
   for (const key of Object.keys(scope)) {
     if (!SCOPE_WIRE_KEYS.has(key)) {
       return `unknown property \`${key}\` at scope`;
@@ -746,6 +748,24 @@ export interface RemoteMemoryService {
 }
 
 /**
+ * Remote-only history service seam (spoke-history contract §Connect
+ * operations): the serving face a responder host attaches to answer the
+ * two `history.*` ops. It owns peer admission, effective-scope
+ * resolution, and prune deduplication — the connect idempotency envelope
+ * and the closed request decode never reach the provider `HistoryPort`
+ * (spoke-history contract §9.1). Re-exported from `serve_ports.ts`, which
+ * also ships `HistoryPortService` adapting a provider port to this seam
+ * (mirroring `RemoteMemoryService` / `MemoryPortService`; Rust parity:
+ * `RemoteServePorts::as_history`).
+ */
+export type {
+  HistoryAdmission,
+  HistoryCall,
+  HistoryDedupStore,
+  RemoteHistoryService,
+} from "./serve_ports.js";
+
+/**
  * The knowledge serving face: a scoped store plus per-peer admission.
  * `admission(peerId)` returns the peer's admitted `Scope` or rejects —
  * the responder then serves only inside that admitted scope; the wire
@@ -766,6 +786,15 @@ export interface RemoteKnowledgeFace {
 export interface RemoteServePorts {
   baseline?: BaselinePorts;
   knowledge?: RemoteKnowledgeFace;
+  /**
+   * note: optional `spoke-history` service face (revision replay +
+   * explicit pruning with dedup), when provided — attach a provider
+   * `HistoryPort` via `HistoryPortService` (`serve_ports.ts`). Absent
+   * means the host declared `spoke-history` without providing the
+   * service — a `None` probe answers the documented `op_unsupported`
+   * dispatch-deny branch (Rust parity: `RemoteServePorts::as_history`).
+   */
+  asHistory?: () => RemoteHistoryService | undefined;
 }
 
 /** Knowledge-only serve ports: no baseline face, so `assemble` and every other baseline op stays denied. */
@@ -1519,26 +1548,30 @@ export class ConnectResponder {
       // `negotiated_capabilities` (never a raw requirements-map composition,
       // which would deny the self-describing tools family).
       if (!this.#gateAllows(doc.op, session)) {
-        // note: a known `memory.*` op is a capability gap (protocol §4.1) — the gate
-        // evaluates negotiated capabilities only, so an op with a dispatch row
-        // that was not negotiated answers `capability_missing`. An op with no
+        // note: a known `memory.*` or `history.*` op is a capability gap
+        // (protocol §4.1 / spoke-history contract) — the gate evaluates
+        // negotiated capabilities only, so an op with a dispatch row that
+        // was not negotiated answers `capability_missing`. An op with no
         // row at all stays `op_unsupported`.
         const memoryBoundary = doc.op.startsWith("memory.");
-        const memoryDeny =
-          memoryBoundary && requiredCapability(doc.op) !== undefined;
+        const coreGatedDeny =
+          memoryBoundary || doc.op.startsWith("history.");
+        const deny = coreGatedDeny && requiredCapability(doc.op) !== undefined;
         await this.#sendReverseErrorEnvelope(doc, {
-          code: memoryDeny ? "capability_missing" : "op_unsupported",
+          code: deny ? "capability_missing" : "op_unsupported",
           message: `op ${doc.op} is not authorized by this session`,
           extensions: {},
           // note: §14.2 — every memory-boundary denial (known or unknown op) is
           // classified `terminal`, so the code choice never drops the metadata.
+          // History denials carry no extra details.
           ...(memoryBoundary ? { details: { retry_class: "terminal" } } : {}),
         });
         return;
       }
-      // note: the payload-dependent cognition gate lives inside the two
+      // note: the payload-dependent cognition gate lives inside the three
       // cognition-carrying branches (`#dispatchPortInvoke` /
-      // `#dispatchMemoryInvoke`), after their own op/ownership denials and
+      // `#dispatchMemoryInvoke` / `#dispatchHistoryInvoke`), after their own
+      // op/ownership denials and
       // before any typed decode, provider probe or handler call: a tool's
       // arguments or an unrelated product payload never reach it.
       if (doc.op === "extract") {
@@ -1551,6 +1584,13 @@ export class ConnectResponder {
       }
       if (doc.op.startsWith("memory.")) {
         await this.#dispatchMemoryInvoke(doc);
+        return;
+      }
+      // note: `history.*` ops are served by the optional injected
+      // `RemoteHistoryService` face (spoke-history contract) — the same
+      // gate → probe → serve/deny order as the optional `port.*` families.
+      if (doc.op.startsWith("history.")) {
+        await this.#dispatchHistoryInvoke(doc);
         return;
       }
       await this.#dispatchPortInvoke(doc);
@@ -1918,6 +1958,103 @@ export class ConnectResponder {
       await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
       return;
     }
+    await this.#sendOkResponse(doc, result.value);
+  }
+
+  /**
+   * note: serve a `history.*` invoke through the optional injected
+   * `RemoteHistoryService` face (spoke-history contract §Connect
+   * operations). The static capability gate already passed in
+   * `#dispatchInvoke` — a known history op that was not negotiated never
+   * reaches here (`capability_missing`). The serving order mirrors the
+   * `memory.*` branch: cognition gate → `asHistory` probe → bounded
+   * service invoke → response envelope. The service owns the closed
+   * request decode, peer admission, effective-scope resolution and prune
+   * dedup; an absent face is the documented dispatch-deny branch (the
+   * host declared `spoke-history` without providing the service).
+   *
+   * The serve bound matches the `memory.*` ops: a zero budget answers the
+   * plain timeout without invoking the service at all, while expiry AFTER
+   * invocation means the admitted mutation may have committed — that is
+   * `OUTCOME_UNCERTAIN`/`uncertain` (§14.2/§14.3), recoverable through the
+   * recorded-outcome dedup, never a clean internal error or a silent
+   * re-execution. The service promise keeps running past the deadline so
+   * a settling prune still records its outcome.
+   */
+  async #dispatchHistoryInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const session = this.#session;
+    if (session === null) {
+      return;
+    }
+    // note: payload-dependent cognition gate on the raw payload: the history
+    // request `scope` carries the `Scope.cognition` selection slot, so a
+    // declared requirement needs `spoke-cognition` negotiated before the
+    // probe and any provider call.
+    if (
+      !(await this.#cognitionGate(
+        doc,
+        isJsonObject(doc.payload) ? doc.payload : {},
+        session.negotiated_capabilities,
+      ))
+    ) {
+      return;
+    }
+    const history = this.#ports?.asHistory?.();
+    if (history === undefined) {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "op_unsupported",
+        message: `no history service configured for op ${doc.op}`,
+        extensions: {},
+      });
+      return;
+    }
+    // invariant: the admitted principal/scope derive from the authenticated
+    // session peer, never from the payload (MEM-R003; contract
+    // §Authorization).
+    const peerId = this.remotePeerId;
+    // note: a zero budget rejects before the service is invoked (plain
+    // timeout, no dedup key reserved). A non-zero budget expiring AFTER
+    // invocation answers the uncertain outcome identically to the memory
+    // ops — the invoked service is left running; nothing here claims
+    // cancellation or rollback of provider work.
+    const uncertainOnExpiry =
+      this.#invokeTimeoutMs === 0
+        ? undefined
+        : spokeReject(
+            SpokeRejectCode.OUTCOME_UNCERTAIN,
+            `history serve wait exceeded the local budget of ${this.#invokeTimeoutMs}ms; the outcome is unknown — replay the same idempotency key`,
+            { retry_class: "uncertain", kind: "timeout" },
+          );
+    let result: SpokeResult<unknown>;
+    try {
+      result = await this.#withServeBudget(
+        () => history.invoke(peerId, doc.op, doc.payload),
+        uncertainOnExpiry,
+      );
+    } catch (error) {
+      // why: the service threw or rejected AFTER invocation, so the transport
+      // has no evidence that nothing committed (§14.3): answer uncertain —
+      // the same containment as a provider panic on the memory path —
+      // never a clean internal error.
+      result = spokeReject(
+        SpokeRejectCode.OUTCOME_UNCERTAIN,
+        `history service failed after invocation: ${
+          error instanceof Error ? error.message : String(error)
+        }; the outcome is unknown — replay the same idempotency key`,
+        { retry_class: "uncertain", kind: "panic" },
+      );
+    }
+    // note: a close during the bounded wait answers nothing afterwards.
+    if (this.#stateInternal === "Closed") {
+      return;
+    }
+    if (!result.ok) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
+      return;
+    }
+    // note: the service returns the op's response object verbatim —
+    // `history.revisions.get` wraps the snapshot under `snapshot`, prune
+    // serializes `HistoryPruneResult` (`{ deleted, floor_revision }`).
     await this.#sendOkResponse(doc, result.value);
   }
 

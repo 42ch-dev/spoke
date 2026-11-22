@@ -56,6 +56,14 @@ export const CAPABILITY_SPOKE_MEMORY_TRANSFER = "spoke-memory-transfer";
 export const CAPABILITY_SPOKE_COGNITION = "spoke-cognition";
 
 /**
+ * Optional capability: required by the history family core ops
+ * (`history.revisions.get` / `history.revisions.prune`, spoke-history
+ * contract §Connect operations). Dispatch requires exact `spoke-history`
+ * membership — neither `spoke-baseline` nor `spoke-knowledge` satisfies it.
+ */
+export const CAPABILITY_SPOKE_HISTORY = "spoke-history";
+
+/**
  * Wire spelling of a dispatch-layer validation verdict (consumer contract
  * §2.2). The ops protocol spells the same internal code `INVALID_INPUT` on
  * its envelopes; a rejection taken at the pre-handler boundary carries this
@@ -125,6 +133,11 @@ export function requiredCapability(op: string): string | undefined {
     case "memory.reflections.list":
     case "memory.reflections.generate":
       return CAPABILITY_SPOKE_MEMORY_REFLECTION;
+    // note: history family (spoke-history contract §Connect operations): two
+    // rows, exact `spoke-history` membership — no other flag implies it.
+    case "history.revisions.get":
+    case "history.revisions.prune":
+      return CAPABILITY_SPOKE_HISTORY;
     case "memory.exports.create":
     case "memory.exports.get":
     case "memory.imports.stage":
@@ -196,6 +209,8 @@ const SCOPE_COGNITION_OPS: Record<string, true> = {
   "port.scope.list_knowledge_entries": true,
   "port.scope.list_timeline_events": true,
   "port.fork.list_timeline_events": true,
+  "history.revisions.get": true,
+  "history.revisions.prune": true,
 };
 
 /**

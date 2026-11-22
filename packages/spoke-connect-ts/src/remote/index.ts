@@ -14,6 +14,7 @@
 
 export {
   connectRemoteAdapter,
+  HISTORY_OPS,
   MEMORY_OPS,
   RemoteAdapter,
 } from "./remote-adapter.js";
@@ -32,11 +33,22 @@ export {
 export type {
   ConnectResponderOptions,
   ConnectResponderState,
+  HistoryAdmission,
+  HistoryCall,
+  HistoryDedupStore,
   RemoteExtractService,
   RemoteKnowledgeFace,
+  RemoteHistoryService,
   RemoteMemoryService,
   RemoteServePorts,
 } from "./responder.js";
+export {
+  decodeHistoryCall,
+  HISTORY_OP_GET,
+  HISTORY_OP_PRUNE,
+  HistoryPortService,
+  InMemoryHistoryDedupStore,
+} from "./serve_ports.js";
 
 export { connectMultiPeerRouter, MultiPeerRouter } from "./multi-peer-router.js";
 export type {

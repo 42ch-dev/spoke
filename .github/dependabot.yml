@@ -15,3 +15,12 @@ updates:
     directory: "/tooling/codegen/rust-gen"
     schedule:
       interval: weekly
+    ignore:
+      # typify renders the token stream that src/main.rs normalizes, and no CI
+      # job compiles rust-gen, so a green bump can still break `pnpm run
+      # codegen`. Upgrade it by hand: migrate src/main.rs, the fixtures, and
+      # regenerate the committed tree in the same change.
+      - dependency-name: "typify"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"

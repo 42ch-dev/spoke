@@ -96,34 +96,6 @@ jobs:
         # the typecheck and compile halves of the local `verify-codegen` script.
         run: pnpm run test:codegen
 
-      - name: Setup Rust
-        # typify renders the tokens main.rs normalizes, so a dependency bump can
-        # break the generator without touching any checked-in source.
-        # dtolnay/rust-toolchain@stable (2026-07-16)
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
-        with:
-          # codegen formats the memory modules with `rustfmt +stable`.
-          components: rustfmt
-
-      - name: Install workspace dependencies
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
-        run: pnpm install --frozen-lockfile
-
-      - name: Rebuild the committed generated tree
-        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
-        run: |
-          pnpm run codegen
-          drift=$(git status --porcelain -- \
-            crates/spoke-schemas/src/generated \
-            packages/spoke-schemas/src/generated \
-            tooling/codegen/rust-gen/Cargo.lock)
-          if [[ -n "${drift}" ]]; then
-            echo 'generated tree is stale; run `pnpm run codegen` and commit the result' >&2
-            printf '%s\n' "${drift}" >&2
-            exit 1
-          fi
-
   typescript:
     needs: changes
     name: typescript

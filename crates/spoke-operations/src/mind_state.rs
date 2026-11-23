@@ -6,10 +6,8 @@
 
 use crate::result::{spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
 use serde_json::{json, Map, Value};
+use spoke_schemas::integers::SCHEMA_VERSION_MAX;
 use spoke_schemas::timestamp::parse_strict;
-
-/// SchemaVersion domain: `[1, 2^53-1]`, exact in both stacks.
-const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
 
 const MIND_STATE_KEYS: [&str; 13] = [
     "schema_version",
@@ -137,7 +135,7 @@ pub fn validate_mind_state(value: &Value) -> SpokeResult<()> {
         Some(version) => {
             version >= 1.0
                 && version.fract() == 0.0
-                && version <= MAX_SCHEMA_VERSION as f64
+                && version <= SCHEMA_VERSION_MAX as f64
         }
         None => false,
     };

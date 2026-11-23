@@ -2,14 +2,12 @@
 
 use crate::occ::assert_revision_match;
 use crate::result::{spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
-use crate::util::{validate_anchor_schema_versions, MAX_SCHEMA_VERSION};
+use crate::util::validate_anchor_schema_versions;
 use serde_json::{json, Map, Value};
+use spoke_schemas::integers::{REVISION_MAX, SCHEMA_VERSION_MAX};
 use spoke_schemas::knowledge_entry::KnowledgeEntry;
 
 const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
-
-/// The inclusive revision domain (`[0, 2^53]`), exact in the two stacks.
-const MAX_REVISION: u64 = 1 << 53;
 
 /// Explicit upsert path when caller supplies stored presence separately from inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,7 +40,7 @@ impl Default for ValidateUpsertKnowledgeEntryContext<'_> {
 
 fn validate_required_knowledge_entry_fields(candidate: &KnowledgeEntry) -> SpokeResult<()> {
     let schema_version = candidate.schema_version.get();
-    if schema_version < 1 || schema_version > MAX_SCHEMA_VERSION {
+    if schema_version < 1 || schema_version > SCHEMA_VERSION_MAX {
         let mut details = Map::new();
         details.insert("schema_version".into(), json!(schema_version));
         return spoke_reject(
@@ -158,7 +156,7 @@ fn validate_update_path(candidate: &KnowledgeEntry, stored: &KnowledgeEntry) -> 
         );
     };
 
-    if revision > MAX_REVISION {
+    if revision > REVISION_MAX {
         let mut details = Map::new();
         details.insert("revision".into(), json!(revision));
         return spoke_reject(
@@ -327,7 +325,7 @@ mod tests {
     fn enforces_schema_version_and_revision_ceilings() {
         let candidate = make_knowledge_entry(|entry| {
             entry.entry_id = "kb_new".into();
-            entry.schema_version = NonZeroU64::new(MAX_SCHEMA_VERSION).unwrap();
+            entry.schema_version = NonZeroU64::new(SCHEMA_VERSION_MAX).unwrap();
         });
         assert!(validate_upsert_knowledge_entry(
             &candidate,
@@ -337,7 +335,7 @@ mod tests {
 
         let candidate = make_knowledge_entry(|entry| {
             entry.entry_id = "kb_new".into();
-            entry.schema_version = NonZeroU64::new(MAX_SCHEMA_VERSION + 1).unwrap();
+            entry.schema_version = NonZeroU64::new(SCHEMA_VERSION_MAX + 1).unwrap();
         });
         assert!(validate_upsert_knowledge_entry(
             &candidate,
@@ -349,11 +347,11 @@ mod tests {
         // first value above it is refused.
         let stored = make_knowledge_entry(|entry| {
             entry.entry_id = "kb_1".into();
-            entry.revision = Some(MAX_REVISION);
+            entry.revision = Some(REVISION_MAX);
         });
         let candidate = make_knowledge_entry(|entry| {
             entry.entry_id = "kb_1".into();
-            entry.revision = Some(MAX_REVISION);
+            entry.revision = Some(REVISION_MAX);
         });
         assert!(validate_upsert_knowledge_entry(
             &candidate,
@@ -366,7 +364,7 @@ mod tests {
 
         let candidate = make_knowledge_entry(|entry| {
             entry.entry_id = "kb_1".into();
-            entry.revision = Some(MAX_REVISION + 1);
+            entry.revision = Some(REVISION_MAX + 1);
         });
         assert!(validate_upsert_knowledge_entry(
             &candidate,
@@ -407,11 +405,11 @@ mod tests {
                 serde_json::from_value::<KnowledgeEntry>(wire)
             };
             assert!(
-                decode(MAX_SCHEMA_VERSION).is_ok(),
+                decode(SCHEMA_VERSION_MAX).is_ok(),
                 "{field} schema_version 2^53-1 must decode"
             );
             assert!(
-                decode(MAX_SCHEMA_VERSION + 1).is_err(),
+                decode(SCHEMA_VERSION_MAX + 1).is_err(),
                 "{field} schema_version 2^53 must be refused at decode"
             );
         }

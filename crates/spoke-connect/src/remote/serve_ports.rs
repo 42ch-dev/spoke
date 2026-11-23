@@ -46,6 +46,7 @@ use spoke_operations::{
     SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::data::revision_snapshot::RevisionSnapshotSnapshot;
+use spoke_schemas::integers::SCHEMA_VERSION_MAX;
 use spoke_schemas::{
     ExtractRequest, ExtractResponse, HistoryRevisionsGetRequest, HistoryRevisionsPruneRequest,
     KnowledgeAdoptRequest, KnowledgeAdoptResponse, Principal, RevisionSnapshot, Scope,
@@ -571,19 +572,12 @@ fn decode_history_call(op: &str, payload: Value, scope: Option<Value>) -> SpokeR
     };
     match op {
         HISTORY_OP_GET => match serde_json::from_value::<HistoryRevisionsGetRequest>(payload) {
-            Ok(request) if request.revision <= ADOPT_EXACT_INTEGER_BOUND => {
-                spoke_ok(HistoryCall::Get {
-                    scope,
-                    entity_kind: request.entity_kind.into(),
-                    entity_id: request.entity_id.into(),
-                    revision: request.revision,
-                })
-            }
-            Ok(_) => spoke_reject(
-                SpokeRejectCode::InvalidInput,
-                format!("invalid {op} payload: revision must be an integer in [0, 2^53]"),
-                history_input_details(op),
-            ),
+            Ok(request) => spoke_ok(HistoryCall::Get {
+                scope,
+                entity_kind: request.entity_kind.into(),
+                entity_id: request.entity_id.into(),
+                revision: request.revision,
+            }),
             Err(error) => spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 format!("invalid {op} payload: {error}"),
@@ -591,20 +585,13 @@ fn decode_history_call(op: &str, payload: Value, scope: Option<Value>) -> SpokeR
             ),
         },
         HISTORY_OP_PRUNE => match serde_json::from_value::<HistoryRevisionsPruneRequest>(payload) {
-            Ok(request) if request.keep <= ADOPT_EXACT_INTEGER_BOUND => {
-                spoke_ok(HistoryCall::Prune {
-                    scope,
-                    entity_kind: request.entity_kind.into(),
-                    entity_id: request.entity_id.into(),
-                    keep: request.keep,
-                    idempotency_key: request.idempotency_key.into(),
-                })
-            }
-            Ok(_) => spoke_reject(
-                SpokeRejectCode::InvalidInput,
-                format!("invalid {op} payload: keep must be an integer in [0, 2^53]"),
-                history_input_details(op),
-            ),
+            Ok(request) => spoke_ok(HistoryCall::Prune {
+                scope,
+                entity_kind: request.entity_kind.into(),
+                entity_id: request.entity_id.into(),
+                keep: request.keep,
+                idempotency_key: request.idempotency_key.into(),
+            }),
             Err(error) => spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 format!("invalid {op} payload: {error}"),
@@ -792,7 +779,7 @@ pub(crate) fn validate_history_snapshot(
     entity_id: &str,
     revision: u64,
 ) -> SpokeResult<()> {
-    if snapshot.schema_version.get() > MAX_SCHEMA_VERSION {
+    if snapshot.schema_version.get() > SCHEMA_VERSION_MAX {
         return history_transport_reject(
             "provider returned a RevisionSnapshot schema_version above 2^53-1",
         );
@@ -858,7 +845,7 @@ pub(crate) fn validate_history_snapshot(
                 [None, None],
             ),
         };
-    if nested_schema_version > MAX_SCHEMA_VERSION {
+    if nested_schema_version > SCHEMA_VERSION_MAX {
         return history_transport_reject(
             "provider returned a malformed RevisionSnapshot: nested schema_version above 2^53-1",
         );
@@ -870,7 +857,7 @@ pub(crate) fn validate_history_snapshot(
     if nested_anchor_versions
         .iter()
         .flatten()
-        .any(|version| *version > MAX_SCHEMA_VERSION)
+        .any(|version| *version > SCHEMA_VERSION_MAX)
     {
         return history_transport_reject(
             "provider returned a malformed RevisionSnapshot: nested anchor schema_version above 2^53-1",
@@ -1510,9 +1497,6 @@ pub(crate) fn f64_identity_revision_u64(value: &Value) -> Option<u64> {
         .then_some(float as u64)
 }
 
-/// SchemaVersion domain (`[1, 2^53-1]`), exact in both stacks.
-const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
-
 /// Every structural `schema_version` member inside a decoded payload must
 /// be in the SchemaVersion domain. The generated carrier is `NonZeroU64`
 /// with no ceiling, so this raw-JSON scan re-applies the bound on every
@@ -1550,10 +1534,10 @@ fn schema_version_in_domain(value: &Value) -> bool {
         return false;
     };
     if let Some(version) = number.as_u64() {
-        return (1..=MAX_SCHEMA_VERSION).contains(&version);
+        return (1..=SCHEMA_VERSION_MAX).contains(&version);
     }
     number.as_f64().is_some_and(|version| {
-        version.fract() == 0.0 && version >= 1.0 && version <= MAX_SCHEMA_VERSION as f64
+        version.fract() == 0.0 && version >= 1.0 && version <= SCHEMA_VERSION_MAX as f64
     })
 }
 
@@ -2634,7 +2618,8 @@ mod history_tests {
     }
 
     /// A request revision outside `[0, 2^53]` refuses before the port is
-    /// called (the typed `u64` decode alone would admit it).
+    /// called: the generated `revision` carrier decodes through
+    /// `deserialize_revision`, which owns the bound.
     #[tokio::test]
     async fn history_get_revision_above_domain_is_invalid_input() {
         let port = Arc::new(StubHistoryPort::new());
@@ -2701,12 +2686,12 @@ mod history_tests {
         // The SchemaVersion endpoint itself (2^53-1) is accepted.
         let mut doc = snapshot_json("e1", 3);
         doc["snapshot"]["source_anchor"] = json!({
-            "schema_version": MAX_SCHEMA_VERSION,
+            "schema_version": SCHEMA_VERSION_MAX,
             "source_id": "src",
             "extensions": {},
         });
         doc["snapshot"]["adoption_anchor"] = json!({
-            "schema_version": MAX_SCHEMA_VERSION,
+            "schema_version": SCHEMA_VERSION_MAX,
             "source_entry_id": "src",
             "source_revision": 1,
             "source_scope_id": "s",
@@ -2719,7 +2704,8 @@ mod history_tests {
     /// The prune dedup digest is SHA-256 over RFC 8785 JSON, which
     /// encodes integers through f64 — a payload integer beyond
     /// 2^53 − 1 would merge distinct requests under one digest, so the
-    /// serving boundary answers `INVALID_INPUT` before any port call.
+    /// serving boundary answers `INVALID_INPUT` before any port call (the
+    /// generated `keep` carrier enforces the domain at decode).
     #[tokio::test]
     async fn prune_payload_out_of_range_integer_is_invalid_input() {
         let port = Arc::new(StubHistoryPort::new());

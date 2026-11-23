@@ -2,11 +2,9 @@
 
 use crate::result::{spoke_reject, spoke_ok_unit, SpokeRejectCode, SpokeResult};
 use serde_json::{Map, Value};
+use spoke_schemas::integers::{REVISION_MAX, SCHEMA_VERSION_MAX};
 use spoke_schemas::knowledge_entry::KnowledgeEntry;
 use spoke_schemas::knowledge_entry::KnowledgeEntryBody;
-
-/// SchemaVersion domain (`[1, 2^53-1]`), exact in the two stacks.
-pub(crate) const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
 
 /// Extract a trimmed non-empty string field from a JSON object value.
 pub(crate) fn trimmed_string_field(value: &Value, field: &str) -> Option<String> {
@@ -73,7 +71,7 @@ pub(crate) fn validate_anchor_schema_versions(entry: &KnowledgeEntry) -> SpokeRe
     ];
     for (field, version) in anchors {
         let Some(version) = version else { continue };
-        if version > MAX_SCHEMA_VERSION {
+        if version > SCHEMA_VERSION_MAX {
             let mut details = Map::new();
             details.insert("field".into(), Value::String(field.to_owned()));
             details.insert("schema_version".into(), Value::from(version));
@@ -86,9 +84,6 @@ pub(crate) fn validate_anchor_schema_versions(entry: &KnowledgeEntry) -> SpokeRe
     }
     spoke_ok_unit()
 }
-
-/// Inclusive revision domain (`[0, 2^53]`), exact in the two stacks.
-pub(crate) const MAX_REVISION: u64 = 1 << 53;
 
 /// Validate wire `revision` per promote rules (TS `validateRevision`):
 /// omitted or `null` is fine, otherwise a non-negative integer in the
@@ -105,9 +100,9 @@ pub(crate) fn validate_revision_wire(revision: Option<&Value>) -> SpokeResult<()
     }
 
     let in_domain = match value.as_u64() {
-        Some(revision) => revision <= MAX_REVISION,
+        Some(revision) => revision <= REVISION_MAX,
         None => value.as_f64().is_some_and(|revision| {
-            revision.fract() == 0.0 && (0.0..=MAX_REVISION as f64).contains(&revision)
+            revision.fract() == 0.0 && (0.0..=REVISION_MAX as f64).contains(&revision)
         }),
     };
 

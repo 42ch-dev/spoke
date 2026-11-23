@@ -102,6 +102,9 @@ jobs:
         # dtolnay/rust-toolchain@stable (2026-07-16)
         if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          # codegen formats the memory modules with `rustfmt +stable`.
+          components: rustfmt
 
       - name: Install workspace dependencies
         if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'

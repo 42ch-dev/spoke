@@ -16,8 +16,10 @@ updates:
     schedule:
       interval: weekly
     ignore:
-      # typify 0.9+ changes the rendered typespace tokens that
-      # src/main.rs normalizes; that upgrade needs the passes rewritten.
+      # typify renders the token stream that src/main.rs normalizes, and no CI
+      # job compiles rust-gen, so a green bump can still break `pnpm run
+      # codegen`. Upgrade it by hand: migrate src/main.rs, the fixtures, and
+      # regenerate the committed tree in the same change.
       - dependency-name: "typify"
         update-types:
           - "version-update:semver-minor"

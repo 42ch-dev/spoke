@@ -11,6 +11,13 @@
 //! raw 64-byte signature is encoded base64url without padding (exactly 86
 //! characters).
 //!
+//! Canonicalization is [`crate::core::jcs::canonical_bytes`], which
+//! re-spells an integer `±2^53` as its equal `f64`: `2^53` is a revision
+//! endpoint both stacks admit and the TypeScript canonicalizer emits that
+//! number's spelling. Every other integer keeps its token, so an integer
+//! JavaScript cannot represent (`2^53 + 1`) still refuses instead of
+//! rounding.
+//!
 //! Signed-object rules (locked):
 //! - `extensions` and the `signature` field are excluded from every signed
 //!   object.
@@ -407,7 +414,8 @@ fn sign_envelope(
         return Err(CoreError::Crypto("secret must be 32 bytes".into()));
     }
     let signing_key = SigningKey::from_bytes(secret.try_into().expect("length checked above"));
-    let bytes = serde_jcs::to_vec(signed_object).map_err(|e| CoreError::Jcs(e.to_string()))?;
+    let bytes = crate::core::jcs::canonical_bytes(signed_object)
+        .map_err(|e| CoreError::Jcs(e.to_string()))?;
     let signature: Signature = signing_key.sign(&bytes);
     Ok(URL_SAFE_NO_PAD.encode(signature.to_bytes()))
 }
@@ -463,7 +471,7 @@ fn verify_canonical_signature(
     }
     let verifying_key = VerifyingKey::from_bytes(public_key.try_into().expect("length checked above"))
         .map_err(|e| EnvelopeAuthError::Crypto(format!("invalid Ed25519 public key: {e}")))?;
-    let bytes = serde_jcs::to_vec(signed_object).map_err(|e| {
+    let bytes = crate::core::jcs::canonical_bytes(signed_object).map_err(|e| {
         EnvelopeAuthError::Invalid(format!("signed object is not JSON-serializable: {e}"))
     })?;
     let signature = Signature::from_bytes(signature);
@@ -1599,6 +1607,55 @@ mod tests {
         assert_eq!(
             wire["auth"],
             serde_json::json!({ "method": "capability-token" })
+        );
+    }
+
+    /// A revision endpoint `2^53` is an exact f64: the signed identity is
+    /// the TypeScript canonicalizer's own number spelling, so signing and
+    /// verifying must not stop at `serde_jcs`'s integer ceiling (qc3-01).
+    #[test]
+    fn request_signs_and_verifies_the_exact_integer_endpoint() {
+        let mut input = request_input(None);
+        input.op = "history.revisions.prune".to_string();
+        input.payload = serde_json::json!({
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_endpoint",
+            "keep": 9_007_199_254_740_992_u64,
+        });
+        let request =
+            authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+                .expect("2^53 is a signable revision endpoint");
+        let wire = wire_of(&request);
+        verify_invoke_request_auth(&emitter_pubkey(), &wire, SESSION_ID)
+            .expect("2^53 verifies against the same canonical bytes");
+        // The signed bytes carry the endpoint's equal number spelling, the
+        // bytes the TypeScript canonicalizer emits for the same value.
+        let signed_object = invoke_request_signed_object(&wire).expect("signed object");
+        let bytes = crate::core::jcs::canonical_bytes(&signed_object).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"keep\":9007199254740992"),
+            "endpoint hashes as its equal f64 spelling: {jcs}"
+        );
+    }
+
+    /// `2^53 + 1` has no IEEE-754 identity shared with the peer, so it is
+    /// never rounded into the signed object: signing refuses it and a wire
+    /// envelope cannot verify (qc3-01).
+    #[test]
+    fn request_refuses_the_first_integer_past_the_endpoint() {
+        let mut input = request_input(None);
+        input.op = "history.revisions.prune".to_string();
+        input.payload = serde_json::json!({
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_endpoint",
+            "keep": 9_007_199_254_740_993_u64,
+        });
+        let error = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+            .expect_err("2^53 + 1 has no canonical signed identity");
+        assert!(
+            matches!(error, CoreError::Jcs(_)),
+            "canonicalization refuses the integer: {error:?}"
         );
     }
 }

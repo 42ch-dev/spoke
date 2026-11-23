@@ -95,7 +95,7 @@ use crate::remote::remote_adapter::{
     RemoteErrorKind as ResponderErrorKind, RemoteIdentity, ToolHandler,
 };
 use crate::remote::serve_ports::{
-    exact_revision_u64, schema_versions_in_domain, RemoteServePorts,
+    exact_revision_u64, f64_identity_revision_u64, schema_versions_in_domain, RemoteServePorts,
 };
 use crate::remote::transport::Transport;
 use crate::remote::{
@@ -542,9 +542,9 @@ fn decode_knowledge_call<'a>(
             // integer payload decodes from the borrowed value.
             let entry_members = payload.get("entry").and_then(Value::as_object);
             let needs_rewrite = |revision: Option<&Value>| {
-                revision.and_then(exact_revision_u64).is_some_and(|rounded| {
-                    revision.and_then(Value::as_u64) != Some(rounded)
-                })
+                revision
+                    .and_then(f64_identity_revision_u64)
+                    .is_some_and(|rounded| revision.and_then(Value::as_u64) != Some(rounded))
             };
             let rewrite_needed = needs_rewrite(entry_members.and_then(|e| e.get("revision")))
                 || needs_rewrite(
@@ -559,7 +559,7 @@ fn decode_knowledge_call<'a>(
                 normalized_payload = payload.clone();
                 let normalize_revision = |member: Option<&mut Value>| {
                     let Some(member) = member else { return };
-                    if let Some(rounded) = exact_revision_u64(member) {
+                    if let Some(rounded) = f64_identity_revision_u64(member) {
                         *member = json!(rounded);
                     }
                 };
@@ -831,22 +831,45 @@ fn decode_port_call<'a>(
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
-            // Contract E1: `expected_base_revision` is revision-typed,
-            // `[0, 2^53]` inclusive.
-            let expected_value = payload.get("expected_base_revision");
-            if !matches!(expected_value, None | Some(Value::Null))
-                && expected_value.and_then(exact_revision_u64).is_none()
+            // Contract E1: revision-typed members live in the `[0, 2^53]`
+            // domain; the generated entity carries an unbounded `u64`, so
+            // the bound runs here before the provider (qc2 Important 1 /
+            // qc3-05) — an exact `9007199254740994` must refuse, never be
+            // flushed to the port.
+            if relation
+                .revision
+                .is_some_and(|revision| revision > crate::core::jcs::EXACT_INTEGER_BOUND)
             {
                 return spoke_reject(
                     SpokeRejectCode::InvalidInput,
-                    "invalid port.relation.put payload: expected_base_revision must be an integer within [0, 2^53] or null",
+                    "invalid port.relation.put payload: relation.revision must be an integer within [0, 2^53]",
                     None,
                 );
             }
-            let expected = match payload_field::<Option<u64>>(payload, "expected_base_revision", op)
-            {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            // Contract E1: `expected_base_revision` is revision-typed
+            // (`[0, 2^53]`) or null. The revision is decoded from the raw
+            // member through its exact integer representation, so an
+            // integral float spelling (`1.0`) names the same base instead
+            // of failing the typed `u64` decode.
+            let expected = match payload.get("expected_base_revision") {
+                Some(Value::Null) => None,
+                Some(value) => match exact_revision_u64(value) {
+                    Some(revision) => Some(revision),
+                    None => {
+                        return spoke_reject(
+                            SpokeRejectCode::InvalidInput,
+                            "invalid port.relation.put payload: expected_base_revision must be an integer within [0, 2^53] or null",
+                            None,
+                        )
+                    }
+                },
+                None => {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        "invalid port.relation.put payload: missing expected_base_revision",
+                        None,
+                    )
+                }
             };
             spoke_ok(PortCall::PutRelation(relation, expected))
         }
@@ -3429,6 +3452,86 @@ mod tests {
                 base_revision,
                 Some(expected),
                 "expected_base_revision={spelling} must decode to the f64-observed identity"
+            );
+        }
+    }
+
+    fn minimal_relation() -> Value {
+        json!({
+            "schema_version": 1,
+            "relation_id": "rel_x",
+            "relation_type": "related_to",
+            "from_id": "ke_a",
+            "to_id": "ke_b",
+            "extensions": {},
+        })
+    }
+
+    fn decode_relation_put(payload: Value) -> SpokeResult<PortCall<'static>> {
+        decode_port_call("port.relation.put", &payload, None)
+    }
+
+    /// qc2 Important 1 / qc3-05 / qc3-07 — the relation put fence admits
+    /// the `2^53` revision endpoint and an integral-float base spelling,
+    /// leaves the open `metadata` object untouched, and refuses an exact
+    /// revision beyond the domain before the provider.
+    #[test]
+    fn relation_put_admits_the_endpoint_and_refuses_oversized_revisions() {
+        let mut relation = minimal_relation();
+        relation["revision"] = json!(9_007_199_254_740_992_u64);
+        relation["metadata"] = json!({ "schema_version": "product-v2" });
+        for base in [Value::Null, json!(1), json!(1.0)] {
+            let payload = json!({
+                "relation": relation,
+                "expected_base_revision": base,
+            });
+            let call = decode_relation_put(payload);
+            let SpokeResult::Ok(PortCall::PutRelation(decoded, expected)) = call else {
+                panic!("base={base}: an endpoint revision + opaque metadata must decode")
+            };
+            assert_eq!(decoded.revision, Some(9_007_199_254_740_992));
+            assert_eq!(
+                decoded.metadata.get("schema_version"),
+                Some(&json!("product-v2")),
+                "metadata is opaque"
+            );
+            assert_eq!(
+                expected,
+                if base.is_null() { None } else { Some(1) },
+                "base={base}"
+            );
+        }
+
+        for refused in [9_007_199_254_740_993_u64, 9_007_199_254_740_994_u64] {
+            let mut relation = minimal_relation();
+            relation["revision"] = json!(refused);
+            let oversized_relation = decode_relation_put(json!({
+                "relation": relation,
+                "expected_base_revision": Value::Null,
+            }));
+            assert!(
+                matches!(
+                    oversized_relation,
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::InvalidInput,
+                        ..
+                    })
+                ),
+                "relation.revision={refused} must refuse before the provider"
+            );
+            let oversized_base = decode_relation_put(json!({
+                "relation": minimal_relation(),
+                "expected_base_revision": refused,
+            }));
+            assert!(
+                matches!(
+                    oversized_base,
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::InvalidInput,
+                        ..
+                    })
+                ),
+                "expected_base_revision={refused} must refuse before the provider"
             );
         }
     }

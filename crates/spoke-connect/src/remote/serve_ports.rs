@@ -36,6 +36,10 @@ use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+
+use crate::core::jcs::{
+    respell_endpoint, respell_endpoints, EXACT_INTEGER_BOUND as ADOPT_EXACT_INTEGER_BOUND,
+};
 use spoke_operations::{
     jcs_sha256_hex, spoke_ok, spoke_reject, AdoptionPort, BaselinePorts, ComputablePort,
     ForkTimelineQueryPort, HistoryPort, HistoryPruneResult, MemoryPort, ScopedKnowledgePort,
@@ -661,7 +665,7 @@ const REVISION_MEMBERS: [&str; 6] = [
 /// The `2^53` endpoint is admitted only for the top-level
 /// [`REVISION_MEMBERS`]: it is an exact IEEE-754 integer the TypeScript
 /// `canonicalize` reference emits as `9007199254740992` (contract C5),
-/// so the digest hashes it via [`jcs_hashed_payload`]. Every other
+/// so the digest hashes it via [`respell_endpoints`]. Every other
 /// numeric member keeps the pre-widening treatment, so a product-owned
 /// `Scope.extensions` value at `2^53` is still refused.
 ///
@@ -716,39 +720,6 @@ fn integers_within_exact_range(value: &Value, revision_member: bool) -> bool {
     }
 }
 
-/// Re-spell an integer `±2^53` endpoint as its equal `f64` for hashing;
-/// every other value keeps its token. `serde_jcs` refuses any integer
-/// beyond its `MAX_SAFE_INTEGER` (2^53 − 1) even though `2^53` is an
-/// exact IEEE-754 integer that RFC 8785 canonicalizes as
-/// `9007199254740992` — exactly the bytes the TypeScript `canonicalize`
-/// reference emits.
-fn jcs_endpoint_respelled(value: &Value) -> Option<Value> {
-    let number = value.as_number()?;
-    if number.as_u64() == Some(ADOPT_EXACT_INTEGER_BOUND) {
-        Some(Value::from(ADOPT_EXACT_INTEGER_BOUND as f64))
-    } else if number.as_i64() == Some(-(ADOPT_EXACT_INTEGER_BOUND as i64)) {
-        Some(Value::from(-(ADOPT_EXACT_INTEGER_BOUND as f64)))
-    } else {
-        None
-    }
-}
-
-/// Re-spell every integer `±2^53` in `value` as its equal `f64` for
-/// hashing. The caller must have admitted the endpoint only where the
-/// contract allows it — otherwise an unrelated integer is widened.
-fn jcs_hashed_payload(value: &Value) -> Value {
-    match value {
-        Value::Array(items) => Value::Array(items.iter().map(jcs_hashed_payload).collect()),
-        Value::Object(members) => Value::Object(
-            members
-                .iter()
-                .map(|(key, member)| (key.clone(), jcs_hashed_payload(member)))
-                .collect(),
-        ),
-        other => jcs_endpoint_respelled(other).unwrap_or_else(|| other.clone()),
-    }
-}
-
 /// Adoption's digest normalization: `source_revision` is the sole
 /// revision-typed member of the adoption request, so it alone takes the
 /// `±2^53` endpoint re-spelling. Every other member keeps the raw JCS
@@ -758,23 +729,11 @@ fn adopt_hashed_payload(payload: &Value) -> Value {
     let Value::Object(mut members) = payload.clone() else {
         return payload.clone();
     };
-    if let Some(revision) = members
-        .get("source_revision")
-        .and_then(jcs_endpoint_respelled)
-    {
+    if let Some(revision) = members.get("source_revision").and_then(respell_endpoint) {
         members.insert("source_revision".to_owned(), revision);
     }
     Value::Object(members)
 }
-
-/// Largest integer exactly representable as an f64 — the inclusive
-/// canonicalization bound C5 states (`[0, 2^53]`, no exponent). It is
-/// the shared wire endpoint for every revision-typed member and for the
-/// SchemaVersion ceiling (`2^53 − 1`); the prune digest admits it and
-/// re-spells it as the equal f64 before hashing (see
-/// [`jcs_hashed_payload`]) because `serde_jcs` itself stops at
-/// `MAX_SAFE_INTEGER`.
-const ADOPT_EXACT_INTEGER_BOUND: u64 = 1 << 53;
 
 /// Every number member of `value` validates identically after parse on
 /// both adoption stacks (contract Wire-wide rules, canonical numeric
@@ -1020,23 +979,24 @@ fn valid_served_snapshot(
 /// Shared `history.revisions.prune` success-shape validation (contract
 /// §Connect operations — one shape for the serving face and each
 /// `RemoteAdapter`): `deleted` is a count and `floor_revision` a revision,
-/// both in the interoperable `[0, 2^53]` f64-observed domain
-/// ([`revision_in_domain`]); `floor_revision` is a present nullable
-/// member. A value outside the domain is an out-of-domain provider answer
-/// and refuses like the adoption guards.
+/// both compared through their exact integer representation
+/// ([`exact_revision_u64`]): an out-of-domain exact integer refuses
+/// instead of being f64-rounded back into the domain. `floor_revision` is
+/// a present nullable member. A value outside the domain is an
+/// out-of-domain provider answer and refuses like the adoption guards.
 pub(crate) fn validate_history_prune_success(value: &Value) -> SpokeResult<()> {
     let Some(object) = value.as_object() else {
         return history_transport_reject(
             "malformed history.revisions.prune success value: payload is not an object",
         );
     };
-    if !object.get("deleted").is_some_and(revision_in_domain) {
+    if object.get("deleted").and_then(exact_revision_u64).is_none() {
         return history_transport_reject(
             "malformed history.revisions.prune success value: deleted must be a non-negative integer within the exact-integer range",
         );
     }
     match object.get("floor_revision") {
-        Some(floor) if floor.is_null() || revision_in_domain(floor) => spoke_ok(()),
+        Some(floor) if floor.is_null() || exact_revision_u64(floor).is_some() => spoke_ok(()),
         Some(_) => history_transport_reject(
             "malformed history.revisions.prune success value: floor_revision must be an integer within the exact-integer range or null",
         ),
@@ -1130,7 +1090,7 @@ impl RemoteHistoryService for HistoryPortService {
                     history_input_details(op),
                 );
             }
-            match jcs_sha256_hex(&jcs_hashed_payload(&payload)) {
+            match jcs_sha256_hex(&respell_endpoints(payload.clone())) {
                 SpokeResult::Ok(digest) => Some(digest),
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             }
@@ -1555,11 +1515,26 @@ fn adoption_replay(outcome: SpokeResult<Value>) -> SpokeResult<Value> {
     }
 }
 
-/// The f64-observed exact-integer value of a revision member: `Some(u64)`
-/// when the member is an in-domain integer spelling, `None` otherwise.
-/// One rule shared by the served bounds, the put-payload rewrite and the
-/// reject guard (qc3 F-025/F-026).
+/// The exact integer a revision member names, without an f64 round-trip:
+/// an integer token keeps its own value (an exact `9007199254740993`
+/// refuses instead of rounding back into the domain), an integral float
+/// spelling is admitted by its parsed value (`9007199254740992.0` ≡
+/// `2^53`). One rule shared by the prune success gate and the relation
+/// put fence (qc3-05).
 pub(crate) fn exact_revision_u64(value: &Value) -> Option<u64> {
+    if let Some(revision) = value.as_u64() {
+        return (revision <= ADOPT_EXACT_INTEGER_BOUND).then_some(revision);
+    }
+    let float = value.as_f64()?;
+    (float.fract() == 0.0 && float >= 0.0 && float <= ADOPT_EXACT_INTEGER_BOUND as f64)
+        .then_some(float as u64)
+}
+
+/// The f64-observed identity of a revision member — the number JavaScript
+/// reads for the same token (`9007199254740993` ≡ `9007199254740992.0`).
+/// Used only where the emitted wire value must carry the parsed identity
+/// (adoption normalization); admission gates use [`exact_revision_u64`].
+pub(crate) fn f64_identity_revision_u64(value: &Value) -> Option<u64> {
     let float = value.as_f64()?;
     (float.fract() == 0.0 && float >= 0.0 && float <= ADOPT_EXACT_INTEGER_BOUND as f64)
         .then_some(float as u64)
@@ -1572,8 +1547,10 @@ const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
 /// be in the SchemaVersion domain. The generated carrier is `NonZeroU64`
 /// with no ceiling, so this raw-JSON scan re-applies the bound on every
 /// payload before its typed decode. Product-owned opaque bags
-/// (`extensions`, `modules`, `state`, `computable`) are skipped: their
-/// keys are not protocol members.
+/// (`extensions`, `modules`, `state`, `computable`) and the explicitly
+/// open `metadata` object are skipped: their keys are not protocol
+/// members, so a product value that happens to be named `schema_version`
+/// must reach the provider untouched (qc2 Important 6 / qc3-07).
 pub(crate) fn schema_versions_in_domain(value: &Value) -> bool {
     match value {
         Value::Object(members) => members.iter().all(|(key, member)| {
@@ -1581,7 +1558,10 @@ pub(crate) fn schema_versions_in_domain(value: &Value) -> bool {
                 member
                     .as_u64()
                     .is_some_and(|version| (1..=MAX_SCHEMA_VERSION).contains(&version))
-            } else if matches!(key.as_str(), "extensions" | "modules" | "state" | "computable") {
+            } else if matches!(
+                key.as_str(),
+                "extensions" | "modules" | "state" | "computable" | "metadata"
+            ) {
                 true
             } else {
                 schema_versions_in_domain(member)
@@ -1614,19 +1594,20 @@ pub(crate) fn normalize_adopt_reject_details(reject: &mut SpokeReject) -> Option
             details: Some(fault_details),
         });
     }
-    if let Some(rounded) = exact_revision_u64(adopted_revision) {
+    if let Some(rounded) = f64_identity_revision_u64(adopted_revision) {
         *adopted_revision = json!(rounded);
     }
     None
 }
 
-/// Revision-domain rule shared by the served-bound checks: the bound is
+/// Revision-domain rule for the adoption served bounds: the bound is
 /// evaluated on the f64 VALUE — the same number JavaScript observes —
 /// not the wire token, so an integer spelling between `u64` and its f64
 /// rounding (`9007199254740993` ≡ `9007199254740992.0`) admits or
-/// refuses identically on both stacks (contract E1 / qc3 F-006).
+/// refuses identically on both stacks (contract E1 / qc3 F-006). Admission
+/// gates that must not round use [`exact_revision_u64`].
 fn revision_in_domain(value: &Value) -> bool {
-    exact_revision_u64(value).is_some()
+    f64_identity_revision_u64(value).is_some()
 }
 
 /// Served-side adopt-response validation (spoke-knowledge-adoption
@@ -1703,7 +1684,7 @@ fn valid_served_adopt_result(
                     "adoption provider returned an error details.adopted_revision outside [0, 2^53]",
                 );
             }
-            if let Some(rounded) = exact_revision_u64(adopted_revision) {
+            if let Some(rounded) = f64_identity_revision_u64(adopted_revision) {
                 *adopted_revision = json!(rounded);
             }
         }
@@ -1796,7 +1777,7 @@ fn valid_served_adopt_result(
     {
         let normalize = |member: Option<&mut Value>| {
             let Some(member) = member else { return };
-            if let Some(rounded) = exact_revision_u64(member) {
+            if let Some(rounded) = f64_identity_revision_u64(member) {
                 *member = json!(rounded);
             }
         };
@@ -2655,6 +2636,11 @@ mod history_tests {
         assert!(schema_versions_in_domain(
             &json!({"findings": [{"schema_version": 2}]})
         ));
+        // The open `metadata` object is product data: a member that happens
+        // to be named `schema_version` is never a protocol version.
+        assert!(schema_versions_in_domain(
+            &json!({"metadata": {"schema_version": "product-v2"}})
+        ));
     }
 
     /// A request revision outside `[0, 2^53]` refuses before the port is
@@ -2686,47 +2672,39 @@ mod history_tests {
     }
 
     /// A provider snapshot outside the published SchemaVersion / revision
-    /// domains is a transport decode error, envelope or nested member.
+    /// domains never decodes into the typed carrier — envelope, nested
+    /// snapshot, provenance anchor or revision (the generated bounds).
     #[tokio::test]
     async fn snapshot_domains_are_enforced() {
-        let mut doc = snapshot_json("e1", 3);
-        doc["schema_version"] = json!(9_007_199_254_740_992u64);
-        let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
-        assert!(valid_served_snapshot(snapshot, "knowledge_entry", "e1", 3).is_reject());
-
-        let mut doc = snapshot_json("e1", 3);
-        doc["snapshot"]["schema_version"] = json!(9_007_199_254_740_992u64);
-        let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
-        assert!(valid_served_snapshot(snapshot, "knowledge_entry", "e1", 3).is_reject());
-
-        // The provenance anchors carry their own schema_version members;
-        // the same ceiling binds each one, nested under the entry.
-        for (field, anchor) in [
-            (
-                "source_anchor",
-                json!({
-                    "schema_version": 9_007_199_254_740_992u64,
-                    "source_id": "src",
-                    "extensions": {},
-                }),
-            ),
-            (
-                "adoption_anchor",
-                json!({
-                    "schema_version": 9_007_199_254_740_992u64,
-                    "source_entry_id": "src",
-                    "source_revision": 1,
-                    "source_scope_id": "s",
-                    "extensions": {},
-                }),
-            ),
+        let mut envelope = snapshot_json("e1", 3);
+        envelope["schema_version"] = json!(9_007_199_254_740_992u64);
+        let mut nested = snapshot_json("e1", 3);
+        nested["snapshot"]["schema_version"] = json!(9_007_199_254_740_992u64);
+        let mut source_anchor = snapshot_json("e1", 3);
+        source_anchor["snapshot"]["source_anchor"] = json!({
+            "schema_version": 9_007_199_254_740_992u64,
+            "source_id": "src",
+            "extensions": {},
+        });
+        let mut adoption_anchor = snapshot_json("e1", 3);
+        adoption_anchor["snapshot"]["adoption_anchor"] = json!({
+            "schema_version": 9_007_199_254_740_992u64,
+            "source_entry_id": "src",
+            "source_revision": 1,
+            "source_scope_id": "s",
+            "extensions": {},
+        });
+        let revision = snapshot_json("e1", 9_007_199_254_740_993u64);
+        for (name, doc) in [
+            ("envelope schema_version", envelope),
+            ("nested schema_version", nested),
+            ("source_anchor schema_version", source_anchor),
+            ("adoption_anchor schema_version", adoption_anchor),
+            ("revision", revision),
         ] {
-            let mut doc = snapshot_json("e1", 3);
-            doc["snapshot"][field] = anchor;
-            let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
             assert!(
-                valid_served_snapshot(snapshot, "knowledge_entry", "e1", 3).is_reject(),
-                "{field} schema_version 2^53 must be refused"
+                serde_json::from_value::<RevisionSnapshot>(doc).is_err(),
+                "{name} outside the domain must not decode"
             );
         }
 
@@ -2746,16 +2724,6 @@ mod history_tests {
         });
         let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
         assert!(valid_served_snapshot(snapshot, "knowledge_entry", "e1", 3).is_ok());
-
-        let doc = snapshot_json("e1", 9_007_199_254_740_993u64);
-        let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
-        assert!(valid_served_snapshot(
-            snapshot,
-            "knowledge_entry",
-            "e1",
-            9_007_199_254_740_993u64
-        )
-        .is_reject());
     }
 
     /// The prune dedup digest is SHA-256 over RFC 8785 JSON, which
@@ -2791,7 +2759,7 @@ mod history_tests {
     #[tokio::test]
     async fn prune_keep_at_exact_integer_endpoint_reaches_port() {
         assert_eq!(
-            serde_jcs::to_string(&jcs_hashed_payload(&json!(9_007_199_254_740_992u64)))
+            serde_jcs::to_string(&respell_endpoints(json!(9_007_199_254_740_992u64)))
                 .expect("canonical string"),
             "9007199254740992"
         );
@@ -2807,6 +2775,89 @@ mod history_tests {
             .await;
         assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    /// qc3-05: the prune success gate compares each revision member's exact
+    /// integer representation — an exact `2^53 + 1` from a provider refuses
+    /// as a transport fault instead of being f64-rounded back into the
+    /// domain, while the `2^53` endpoint serves in either spelling.
+    #[test]
+    fn prune_success_gate_compares_revision_members_exactly() {
+        assert!(validate_history_prune_success(&json!({
+            "deleted": 9_007_199_254_740_992_u64,
+            "floor_revision": Value::Null,
+        }))
+        .is_ok());
+        assert!(validate_history_prune_success(&json!({
+            "deleted": 9_007_199_254_740_992.0,
+            "floor_revision": 9_007_199_254_740_992.0,
+        }))
+        .is_ok());
+        for refused in [9_007_199_254_740_993_u64, 9_007_199_254_740_994_u64] {
+            for payload in [
+                json!({ "deleted": refused, "floor_revision": Value::Null }),
+                json!({ "deleted": 1, "floor_revision": refused }),
+            ] {
+                assert!(
+                    validate_history_prune_success(&payload).is_reject(),
+                    "{payload} carries an out-of-domain exact integer"
+                );
+            }
+        }
+    }
+
+    /// qc3-05 end to end through the service: a provider's exact
+    /// `9007199254740993` `deleted` answer is a fault, never a rounded
+    /// success; the `2^53` endpoint reaches the caller unchanged.
+    #[tokio::test]
+    async fn prune_provider_exact_integer_beyond_domain_is_a_fault() {
+        struct FixedPrunePort(u64);
+        #[async_trait]
+        impl HistoryPort for FixedPrunePort {
+            async fn get_history_snapshot(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _entity_kind: &str,
+                _entity_id: &str,
+                _revision: u64,
+            ) -> SpokeResult<RevisionSnapshot> {
+                unreachable!("prune-only fixture")
+            }
+
+            async fn prune_history(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _entity_kind: &str,
+                _entity_id: &str,
+                _keep: u64,
+            ) -> SpokeResult<HistoryPruneResult> {
+                spoke_ok(HistoryPruneResult {
+                    deleted: self.0,
+                    floor_revision: None,
+                })
+            }
+        }
+        let serve = |deleted: u64| async move {
+            let port: Arc<dyn HistoryPort + Send + Sync> = Arc::new(FixedPrunePort(deleted));
+            HistoryPortService::new(port, admission(scope("s1"), principal("peer-p")))
+                .invoke("peer-a", HISTORY_OP_PRUNE, prune_payload("k-exact", 1, None))
+                .await
+        };
+        let served = serve(9_007_199_254_740_992).await;
+        let SpokeResult::Ok(value) = served else {
+            panic!("the 2^53 endpoint serves: {served:?}")
+        };
+        assert_eq!(value.get("deleted"), Some(&json!(9_007_199_254_740_992_u64)));
+        for refused in [9_007_199_254_740_993_u64, 9_007_199_254_740_994_u64] {
+            match serve(refused).await {
+                SpokeResult::Reject(reject) => {
+                    assert_eq!(reject.code, SpokeRejectCode::InternalError, "{refused}");
+                }
+                SpokeResult::Ok(value) => panic!("{refused} must refuse, served {value}"),
+            }
+        }
     }
 
     /// The widened `2^53` admission is revision-typed only: `keep`
@@ -3499,42 +3550,32 @@ mod history_tests {
             payload
         };
 
-        // The inclusive endpoint admits on the served path; one step
-        // beyond it refuses.
+        // The inclusive endpoint admits on the served path. An
+        // out-of-domain provider revision never decodes into the typed
+        // carrier, so it cannot reach the port's caller at all.
         for (anchor_revision, entry_revision, served_ok) in [
             (9007199254740992_u64, 1_u64, true),
             (9007199254740994_u64, 1_u64, false),
             (1_u64, 9007199254740992_u64, true),
             (1_u64, 9007199254740994_u64, false),
         ] {
+            if !served_ok {
+                assert!(
+                    serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+                        "outcome": "adopted",
+                        "entry": served_entry(anchor_revision, entry_revision),
+                    }))
+                    .is_err(),
+                    "anchor_revision={anchor_revision} entry_revision={entry_revision}: out-of-domain must not decode"
+                );
+                continue;
+            }
             let service = AdoptionPortService::new(
                 Arc::new(ServedPort(served_entry(anchor_revision, entry_revision), false)),
                 admission(),
             );
             let result = service.invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload()).await;
-            assert_eq!(
-                matches!(result, SpokeResult::Ok(_)),
-                served_ok,
-                "anchor_revision={anchor_revision} entry_revision={entry_revision}: {result:?}"
-            );
-            // qc1 F-013 — an out-of-domain provider revision REFUSES; it
-            // is never normalized into the domain first. `2^53 + 2`
-            // (f64-exact at this magnitude) must not round down to a
-            // success.
-            if !served_ok {
-                let SpokeResult::Reject(reject) = &result else {
-                    unreachable!("asserted above");
-                };
-                assert_eq!(
-                    reject.code,
-                    SpokeRejectCode::InternalError,
-                    "out-of-domain revision must refuse INTERNAL_ERROR: {result:?}"
-                );
-                assert!(
-                    reject.message.contains("outside [0, 2^53]"),
-                    "refusal names the revision domain: {reject:?}"
-                );
-            }
+            assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
         }
 
         // E2: a producer-supplied `extensions` member rides the served
@@ -3673,26 +3714,18 @@ mod history_tests {
         assert_eq!(reject.code, SpokeRejectCode::InternalError);
         assert!(reject.message.contains("adopted_revision outside [0, 2^53]"));
 
-        // qc3 F-006 residual: the emitted revision identity is the
-        // f64-observed value — `9007199254740993` serves as
-        // `9007199254740992`, the number JavaScript reads.
-        let normalized = serve(json!({
-            "outcome": "adopted",
-            "entry": served_entry(9007199254740993, 9007199254740993),
-        }))
-        .await;
-        let SpokeResult::Ok(value) = normalized else {
-            panic!("an in-domain spelling must serve: {normalized:?}")
-        };
-        assert_eq!(
-            value["entry"]["adoption_anchor"]["source_revision"],
-            json!(9007199254740992_u64),
-            "anchor revision normalizes to the f64-observed identity"
-        );
-        assert_eq!(
-            value["entry"]["revision"],
-            json!(9007199254740992_u64),
-            "entry revision normalizes to the f64-observed identity"
+        // An out-of-domain exact revision never decodes into the typed
+        // carrier (`9007199254740993` is beyond the `[0, 2^53]` domain),
+        // so the serving guard never sees one from a JSON provider
+        // answer; the `details.adopted_revision` receipt above is opaque
+        // JSON and keeps the f64-observed normalization.
+        assert!(
+            serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+                "outcome": "adopted",
+                "entry": served_entry(9007199254740993, 9007199254740993),
+            }))
+            .is_err(),
+            "an out-of-domain entry revision must not decode"
         );
     }
 
@@ -3796,14 +3829,21 @@ mod history_tests {
         // 2^53 + 2 — f64-exact, one step beyond the inclusive endpoint.
         const OUT: u64 = 9007199254740994;
 
-        assert_refused(
-            serve(json!({ "outcome": "adopted", "entry": served_entry(1, OUT) })).await,
-            "entry.revision",
-        );
-        assert_refused(
-            serve(json!({ "outcome": "adopted", "entry": served_entry(OUT, 1) })).await,
-            "adoption_anchor.source_revision",
-        );
+        // An out-of-domain entry revision never decodes into the typed
+        // carrier, so the typed decode is the refusal for both entry
+        // slots.
+        for entry in [served_entry(1, OUT), served_entry(OUT, 1)] {
+            assert!(
+                serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+                    "outcome": "adopted",
+                    "entry": entry,
+                }))
+                .is_err(),
+                "an out-of-domain provider entry must not decode"
+            );
+        }
+        // The refusal receipt is opaque `details` JSON, so the serving
+        // guard is what refuses it.
         assert_refused(
             serve(json!({
                 "error": {

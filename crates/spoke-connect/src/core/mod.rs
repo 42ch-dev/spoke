@@ -27,6 +27,7 @@ pub(crate) mod golden;
 #[cfg(test)]
 pub(crate) mod golden_envelope_auth;
 mod hello_crypto;
+pub(crate) mod jcs;
 mod nonce;
 mod peer_id;
 mod sequence;

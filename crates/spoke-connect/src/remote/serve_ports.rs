@@ -567,12 +567,19 @@ fn decode_history_call(op: &str, payload: Value, scope: Option<Value>) -> SpokeR
     };
     match op {
         HISTORY_OP_GET => match serde_json::from_value::<HistoryRevisionsGetRequest>(payload) {
-            Ok(request) => spoke_ok(HistoryCall::Get {
-                scope,
-                entity_kind: request.entity_kind.into(),
-                entity_id: request.entity_id.into(),
-                revision: request.revision,
-            }),
+            Ok(request) if request.revision <= ADOPT_EXACT_INTEGER_BOUND => {
+                spoke_ok(HistoryCall::Get {
+                    scope,
+                    entity_kind: request.entity_kind.into(),
+                    entity_id: request.entity_id.into(),
+                    revision: request.revision,
+                })
+            }
+            Ok(_) => spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("invalid {op} payload: revision must be an integer in [0, 2^53]"),
+                history_input_details(op),
+            ),
             Err(error) => spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 format!("invalid {op} payload: {error}"),
@@ -580,13 +587,20 @@ fn decode_history_call(op: &str, payload: Value, scope: Option<Value>) -> SpokeR
             ),
         },
         HISTORY_OP_PRUNE => match serde_json::from_value::<HistoryRevisionsPruneRequest>(payload) {
-            Ok(request) => spoke_ok(HistoryCall::Prune {
-                scope,
-                entity_kind: request.entity_kind.into(),
-                entity_id: request.entity_id.into(),
-                keep: request.keep,
-                idempotency_key: request.idempotency_key.into(),
-            }),
+            Ok(request) if request.keep <= ADOPT_EXACT_INTEGER_BOUND => {
+                spoke_ok(HistoryCall::Prune {
+                    scope,
+                    entity_kind: request.entity_kind.into(),
+                    entity_id: request.entity_id.into(),
+                    keep: request.keep,
+                    idempotency_key: request.idempotency_key.into(),
+                })
+            }
+            Ok(_) => spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("invalid {op} payload: keep must be an integer in [0, 2^53]"),
+                history_input_details(op),
+            ),
             Err(error) => spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 format!("invalid {op} payload: {error}"),
@@ -776,6 +790,16 @@ pub(crate) fn validate_history_snapshot(
     entity_id: &str,
     revision: u64,
 ) -> SpokeResult<()> {
+    if snapshot.schema_version.get() > MAX_SCHEMA_VERSION {
+        return history_transport_reject(
+            "provider returned a RevisionSnapshot schema_version above 2^53-1",
+        );
+    }
+    if snapshot.revision > ADOPT_EXACT_INTEGER_BOUND {
+        return history_transport_reject(
+            "provider returned a RevisionSnapshot revision above 2^53",
+        );
+    }
     if *snapshot.entity_kind != entity_kind
         || *snapshot.entity_id != entity_id
         || snapshot.revision != revision
@@ -798,16 +822,25 @@ pub(crate) fn validate_history_snapshot(
             "provider returned a malformed RevisionSnapshot: snapshot variant does not agree with entity_kind",
         );
     }
-    let (nested_id, nested_revision) = match &snapshot.snapshot {
+    let (nested_id, nested_revision, nested_schema_version) = match &snapshot.snapshot {
         RevisionSnapshotSnapshot::KnowledgeEntry {
-            entry_id, revision, ..
-        } => (entry_id.as_str(), *revision),
+            entry_id,
+            revision,
+            schema_version,
+            ..
+        } => (entry_id.as_str(), *revision, schema_version.0.get()),
         RevisionSnapshotSnapshot::Relation {
             relation_id,
             revision,
+            schema_version,
             ..
-        } => (relation_id.as_str(), *revision),
+        } => (relation_id.as_str(), *revision, schema_version.0.get()),
     };
+    if nested_schema_version > MAX_SCHEMA_VERSION {
+        return history_transport_reject(
+            "provider returned a malformed RevisionSnapshot: nested schema_version above 2^53-1",
+        );
+    }
     if nested_id != entity_id {
         return history_transport_reject(
             "provider returned a malformed RevisionSnapshot: nested entity id does not equal the envelope entity_id",
@@ -819,9 +852,13 @@ pub(crate) fn validate_history_snapshot(
     // this envelope value") — an absent member is malformed, never
     // skipped.
     match nested_revision {
-        Some(nested_revision) if nested_revision == revision => spoke_ok(()),
+        Some(nested_revision)
+            if nested_revision <= ADOPT_EXACT_INTEGER_BOUND && nested_revision == revision =>
+        {
+            spoke_ok(())
+        }
         _ => history_transport_reject(
-            "provider returned a malformed RevisionSnapshot: nested entity revision must be present and equal the envelope revision",
+            "provider returned a malformed RevisionSnapshot: nested entity revision must be present, inside [0, 2^53] and equal the envelope revision",
         ),
     }
 }
@@ -1399,6 +1436,33 @@ pub(crate) fn exact_revision_u64(value: &Value) -> Option<u64> {
         .then_some(float as u64)
 }
 
+/// SchemaVersion domain (`[1, 2^53-1]`), exact in both stacks.
+const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
+
+/// Every structural `schema_version` member inside a decoded payload must
+/// be in the SchemaVersion domain. The generated carrier is `NonZeroU64`
+/// with no ceiling, so this raw-JSON scan re-applies the bound on every
+/// payload before its typed decode. Product-owned opaque bags
+/// (`extensions`, `modules`, `state`, `computable`) are skipped: their
+/// keys are not protocol members.
+pub(crate) fn schema_versions_in_domain(value: &Value) -> bool {
+    match value {
+        Value::Object(members) => members.iter().all(|(key, member)| {
+            if key == "schema_version" {
+                member
+                    .as_u64()
+                    .is_some_and(|version| (1..=MAX_SCHEMA_VERSION).contains(&version))
+            } else if matches!(key.as_str(), "extensions" | "modules" | "state" | "computable") {
+                true
+            } else {
+                schema_versions_in_domain(member)
+            }
+        }),
+        Value::Array(items) => items.iter().all(schema_versions_in_domain),
+        _ => true,
+    }
+}
+
 /// Provider-fault guard for a Reject receipt's revision-typed detail
 /// (qc1 F-031): `details.adopted_revision` obeys the same `[0, 2^53]`
 /// f64-observed domain as every other revision member, so an out-of-domain
@@ -1556,6 +1620,14 @@ fn valid_served_adopt_result(
             "adoption provider returned an entry that is not a valid KnowledgeEntry",
         );
     };
+    // SchemaVersion is `[1, 2^53-1]`; scan the entry and its nested
+    // anchors on the raw provider value (the typed carriers are unbounded
+    // `NonZeroU64`).
+    if !schema_versions_in_domain(entry) {
+        return history_transport_reject(
+            "adoption provider returned an entry with a schema_version outside [1, 2^53-1]",
+        );
+    }
     // Contract E1 — revision-typed members live in the interoperable
     // integer domain `[0, 2^53]` on the wire; the bound runs on the RAW
     // provider value (f64-observed) BEFORE any normalization to `u64`,
@@ -2433,6 +2505,80 @@ mod history_tests {
                 ..
             })
         ));
+    }
+
+    /// SchemaVersion is `[1, 2^53-1]`; the generated carriers are
+    /// unbounded `NonZeroU64`, so the raw-JSON scan re-applies the bound
+    /// to every member, nested anchors included.
+    #[test]
+    fn schema_version_scan_bounds_every_member() {
+        assert!(schema_versions_in_domain(&json!({"schema_version": 1})));
+        assert!(schema_versions_in_domain(
+            &json!({"schema_version": 9_007_199_254_740_991u64})
+        ));
+        assert!(!schema_versions_in_domain(&json!({"schema_version": 0})));
+        assert!(!schema_versions_in_domain(
+            &json!({"schema_version": 9_007_199_254_740_992u64})
+        ));
+        assert!(!schema_versions_in_domain(&json!({
+            "entry": {"adoption_anchor": {"schema_version": 9_007_199_254_740_992u64}}
+        })));
+        assert!(schema_versions_in_domain(
+            &json!({"findings": [{"schema_version": 2}]})
+        ));
+    }
+
+    /// A request revision outside `[0, 2^53]` refuses before the port is
+    /// called (the typed `u64` decode alone would admit it).
+    #[tokio::test]
+    async fn history_get_revision_above_domain_is_invalid_input() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let result = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_GET,
+                json!({
+                    "entity_kind": "knowledge_entry",
+                    "entity_id": "e1",
+                    "revision": 9_007_199_254_740_993u64,
+                }),
+            )
+            .await;
+        assert!(matches!(
+            result,
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
+        ));
+        assert_eq!(port.get_calls.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    /// A provider snapshot outside the published SchemaVersion / revision
+    /// domains is a transport decode error, envelope or nested member.
+    #[tokio::test]
+    async fn snapshot_domains_are_enforced() {
+        let mut doc = snapshot_json("e1", 3);
+        doc["schema_version"] = json!(9_007_199_254_740_992u64);
+        let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
+        assert!(valid_served_snapshot(snapshot, "knowledge_entry", "e1", 3).is_reject());
+
+        let mut doc = snapshot_json("e1", 3);
+        doc["snapshot"]["schema_version"] = json!(9_007_199_254_740_992u64);
+        let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
+        assert!(valid_served_snapshot(snapshot, "knowledge_entry", "e1", 3).is_reject());
+
+        let doc = snapshot_json("e1", 9_007_199_254_740_993u64);
+        let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
+        assert!(valid_served_snapshot(
+            snapshot,
+            "knowledge_entry",
+            "e1",
+            9_007_199_254_740_993u64
+        )
+        .is_reject());
     }
 
     /// The prune dedup digest is SHA-256 over RFC 8785 JSON, which

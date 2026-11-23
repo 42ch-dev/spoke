@@ -49,7 +49,12 @@ pub(crate) fn body_wire_from_entry_wire(entry_wire: &Value) -> Value {
         .unwrap_or_else(|| Value::Object(Map::new()))
 }
 
-/// Validate wire `revision` per promote rules (TS `validateRevision`).
+/// Inclusive revision domain (`[0, 2^53]`), exact in the two stacks.
+pub(crate) const MAX_REVISION: u64 = 1 << 53;
+
+/// Validate wire `revision` per promote rules (TS `validateRevision`):
+/// omitted or `null` is fine, otherwise a non-negative integer in the
+/// inclusive `[0, 2^53]` revision domain.
 pub(crate) fn validate_revision_wire(revision: Option<&Value>) -> SpokeResult<()> {
     let Some(value) = revision else {
         return spoke_ok_unit();
@@ -59,34 +64,11 @@ pub(crate) fn validate_revision_wire(revision: Option<&Value>) -> SpokeResult<()
         return spoke_ok_unit();
     }
 
-    let number = match value {
-        Value::Number(number) => number,
-        _ => {
-            let mut details = Map::new();
-            details.insert("revision".into(), value.clone());
-            return spoke_reject(
-                SpokeRejectCode::InvalidInput,
-                "KnowledgeEntry revision must be a non-negative integer or omitted",
-                Some(details),
-            );
-        }
-    };
+    let in_domain = value
+        .as_u64()
+        .is_some_and(|revision| revision <= MAX_REVISION);
 
-    if let Some(revision) = number.as_u64() {
-        let _ = revision;
-        return spoke_ok_unit();
-    }
-
-    if let Some(revision) = number.as_i64() {
-        if revision < 0 {
-            let mut details = Map::new();
-            details.insert("revision".into(), value.clone());
-            return spoke_reject(
-                SpokeRejectCode::InvalidInput,
-                "KnowledgeEntry revision must be a non-negative integer or omitted",
-                Some(details),
-            );
-        }
+    if in_domain {
         return spoke_ok_unit();
     }
 
@@ -94,7 +76,7 @@ pub(crate) fn validate_revision_wire(revision: Option<&Value>) -> SpokeResult<()
     details.insert("revision".into(), value.clone());
     spoke_reject(
         SpokeRejectCode::InvalidInput,
-        "KnowledgeEntry revision must be a non-negative integer or omitted",
+        "KnowledgeEntry revision must be an integer in [0, 2^53] or omitted",
         Some(details),
     )
 }

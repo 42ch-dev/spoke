@@ -7,12 +7,10 @@
 //! evidence/prior basis, category/assertion/metric compatibility, view
 //! placement, filter grammar and projection selection trace only. They never
 //! resolve references, judge evidence sufficiency, compute probabilities or
-//! perform I/O. Fictional leap-second timestamps follow compass D18:
-//! offset-adjusted structurally possible UTC month-end placement, no real
-//! historical IERS lookup.
+//! perform I/O. Timestamps use the shared strict RFC 3339 gate
+//! (`spoke_schemas::timestamp`): leap seconds are accepted on any date.
 
 use crate::result::{spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
-use chrono::{Datelike, Duration, NaiveDate, Timelike};
 use serde_json::{json, Map, Value};
 use spoke_schemas::data::cognition::{
     AcquisitionPath, BeliefAccess, BeliefAccessPredicate, BeliefContentType,
@@ -25,6 +23,7 @@ use spoke_schemas::data::cognition::{
     Shared1, Truth, TruthPredicate,
 };
 use spoke_schemas::CognitionRecord;
+use spoke_schemas::timestamp::parse_strict;
 use std::collections::HashMap;
 
 /// Placement of a standard record: holder-side current authority
@@ -579,123 +578,8 @@ fn is_probability01_value(value: f64) -> bool {
     value.is_finite() && (0.0..=1.0).contains(&value)
 }
 
-struct CognitionTimestamp {
-    /// Local date-time with the leap second (if any) already clamped to :59.
-    naive: chrono::NaiveDateTime,
-    leap_second: bool,
-    /// Declared fixed offset east of UTC in minutes (`+` = local ahead).
-    offset_east_minutes: i32,
-}
-
-fn take_digits(bytes: &[u8], start: usize, count: usize) -> Option<u32> {
-    let mut value = 0u32;
-    for offset in 0..count {
-        let byte = *bytes.get(start + offset)?;
-        if !byte.is_ascii_digit() {
-            return None;
-        }
-        value = value * 10 + u32::from(byte - b'0');
-    }
-    Some(value)
-}
-
-fn byte_is(bytes: &[u8], position: usize, expected: u8) -> bool {
-    bytes.get(position) == Some(&expected)
-}
-
-// Strict RFC 3339 with mandatory offset: `YYYY-MM-DD[Tt]HH:MM:SS[.frac]
-// ([Zz]|[+-]HH:MM)`, calendar-valid, offset hour <= 23, offset minute <= 59,
-// seconds <= 60 (leap second admitted structurally, checked by `is_timestamp`).
-fn parse_cognition_timestamp(value: &str) -> Option<CognitionTimestamp> {
-    let bytes = value.as_bytes();
-    if bytes.len() < 20 {
-        return None;
-    }
-    if !byte_is(bytes, 4, b'-')
-        || !byte_is(bytes, 7, b'-')
-        || !(byte_is(bytes, 10, b'T') || byte_is(bytes, 10, b't'))
-        || !byte_is(bytes, 13, b':')
-        || !byte_is(bytes, 16, b':')
-    {
-        return None;
-    }
-    let year = take_digits(bytes, 0, 4)?;
-    let month = take_digits(bytes, 5, 2)?;
-    let day = take_digits(bytes, 8, 2)?;
-    let hour = take_digits(bytes, 11, 2)?;
-    let minute = take_digits(bytes, 14, 2)?;
-    let second = take_digits(bytes, 17, 2)?;
-
-    let mut index = 19;
-    if byte_is(bytes, index, b'.') {
-        index += 1;
-        let fraction_start = index;
-        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
-            index += 1;
-        }
-        if index == fraction_start {
-            return None;
-        }
-    }
-    let offset_east_minutes = match bytes.get(index) {
-        Some(b'Z') | Some(b'z') => {
-            index += 1;
-            0
-        }
-        Some(sign @ (b'+' | b'-')) => {
-            let offset_hour = take_digits(bytes, index + 1, 2)?;
-            if !byte_is(bytes, index + 3, b':') {
-                return None;
-            }
-            let offset_minute = take_digits(bytes, index + 4, 2)?;
-            index += 6;
-            if offset_hour > 23 || offset_minute > 59 {
-                return None;
-            }
-            let total = (offset_hour * 60 + offset_minute) as i32;
-            if *sign == b'-' {
-                -total
-            } else {
-                total
-            }
-        }
-        _ => return None,
-    };
-    if index != bytes.len() {
-        return None;
-    }
-
-    let date = NaiveDate::from_ymd_opt(year as i32, month, day)?;
-    if hour > 23 || minute > 59 || second > 60 {
-        return None;
-    }
-    let naive = date.and_hms_opt(hour, minute, second.min(59))?;
-    Some(CognitionTimestamp {
-        naive,
-        leap_second: second == 60,
-        offset_east_minutes,
-    })
-}
-
 fn is_timestamp(value: &Value) -> bool {
-    let Some(timestamp) = value.as_str() else {
-        return false;
-    };
-    if timestamp != timestamp.trim() {
-        return false;
-    }
-    let Some(parsed) = parse_cognition_timestamp(timestamp) else {
-        return false;
-    };
-    if !parsed.leap_second {
-        return true;
-    }
-    // Fictional leap seconds (compass D18) need a UTC month boundary after
-    // offset adjustment, not a historical IERS lookup.
-    let utc = parsed.naive - Duration::minutes(i64::from(parsed.offset_east_minutes));
-    utc.hour() == 23
-        && utc.minute() == 59
-        && (utc + Duration::seconds(1)).day() == 1
+    value.as_str().is_some_and(|timestamp| parse_strict(timestamp).is_ok())
 }
 
 // A single metric whose estimand is fixed by its enclosing metrics key.

@@ -5,8 +5,11 @@
 //! inference stay product-owned.
 
 use crate::result::{spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
-use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_json::{json, Map, Value};
+use spoke_schemas::timestamp::parse_strict;
+
+/// SchemaVersion domain: `[1, 2^53-1]`, exact in both stacks.
+const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
 
 const MIND_STATE_KEYS: [&str; 13] = [
     "schema_version",
@@ -90,16 +93,10 @@ fn is_plain_object(value: &Value) -> bool {
     value.is_object()
 }
 
+// One timestamp gate for the whole crate: the shared strict RFC 3339 parser
+// (`spoke_schemas::timestamp`), never the relaxed chrono entry points.
 fn is_parseable_date_time(value: &str) -> bool {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-
-    DateTime::parse_from_rfc3339(trimmed).is_ok()
-        || trimmed.parse::<DateTime<Utc>>().is_ok()
-        || NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.f").is_ok()
-        || NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S").is_ok()
+    parse_strict(value).is_ok()
 }
 
 fn reject(field: &str, code: SpokeRejectCode, message: &str) -> SpokeResult<()> {
@@ -137,14 +134,18 @@ pub fn validate_mind_state(value: &Value) -> SpokeResult<()> {
 
     let schema_version = state.get("schema_version").unwrap_or(&Value::Null);
     let version_ok = match schema_version.as_f64() {
-        Some(version) => version >= 1.0 && version.fract() == 0.0,
+        Some(version) => {
+            version >= 1.0
+                && version.fract() == 0.0
+                && version <= MAX_SCHEMA_VERSION as f64
+        }
         None => false,
     };
     if !version_ok {
         return reject(
             "schema_version",
             SpokeRejectCode::InvalidInput,
-            "MindState schema_version must be an integer >= 1",
+            "MindState schema_version must be an integer in [1, 2^53-1]",
         );
     }
 
@@ -526,6 +527,20 @@ mod tests {
             .unwrap()
             .insert("schema_version".into(), json!(0));
 
+        assert!(validate_mind_state(&state).is_reject());
+
+        // SchemaVersion is [1, 2^53-1]: the top endpoint is accepted and
+        // the first value above it is refused.
+        state
+            .as_object_mut()
+            .unwrap()
+            .insert("schema_version".into(), json!((1u64 << 53) - 1));
+        assert!(validate_mind_state(&state).is_ok());
+
+        state
+            .as_object_mut()
+            .unwrap()
+            .insert("schema_version".into(), json!(1u64 << 53));
         assert!(validate_mind_state(&state).is_reject());
     }
 

@@ -8,20 +8,23 @@ use spoke_schemas::promote_request::PromoteRequest;
 
 const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
 
+/// SchemaVersion domain (`[1, 2^53-1]`) and the inclusive revision domain
+/// (`[0, 2^53]`), both exact in the two stacks.
+const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
+const MAX_REVISION: u64 = 1 << 53;
+
 fn validate_revision(candidate_wire: &Value) -> SpokeResult<()> {
     validate_revision_wire(candidate_wire.get("revision"))
 }
 
 fn validate_knowledge_entry_shape(candidate: &KnowledgeEntry) -> SpokeResult<()> {
-    if candidate.schema_version.get() < 1 {
+    let schema_version = candidate.schema_version.get();
+    if schema_version < 1 || schema_version > MAX_SCHEMA_VERSION {
         let mut details = Map::new();
-        details.insert(
-            "schema_version".into(),
-            json!(candidate.schema_version.get()),
-        );
+        details.insert("schema_version".into(), json!(schema_version));
         return spoke_reject(
             SpokeRejectCode::InvalidInput,
-            "KnowledgeEntry schema_version must be an integer >= 1",
+            "KnowledgeEntry schema_version must be an integer in [1, 2^53-1]",
             Some(details),
         );
     }
@@ -132,12 +135,12 @@ fn validate_promote_lifecycle(request: &PromoteRequest) -> SpokeResult<()> {
 fn next_revision(candidate: &KnowledgeEntry) -> SpokeResult<u64> {
     match candidate.revision {
         None => spoke_ok(1),
-        Some(revision) if revision == u64::MAX => {
+        Some(revision) if revision >= MAX_REVISION => {
             let mut details = Map::new();
             details.insert("revision".into(), json!(revision));
             spoke_reject(
                 SpokeRejectCode::InvalidInput,
-                "KnowledgeEntry revision cannot be incremented past u64::MAX",
+                "KnowledgeEntry revision cannot be incremented past 2^53",
                 Some(details),
             )
         }
@@ -415,6 +418,43 @@ mod tests {
         if let SpokeResult::Ok(value) = result {
             assert_eq!(value.revision, Some(3));
         }
+    }
+
+    #[test]
+    fn enforces_schema_version_and_revision_ceilings() {
+        let wire = candidate_wire(|candidate| {
+            candidate.insert("schema_version".into(), json!(MAX_SCHEMA_VERSION));
+        });
+        assert!(validate_promote_request_wire(&wire).is_ok());
+        let wire = candidate_wire(|candidate| {
+            candidate.insert("schema_version".into(), json!(MAX_SCHEMA_VERSION + 1));
+        });
+        assert!(validate_promote_request_wire(&wire).is_reject());
+
+        // The revision member itself is in [0, 2^53].
+        let wire = candidate_wire(|candidate| {
+            candidate.insert("revision".into(), json!(MAX_REVISION));
+        });
+        assert!(validate_promote_request_wire(&wire).is_ok());
+        let wire = candidate_wire(|candidate| {
+            candidate.insert("revision".into(), json!(MAX_REVISION + 1));
+        });
+        assert!(validate_promote_request_wire(&wire).is_reject());
+
+        // Bumping must not leave the domain: 2^53-1 promotes to 2^53, a
+        // candidate already at 2^53 cannot be promoted.
+        let result = apply_promote_acceptance(&make_request(|request| {
+            request.candidate.revision = Some(MAX_REVISION - 1);
+        }));
+        if let SpokeResult::Ok(value) = result {
+            assert_eq!(value.revision, Some(MAX_REVISION));
+        } else {
+            panic!("expected 2^53-1 to promote to 2^53");
+        }
+        let result = apply_promote_acceptance(&make_request(|request| {
+            request.candidate.revision = Some(MAX_REVISION);
+        }));
+        assert!(result.is_reject());
     }
 
     #[test]

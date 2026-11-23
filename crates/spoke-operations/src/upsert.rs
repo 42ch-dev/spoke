@@ -7,6 +7,11 @@ use spoke_schemas::knowledge_entry::KnowledgeEntry;
 
 const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
 
+/// SchemaVersion domain (`[1, 2^53-1]`) and the inclusive revision domain
+/// (`[0, 2^53]`), both exact in the two stacks.
+const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
+const MAX_REVISION: u64 = 1 << 53;
+
 /// Explicit upsert path when caller supplies stored presence separately from inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpsertMode {
@@ -37,15 +42,13 @@ impl Default for ValidateUpsertKnowledgeEntryContext<'_> {
 }
 
 fn validate_required_knowledge_entry_fields(candidate: &KnowledgeEntry) -> SpokeResult<()> {
-    if candidate.schema_version.get() < 1 {
+    let schema_version = candidate.schema_version.get();
+    if schema_version < 1 || schema_version > MAX_SCHEMA_VERSION {
         let mut details = Map::new();
-        details.insert(
-            "schema_version".into(),
-            json!(candidate.schema_version.get()),
-        );
+        details.insert("schema_version".into(), json!(schema_version));
         return spoke_reject(
             SpokeRejectCode::InvalidInput,
-            "KnowledgeEntry schema_version must be an integer >= 1",
+            "KnowledgeEntry schema_version must be an integer in [1, 2^53-1]",
             Some(details),
         );
     }
@@ -150,6 +153,16 @@ fn validate_update_path(candidate: &KnowledgeEntry, stored: &KnowledgeEntry) -> 
             Some(details),
         );
     };
+
+    if revision > MAX_REVISION {
+        let mut details = Map::new();
+        details.insert("revision".into(), json!(revision));
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            "KnowledgeEntry revision must be an integer in [0, 2^53]",
+            Some(details),
+        );
+    }
 
     assert_revision_match(revision, stored.revision.unwrap_or(0))
 }
@@ -304,6 +317,61 @@ mod tests {
             }
         )
         .is_ok());
+    }
+
+    #[test]
+    fn enforces_schema_version_and_revision_ceilings() {
+        let candidate = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_new".into();
+            entry.schema_version = NonZeroU64::new(MAX_SCHEMA_VERSION).unwrap();
+        });
+        assert!(validate_upsert_knowledge_entry(
+            &candidate,
+            ValidateUpsertKnowledgeEntryContext::default()
+        )
+        .is_ok());
+
+        let candidate = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_new".into();
+            entry.schema_version = NonZeroU64::new(MAX_SCHEMA_VERSION + 1).unwrap();
+        });
+        assert!(validate_upsert_knowledge_entry(
+            &candidate,
+            ValidateUpsertKnowledgeEntryContext::default()
+        )
+        .is_reject());
+
+        // Update revision: the inclusive 2^53 endpoint is accepted and the
+        // first value above it is refused.
+        let stored = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_1".into();
+            entry.revision = Some(MAX_REVISION);
+        });
+        let candidate = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_1".into();
+            entry.revision = Some(MAX_REVISION);
+        });
+        assert!(validate_upsert_knowledge_entry(
+            &candidate,
+            ValidateUpsertKnowledgeEntryContext {
+                stored: Some(&stored),
+                mode: None,
+            }
+        )
+        .is_ok());
+
+        let candidate = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_1".into();
+            entry.revision = Some(MAX_REVISION + 1);
+        });
+        assert!(validate_upsert_knowledge_entry(
+            &candidate,
+            ValidateUpsertKnowledgeEntryContext {
+                stored: Some(&stored),
+                mode: None,
+            }
+        )
+        .is_reject());
     }
 
     #[test]

@@ -94,7 +94,9 @@ use crate::remote::remote_adapter::{
     wire_response_correlation, RemoteError as ResponderError,
     RemoteErrorKind as ResponderErrorKind, RemoteIdentity, ToolHandler,
 };
-use crate::remote::serve_ports::{exact_revision_u64, RemoteServePorts};
+use crate::remote::serve_ports::{
+    exact_revision_u64, schema_versions_in_domain, RemoteServePorts,
+};
 use crate::remote::transport::Transport;
 use crate::remote::{
     baseline_scope_shape, port_dispatch_allowed, requires_ownership_capability,
@@ -171,6 +173,18 @@ fn payload_field<T: DeserializeOwned>(payload: &Value, field: &str, op: &str) ->
             None,
         );
     };
+    // The generated `SchemaVersion` carriers are unbounded `NonZeroU64`;
+    // every `schema_version` member must also satisfy the published
+    // `[1, 2^53-1]` domain before the typed decode.
+    if !schema_versions_in_domain(value) {
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            format!(
+                "invalid {op} payload: {field} carries a schema_version outside [1, 2^53-1]"
+            ),
+            None,
+        );
+    }
     match serde_json::from_value(value.clone()) {
         Ok(value) => spoke_ok(value),
         Err(error) => spoke_reject(
@@ -817,6 +831,18 @@ fn decode_port_call<'a>(
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
+            // Contract E1: `expected_base_revision` is revision-typed,
+            // `[0, 2^53]` inclusive.
+            let expected_value = payload.get("expected_base_revision");
+            if !matches!(expected_value, None | Some(Value::Null))
+                && expected_value.and_then(exact_revision_u64).is_none()
+            {
+                return spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    "invalid port.relation.put payload: expected_base_revision must be an integer within [0, 2^53] or null",
+                    None,
+                );
+            }
             let expected = match payload_field::<Option<u64>>(payload, "expected_base_revision", op)
             {
                 SpokeResult::Ok(value) => value,

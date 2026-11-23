@@ -15,7 +15,13 @@
  * schema package's job and is intentionally not duplicated here.
  */
 
-type FieldKind = "string" | "number" | "object" | "array" | "boolean";
+type FieldKind =
+  | "string"
+  | "number"
+  | "object"
+  | "array"
+  | "boolean"
+  | "datetime";
 
 interface Field {
   name: string;
@@ -93,7 +99,7 @@ const MEMORY_RECEIPT_FIELDS = [
   { name: "requester_principal_id", kind: "string" },
   { name: "payload_digest", kind: "string" },
   { name: "status", kind: "string" },
-  { name: "created_at", kind: "string" },
+  { name: "created_at", kind: "datetime" },
   { name: "extensions", kind: "object" },
 ] as const satisfies readonly Field[];
 
@@ -239,6 +245,8 @@ function matchesFieldKind(value: unknown, kind: FieldKind): boolean {
       return Array.isArray(value);
     case "boolean":
       return typeof value === "boolean";
+    case "datetime":
+      return isRfc3339Timestamp(value);
   }
 }
 
@@ -253,9 +261,59 @@ const EXTRACT_RESPONSE_WIRE_KEYS = new Set(["candidates", "run", "extensions"]);
 
 const EXTRACTION_RUN_WIRE_KEYS = new Set(["run_id", "method", "coverage_hint"]);
 
+/** note: chrono `DateTime<Utc>` serde parity — RFC 3339 (`date-time`):
+ * full date, `T`/`t` separator (chrono's serde impl accepts both cases),
+ * seconds, optional fractional seconds, `Z`/`z` or ±hh:mm offset.
+ * `Date.parse` (NaN rejects) covers the ±23:59 offset ceiling; calendar
+ * days and clock fields are range-checked here because `Date.parse`
+ * normalizes `2026-02-30` and `24:00:00` into valid dates while chrono
+ * rejects them, and `Date.parse` rejects second `:60` while chrono
+ * accepts leap seconds. */
+const RFC3339_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function isRfc3339Timestamp(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const match = RFC3339_PATTERN.exec(value);
+  if (match === null) {
+    return false;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  if (hour > 23 || minute > 59 || second > 60) {
+    return false;
+  }
+  // `Date.parse` normalizes out-of-range calendar days (`2026-02-30`
+  // rolls into March) while chrono rejects them, so bound the day here.
+  const daysInMonth =
+    month === 2 && year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+      ? 29
+      : (MONTH_DAYS[month - 1] ?? 0);
+  if (day < 1 || day > daysInMonth) {
+    return false;
+  }
+  const offset = /([+-])(\d{2}):(\d{2})$/.exec(value);
+  if (offset !== null && (Number(offset[2]) > 23 || Number(offset[3]) > 59)) {
+    return false;
+  }
+  // `:60` leap second is accepted by chrono but NaN in `Date.parse`;
+  // parse the clock one second earlier to reuse the remaining checks.
+  const normalized =
+    second === 60 ? `${value.slice(0, 17)}59${value.slice(19)}` : value;
+  return !Number.isNaN(Date.parse(normalized));
+}
+
 const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
-function isValidExtensionMap(value: unknown): boolean {
+export function isValidExtensionMap(value: unknown): boolean {
   if (!isRecord(value)) {
     return false;
   }
@@ -264,6 +322,25 @@ function isValidExtensionMap(value: unknown): boolean {
       return false;
     }
     if (!isRecord(namespaceValue)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** note: `KnowledgeEntry.modules` (knowledge-entry.schema.json) — Rust
+ * `HashMap<KnowledgeEntryModulesKey, KnowledgeEntryModulesValue>`:
+ * keys match the ExtensionKey pattern; values are object | array only
+ * (scalar module values fail Rust typed decode). */
+function isValidModulesMap(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const [key, moduleValue] of Object.entries(value)) {
+    if (!EXTENSION_MAP_KEY_PATTERN.test(key)) {
+      return false;
+    }
+    if (!isRecord(moduleValue) && !Array.isArray(moduleValue)) {
       return false;
     }
   }
@@ -335,7 +412,586 @@ function isValidExtractSuccessPayload(value: unknown): boolean {
   return true;
 }
 
+/** note: `revision` / `deleted` / `floor_revision` are `u64` on the wire — exact integers only, never rounded (spoke-history contract). */
+function isExactNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+  );
+}
+
+/**
+ * note: the adoption numeric rule (spoke-knowledge-adoption contract,
+ * canonical numeric spelling — C5): an integral value is admissible at
+ * the INCLUSIVE `2^53` endpoint, one step beyond `Number.isSafeInteger`.
+ * `AdoptionAnchor.source_revision` and the adopt request's
+ * `source_revision` use this bound — the endpoint is the same wire
+ * number Rust's `adopt_request_from_payload` admits (qc1 F-013 /
+ * qc3 F-006). History's stricter `u64`-exact rule above stays untouched.
+ */
+export function isAdoptExactNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 9_007_199_254_740_992 // 2^53, inclusive
+  );
+}
+
+/**
+ * note: strict `RevisionSnapshot` decode (spoke-history contract
+ * §RevisionSnapshot): all six envelope members present and well-formed,
+ * `snapshot` a COMPLETE core shape (`KnowledgeEntry` or `Relation`
+ * required-field set — matching `port.knowledge.get` / `port.relation.get`
+ * strictness), the variant agreeing with `entity_kind` for the core
+ * kinds, and the nested entity's own id and revision equal to the
+ * envelope's. `selectors` — bound at the serving face and each
+ * `RemoteAdapter` — additionally requires the envelope to match the
+ * request (Rust parity: `validate_history_snapshot`). An open product
+ * kind declares its core shape, so the nested member must still decode
+ * under one consistent core shape.
+ */
+export function isValidRevisionSnapshot(
+  value: unknown,
+  selectors?: { entity_kind: string; entity_id: string; revision: number },
+): boolean {
+  if (!isRecord(value) || !isValidRevisionSnapshotEnvelope(value)) {
+    return false;
+  }
+  if (
+    selectors !== undefined &&
+    (value.entity_kind !== selectors.entity_kind ||
+      value.entity_id !== selectors.entity_id ||
+      value.revision !== selectors.revision)
+  ) {
+    return false;
+  }
+  const entity = value.snapshot;
+  const isKnowledgeEntry =
+    isRecord(entity) && isValidKnowledgeEntryDeep(entity);
+  const isRelation = isRecord(entity) && isValidRelationDeep(entity);
+  if (value.entity_kind === "knowledge_entry" && !isKnowledgeEntry) {
+    return false;
+  }
+  if (value.entity_kind === "relation" && !isRelation) {
+    return false;
+  }
+  if (!isKnowledgeEntry && !isRelation) {
+    return false;
+  }
+  // note: RevisionSnapshot equality rules — the nested entity's own id
+  // equals the envelope `entity_id` and its own `revision` equals the
+  // envelope `revision` (contract §RevisionSnapshot: "equals the selected
+  // entity snapshot's own revision"). The nested revision is required, not
+  // conditional: the authored response example carries them equal.
+  if (isKnowledgeEntry && entity.entry_id !== value.entity_id) {
+    return false;
+  }
+  if (isRelation && entity.relation_id !== value.entity_id) {
+    return false;
+  }
+  return (
+    isExactNonNegativeInteger(entity.revision) &&
+    entity.revision === value.revision
+  );
+}
+
+/** note: closed envelope member set (`additionalProperties: false`) — a
+ * member outside it fails the Rust typed decode, so it fails here too. */
+const REVISION_SNAPSHOT_ENVELOPE_KEYS: Record<string, true> = {
+  schema_version: true,
+  entity_kind: true,
+  entity_id: true,
+  revision: true,
+  snapshot: true,
+  extensions: true,
+};
+
+/**
+ * note: strict `RevisionSnapshot` envelope shape (spoke-history contract
+ * §RevisionSnapshot): all six members present, no member outside the
+ * closed set, and `schema_version` an integer ≥ 1 (Rust `SchemaVersion`
+ * is `NonZeroU64`).
+ */
+function isValidRevisionSnapshotEnvelope(snapshot: unknown): boolean {
+  return (
+    isRecord(snapshot) &&
+    Object.keys(snapshot).every(
+      (key) => REVISION_SNAPSHOT_ENVELOPE_KEYS[key] === true,
+    ) &&
+    typeof snapshot.schema_version === "number" &&
+    Number.isInteger(snapshot.schema_version) &&
+    snapshot.schema_version > 0 &&
+    typeof snapshot.entity_kind === "string" &&
+    typeof snapshot.entity_id === "string" &&
+    isExactNonNegativeInteger(snapshot.revision) &&
+    isRecord(snapshot.snapshot) &&
+    isValidExtensionMap(snapshot.extensions)
+  );
+}
+
+const KNOWLEDGE_ENTRY_SHAPE: SuccessShape = {
+  kind: "object",
+  fields: KNOWLEDGE_ENTRY_FIELDS,
+};
+
+const RELATION_SHAPE: SuccessShape = {
+  kind: "object",
+  fields: RELATION_FIELDS,
+};
+
+/**
+ * note: optional fields of the schema-declared `KnowledgeEntry` /
+ * `Relation` wire types (schemas/data/*.schema.json) — checked only when
+ * present. Required members stay in the `*_FIELDS` tables above.
+ */
+const KNOWLEDGE_ENTRY_OPTIONAL_FIELDS = [
+  { name: "source_anchor", kind: "object" },
+  { name: "adoption_anchor", kind: "object" },
+  { name: "revision", kind: "number" },
+  { name: "created_at", kind: "datetime" },
+  { name: "updated_at", kind: "datetime" },
+  { name: "modules", kind: "object" },
+  { name: "owner", kind: "string" },
+  { name: "disclosure", kind: "string" },
+] as const satisfies readonly Field[];
+
+const RELATION_OPTIONAL_FIELDS = [
+  { name: "label", kind: "string" },
+  { name: "metadata", kind: "object" },
+  { name: "revision", kind: "number" },
+  { name: "created_at", kind: "datetime" },
+  { name: "updated_at", kind: "datetime" },
+] as const satisfies readonly Field[];
+
+const SOURCE_ANCHOR_REQUIRED_FIELDS = [
+  { name: "schema_version", kind: "number" },
+  { name: "source_id", kind: "string" },
+  { name: "extensions", kind: "object" },
+] as const satisfies readonly Field[];
+
+const SOURCE_ANCHOR_OPTIONAL_FIELDS = [
+  { name: "span", kind: "object" },
+  { name: "label", kind: "string" },
+  { name: "mime_type", kind: "string" },
+] as const satisfies readonly Field[];
+
+const SOURCE_SPAN_REQUIRED_FIELDS = [
+  { name: "start", kind: "number" },
+  { name: "end", kind: "number" },
+] as const satisfies readonly Field[];
+
+const BODY_ATTRIBUTE_OPTIONAL_FIELDS = [
+  { name: "display_type", kind: "string" },
+  { name: "max_value", kind: "number" },
+] as const satisfies readonly Field[];
+
+/**
+ * note: every listed field is optional — only present members must match
+ * their declared JSON kind.
+ */
+function matchesOptionalFields(
+  value: Record<string, unknown>,
+  fields: readonly Field[],
+): boolean {
+  return fields.every(
+    (field) =>
+      !(field.name in value) ||
+      matchesFieldKind(value[field.name], field.kind),
+  );
+}
+
+/** note: closed `SourceSpan` member set (additionalProperties: false). */
+const SOURCE_SPAN_WIRE_KEYS: Record<string, true> = { start: true, end: true };
+
+function isValidSourceSpan(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) => SOURCE_SPAN_WIRE_KEYS[key] === true) &&
+    SOURCE_SPAN_REQUIRED_FIELDS.every(
+      (field) =>
+        field.name in value &&
+        matchesFieldKind(value[field.name], field.kind),
+    ) &&
+    // `start`/`end` are plain numbers on the wire (Rust `f64`) — decimals
+    // are schema-valid, only non-numbers fail.
+    Number.isFinite(value.start) &&
+    Number.isFinite(value.end)
+  );
+}
+/** note: closed `SourceAnchor` member set (additionalProperties: false). */
+const SOURCE_ANCHOR_WIRE_KEYS: Record<string, true> = {
+  schema_version: true,
+  source_id: true,
+  span: true,
+  label: true,
+  mime_type: true,
+  extensions: true,
+};
+
+function isValidSourceAnchor(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    !Object.keys(value).every((key) => SOURCE_ANCHOR_WIRE_KEYS[key] === true)
+  ) {
+    return false;
+  }
+  if (
+    !SOURCE_ANCHOR_REQUIRED_FIELDS.every(
+      (field) =>
+        field.name in value &&
+        matchesFieldKind(value[field.name], field.kind),
+    ) ||
+    // SchemaVersion is an integer >= 1 — a loose number is malformed.
+    !Number.isSafeInteger(value.schema_version) ||
+    (value.schema_version as number) < 1 ||
+    !isValidExtensionMap(value.extensions)
+  ) {
+    return false;
+  }
+  if (!matchesOptionalFields(value, SOURCE_ANCHOR_OPTIONAL_FIELDS)) {
+    return false;
+  }
+  return !("span" in value) || isValidSourceSpan(value.span);
+}
+
+/**
+ * note: `BodyAttribute` (common.schema.json): closed member set —
+ * `trait_type` non-empty string, `value` string | number | boolean;
+ * optional `display_type` / `max_value`. An undeclared member fails Rust
+ * typed decode (`deny_unknown_fields`), so extras are malformed.
+ */
+const BODY_ATTRIBUTE_WIRE_KEYS: Record<string, true> = {
+  trait_type: true,
+  value: true,
+  display_type: true,
+  max_value: true,
+};
+
+function isValidBodyAttribute(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    !Object.keys(value).every((key) => BODY_ATTRIBUTE_WIRE_KEYS[key] === true)
+  ) {
+    return false;
+  }
+  if (typeof value.trait_type !== "string" || value.trait_type.length === 0) {
+    return false;
+  }
+  if (
+    !("value" in value) ||
+    (typeof value.value !== "string" &&
+      typeof value.value !== "number" &&
+      typeof value.value !== "boolean")
+  ) {
+    return false;
+  }
+  return matchesOptionalFields(value, BODY_ATTRIBUTE_OPTIONAL_FIELDS);
+}
+
+/** note: closed `KnowledgeEntry.body` member set (additionalProperties: false). */
+const KNOWLEDGE_ENTRY_BODY_WIRE_KEYS: Record<string, true> = {
+  summary: true,
+  tags: true,
+  attributes: true,
+  state: true,
+  computable: true,
+};
+
+/**
+ * note: `KnowledgeEntry.body` (knowledge-entry.schema.json): closed member
+ * set — optional `summary`/`tags`/`attributes`/`state`/`computable`, each
+ * typed; an undeclared member or a present member with the wrong JSON kind
+ * is malformed, not absent.
+ */
+function isValidKnowledgeEntryBody(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    !Object.keys(value).every(
+      (key) => KNOWLEDGE_ENTRY_BODY_WIRE_KEYS[key] === true,
+    )
+  ) {
+    return false;
+  }
+  if ("summary" in value && typeof value.summary !== "string") {
+    return false;
+  }
+  if (
+    "tags" in value &&
+    (!Array.isArray(value.tags) ||
+      !value.tags.every((tag) => typeof tag === "string"))
+  ) {
+    return false;
+  }
+  if (
+    "attributes" in value &&
+    (!Array.isArray(value.attributes) ||
+      !value.attributes.every(isValidBodyAttribute))
+  ) {
+    return false;
+  }
+  if ("state" in value && !isRecord(value.state)) {
+    return false;
+  }
+  return !("computable" in value) || isRecord(value.computable);
+}
+
+/** note: closed `AdoptionAnchor` member set (additionalProperties: false). */
+const ADOPTION_ANCHOR_WIRE_KEYS: Record<string, true> = {
+  schema_version: true,
+  source_scope_id: true,
+  source_entry_id: true,
+  source_revision: true,
+  extensions: true,
+};
+
+/**
+ * The `AdoptionAnchor` schema check (adoption-anchor.schema.json, closed
+ * member set): an integer `schema_version >= 1`, non-empty
+ * `source_scope_id` / `source_entry_id`, a non-negative integer
+ * `source_revision`, and a shared-`ExtensionMap` `extensions` member.
+ */
+export function isWellFormedAdoptionAnchor(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const key of Object.keys(value)) {
+    if (ADOPTION_ANCHOR_WIRE_KEYS[key] !== true) {
+      return false;
+    }
+  }
+  if (
+    typeof value.schema_version !== "number" ||
+    !Number.isSafeInteger(value.schema_version) ||
+    value.schema_version < 1 ||
+    typeof value.source_scope_id !== "string" ||
+    value.source_scope_id.length === 0 ||
+    typeof value.source_entry_id !== "string" ||
+    value.source_entry_id.length === 0 ||
+    !isAdoptExactNonNegativeInteger(value.source_revision)
+  ) {
+    return false;
+  }
+  return isValidExtensionMap(value.extensions);
+}
+
+/** note: closed `KnowledgeEntry` member set (additionalProperties: false). */
+const KNOWLEDGE_ENTRY_WIRE_KEYS: Record<string, true> = {
+  schema_version: true,
+  entry_id: true,
+  entry_type: true,
+  canonical_name: true,
+  status: true,
+  body: true,
+  source_anchor: true,
+  adoption_anchor: true,
+  revision: true,
+  created_at: true,
+  updated_at: true,
+  extensions: true,
+  modules: true,
+  owner: true,
+  disclosure: true,
+};
+
+/**
+ * note: full schema-declared `KnowledgeEntry` field set — the closed
+ * member list, required members plus every optional member's declared
+ * JSON kind, recursively for `body` / `source_anchor` / `adoption_anchor`,
+ * plus the schema's range constraints (`schema_version` integer >= 1,
+ * `canonical_name` / `owner` / `disclosure` non-empty, `revision` a
+ * non-negative integer). An undeclared member fails Rust typed decode
+ * (`deny_unknown_fields`), so extras are malformed, not tolerated.
+ */
+export function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): boolean {
+  if (
+    !Object.keys(entity).every((key) => KNOWLEDGE_ENTRY_WIRE_KEYS[key] === true)
+  ) {
+    return false;
+  }
+  if (!matchesShape(entity, KNOWLEDGE_ENTRY_SHAPE)) {
+    return false;
+  }
+  // SchemaVersion is an integer >= 1; `canonical_name` is minLength 1.
+  if (
+    !Number.isSafeInteger(entity.schema_version) ||
+    (entity.schema_version as number) < 1 ||
+    (entity.canonical_name as string).length === 0
+  ) {
+    return false;
+  }
+  if (!isValidExtensionMap(entity.extensions)) {
+    return false;
+  }
+  if ("modules" in entity && !isValidModulesMap(entity.modules)) {
+    return false;
+  }
+  if (!matchesOptionalFields(entity, KNOWLEDGE_ENTRY_OPTIONAL_FIELDS)) {
+    return false;
+  }
+  // `revision` is revision-typed payload: the interoperable integer
+  // domain is `[0, 2^53]` inclusive (contract E1); `owner` / `disclosure`
+  // are non-empty when present.
+  if ("revision" in entity && !isAdoptExactNonNegativeInteger(entity.revision)) {
+    return false;
+  }
+  for (const key of ["owner", "disclosure"] as const) {
+    if (key in entity && (entity[key] as string).length === 0) {
+      return false;
+    }
+  }
+  if (!isValidKnowledgeEntryBody(entity.body)) {
+    return false;
+  }
+  if ("source_anchor" in entity && !isValidSourceAnchor(entity.source_anchor)) {
+    return false;
+  }
+  return (
+    !("adoption_anchor" in entity) ||
+    isWellFormedAdoptionAnchor(entity.adoption_anchor)
+  );
+}
+
+/**
+ * note: full schema-declared `Relation` field set — required members plus
+ * every optional member's declared JSON kind. Unknown extra keys are
+ * tolerated (Rust serde typed-decode parity of the declared members).
+ */
+function isValidRelationDeep(entity: Record<string, unknown>): boolean {
+  return (
+    matchesShape(entity, RELATION_SHAPE) &&
+    isValidExtensionMap(entity.extensions) &&
+    matchesOptionalFields(entity, RELATION_OPTIONAL_FIELDS)
+  );
+}
+
+/**
+ * note: strict `history.revisions.*` success shapes (spoke-history
+ * contract §Connect operations): get requires a present `snapshot` member
+ * decoding as `RevisionSnapshot`; prune requires `deleted` integer ≥ 0
+ * and a present, nullable `floor_revision`. Malformed values fail the
+ * gate → `INTERNAL_ERROR` transport decode, never `Ok`.
+ */
+function isValidHistorySuccessPayload(op: string, value: unknown): boolean {
+  if (op === "history.revisions.get") {
+    return (
+      isRecord(value) &&
+      "snapshot" in value &&
+      isValidRevisionSnapshot(value.snapshot)
+    );
+  }
+  return (
+    isRecord(value) &&
+    isExactNonNegativeInteger(value.deleted) &&
+    "floor_revision" in value &&
+    (value.floor_revision === null ||
+      isExactNonNegativeInteger(value.floor_revision))
+  );
+}
+
+/** A `knowledge.adopt` response payload that carries the failure `error`
+ * member at all (valid or not): lets the client gate separate a malformed
+ * failure — a MIXED envelope (`outcome`/`entry` alongside `error`)
+ * included — from the success shape. Rust's typed untagged decode refuses
+ * a mixed envelope, so neither branch may accept it (qc1 F-032). */
+export function carriesAdoptFailureMember(value: unknown): boolean {
+  return isRecord(value) && "error" in value;
+}
+
+/** Served `knowledge.adopt` failure branch (contract §`KnowledgeAdoptResponse`
+ * `OneOf1`, E3): a closed `{error, extensions?}` envelope. A provider
+ * refusal travels as the response PAYLOAD (a successful port outcome),
+ * never a connect error envelope — the client gate must accept it
+ * verbatim (qc2 QC2-21 / F-030; Rust `invoke_mapped<KnowledgeAdoptResponse>`
+ * decodes both branches). */
+export function isAdoptFailurePayload(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const member of Object.keys(value)) {
+    if (member !== "error" && member !== "extensions") {
+      return false;
+    }
+  }
+  const error = value.error;
+  if (!isRecord(error)) {
+    return false;
+  }
+  for (const member of Object.keys(error)) {
+    if (
+      member !== "code" &&
+      member !== "message" &&
+      member !== "details" &&
+      member !== "extensions"
+    ) {
+      return false;
+    }
+  }
+  if (
+    typeof error.code !== "string" ||
+    typeof error.message !== "string" ||
+    !isValidExtensionMap(error.extensions)
+  ) {
+    return false;
+  }
+  if ("details" in error) {
+    if (!isRecord(error.details)) {
+      return false;
+    }
+    if (
+      "adopted_revision" in error.details &&
+      !isAdoptExactNonNegativeInteger(error.details.adopted_revision)
+    ) {
+      return false;
+    }
+  }
+  if ("extensions" in value && !isValidExtensionMap(value.extensions)) {
+    return false;
+  }
+  return true;
+}
+
+/** Served `knowledge.adopt` success branch (knowledge-adopt-response
+ * schema `OneOf0`, `additionalProperties: false`): the closed top-level
+ * member set `{outcome, entry, extensions?}`; `outcome` is the closed
+ * vocabulary `"adopted" | "already_present"`; `extensions` is an
+ * `ExtensionMap` when supplied; and `entry` is a COMPLETE `KnowledgeEntry`
+ * carrying a well-formed `adoption_anchor` — the same bar the serving face
+ * and the typed Rust `OneOfEntry` decode apply. Accepting the shallow
+ * `{outcome, entry}` shape alone would surface `spokeOk` for a payload the
+ * Rust client refuses (qc1 F-033 / round-15). */
+export function isValidAdoptSuccessPayload(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const member of Object.keys(value)) {
+    if (member !== "outcome" && member !== "entry" && member !== "extensions") {
+      return false;
+    }
+  }
+  if (value.outcome !== "adopted" && value.outcome !== "already_present") {
+    return false;
+  }
+  if ("extensions" in value && !isValidExtensionMap(value.extensions)) {
+    return false;
+  }
+  const entry = value.entry;
+  return (
+    isRecord(entry) &&
+    isValidKnowledgeEntryDeep(entry) &&
+    isWellFormedAdoptionAnchor(entry.adoption_anchor)
+  );
+}
+
 export function isValidSuccessPayload(op: string, value: unknown): boolean {
+  if (op === "history.revisions.get" || op === "history.revisions.prune") {
+    return isValidHistorySuccessPayload(op, value);
+  }
   const shape = SUCCESS_SHAPES[op];
   if (shape === undefined) {
     return true;

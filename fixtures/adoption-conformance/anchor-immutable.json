@@ -1,0 +1,168 @@
+{
+  "id": "anchor-immutable",
+  "title": "Adoption-anchor immutability — a normal put must preserve a stored adoption_anchor unchanged",
+  "protocol_refs": [
+    "§Anchor immutability",
+    "§Refusal vocabulary"
+  ],
+  "cases": [
+    {
+      "id": "put-changing-anchor-refuses",
+      "invariant": "§Anchor immutability",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a put that replaces the stored adoption_anchor refuses ADOPTION_ANCHOR_IMMUTABLE with details.entry_id naming the destination entry",
+      "input": {
+        "sources": [],
+        "destinations": [
+          {
+            "schema_version": 1,
+            "entry_id": "ke_adopted",
+            "entry_type": "note",
+            "canonical_name": "adopted-copy",
+            "status": "confirmed",
+            "revision": 1,
+            "body": {},
+            "adoption_anchor": {
+              "schema_version": 1,
+              "source_scope_id": "spc_shared",
+              "source_entry_id": "ke_src",
+              "source_revision": 3,
+              "extensions": {}
+            },
+            "extensions": {}
+          }
+        ]
+      },
+      "op": "port.knowledge.put",
+      "request": {
+        "entry": {
+          "schema_version": 1,
+          "entry_id": "ke_adopted",
+          "entry_type": "note",
+          "canonical_name": "adopted-copy",
+          "status": "confirmed",
+          "revision": 1,
+          "body": { "summary": "edited" },
+          "adoption_anchor": {
+            "schema_version": 1,
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_other",
+            "source_revision": 9,
+            "extensions": {}
+          },
+          "extensions": {}
+        },
+        "expected_base_revision": 1
+      },
+      "expect": {
+        "error_code": "ADOPTION_ANCHOR_IMMUTABLE",
+        "details": { "entry_id": "ke_adopted" }
+      }
+    },
+    {
+      "id": "put-removing-anchor-refuses",
+      "invariant": "§Anchor immutability",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a put that drops the stored adoption_anchor refuses ADOPTION_ANCHOR_IMMUTABLE the same way",
+      "input": {
+        "sources": [],
+        "destinations": [
+          {
+            "schema_version": 1,
+            "entry_id": "ke_adopted",
+            "entry_type": "note",
+            "canonical_name": "adopted-copy",
+            "status": "confirmed",
+            "revision": 1,
+            "body": {},
+            "adoption_anchor": {
+              "schema_version": 1,
+              "source_scope_id": "spc_shared",
+              "source_entry_id": "ke_src",
+              "source_revision": 3,
+              "extensions": {}
+            },
+            "extensions": {}
+          }
+        ]
+      },
+      "op": "port.knowledge.put",
+      "request": {
+        "entry": {
+          "schema_version": 1,
+          "entry_id": "ke_adopted",
+          "entry_type": "note",
+          "canonical_name": "adopted-copy",
+          "status": "confirmed",
+          "revision": 1,
+          "body": { "summary": "edited" },
+          "extensions": {}
+        },
+        "expected_base_revision": 1
+      },
+      "expect": {
+        "error_code": "ADOPTION_ANCHOR_IMMUTABLE",
+        "details": { "entry_id": "ke_adopted" }
+      }
+    },
+    {
+      "id": "put-identical-anchor-passes",
+      "invariant": "§Anchor immutability",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a put that carries the identical stored anchor is not a mutation and succeeds, preserving the anchor",
+      "input": {
+        "sources": [],
+        "destinations": [
+          {
+            "schema_version": 1,
+            "entry_id": "ke_adopted",
+            "entry_type": "note",
+            "canonical_name": "adopted-copy",
+            "status": "confirmed",
+            "revision": 1,
+            "body": {},
+            "adoption_anchor": {
+              "schema_version": 1,
+              "source_scope_id": "spc_shared",
+              "source_entry_id": "ke_src",
+              "source_revision": 3,
+              "extensions": {}
+            },
+            "extensions": {}
+          }
+        ]
+      },
+      "op": "port.knowledge.put",
+      "request": {
+        "entry": {
+          "schema_version": 1,
+          "entry_id": "ke_adopted",
+          "entry_type": "note",
+          "canonical_name": "adopted-copy",
+          "status": "confirmed",
+          "revision": 1,
+          "body": { "summary": "edited" },
+          "adoption_anchor": {
+            "schema_version": 1,
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_src",
+            "source_revision": 3,
+            "extensions": {}
+          },
+          "extensions": {}
+        },
+        "expected_base_revision": 1
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          { "path": "adoption_anchor.source_entry_id", "equals": "ke_src" },
+          { "path": "adoption_anchor.source_revision", "equals": 3 }
+        ]
+      }
+    }
+  ]
+}

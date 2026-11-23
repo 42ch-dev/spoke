@@ -32,6 +32,8 @@ import type {
   Finding,
   ForkId,
   HostCapabilityManifest,
+  KnowledgeAdoptRequest,
+  KnowledgeAdoptResponse,
   KnowledgeEntry,
   MemoryCandidatesDismissRequest,
   MemoryCandidatesDismissResponse,
@@ -103,6 +105,7 @@ import type {
   ProjectRequest,
   ProjectResponse,
   Relation,
+  RevisionSnapshot,
   Rule,
   Scope,
   TimelineEvent,
@@ -114,7 +117,11 @@ import {
   spokeOk,
   spokeReject,
   toErrorEnvelope,
+  type AdoptionPort,
+  type AdoptionPorts,
   type BaselinePorts,
+  type HistoryPort,
+  type HistoryPruneResult,
   type MemoryPort,
   type SpokeReject,
   type SpokeResult,
@@ -152,7 +159,13 @@ import {
   isConnectInvokeResponse,
   isConnectSession,
 } from "./guards.js";
-import { isValidSuccessPayload } from "./payload.js";
+import {
+  carriesAdoptFailureMember,
+  isAdoptFailurePayload,
+  isValidAdoptSuccessPayload,
+  isValidRevisionSnapshot,
+  isValidSuccessPayload,
+} from "./payload.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
 
 const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
@@ -356,6 +369,27 @@ export const MEMORY_OPS = {
   discardImport: "memory.imports.discard",
 } as const;
 
+/**
+ * History-port method → `history.*` op (spoke-history contract §Connect
+ * operations). Exported so the cross-language golden vectors can assert the
+ * adapter's op table row-for-row against the Rust `HistoryPort for
+ * RemoteAdapter` impl.
+ */
+export const HISTORY_OPS = {
+  getHistorySnapshot: "history.revisions.get",
+  pruneHistory: "history.revisions.prune",
+} as const;
+
+/**
+ * Adoption-port method → `knowledge.*` op (spoke-knowledge-adoption
+ * contract §Connect operation). Exported so the cross-language golden
+ * vectors can assert the adapter's op table row-for-row against the Rust
+ * `AdoptionPort for RemoteAdapter` impl.
+ */
+export const ADOPTION_OPS = {
+  adoptKnowledgeEntry: "knowledge.adopt",
+} as const;
+
 /** Raw Ed25519 keypair material for the local connect peer. */
 export interface RemoteIdentity {
   seed: Uint8Array;
@@ -419,7 +453,7 @@ export type ToolHandler = (
  * session. Construct via `connectRemoteAdapter` — the constructor alone
  * yields an un-established adapter that fails closed on every port call.
  */
-export class RemoteAdapter implements BaselinePorts, MemoryPort {
+export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, AdoptionPort, AdoptionPorts {
   readonly #transport: Transport;
   readonly #invokeTimeoutMs: number;
   /** note: this adapter's raw 32-byte Ed25519 seed (hello identity — signs outbound envelopes). */
@@ -958,6 +992,128 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
       MEMORY_OPS.discardImport,
       { ...request },
     );
+  }
+
+  // note: HistoryPort — spoke-history contract §Connect operations
+
+  /**
+   * note: client `HistoryPort` over the session — `get` sends the request
+   * object and decodes the wrapped `snapshot` member; `prune` attaches the
+   * wire-required `idempotency_key` itself — the key is a connect-layer
+   * dedup concern the port signature deliberately omits, so this face
+   * accepts a caller-supplied key for retries (`options.idempotencyKey`)
+   * and generates one only when the caller omits it (spoke-history
+   * contract §9.1: retries replay the same key). `principal` is the LOCAL
+   * admission context — over the wire the serving host admits the
+   * authenticated peer; `scope` is sent so the serving face can match it
+   * to its admission (an unmatched scope refuses before the port). The
+   * responder's gate is the only capability authority: an unnegotiated
+   * `spoke-history` answers `capability_missing`, mapped to
+   * `CAPABILITY_PORT_MISSING` with `details.wire_code` (Rust parity:
+   * `impl HistoryPort for RemoteAdapter`). Rows mirror `HISTORY_OPS`.
+   */
+  async getHistorySnapshot(
+    _principal: Principal,
+    scope: Scope,
+    entityKind: string,
+    entityId: string,
+    revision: number,
+  ): Promise<SpokeResult<RevisionSnapshot>> {
+    const request: Record<string, unknown> = {
+      entity_kind: entityKind,
+      entity_id: entityId,
+      revision,
+      scope,
+    };
+    const result = await this.#invokeMapped<Record<string, unknown>>(
+      HISTORY_OPS.getHistorySnapshot,
+      request,
+    );
+    if (!result.ok) {
+      return result;
+    }
+    const snapshot = result.value.snapshot;
+    // note: `#invokeMapped` validated the RevisionSnapshot shape; the
+    // client boundary additionally binds the envelope to the requested
+    // selectors (same `isValidRevisionSnapshot` rule as the serving face,
+    // selectors arg) — a wrong-target success is a transport decode
+    // error, never `Ok` (spoke-history contract §9).
+    if (
+      !isValidRevisionSnapshot(snapshot, {
+        entity_kind: entityKind,
+        entity_id: entityId,
+        revision,
+      })
+    ) {
+      return internalError(
+        "transport",
+        "history.revisions.get response snapshot does not match the request selectors",
+      );
+    }
+    return spokeOk(snapshot as RevisionSnapshot);
+  }
+
+  async pruneHistory(
+    _principal: Principal,
+    scope: Scope,
+    entityKind: string,
+    entityId: string,
+    keep: number,
+    options?: { idempotencyKey?: string },
+  ): Promise<SpokeResult<HistoryPruneResult>> {
+    const request: Record<string, unknown> = {
+      entity_kind: entityKind,
+      entity_id: entityId,
+      keep,
+      // why: the wire request requires `idempotency_key` but the port
+      // signature must not carry it (contract) — the caller owns the key
+      // for retries so a replay reproduces the dedup namespace; a fresh
+      // key is generated only when the caller omits it (Rust parity:
+      // `generate_request_id`).
+      idempotency_key: options?.idempotencyKey ?? globalThis.crypto.randomUUID(),
+      scope,
+    };
+    return this.#invokeMapped<HistoryPruneResult>(
+      HISTORY_OPS.pruneHistory,
+      request,
+    );
+  }
+
+  // note: AdoptionPort — spoke-knowledge-adoption contract §Connect operation
+
+  /**
+   * note: client `AdoptionPort` over the session — `adopt` sends the
+   * `KnowledgeAdoptRequest` object (its required `idempotency_key` is
+   * caller-owned for retries, matching the contract's connect dedup
+   * namespace) and returns the response envelope verbatim
+   * (`{ outcome, entry }` on the success branch). `principal` and `scope`
+   * are the LOCAL admission context — over the wire the serving host
+   * admits the authenticated peer (MEM-R003 parity; they are not sent).
+   * The responder's compound gate is the only capability authority: an
+   * unnegotiated `spoke-knowledge-adoption` or `spoke-knowledge` answers
+   * `capability_missing`, mapped to `CAPABILITY_PORT_MISSING` with
+   * `details.wire_code` (Rust parity:
+   * `impl AdoptionPort for RemoteAdapter`). Row mirrors `ADOPTION_OPS`.
+   */
+  async adoptKnowledgeEntry(
+    _principal: Principal,
+    _scope: Scope,
+    request: KnowledgeAdoptRequest,
+  ): Promise<SpokeResult<KnowledgeAdoptResponse>> {
+    return this.#invokeMapped<KnowledgeAdoptResponse>(
+      ADOPTION_OPS.adoptKnowledgeEntry,
+      { ...request },
+    );
+  }
+
+  /**
+   * note: `AdoptionPorts` probe — this adapter serves adoption, so the
+   * availability probe answers itself (parity with the Rust blanket
+   * `AdoptionPorts` impl: `Some(self)`; a dynamically assembled
+   * boundary that lacks adoption simply omits `asAdoption`).
+   */
+  asAdoption(): AdoptionPort {
+    return this;
   }
 
   /**
@@ -1617,6 +1773,30 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort {
       const response = await this.#invokeOp(op, payload);
       if ("error" in response) {
         return mapErrorEnvelope(response.error);
+      }
+      // Two-branch served payload (contract E3): `knowledge.adopt` returns
+      // its provider refusal as `{error, extensions?}` — a successful port
+      // outcome, not a transport error (qc2 QC2-21 / F-030; Rust
+      // `invoke_mapped<KnowledgeAdoptResponse>` decodes both branches).
+      if (op === ADOPTION_OPS.adoptKnowledgeEntry) {
+        // A payload carrying BOTH branch shapes is neither: the typed Rust
+        // untagged decode refuses it (qc1 F-032).
+        if (carriesAdoptFailureMember(response.payload)) {
+          if (!isAdoptFailurePayload(response.payload)) {
+            return internalError(
+              "transport",
+              "response payload decode failed: payload is not a valid knowledge.adopt failure envelope (a mixed envelope is never valid)",
+            );
+          }
+          return spokeOk(response.payload as unknown as T);
+        }
+        if (!isValidAdoptSuccessPayload(response.payload)) {
+          return internalError(
+            "transport",
+            "response payload decode failed: payload does not match the knowledge.adopt success shape (entry must be a complete KnowledgeEntry with its adoption_anchor)",
+          );
+        }
+        return spokeOk(response.payload as unknown as T);
       }
       // Success-payload shape gate (Rust parity, contract §8.2): a malformed
       // payload must reject with `INTERNAL_ERROR` `details.kind = "transport"`

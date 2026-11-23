@@ -10,7 +10,6 @@ on:
   push:
     branches:
       - main
-      - iteration/**
     paths-ignore:
       - 'docs/**'
       - 'tooling/docs/**'
@@ -18,7 +17,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: cpp-connect-${{ github.ref }}
+  group: cpp-connect-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

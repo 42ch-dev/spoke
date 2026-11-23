@@ -8,10 +8,12 @@
 
 use async_trait::async_trait;
 use crate::result::SpokeResult;
+use crate::history::HistoryPruneResult;
 use serde_json::Value;
 use spoke_schemas::{
     ComputeRequest, ComputeResponse, ExtractRequest, Finding, HostCapabilityManifest,
-    KnowledgeEntry, MemoryCandidatesDismissRequest, MemoryCandidatesDismissResponse,
+    KnowledgeAdoptRequest, KnowledgeAdoptResponse, KnowledgeEntry, MemoryCandidatesDismissRequest,
+    MemoryCandidatesDismissResponse,
     MemoryCandidatesGetRequest, MemoryCandidatesGetResponse, MemoryCandidatesListRequest,
     MemoryCandidatesListResponse, MemoryCandidatesReviewRequest, MemoryCandidatesReviewResponse,
     MemoryCaptureRequest, MemoryCaptureResponse, MemoryDescribeRequest, MemoryDescribeResponse,
@@ -33,8 +35,8 @@ use spoke_schemas::{
     MemorySpacesListRequest, MemorySpacesListResponse, MemorySpacesUnfreezeRequest,
     MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
     MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
-    MemorySubjectsGetResponse, Principal, ProjectRequest, ProjectResponse, Relation, Rule, Scope,
-    TimelineEvent,
+    MemorySubjectsGetResponse, Principal, ProjectRequest, ProjectResponse, Relation,
+    RevisionSnapshot, Rule, Scope, TimelineEvent,
 };
 
 /// Knowledge entry persistence — get / put by entry id.
@@ -582,6 +584,129 @@ where
     T: MemoryPort,
 {
     fn as_memory(&self) -> Option<&dyn MemoryPort> {
+        Some(self)
+    }
+}
+
+/// Optional `spoke-history` family — the injected product boundary for
+/// revision replay and explicit history pruning (spoke-history contract
+/// §Standalone `HistoryPort`).
+///
+/// Standalone like [`ExtractionPort`]: `HistoryPort` is NOT part of
+/// [`BaselinePorts`] / [`FullPorts`] or the adapter aliases, and neither
+/// [`KnowledgeEntryPort`] nor [`RelationPort`] inherits it. The library
+/// contains no retention engine; providers own checkpoints, reconstruction,
+/// and every refusal: a kind it does not serve answers
+/// `HISTORY_ENTITY_UNSUPPORTED`, a revision below the retained floor answers
+/// `HISTORY_TRUNCATED`, and a revision at or above the floor that cannot be
+/// reconstructed answers `HISTORY_NOT_RETAINED`. A missing or non-disclosable
+/// entity keeps the existing `NOT_FOUND` behavior, and `prune_history`
+/// authorization is exactly the entity's write permission — there is no
+/// history-specific grant or refusal code.
+/// `principal` is the authenticated admission context (MEM-R003: never
+/// payload-asserted) and `scope` is required — the wire request's optional
+/// `scope` member is resolved to the admitted effective scope by the
+/// connect serving face before the port runs (spoke-history contract
+/// §Connect operations). The connect idempotency envelope is likewise a
+/// connect-layer concern — `idempotency_key` is deliberately not a port
+/// argument.
+#[async_trait]
+pub trait HistoryPort: Send + Sync {
+    /// `history.revisions.get` — replay the stored entity at exactly
+    /// `revision` inside `scope`. Read-only.
+    async fn get_history_snapshot(
+        &self,
+        principal: &Principal,
+        scope: &Scope,
+        entity_kind: &str,
+        entity_id: &str,
+        revision: u64,
+    ) -> SpokeResult<RevisionSnapshot>;
+
+    /// `history.revisions.prune` — retain the newest `keep` checkpoints of
+    /// one `(scope, entity_kind, entity_id)` target and delete every older
+    /// checkpoint. The live row is not a checkpoint and never consumes
+    /// `keep`; no write path performs this pruning implicitly.
+    async fn prune_history(
+        &self,
+        principal: &Principal,
+        scope: &Scope,
+        entity_kind: &str,
+        entity_id: &str,
+        keep: u64,
+    ) -> SpokeResult<HistoryPruneResult>;
+}
+
+/// Availability probe for the standalone `spoke-history` family, mirroring
+/// [`MemoryPorts`]: types that implement [`HistoryPort`] get the blanket
+/// `Some(self)` probe, while dynamically assembled boundaries MAY implement
+/// this trait with the default `None` (parity with TS `requirePortMethod`).
+pub trait HistoryPorts {
+    fn as_history(&self) -> Option<&dyn HistoryPort> {
+        None
+    }
+}
+
+impl<T> HistoryPorts for T
+where
+    T: HistoryPort,
+{
+    fn as_history(&self) -> Option<&dyn HistoryPort> {
+        Some(self)
+    }
+}
+
+/// Optional `spoke-knowledge-adoption` family — the injected product
+/// boundary for adopting a shared `KnowledgeEntry` into a destination
+/// scope (spoke-knowledge-adoption contract §Standalone `AdoptionPort`).
+///
+/// Standalone like [`HistoryPort`]: `AdoptionPort` is NOT part of
+/// [`BaselinePorts`] / [`FullPorts`] or the adapter aliases and neither
+/// port inherits the other — `spoke-baseline` does not implicitly provide
+/// adoption. The library contains no adoption engine; providers own
+/// source visibility (a missing, out-of-scope, or owner-private source
+/// answers one generic `NOT_FOUND`), retirement-chain resolution (≤32
+/// edges; cycle / ambiguous / deleted terminal answers `SOURCE_RETIRED`
+/// with `details.retirement_chain`), the copy rules, create-only OCC, the
+/// anchor repeat rules (`already_present` at the same source revision,
+/// `REVISION_CONFLICT` with `details.adopted_revision` at a different
+/// one), and the destination write's atomicity.
+///
+/// `principal` is the authenticated admission context (MEM-R003: never
+/// payload-asserted) and `scope` is required — the admitted scope covers
+/// source visibility and destination authorization; the wire request
+/// carries scope ids, never payload-asserted identity. The connect
+/// idempotency envelope is a connect-layer concern — `idempotency_key`
+/// is deliberately not a port argument.
+#[async_trait]
+pub trait AdoptionPort: Send + Sync {
+    /// `knowledge.adopt` — adopt a shared `KnowledgeEntry` into the
+    /// destination scope, writing `adoption_anchor` with the resolved
+    /// terminal source scope/id/revision. Mutating op.
+    async fn adopt_knowledge_entry(
+        &self,
+        principal: &Principal,
+        scope: &Scope,
+        request: &KnowledgeAdoptRequest,
+    ) -> SpokeResult<KnowledgeAdoptResponse>;
+}
+
+/// Availability probe for the standalone `spoke-knowledge-adoption`
+/// family, mirroring [`HistoryPorts`]: types that implement
+/// [`AdoptionPort`] get the blanket `Some(self)` probe, while dynamically
+/// assembled boundaries MAY implement this trait with the default `None`
+/// (parity with TS `requirePortMethod`).
+pub trait AdoptionPorts {
+    fn as_adoption(&self) -> Option<&dyn AdoptionPort> {
+        None
+    }
+}
+
+impl<T> AdoptionPorts for T
+where
+    T: AdoptionPort,
+{
+    fn as_adoption(&self) -> Option<&dyn AdoptionPort> {
         Some(self)
     }
 }

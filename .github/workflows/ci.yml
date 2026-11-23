@@ -9,14 +9,18 @@ on:
   push:
     branches:
       - main
-      - iteration/**
     paths-ignore:
       - 'docs/**'
       - 'tooling/docs/**'
       - '**/*.md'
 
+# Required contexts are judged from the latest check suite on the head SHA.
+# A push and its pull_request run share `github.ref` and cancel each other
+# under `cancel-in-progress`; a cancelled suite records failure for every
+# context it had started, which then blocks the PR it came from. Iteration
+# branches are therefore validated through their pull request only.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

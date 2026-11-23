@@ -70,6 +70,7 @@ export interface KnowledgeEntry {
     computable?: ComputableFieldMap;
   };
   source_anchor?: SourceAnchor;
+  adoption_anchor?: AdoptionAnchor;
   /**
    * Optimistic concurrency revision.
    * @generated
@@ -168,6 +169,33 @@ export interface ExtensionMap {
 }
 export interface ExtensionValue {
   [k: string]: unknown | undefined;
+}
+/**
+ * Optional adoption provenance (spoke-knowledge-adoption). Present when this entry is an adopted copy; points at the resolved terminal live source. A normal put must preserve it unchanged (ADOPTION_ANCHOR_IMMUTABLE).
+ * @generated
+ */
+export interface AdoptionAnchor {
+  /**
+   * Wire schema version (integer >= 1).
+   * @generated
+   */
+  schema_version: number;
+  /**
+   * Scope id of the resolved terminal source.
+   * @generated
+   */
+  source_scope_id: string;
+  /**
+   * Entry id of the resolved terminal source.
+   * @generated
+   */
+  source_entry_id: string;
+  /**
+   * Revision of the resolved terminal source.
+   * @generated
+   */
+  source_revision: number;
+  extensions: ExtensionMap;
 }
 /**
  * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries per-entry functional dialects (e.g. modules.activation). modules.cognition carries the closed CognitionModule (current actor standard records + world facts; capability-flagged spoke-cognition); modules.mental remains open with beliefs derivative-only. Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.

@@ -14,6 +14,7 @@ schemas/
 │   └── error-envelope.schema.json      # shared ops error shape
 ├── data/
 │   ├── knowledge-entry.schema.json
+│   ├── adoption-anchor.schema.json    # spoke-knowledge-adoption provenance
 │   ├── relation.schema.json
 │   ├── source-anchor.schema.json
 │   ├── finding.schema.json
@@ -23,7 +24,8 @@ schemas/
 │   ├── mind-state.schema.json          # L5 temporal mental-state record (spoke-cognition)
 │   ├── cognition.schema.json           # spoke-cognition records, filters, selections, projections
 │   ├── host-capability-manifest.schema.json  # host roles, capabilities, namespaces
-│   └── tool-descriptor.schema.json     # declared tool ABI (tools.<ns>.<tool_id>)
+│   ├── tool-descriptor.schema.json     # declared tool ABI (tools.<ns>.<tool_id>)
+│   ├── revision-snapshot.schema.json   # spoke-history stored entity at one revision
 │   ├── memory-space.schema.json
 │   ├── subject.schema.json
 │   ├── principal.schema.json
@@ -37,6 +39,7 @@ schemas/
 │   ├── memory-export-chunk.schema.json
 │   ├── read-selection.schema.json
 │   ├── provenance-filter.schema.json
+│   ├── judgment.schema.json            # spoke-judgment assessment envelope (Judgment + JudgmentRef + Verdict)
 └── ops/
     ├── upsert-request.schema.json
     ├── upsert-response.schema.json
@@ -119,7 +122,13 @@ schemas/
     ├── memory-exports-get-response.schema.json  # spoke-memory memory.exports.get
     ├── memory-imports-stage-response.schema.json  # spoke-memory memory.imports.stage
     ├── memory-imports-activate-response.schema.json  # spoke-memory memory.imports.activate
-    └── memory-imports-discard-response.schema.json  # spoke-memory memory.imports.discard
+    ├── memory-imports-discard-response.schema.json  # spoke-memory memory.imports.discard
+    ├── history-revisions-get-request.schema.json    # spoke-history history.revisions.get
+    ├── history-revisions-get-response.schema.json   # spoke-history history.revisions.get
+    ├── history-revisions-prune-request.schema.json  # spoke-history history.revisions.prune
+    ├── history-revisions-prune-response.schema.json # spoke-history history.revisions.prune
+    ├── knowledge-adopt-request.schema.json          # spoke-knowledge-adoption knowledge.adopt
+    └── knowledge-adopt-response.schema.json         # spoke-knowledge-adoption knowledge.adopt
 ```
 
 Plus the opt-in **connect** family (`spoke-connect` flag):
@@ -134,7 +143,7 @@ connect/
 └── connect-auth-response.schema.json  # method-specific proof
 ```
 
-**Total:** **114** hand-authored schema files (2 common + 24 data + 82 ops + 6 connect). 79 `spoke-memory` schemas (13 data + 66 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `cognition` and `mind-state` under the opt-in `spoke-cognition` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.agents/specs/protocol/spoke-protocol.md).
+**Total:** **123** hand-authored schema files (2 common + 27 data + 88 ops + 6 connect). 79 `spoke-memory` schemas (13 data + 66 ops); 5 `spoke-history` schemas (1 data + 4 ops); 3 `spoke-knowledge-adoption` schemas (1 data + 2 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `cognition` and `mind-state` under the opt-in `spoke-cognition` capability; `judgment` under the opt-in `spoke-judgment` capability; connect envelopes under the opt-in `spoke-connect` capability; history ops under the opt-in `spoke-history` capability; `adoption-anchor` and the `knowledge.adopt` ops under the opt-in `spoke-knowledge-adoption` capability (with mandatory `spoke-knowledge` co-capability). See [`spoke-protocol.md`](../.agents/specs/protocol/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -297,5 +306,14 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 112 | `ops/memory-imports-discard-request.schema.json` | done |
 | 113 | `ops/memory-imports-discard-response.schema.json` | done |
 | 114 | `data/cognition.schema.json` | done |
+| 115 | `data/revision-snapshot.schema.json` | done |
+| 116 | `ops/history-revisions-get-request.schema.json` | done |
+| 117 | `ops/history-revisions-get-response.schema.json` | done |
+| 118 | `ops/history-revisions-prune-request.schema.json` | done |
+| 119 | `ops/history-revisions-prune-response.schema.json` | done |
+| 120 | `data/judgment.schema.json` | done |
+| 121 | `data/adoption-anchor.schema.json` | done |
+| 122 | `ops/knowledge-adopt-request.schema.json` | done |
+| 123 | `ops/knowledge-adopt-response.schema.json` | done |
 
-**Total:** 114 schema files (35 pre-existing + 79 spoke-memory: 13 data models + 33 op request/response pairs).
+**Total:** 123 schema files (35 pre-existing + 79 spoke-memory: 13 data models + 33 op request/response pairs + 5 spoke-history: 1 data model + 2 op request/response pairs + 1 spoke-judgment data model + 3 spoke-knowledge-adoption: 1 data model + 1 op request/response pair).

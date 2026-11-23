@@ -335,7 +335,7 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 ### Conformance (ops layer)
 
 - [ ] Each **baseline** operation above has request + response schemas under `schemas/ops/`
-- [x] Optional `project` / `compute` (`l2-computable`), `extract` (`ke-extraction`), and the 33-op `spoke-memory` family documented (72 optional op schema files; protocol inventory **114** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
+- [x] Optional `project` / `compute` (`l2-computable`), `extract` (`ke-extraction`), and the 33-op `spoke-memory` family documented (72 optional op schema files here; `spoke-history` and `spoke-knowledge-adoption` are documented in their own specs; protocol inventory **123** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
 - [ ] `.agents/specs/protocol/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 baseline + 3 optional: `project`, `compute`, `extract` + the 33-op `spoke-memory` family)
 - [ ] `assemble` response `$ref`s `AssemblePacket` from the data layer
 - [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by **all** ops response schemas (R3)

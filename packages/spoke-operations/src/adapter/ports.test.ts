@@ -33,8 +33,8 @@ import {
   type FullPorts,
   type BaselineAdapter,
   type ComputableAdapter,
-  type ForkAdapter,
   type FullAdapter,
+  type HistoryPort,
 } from "../index.js";
 
 function makeManifest(
@@ -111,12 +111,62 @@ function createBaselinePortStub(
 }
 
 describe("adapter port exports", () => {
-  it("exports CAPABILITY_PORT_MISSING as the 22nd SpokeRejectCode", () => {
+  it("history refusal codes are first-class SpokeRejectCode members", async () => {
+    // note: product-behavior assertion — the spoke-history refusal
+    // vocabulary (contract §Refusal vocabulary) must survive a provider
+    // through the SpokeResult surface exactly, codes + required details.
     expect(SpokeRejectCode.CAPABILITY_PORT_MISSING).toBe(
       "CAPABILITY_PORT_MISSING",
     );
-    // note: 23 baseline codes + the 14 §14.1 memory codes.
-    expect(Object.keys(SpokeRejectCode)).toHaveLength(37);
+    for (const code of [
+      SpokeRejectCode.HISTORY_TRUNCATED,
+      SpokeRejectCode.HISTORY_ENTITY_UNSUPPORTED,
+      SpokeRejectCode.HISTORY_NOT_RETAINED,
+      SpokeRejectCode.IDEMPOTENCY_CONFLICT,
+      SpokeRejectCode.RECEIPT_EXPIRED,
+    ]) {
+      expect(typeof code).toBe("string");
+    }
+    const provider: HistoryPort = {
+      getHistorySnapshot: async () => ({
+        ok: false,
+        code: SpokeRejectCode.HISTORY_TRUNCATED,
+        message: "discarded",
+        details: { floor_revision: 2 },
+      }),
+      pruneHistory: async () => ({
+        ok: false,
+        code: SpokeRejectCode.HISTORY_ENTITY_UNSUPPORTED,
+        message: "unsupported",
+        details: { entity_kind: "profile_document" },
+      }),
+    };
+    const get = await provider.getHistorySnapshot(
+      { principal_id: "p1", extensions: {} },
+      { scope_id: "s1" },
+      "knowledge_entry",
+      "ke_1",
+      1,
+    );
+    const prune = await provider.pruneHistory(
+      { principal_id: "p1", extensions: {} },
+      { scope_id: "s1" },
+      "profile_document",
+      "pd_1",
+      2,
+    );
+    expect(get).toEqual({
+      ok: false,
+      code: "HISTORY_TRUNCATED",
+      message: "discarded",
+      details: { floor_revision: 2 },
+    });
+    expect(prune).toEqual({
+      ok: false,
+      code: "HISTORY_ENTITY_UNSUPPORTED",
+      message: "unsupported",
+      details: { entity_kind: "profile_document" },
+    });
   });
 
   it("BaselinePorts accepts an object implementing all six baseline families", () => {

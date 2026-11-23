@@ -488,7 +488,10 @@ struct HostTransport {
 };
 
 /** One host ports record's shared state: the calls it served, the answers they
-    saw, and the optional base revision of the last `putKnowledgeEntry`. */
+    saw, the optional base revision of the last `putKnowledgeEntry`, and the
+    written-state flag that makes the pair behave like a store — the shipped
+    scoped put pre-reads the slot, so `get` must answer NOT_FOUND until the
+    first `put` commits. */
 struct HostPorts {
     explicit HostPorts(RecordCounters* observed) noexcept : counters(observed) {}
     ~HostPorts() { counters->releases.fetch_add(1); }
@@ -498,6 +501,7 @@ struct HostPorts {
     long calls = 0;
     std::string last_entry_id;
     std::optional<uint64_t> last_revision;
+    bool written = false;
 };
 
 /** One host tool record's shared state. */
@@ -582,9 +586,11 @@ std::unique_ptr<TransportCallbacks> make_transport(std::shared_ptr<HostTransport
 /** Builds the served ports record: a knowledge-only host — the resolver and the
     three scoped knowledge callbacks, with no unrelated stubs. Every other
     family stays unset, which the carrier reads as absent. The knowledge-entry
-    pair answers the canned entry (`put` also records the optional base
-    revision it was given) and the list callback declines, so an explicitly
-    refusing provider stays distinguishable from an absent family. */
+    pair behaves like a store — `get` declines NOT_FOUND until the first `put`
+    commits, then answers the canned entry (`put` also records the optional
+    base revision it was given) — and the list callback declines, so an
+    explicitly refusing provider stays distinguishable from an absent
+    family. */
 std::unique_ptr<PortsCallbacks> make_ports(std::shared_ptr<HostPorts> host) {
     auto callbacks = std::make_unique<PortsCallbacks>();
     callbacks->knowledge_scope = [](std::string_view) -> Result<std::string> {
@@ -593,10 +599,19 @@ std::unique_ptr<PortsCallbacks> make_ports(std::shared_ptr<HostPorts> host) {
     callbacks->get_scoped_knowledge_entry =
         [host](std::string_view, std::string_view entry_id) -> Result<std::string> {
         host->counters->calls.fetch_add(1);
+        bool written;
         {
             std::lock_guard<std::mutex> guard(host->mutex);
             host->calls += 1;
             host->last_entry_id = std::string(entry_id);
+            written = host->written;
+        }
+        if (!written) {
+            Error error;
+            error.status = SPOKE_CONNECT_FFI_REJECTED;
+            error.code = "KNOWLEDGE_ENTRY_NOT_FOUND";
+            error.message = "the smoke's host ports store does not hold that entry yet";
+            return Result<std::string>::failure(std::move(error));
         }
         return Result<std::string>::success(std::string(kServedEntryJson));
     };
@@ -608,6 +623,7 @@ std::unique_ptr<PortsCallbacks> make_ports(std::shared_ptr<HostPorts> host) {
             std::lock_guard<std::mutex> guard(host->mutex);
             host->calls += 1;
             host->last_revision = expected_base_revision;
+            host->written = true;
         }
         return Result<std::string>::success(std::string(kServedEntryJson));
     };
@@ -852,29 +868,10 @@ void assert_session(const Golden& golden) {
                   remote_manifest->view().find(kEchoToolId) != std::string_view::npos,
               kSessionLabel, "the dialer's remote manifest does not advertise the served tool");
 
-        // One real baseline ports round trip through the responder's provider.
-        const std::string entry =
-            unwrap(adapter.get_knowledge_entry(kEntryIdText), kSessionLabel,
-                   "RemoteAdapter::get_knowledge_entry")
-                .str();
-        check(entry.find(std::string("\"entry_id\":\"") + kEntryIdText + "\"") !=
-                  std::string::npos,
-              kSessionLabel, "the round-tripped entry carries no entry id: " + entry);
-        check(entry.find(kEntryCanonicalName) != std::string::npos, kSessionLabel,
-              "the round-tripped entry carries no canonical name: " + entry);
-        {
-            std::shared_ptr<HostPorts> served = ports_released.lock();
-            check(served != nullptr, kSessionLabel,
-                  "the ports record was released while its session lived");
-            std::lock_guard<std::mutex> guard(served->mutex);
-            check(served->calls == 1, kSessionLabel,
-                  "the served ports callback ran " + std::to_string(served->calls) + " times");
-            check(served->last_entry_id == kEntryIdText, kSessionLabel,
-                  "the served ports callback saw entry id \"" + served->last_entry_id + "\"");
-        }
-
         // An absent expectation and a present zero are different values: the
-        // optional scalar must not collapse one into the other.
+        // optional scalar must not collapse one into the other. The store
+        // starts empty, so the create-only put is also the first write that
+        // must succeed.
         std::shared_ptr<HostPorts> ports_observer = ports_released.lock();
         check(ports_observer != nullptr, kSessionLabel,
               "the ports record was released while its session lived");
@@ -896,6 +893,30 @@ void assert_session(const Golden& golden) {
             check(ports_observer->last_revision.has_value() &&
                       *ports_observer->last_revision == 0,
                   kSessionLabel, "a present zero base revision did not arrive as a present zero");
+        }
+
+        // One real baseline ports round trip through the responder's provider:
+        // the first put committed, so the entry now reads back through `get`.
+        // The committed and rebuilt carriers may legitimately differ by one
+        // read (a shipped put may pre-read the slot), so the smoke asserts
+        // behavior, never an internal call count.
+        const std::string entry =
+            unwrap(adapter.get_knowledge_entry(kEntryIdText), kSessionLabel,
+                   "RemoteAdapter::get_knowledge_entry")
+                .str();
+        check(entry.find(std::string("\"entry_id\":\"") + kEntryIdText + "\"") !=
+                  std::string::npos,
+              kSessionLabel, "the round-tripped entry carries no entry id: " + entry);
+        check(entry.find(kEntryCanonicalName) != std::string::npos, kSessionLabel,
+              "the round-tripped entry carries no canonical name: " + entry);
+        {
+            std::lock_guard<std::mutex> guard(ports_observer->mutex);
+            check(ports_observer->calls >= 3, kSessionLabel,
+                  "the served ports callback ran " + std::to_string(ports_observer->calls) +
+                      " times (two puts and one get must reach it)");
+            check(ports_observer->last_entry_id == kEntryIdText, kSessionLabel,
+                  "the served ports callback saw entry id \"" + ports_observer->last_entry_id +
+                      "\"");
         }
         ports_observer.reset();
 
@@ -1044,11 +1065,13 @@ void assert_session(const Golden& golden) {
     check(record_released(reverse_tool_counters, reverse_tool_released), kSessionLabel,
           "the dialer's tool record was not released exactly once (releases " +
               std::to_string(reverse_tool_counters.releases.load()) + ")");
-    // The served records saw exactly the calls the scenario made: the knowledge
-    // lookup, the two `putKnowledgeEntry` calls and the declining list call, and
-    // one tool call per invoke — the round trip, the two refusals, the contained
-    // failure and the recovery.
-    check(ports_counters.calls.load() == 4 && served_tool_counters.calls.load() == 5,
+    // The served records saw the scenario's calls: two puts, one lookup and
+    // the declining list reach the ports record, and one tool call per
+    // invoke — the round trip, the two refusals, the contained failure and
+    // the recovery. The committed and rebuilt carriers may legitimately
+    // differ by one read (a shipped put may pre-read the slot), so the smoke
+    // asserts behavior, never an internal call count.
+    check(ports_counters.calls.load() >= 4 && served_tool_counters.calls.load() == 5,
           kSessionLabel,
           "the served records saw " + std::to_string(ports_counters.calls.load()) +
               " ports calls and " + std::to_string(served_tool_counters.calls.load()) +

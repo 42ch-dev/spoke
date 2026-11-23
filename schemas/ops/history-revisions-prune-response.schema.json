@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/history-revisions-prune-response.schema.json",
+  "title": "HistoryRevisionsPruneResponse",
+  "description": "HistoryPruneResult or wire error. Use the success branch OR error — not both. deleted counts checkpoints deleted by this call (excludes the live row and derived revisions); floor_revision = newest_deleted_checkpoint_revision + 1 when at least one checkpoint is deleted, null otherwise (no-op, including keep >= checkpoint count). Codes documented for history.revisions.prune: INVALID_INPUT (absent idempotency_key), IDEMPOTENCY_CONFLICT, RECEIPT_EXPIRED, NOT_FOUND, HISTORY_ENTITY_UNSUPPORTED, plus the entity's existing write-authorization outcome. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "deleted",
+        "floor_revision"
+      ],
+      "properties": {
+        "deleted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of checkpoints deleted by this call."
+        },
+        "floor_revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "Newest deleted checkpoint revision + 1 when at least one checkpoint was deleted; null on a no-op. The current retained floor for subsequent replay."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    }
+  ],
+  "examples": [
+    {
+      "deleted": 1,
+      "floor_revision": 2
+    }
+  ]
+}

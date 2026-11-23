@@ -1,6 +1,7 @@
 //! SPOKE lifecycle helpers — pure functions over `spoke-schemas` wire types.
 
 mod adapter;
+mod adoption;
 mod assemble;
 mod body;
 mod computable;
@@ -8,7 +9,9 @@ mod cognition;
 mod extensions;
 mod error;
 mod finding;
+mod history;
 mod knowledge_entry;
+mod judgment;
 mod memory;
 mod mind_state;
 mod occ;
@@ -96,7 +99,15 @@ pub use memory::{
 };
 pub use adapter::orchestrate::orchestrate_extract;
 pub use adapter::ports::{ExtractRunInput, ExtractionPort, ExtractionResult};
+pub use adapter::{AdoptionPort, AdoptionPorts};
+pub use adapter::{HistoryPort, HistoryPorts};
 pub use adapter::{MemoryPort, MemoryPorts};
+pub use adoption::{
+    assert_adoption_anchor_preserved, resolve_retirement_chain, RetirementChainEntry,
+    RetirementTerminal, ADOPTION_LEGACY_EXTENSIONS_NAMESPACE, RETIREMENT_CHAIN_MAX_EDGES,
+};
+pub use history::{revision_snapshots_equal_canonical, HistoryPruneResult};
+pub use judgment::{judgments_equal_canonical, validate_judgment, validate_judgment_typed};
 
 /// Re-export wire types for integrator convenience.
 pub use spoke_schemas;

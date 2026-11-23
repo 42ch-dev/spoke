@@ -15,7 +15,9 @@
 //! [`connect_remote_adapter`] (dial), [`connect_responder`] (the
 //! productized responder: handshake recipe + `port.*` serving through the
 //! [`RemoteServePorts`] seam + the reverse `invoke_tool` face + the
-//! optional [`RemoteExtractService`] `extract` face), the
+//! optional [`RemoteExtractService`] `extract` face + the optional
+//! [`RemoteHistoryService`] `history.*` face + the optional
+//! [`RemoteAdoptionService`] `knowledge.*` face), the
 //! [`Transport`] trait, the in-repo loopback transport pair for tests, and
 //! the multi-peer capability router ([`MultiPeerRouter`] +
 //! [`connect_multi_peer_router`] — capability-selected async `BaselinePorts`
@@ -27,8 +29,8 @@ use spoke_operations::{SpokeReject, SpokeRejectCode};
 use spoke_schemas::Scope;
 
 use crate::core::{
-    capability_satisfies, dispatch_allowed, CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE,
-    CAPABILITY_SPOKE_KNOWLEDGE,
+    capability_satisfies, dispatch_allowed, reserved_prefix_op, CAPABILITY_L2_COMPUTABLE,
+    CAPABILITY_SPOKE_BASELINE, CAPABILITY_SPOKE_KNOWLEDGE,
 };
 
 mod multi_peer_router;
@@ -49,8 +51,12 @@ pub use responder::{
     connect_responder, ConnectResponder, ConnectResponderOptions, ConnectResponderState,
 };
 pub use serve_ports::{
-    KnowledgeAdmission, MemoryAdmission, MemoryPortService, RemoteExtractService,
-    RemoteKnowledgeFace, RemoteMemoryService, RemoteServePorts, RemoteServePortsComposite,
+    AdoptionAdmission, AdoptionPortService, HistoryAdmission, HistoryDedupLookup,
+    HistoryDedupRecord, HistoryDedupStore, HistoryPortService, InMemoryHistoryDedupStore,
+    KnowledgeAdmission, MemoryAdmission, MemoryPortService, RemoteAdoptionService,
+    RemoteExtractService, RemoteHistoryService, RemoteKnowledgeFace, RemoteMemoryService,
+    RemoteServePorts, RemoteServePortsComposite, HISTORY_OP_GET, HISTORY_OP_PRUNE,
+    KNOWLEDGE_OP_ADOPT,
 };
 pub use transport::{
     loopback_transport_pair, LoopbackTransport, LoopbackTransportPair, Transport, TransportError,
@@ -106,9 +112,17 @@ pub(crate) fn port_op_requirement(op: &str) -> Option<&'static str> {
 /// (which also covers the self-describing `tools.*` family), then the product
 /// `port.*` map.
 ///
+/// A core-reserved prefix name with no core-table row is terminal at the core
+/// boundary (spoke-knowledge-adoption contract §Connect operation): unknown
+/// `knowledge.*` names refuse `op_unsupported` here and are ineligible for the
+/// product fallback — custom mappings apply only outside reserved families.
+///
 /// Named and pure so the serve decision is asserted directly from the shared
 /// capability matrix instead of only through the per-table lookups.
 pub(crate) fn port_dispatch_allowed(op: &str, negotiated: &[String]) -> bool {
+    if reserved_prefix_op(op) {
+        return false;
+    }
     dispatch_allowed(op, negotiated)
         || port_op_requirement(op)
             .is_some_and(|required| capability_satisfies(negotiated, required))
@@ -332,5 +346,52 @@ mod capability_matrix {
                 (false, SpokeResult::Reject(_)) => {}
             }
         }
+    }
+
+    /// Reserved `knowledge.*` unknowns refuse at the core boundary: the
+    /// combined gate never reaches the product-map fallback for an
+    /// unregistered reserved name (spoke-knowledge-adoption contract
+    /// §Connect operation), even with every capability negotiated.
+    #[test]
+    fn reserved_knowledge_unknowns_never_reach_the_product_map() {
+        let negotiated: Vec<String> = [
+            "spoke-baseline",
+            "spoke-knowledge",
+            "spoke-knowledge-adoption",
+            "spoke-history",
+        ]
+        .iter()
+        .map(|cap| (*cap).to_owned())
+        .collect();
+        for op in [
+            "knowledge.made_up",
+            "knowledge.entries.delete",
+            "knowledge.adopt.v2",
+        ] {
+            assert!(
+                !port_dispatch_allowed(op, &negotiated),
+                "{op}: a reserved unknown must refuse before any product map"
+            );
+            assert!(
+                matches!(
+                    select_peer_for_op(&[candidate(&negotiated)], op, &payload_for(op)),
+                    SpokeResult::Reject(_)
+                ),
+                "{op}: router selection must refuse a reserved unknown"
+            );
+        }
+        // The registered row still serves under both required capabilities.
+        assert!(
+            port_dispatch_allowed("knowledge.adopt", &negotiated),
+            "knowledge.adopt: the registered op must serve"
+        );
+        // A name outside the reserved family still takes the fallback — the
+        // refusal is reservation, not prefix-blindness: `memory.*` is
+        // core-owned (denied without its capability is irrelevant here), so
+        // prove the fallback lives for a `port.*` row instead.
+        assert!(
+            port_dispatch_allowed("port.relation.get", &negotiated),
+            "port.relation.get: the product map still applies outside reserved families"
+        );
     }
 }

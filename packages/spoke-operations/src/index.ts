@@ -149,6 +149,27 @@ export type { GrantRequirement, IssuedGrant } from "./memory/grants.js";
 export { jcsSha256Hex, jcsSha256HexExcluding } from "./memory/digests.js";
 
 export {
+  judgmentsEqualCanonical,
+  validateJudgment,
+} from "./judgment.js";
+
+export {
+  revisionSnapshotsEqualCanonical,
+  type HistoryPruneResult,
+} from "./history.js";
+
+export {
+  ADOPTION_LEGACY_EXTENSIONS_NAMESPACE,
+  RETIREMENT_CHAIN_MAX_EDGES,
+  assertAdoptionAnchorPreserved,
+  resolveRetirementChain,
+  type RetirementChainEntry,
+  type RetirementLoadEntry,
+  type RetirementSuccessorsOf,
+  type RetirementTerminal,
+} from "./adoption.js";
+
+export {
   SpokeRejectCode,
   spokeOk,
   spokeReject,
@@ -183,6 +204,10 @@ export type {
   OpaqueJson,
   MemoryPort,
   MemoryPorts,
+  HistoryPort,
+  HistoryPorts,
+  AdoptionPort,
+  AdoptionPorts,
 } from "./adapter/ports.js";
 
 export {

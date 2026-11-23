@@ -1,0 +1,333 @@
+{
+  "id": "refusals",
+  "title": "Refusal vocabulary — capability gate, decode boundary, kind/retention and scope refusals",
+  "protocol_refs": [
+    "§Refusal vocabulary",
+    "§Connect operations and capability gate",
+    "§entity_kind"
+  ],
+  "cases": [
+    {
+      "id": "capability-gate-denial-without-port-call",
+      "invariant": "§Connect operations and capability gate",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a get against a session that did not negotiate spoke-history answers capability_missing and never reaches the port",
+      "input": {
+        "client_capabilities": ["spoke-baseline"],
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_gated",
+            "checkpoints": [1],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_gated",
+              "revision": 1,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_gated",
+                "entry_type": "note",
+                "canonical_name": "gated-fixture",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_gated",
+        "revision": 1
+      },
+      "expect": {
+        "error_code": "capability_missing",
+        "provider_calls": 0
+      }
+    },
+    {
+      "id": "capability-gate-denial-prune",
+      "invariant": "§Connect operations and capability gate",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "the gate denies the mutating op too — prune without spoke-history negotiated answers capability_missing with no side effects",
+      "input": {
+        "client_capabilities": ["spoke-baseline"],
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_gated",
+            "checkpoints": [1],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_gated",
+              "revision": 1,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_gated",
+                "entry_type": "note",
+                "canonical_name": "gated-fixture",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.prune",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_gated",
+        "keep": 1,
+        "idempotency_key": "gated-prune"
+      },
+      "expect": {
+        "error_code": "capability_missing",
+        "provider_calls": 0
+      }
+    },
+    {
+      "id": "absent-face-dispatch-deny",
+      "invariant": "§Connect operations and capability gate",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a host that advertises spoke-history but provides no service answers the documented op_unsupported dispatch-deny branch",
+      "input": {
+        "history_face": false,
+        "entities": []
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_any",
+        "revision": 1
+      },
+      "expect": {
+        "error_code": "op_unsupported"
+      }
+    },
+    {
+      "id": "invalid-input-non-integer-revision",
+      "invariant": "§HistoryPort",
+      "surface": "service",
+      "outcome": "identical",
+      "what": "a non-integer revision is INVALID_INPUT at decode — the runtime never rounds it — before admission and any port call",
+      "input": { "entities": [] },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_bad",
+        "revision": 1.5
+      },
+      "expect": {
+        "error_code": "INVALID_INPUT",
+        "details": { "op": "history.revisions.get" },
+        "provider_calls": 0
+      }
+    },
+    {
+      "id": "invalid-input-undeclared-member",
+      "invariant": "§Connect operations",
+      "surface": "service",
+      "outcome": "identical",
+      "what": "a payload carrying an undeclared member fails the closed request decode with INVALID_INPUT before the port",
+      "input": { "entities": [] },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_bad",
+        "revision": 1,
+        "bogus": 1
+      },
+      "expect": {
+        "error_code": "INVALID_INPUT",
+        "details": { "op": "history.revisions.get" },
+        "provider_calls": 0
+      }
+    },
+    {
+      "id": "unsupported-entity-kind",
+      "invariant": "§entity_kind",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "after the spoke-history gate admits the op, an entity_kind the host does not serve answers HISTORY_ENTITY_UNSUPPORTED carrying the requested kind",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_known",
+            "checkpoints": [1],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_known",
+              "revision": 1,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_known",
+                "entry_type": "note",
+                "canonical_name": "known-fixture",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "acme.custom_entity",
+        "entity_id": "ke_known",
+        "revision": 1
+      },
+      "expect": {
+        "error_code": "HISTORY_ENTITY_UNSUPPORTED",
+        "details": { "entity_kind": "acme.custom_entity" }
+      }
+    },
+    {
+      "id": "retention-gap-not-retained",
+      "invariant": "§Refusal vocabulary",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a revision at or above the floor that cannot be reconstructed answers HISTORY_NOT_RETAINED with a provider retention_reason",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_gap",
+            "checkpoints": [3],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_gap",
+              "revision": 3,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_gap",
+                "entry_type": "note",
+                "canonical_name": "gap-fixture",
+                "status": "confirmed",
+                "revision": 3,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_gap",
+        "revision": 9
+      },
+      "expect": {
+        "error_code": "HISTORY_NOT_RETAINED"
+      }
+    },
+    {
+      "id": "get-scope-mismatch-not-found",
+      "invariant": "§Connect operations",
+      "surface": "service",
+      "outcome": "identical",
+      "what": "a present request scope that differs from the admitted scope answers NOT_FOUND for get without invoking the port",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_scoped",
+            "checkpoints": [1],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_scoped",
+              "revision": 1,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_scoped",
+                "entry_type": "note",
+                "canonical_name": "scoped-fixture",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_scoped",
+        "revision": 1,
+        "scope": { "scope_id": "spc_other" }
+      },
+      "expect": {
+        "error_code": "NOT_FOUND",
+        "provider_calls": 0
+      }
+    },
+    {
+      "id": "prune-scope-mismatch-not-authorized",
+      "invariant": "§Connect operations",
+      "surface": "service",
+      "outcome": "identical",
+      "what": "a present request scope outside the admission answers the entity's write-authorization denial for prune, without invoking the port",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_scoped",
+            "checkpoints": [1, 2],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_scoped",
+              "revision": 1,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_scoped",
+                "entry_type": "note",
+                "canonical_name": "scoped-fixture",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.prune",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_scoped",
+        "keep": 1,
+        "idempotency_key": "scope-mismatch",
+        "scope": { "scope_id": "spc_other" }
+      },
+      "expect": {
+        "error_code": "NOT_AUTHORIZED",
+        "provider_calls": 0
+      }
+    }
+  ]
+}

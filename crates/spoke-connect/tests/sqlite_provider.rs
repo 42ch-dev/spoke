@@ -13,11 +13,11 @@
 mod sqlite_memory;
 
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use spoke_fixture_memory_engine::reflect::{basis_digests, ReflectionBasis, SourceRef};
 use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
-use spoke_operations::{content_serialized_bytes, jcs_sha256_hex, MemoryPort, SpokeRejectCode, SpokeResult};
+use spoke_operations::{
+    content_serialized_bytes, jcs_sha256_hex, MemoryPort, SpokeRejectCode, SpokeResult,
+};
 use spoke_schemas::data::cognition::CognitionFilter;
 use spoke_schemas::data::provenance_filter::ProvenanceFilter;
 use spoke_schemas::data::read_selection::ReadSelection;
@@ -27,11 +27,12 @@ use spoke_schemas::{
     MemoryRecallRequest, MemoryReceiptsGetRequest, MemoryReceiptsGetResponse,
     MemoryRecordsListRequest, MemoryReflectionsGenerateRequest, MemoryReflectionsListRequest,
     MemoryReflectionsListResponse, MemoryReflectionsStateRequest, MemorySpacesFreezeRequest,
-    MemorySpacesListRequest,
-    MemorySpacesUnfreezeRequest, MemorySubjectsEnsureRequest, MemorySubjectsFenceRequest,
-    MemorySubjectsGetRequest, Principal,
+    MemorySpacesListRequest, MemorySpacesUnfreezeRequest, MemorySubjectsEnsureRequest,
+    MemorySubjectsFenceRequest, MemorySubjectsGetRequest, Principal,
 };
 use sqlite_memory::SqliteMemoryProvider;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const SPACE: &str = "spc_sqlite_test";
 const OTHER_SPACE: &str = "spc_sqlite_other";
@@ -63,9 +64,7 @@ fn expect_reject<T: std::fmt::Debug>(result: SpokeResult<T>) -> SpokeRejectCode 
     }
 }
 
-fn expect_reject_with<T: std::fmt::Debug>(
-    result: SpokeResult<T>,
-) -> spoke_operations::SpokeReject {
+fn expect_reject_with<T: std::fmt::Debug>(result: SpokeResult<T>) -> spoke_operations::SpokeReject {
     match result {
         SpokeResult::Ok(value) => panic!("expected a rejection, got {value:?}"),
         SpokeResult::Reject(reject) => reject,
@@ -1442,7 +1441,10 @@ async fn recall_cursor_walks_every_page_without_gaps_or_repeats() {
     let mut pages = 0;
     loop {
         pages += 1;
-        assert!(pages <= 3, "the cursor must advance every page, got {pages} pages");
+        assert!(
+            pages <= 3,
+            "the cursor must advance every page, got {pages} pages"
+        );
         let mut request = json!({
             "space_id": SPACE,
             "subject_id": SUBJECT,
@@ -1466,12 +1468,7 @@ async fn recall_cursor_walks_every_page_without_gaps_or_repeats() {
                 .as_array()
                 .expect("records")
                 .iter()
-                .map(|record| {
-                    record["record_id"]
-                        .as_str()
-                        .expect("record id")
-                        .to_string()
-                }),
+                .map(|record| record["record_id"].as_str().expect("record id").to_string()),
         );
         match page.get("next_cursor") {
             Some(next) if pages < 3 => cursor = next.clone(),
@@ -1561,7 +1558,8 @@ async fn recall_cursor_binds_every_mem_r026_input() {
         "the bound cursor serves the next page"
     );
     assert_ne!(
-        wire(&second)["records"], wire(&first)["records"],
+        wire(&second)["records"],
+        wire(&first)["records"],
         "the offset survived the binding"
     );
 
@@ -1663,7 +1661,6 @@ async fn polling_a_receipt_does_not_change_stored_state() {
     let polled = expect_ok(provider.get_receipt(&principal(OPERATOR), request()).await);
     assert_eq!(wire(&polled)["receipt"]["status"], "committed");
 }
-
 
 const CONTEXT_SELECTION: &str = "ctx_customs_gate";
 
@@ -2011,8 +2008,7 @@ async fn unreadable_pinned_reflection_members_read_stale() {
 
     let valid_bytes = stored_document(&path);
     let reflection_id = {
-        let document: Value =
-            serde_json::from_str(&valid_bytes).expect("stored document is json");
+        let document: Value = serde_json::from_str(&valid_bytes).expect("stored document is json");
         document["spaces"][SPACE]["reflections"]
             .as_object()
             .expect("stored reflections")
@@ -2278,7 +2274,9 @@ async fn reflections_pinned_to_tombstoned_records_are_excluded() {
 
 // ── Task 4: transfer surfaces ─────────────────────────────────────────────
 
-use spoke_fixture_memory_engine::transfer::{bundle_digest, chunk_digest, reassemble, verify_reassembly};
+use spoke_fixture_memory_engine::transfer::{
+    bundle_digest, chunk_digest, reassemble, verify_reassembly,
+};
 
 async fn poll_receipt(provider: &SqliteMemoryProvider, space: &str, receipt_id: &str) -> Value {
     // The worker is separate from the read path (MEM-R011): settle the
@@ -3746,26 +3744,26 @@ async fn cognition_classification_ignores_explicit_empty_array() {
             )
             .await,
     );
-    assert!(!wire(&candidate)["candidate"]["proposed"]["content"]["cognition"]
-        .as_array()
-        .expect("cognition array")
-        .is_empty());
+    assert!(
+        !wire(&candidate)["candidate"]["proposed"]["content"]["cognition"]
+            .as_array()
+            .expect("cognition array")
+            .is_empty()
+    );
 
     let pending = |provider_listed: Value| provider_listed["candidates"].clone();
-    let listed_before = pending(wire(
-        &expect_ok(
-            provider
-                .list_candidates(
-                    &principal(READER),
-                    serde_json::from_value::<spoke_schemas::MemoryCandidatesListRequest>(json!({
-                        "space_id": SPACE,
-                        "subject_id": SUBJECT,
-                    }))
-                    .expect("list request"),
-                )
-                .await,
-        ),
-    ));
+    let listed_before = pending(wire(&expect_ok(
+        provider
+            .list_candidates(
+                &principal(READER),
+                serde_json::from_value::<spoke_schemas::MemoryCandidatesListRequest>(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                }))
+                .expect("list request"),
+            )
+            .await,
+    )));
     assert_eq!(
         listed_before.as_array().expect("candidates").len(),
         1,
@@ -3783,20 +3781,18 @@ async fn cognition_classification_ignores_explicit_empty_array() {
     assert_eq!(empty["result"]["classified"], 0);
     assert_eq!(empty["result"]["candidate_ids"], json!([]));
 
-    let listed_after = pending(wire(
-        &expect_ok(
-            provider
-                .list_candidates(
-                    &principal(READER),
-                    serde_json::from_value::<spoke_schemas::MemoryCandidatesListRequest>(json!({
-                        "space_id": SPACE,
-                        "subject_id": SUBJECT,
-                    }))
-                    .expect("list request"),
-                )
-                .await,
-        ),
-    ));
+    let listed_after = pending(wire(&expect_ok(
+        provider
+            .list_candidates(
+                &principal(READER),
+                serde_json::from_value::<spoke_schemas::MemoryCandidatesListRequest>(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                }))
+                .expect("list request"),
+            )
+            .await,
+    )));
     assert_eq!(listed_after, listed_before, "live state is unchanged");
 }
 
@@ -4425,8 +4421,7 @@ async fn cognition_transfer_remaps_references() {
     // references and must survive verbatim.
     let mut belief = cognition_belief("rec_belief_mem_1", "alice", "2026-07-23T06:05:00Z", 0.9);
     belief["holder"] = json!({ "kind": "memory_subject", "namespace": "mem", "id": SUBJECT });
-    belief["assessor"] =
-        json!({ "kind": "external", "namespace": "system_a", "id": "alice" });
+    belief["assessor"] = json!({ "kind": "external", "namespace": "system_a", "id": "alice" });
     belief["order"] = json!(2);
     belief["target"]["text"] = json!("untrusted text naming alice");
     belief["target"]["about"] = json!({
@@ -4613,7 +4608,11 @@ async fn typed_staging_preserves_explicit_empty_chunk_arrays() {
 
     let chunks = partition_bundle(&bundle, 1 << 20).expect("bundle partitions");
     assert_eq!(chunks.len(), 1, "the fixture keeps one header chunk");
-    assert_eq!(chunks[0]["profiles"], json!([]), "explicit empty arrays are sealed");
+    assert_eq!(
+        chunks[0]["profiles"],
+        json!([]),
+        "explicit empty arrays are sealed"
+    );
 
     let request = json!({
         "space_id": OTHER_SPACE,
@@ -4692,10 +4691,12 @@ async fn cognition_transfer_invalid_translated_content_fails_closed() {
                 .cloned()
                 .unwrap_or_default();
             assert!(
-                errors.iter().any(|error| error
-                    .as_str()
-                    .is_some_and(|text| text.contains("record rec_cog")
-                        && text.contains("recorded-at-time"))),
+                errors
+                    .iter()
+                    .any(|error| error
+                        .as_str()
+                        .is_some_and(|text| text.contains("record rec_cog")
+                            && text.contains("recorded-at-time"))),
                 "content validation error expected, got {errors:?}"
             );
         } else {
@@ -4723,7 +4724,8 @@ async fn cognition_transfer_missing_reference_fails_closed() {
     let provider = provider();
     let mut belief = cognition_belief("rec_belief_mem_1", "alice", "2026-07-23T06:05:00Z", 0.9);
     // `subj_unmapped` is not a bundled subject: no assignment can exist.
-    belief["holder"] = json!({ "kind": "memory_subject", "namespace": "mem", "id": "subj_unmapped" });
+    belief["holder"] =
+        json!({ "kind": "memory_subject", "namespace": "mem", "id": "subj_unmapped" });
     provider.provision_record(
         SPACE,
         json!({
@@ -4941,8 +4943,12 @@ async fn restricted_transfer_only_reaches_its_covered_selection() {
         provider
             .create_export(
                 &principal(TRANSFER),
-                serde_json::from_value(request(Some(covered_selection.clone()), false, "exp-narrow"))
-                    .expect("export request"),
+                serde_json::from_value(request(
+                    Some(covered_selection.clone()),
+                    false,
+                    "exp-narrow",
+                ))
+                .expect("export request"),
             )
             .await,
     );
@@ -4988,11 +4994,7 @@ async fn restricted_transfer_only_reaches_its_covered_selection() {
     }
     assert_eq!(bundle_record_ids(&public_chunks), vec!["rec_ctx_a"]);
     let verification = verify_reassembly(&public_chunks);
-    assert!(
-        verification.bundle_digest_ok,
-        "{:?}",
-        verification.errors
-    );
+    assert!(verification.bundle_digest_ok, "{:?}", verification.errors);
     assert!(verification.errors.is_empty(), "{:?}", verification.errors);
     let text = serde_json::to_string(&public_chunks).expect("chunks serialize");
     assert!(!text.contains("market rumor"), "{text}");
@@ -5940,7 +5942,11 @@ async fn evicted_receipt_status_requires_current_receipt_authority() {
 #[tokio::test]
 async fn legacy_dedup_status_never_invents_a_commit() {
     let provider = transfer_space();
-    seed_record(&provider, "rec_1", "The gate key is under the third barrel.");
+    seed_record(
+        &provider,
+        "rec_1",
+        "The gate key is under the third barrel.",
+    );
     let request = json!({
         "space_id": SPACE,
         "subject_id": SUBJECT,
@@ -6169,7 +6175,10 @@ async fn opaque_namespace_never_aliases_another_principals_request() {
             .create_export(&principal(ALIAS_PRINCIPAL), export("b"))
             .await,
     ));
-    let keyed_receipt = keyed["receipt_id"].as_str().expect("receipt id").to_string();
+    let keyed_receipt = keyed["receipt_id"]
+        .as_str()
+        .expect("receipt id")
+        .to_string();
     let aliased_receipt = aliased["receipt_id"]
         .as_str()
         .expect("receipt id")
@@ -6396,8 +6405,7 @@ async fn absent_outcome_evidence_fails_closed() {
         serde_json::from_str(&stored_document(&path)).expect("stored document is json");
     for receipt in [&receipt_id, &update_receipt, &fence_receipt] {
         assert_eq!(
-            valid_document["spaces"][SPACE]["receipt_evidence"]
-                [receipt.as_str()]["status"],
+            valid_document["spaces"][SPACE]["receipt_evidence"][receipt.as_str()]["status"],
             "committed",
             "{receipt}"
         );
@@ -6406,8 +6414,7 @@ async fn absent_outcome_evidence_fails_closed() {
     let corrupt_bytes = stored_document(&path);
     let mut expected = valid_document.clone();
     for receipt in [&receipt_id, &update_receipt, &fence_receipt] {
-        expected["spaces"][SPACE]["receipt_evidence"]
-            [receipt.as_str()]
+        expected["spaces"][SPACE]["receipt_evidence"][receipt.as_str()]
             .as_object_mut()
             .expect("evidence object")
             .remove("status");
@@ -6655,13 +6662,11 @@ async fn absent_outcome_evidence_fails_closed() {
         restored_baseline["record_sequence"]
     );
     assert_eq!(
-        after["spaces"][SPACE]["records"]["rec_ctx_a"]["revision"],
-        2,
+        after["spaces"][SPACE]["records"]["rec_ctx_a"]["revision"], 2,
         "{after}"
     );
     assert_eq!(
-        after["spaces"][SPACE]["subjects"][SUBJECT]["revision"],
-        2,
+        after["spaces"][SPACE]["subjects"][SUBJECT]["revision"], 2,
         "{after}"
     );
     assert_eq!(
@@ -6762,8 +6767,7 @@ async fn pending_body_without_identity_evidence_fails_closed_until_restored() {
     let valid_document: Value =
         serde_json::from_str(&stored_document(&path)).expect("stored document is json");
     assert_eq!(
-        valid_document["spaces"][SPACE]["receipts"][&receipt_id]["status"],
-        "pending",
+        valid_document["spaces"][SPACE]["receipts"][&receipt_id]["status"], "pending",
         "{valid_document}"
     );
     assert!(
@@ -6789,7 +6793,11 @@ async fn pending_body_without_identity_evidence_fails_closed_until_restored() {
 
     // Public read triggers checked eviction: refuse with no write.
     let eviction = expect_reject_with(read_receipt(&provider, OPERATOR, &receipt_id).await);
-    assert_eq!(eviction.code, SpokeRejectCode::InternalError, "{eviction:?}");
+    assert_eq!(
+        eviction.code,
+        SpokeRejectCode::InternalError,
+        "{eviction:?}"
+    );
     assert_eq!(
         eviction
             .details
@@ -6802,7 +6810,11 @@ async fn pending_body_without_identity_evidence_fails_closed_until_restored() {
         receipt_detail_paths(eviction.details.as_ref()).is_empty(),
         "{eviction:?}"
     );
-    assert_eq!(stored_document(&path), corrupt_bytes, "eviction wrote state");
+    assert_eq!(
+        stored_document(&path),
+        corrupt_bytes,
+        "eviction wrote state"
+    );
 
     // The worker cannot consume owed work whose identity record is gone.
     let refusal = expect_reject_with(provider.try_run_worker());
@@ -6853,8 +6865,7 @@ async fn pending_body_without_identity_evidence_fails_closed_until_restored() {
     );
     assert_eq!(after["spaces"][SPACE]["pending"], json!({}), "{after}");
     assert_eq!(
-        after["spaces"][SPACE]["receipt_evidence"][&receipt_id]["status"],
-        "committed",
+        after["spaces"][SPACE]["receipt_evidence"][&receipt_id]["status"], "committed",
         "{after}"
     );
     assert_eq!(after["spaces"][SPACE]["receipt_sequence"], sequence);
@@ -6931,7 +6942,14 @@ async fn export_include_tombstoned_requires_current_admin_authority() {
     // changed payload is denied rather than answered with a conflict.
     provider.provision_grant(
         SPACE,
-        grant("grt_operator_transfer_0024", OPERATOR, &["transfer"], None, None, None),
+        grant(
+            "grt_operator_transfer_0024",
+            OPERATOR,
+            &["transfer"],
+            None,
+            None,
+            None,
+        ),
     );
     expect_ok(
         provider
@@ -6965,11 +6983,7 @@ async fn export_include_tombstoned_requires_current_admin_authority() {
     }))
     .expect("export request");
     assert_eq!(
-        expect_reject(
-            provider
-                .create_export(&principal(OPERATOR), changed)
-                .await
-        ),
+        expect_reject(provider.create_export(&principal(OPERATOR), changed).await),
         SpokeRejectCode::NotAuthorized
     );
 
@@ -6988,7 +7002,14 @@ async fn export_include_tombstoned_requires_current_admin_authority() {
     );
     provider.provision_grant(
         SPACE,
-        grant("grt_operator_admin_restored_0025", OPERATOR, &["admin"], None, None, None),
+        grant(
+            "grt_operator_admin_restored_0025",
+            OPERATOR,
+            &["admin"],
+            None,
+            None,
+            None,
+        ),
     );
     expect_receipt_expired_as(
         provider
@@ -7206,7 +7227,12 @@ async fn export_include_tombstoned_admin_covers_the_export_scope() {
         provider
             .create_export(
                 &principal(ADMIN_SUBJECT_ONLY),
-                export_request(Some(SUBJECT), selection_all(), true, "f3-facet-covered-subject-all"),
+                export_request(
+                    Some(SUBJECT),
+                    selection_all(),
+                    true,
+                    "f3-facet-covered-subject-all",
+                ),
             )
             .await,
     );
@@ -7512,12 +7538,7 @@ async fn export_replay_keeps_its_original_coverage_after_new_reflections() {
             .await,
     );
     let receipt_id = wire(&created)["receipt_id"].clone();
-    let covered = poll_receipt(
-        &provider,
-        SPACE,
-        receipt_id.as_str().expect("receipt id"),
-    )
-    .await;
+    let covered = poll_receipt(&provider, SPACE, receipt_id.as_str().expect("receipt id")).await;
     assert_eq!(covered["status"], "committed", "{covered}");
     let export_id = covered["result"]["export_id"].clone();
 
@@ -8170,9 +8191,7 @@ async fn evicted_receipts_stop_grant_and_import_reexecution() {
     let _ = poll_receipt(
         &provider,
         OTHER_SPACE,
-        wire(&activated)["receipt_id"]
-            .as_str()
-            .expect("receipt id"),
+        wire(&activated)["receipt_id"].as_str().expect("receipt id"),
     )
     .await;
 
@@ -8464,11 +8483,7 @@ async fn undecodable_state_after_open_fails_public_ops_without_panicking() {
     let corrupt_bytes = stored_document(&path);
 
     let assert_storage_error = |reject: spoke_operations::SpokeReject| {
-        assert_eq!(
-            reject.code,
-            SpokeRejectCode::InternalError,
-            "{reject:?}"
-        );
+        assert_eq!(reject.code, SpokeRejectCode::InternalError, "{reject:?}");
         assert_eq!(
             reject
                 .details
@@ -8701,8 +8716,7 @@ async fn unkeyed_ensure_receipt_survives_with_body_and_evidence() {
         "committed",
     );
     assert_eq!(stored_document(&path), before_reopen);
-    let after: Value =
-        serde_json::from_str(&before_reopen).expect("stored document is json");
+    let after: Value = serde_json::from_str(&before_reopen).expect("stored document is json");
     assert_eq!(after["spaces"][SPACE]["receipt_sequence"], sequence);
     let mut evidence_after: Vec<String> = after["spaces"][SPACE]["receipt_evidence"]
         .as_object()
@@ -8773,9 +8787,7 @@ async fn committed_tombstone_survives_reopen_for_read_and_replay() {
         "committed",
     );
     // Neither path re-executed: no new receipt body and no state change.
-    assert!(reopened
-        .poll_receipt_value(SPACE, &receipt_id)
-        .is_none());
+    assert!(reopened.poll_receipt_value(SPACE, &receipt_id).is_none());
     assert_eq!(stored_document(&path), after_reopen);
 
     std::fs::remove_file(&path).expect("remove state file");
@@ -8840,7 +8852,11 @@ async fn failed_tombstone_survives_reopen_for_read_and_replay() {
         .find(|entry| entry["receipt_id"] == json!(receipt_id))
         .expect("the real export binding exists")
         .clone();
-    assert_eq!(binding_before["receipt_id"], json!(receipt_id), "{binding_before}");
+    assert_eq!(
+        binding_before["receipt_id"],
+        json!(receipt_id),
+        "{binding_before}"
+    );
     assert_eq!(binding_before["digest"], json!(digest), "{binding_before}");
     assert_eq!(
         binding_before["export_scope"],
@@ -8962,7 +8978,10 @@ async fn failed_tombstone_survives_reopen_for_read_and_replay() {
     provider.advance_clock(sqlite_memory::RECEIPT_RETENTION_SECONDS + 1);
 
     // Eviction copies the body's truthful `failed` status to the tombstone.
-    expect_receipt_expired_as(read_receipt(&provider, TRANSFER, &receipt_id).await, "failed");
+    expect_receipt_expired_as(
+        read_receipt(&provider, TRANSFER, &receipt_id).await,
+        "failed",
+    );
     assert!(provider.poll_receipt_value(SPACE, &receipt_id).is_none());
     drop(provider);
 
@@ -8976,7 +8995,10 @@ async fn failed_tombstone_survives_reopen_for_read_and_replay() {
         .find(|entry| entry["receipt_id"] == json!(receipt_id))
         .expect("the admitted binding survives the reopen");
     assert_eq!(*binding_after_reopen, binding_before);
-    expect_receipt_expired_as(read_receipt(&reopened, TRANSFER, &receipt_id).await, "failed");
+    expect_receipt_expired_as(
+        read_receipt(&reopened, TRANSFER, &receipt_id).await,
+        "failed",
+    );
     expect_receipt_expired_as(
         reopened
             .create_export(
@@ -9309,11 +9331,7 @@ async fn mutation_write_failure_reports_uncertain_outcome() {
             )
             .await,
     );
-    assert_eq!(
-        reject.code,
-        SpokeRejectCode::OutcomeUncertain,
-        "{reject:?}"
-    );
+    assert_eq!(reject.code, SpokeRejectCode::OutcomeUncertain, "{reject:?}");
     assert_eq!(
         reject
             .details
@@ -9361,9 +9379,11 @@ static STATE_FILE_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 fn stored_document(path: &Path) -> String {
     rusqlite::Connection::open(path)
         .expect("open state db")
-        .query_row("SELECT document FROM memory_state WHERE id = 1", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT document FROM memory_state WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
         .expect("stored document")
 }
 
@@ -9432,27 +9452,25 @@ async fn cognition_query_shared_vectors_provider() {
         );
     }
 
-    let recall_request = |filter: Option<&Value>,
-                          cursor: Option<&str>,
-                          max_items: u64,
-                          max_bytes: Option<u64>| {
-        let mut request = json!({
-            "space_id": SPACE,
-            "subject_id": SUBJECT,
-            "selection": { "mode": "shared_only" },
-            "budget": { "max_items": max_items },
-        });
-        if let Some(filter) = filter {
-            request["cognition_filter"] = filter.clone();
-        }
-        if let Some(cursor) = cursor {
-            request["cursor"] = json!(cursor);
-        }
-        if let Some(bytes) = max_bytes {
-            request["budget"]["max_bytes"] = json!(bytes);
-        }
-        serde_json::from_value::<MemoryRecallRequest>(request).expect("recall request")
-    };
+    let recall_request =
+        |filter: Option<&Value>, cursor: Option<&str>, max_items: u64, max_bytes: Option<u64>| {
+            let mut request = json!({
+                "space_id": SPACE,
+                "subject_id": SUBJECT,
+                "selection": { "mode": "shared_only" },
+                "budget": { "max_items": max_items },
+            });
+            if let Some(filter) = filter {
+                request["cognition_filter"] = filter.clone();
+            }
+            if let Some(cursor) = cursor {
+                request["cursor"] = json!(cursor);
+            }
+            if let Some(bytes) = max_bytes {
+                request["budget"]["max_bytes"] = json!(bytes);
+            }
+            serde_json::from_value::<MemoryRecallRequest>(request).expect("recall request")
+        };
     let list_request = |filter: &Value, cursor: Option<&str>, limit: u64, kinds: Option<Value>| {
         let mut request = json!({
             "space_id": SPACE,
@@ -9476,9 +9494,7 @@ async fn cognition_query_shared_vectors_provider() {
         let id = query["id"].as_str().expect("query id").to_string();
         let expect = &query["expect"];
         let filter = query.get("filter").cloned();
-        let max_items = query["budget"]["max_items"]
-            .as_u64()
-            .expect("max_items");
+        let max_items = query["budget"]["max_items"].as_u64().expect("max_items");
         let max_bytes = query["budget"]["max_bytes"].as_u64();
         let cursor = query["after"]
             .as_str()
@@ -9504,10 +9520,7 @@ async fn cognition_query_shared_vectors_provider() {
             recall["total_authorized"], expect["total_authorized"],
             "{id}: total_authorized"
         );
-        assert_eq!(
-            recall["truncated"], expect["truncated"],
-            "{id}: truncated"
-        );
+        assert_eq!(recall["truncated"], expect["truncated"], "{id}: truncated");
         assert_eq!(
             recall.get("overflow_record_id").and_then(Value::as_str),
             expect.get("overflow_record_id").and_then(Value::as_str),
@@ -9520,10 +9533,7 @@ async fn cognition_query_shared_vectors_provider() {
         if let Some(filter) = &filter {
             let list = expect_ok(
                 provider
-                    .list_records(
-                        &principal(OPERATOR),
-                        list_request(filter, None, 100, None),
-                    )
+                    .list_records(&principal(OPERATOR), list_request(filter, None, 100, None))
                     .await,
             );
             let list = wire(&list);
@@ -9534,7 +9544,8 @@ async fn cognition_query_shared_vectors_provider() {
                 .map(|record| record["record_id"].as_str().expect("record_id"))
                 .collect();
             assert_eq!(
-                json!(list_ids), expect["eligible_ids"],
+                json!(list_ids),
+                expect["eligible_ids"],
                 "{id}: list eligibility"
             );
             assert_eq!(
@@ -9656,17 +9667,20 @@ async fn cognition_query_shared_vectors_provider() {
         .iter()
         .find(|record| record["record_id"] == "rec_cog_alice_high")
         .expect("first ranked record");
-    let with_cognition: Content = serde_json::from_value(first_record["content"].clone())
-        .expect("cognition-bearing content");
+    let with_cognition: Content =
+        serde_json::from_value(first_record["content"].clone()).expect("cognition-bearing content");
     let mut without = first_record["content"].clone();
     without
         .as_object_mut()
         .expect("content object")
         .remove("cognition");
-    let without_cognition: Content =
-        serde_json::from_value(without).expect("text-only content");
-    let with_bytes = serde_json::to_vec(&with_cognition).expect("serialize").len();
-    let without_bytes = serde_json::to_vec(&without_cognition).expect("serialize").len();
+    let without_cognition: Content = serde_json::from_value(without).expect("text-only content");
+    let with_bytes = serde_json::to_vec(&with_cognition)
+        .expect("serialize")
+        .len();
+    let without_bytes = serde_json::to_vec(&without_cognition)
+        .expect("serialize")
+        .len();
     assert!(
         with_bytes > without_bytes,
         "the cognition member contributes emitted bytes"
@@ -9728,27 +9742,24 @@ async fn cognition_query_shared_vectors_provider() {
         }))
         .expect("state request")
     };
-    let narrow_state = wire(
-        &expect_ok(
-            provider
-                .get_reflection_state(&principal(OPERATOR), state_request(&filters["narrow"]))
-                .await,
-        ),
-    );
-    let same_state = wire(
-        &expect_ok(
-            provider
-                .get_reflection_state(&principal(OPERATOR), state_request(&filters["same_sources"]))
-                .await,
-        ),
-    );
-    let disjoint_state = wire(
-        &expect_ok(
-            provider
-                .get_reflection_state(&principal(OPERATOR), state_request(&filters["disjoint"]))
-                .await,
-        ),
-    );
+    let narrow_state = wire(&expect_ok(
+        provider
+            .get_reflection_state(&principal(OPERATOR), state_request(&filters["narrow"]))
+            .await,
+    ));
+    let same_state = wire(&expect_ok(
+        provider
+            .get_reflection_state(
+                &principal(OPERATOR),
+                state_request(&filters["same_sources"]),
+            )
+            .await,
+    ));
+    let disjoint_state = wire(&expect_ok(
+        provider
+            .get_reflection_state(&principal(OPERATOR), state_request(&filters["disjoint"]))
+            .await,
+    ));
     assert_eq!(narrow_state["basis"]["record_count"], 3);
     assert_eq!(same_state["basis"]["record_count"], 3);
     assert_eq!(disjoint_state["basis"]["record_count"], 1);
@@ -9892,7 +9903,8 @@ async fn cognition_query_shared_vectors_provider() {
         "the stored basis is the state digest the request pinned"
     );
     assert_eq!(
-        same_reflection["basis"]["state_digest"], same_state["state_digest"]
+        same_reflection["basis"]["state_digest"],
+        same_state["state_digest"]
     );
     assert_eq!(narrow_reflection["basis"]["record_count"], 3);
     // The PUBLISHED source-set digest, not two provider responses judged
@@ -9925,7 +9937,10 @@ async fn cognition_query_shared_vectors_provider() {
     );
     let narrow_only = wire(&narrow_only);
     assert_eq!(
-        narrow_only["reflections"].as_array().expect("reflections").len(),
+        narrow_only["reflections"]
+            .as_array()
+            .expect("reflections")
+            .len(),
         1,
         "a supplied filter lists only reflections generated with it"
     );
@@ -10159,78 +10174,70 @@ async fn cognition_tombstones_leave_the_eligible_set_and_stay_admin_only() {
     };
 
     // Unfiltered recall: the tombstone shell is neither counted nor paged.
-    let recalled = wire(
-        &expect_ok(
-            provider
-                .recall(
-                    &principal(OPERATOR),
-                    recall_of(json!({
-                        "space_id": SPACE,
-                        "subject_id": SUBJECT,
-                        "selection": selection_all(),
-                        "budget": { "max_items": 10 },
-                    })),
-                )
-                .await,
-        ),
-    );
+    let recalled = wire(&expect_ok(
+        provider
+            .recall(
+                &principal(OPERATOR),
+                recall_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                    "budget": { "max_items": 10 },
+                })),
+            )
+            .await,
+    ));
     assert_eq!(ids_of(&recalled), vec!["rec_live".to_string()]);
     assert_eq!(recalled["total_authorized"], json!(1));
     assert_eq!(recalled["truncated"], json!(false));
 
     // A matching cognition filter never resurrects it either.
-    let recalled = wire(
-        &expect_ok(
-            provider
-                .recall(
-                    &principal(OPERATOR),
-                    recall_of(json!({
-                        "space_id": SPACE,
-                        "subject_id": SUBJECT,
-                        "selection": selection_all(),
-                        "cognition_filter": alice.clone(),
-                        "budget": { "max_items": 10 },
-                    })),
-                )
-                .await,
-        ),
-    );
+    let recalled = wire(&expect_ok(
+        provider
+            .recall(
+                &principal(OPERATOR),
+                recall_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                    "cognition_filter": alice.clone(),
+                    "budget": { "max_items": 10 },
+                })),
+            )
+            .await,
+    ));
     assert_eq!(ids_of(&recalled), vec!["rec_live".to_string()]);
     assert_eq!(recalled["total_authorized"], json!(1));
 
-    let listed = wire(
-        &expect_ok(
-            provider
-                .list_records(
-                    &principal(OPERATOR),
-                    list_of(json!({
-                        "space_id": SPACE,
-                        "subject_id": SUBJECT,
-                        "selection": selection_all(),
-                    })),
-                )
-                .await,
-        ),
-    );
+    let listed = wire(&expect_ok(
+        provider
+            .list_records(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                })),
+            )
+            .await,
+    ));
     assert_eq!(ids_of(&listed), vec!["rec_live".to_string()]);
     assert_eq!(listed["total_authorized"], json!(1));
 
     // The reflection basis counts the same eligible set.
-    let state = wire(
-        &expect_ok(
-            provider
-                .get_reflection_state(
-                    &principal(OPERATOR),
-                    serde_json::from_value::<MemoryReflectionsStateRequest>(json!({
-                        "space_id": SPACE,
-                        "subject_id": SUBJECT,
-                        "selection": selection_all(),
-                    }))
-                    .expect("state request"),
-                )
-                .await,
-        ),
-    );
+    let state = wire(&expect_ok(
+        provider
+            .get_reflection_state(
+                &principal(OPERATOR),
+                serde_json::from_value::<MemoryReflectionsStateRequest>(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                }))
+                .expect("state request"),
+            )
+            .await,
+    ));
     assert_eq!(state["basis"]["record_count"], json!(1));
     assert_eq!(state["data_sufficiency"], json!("sufficient"));
     let (expected_digest, _) = expected_basis(
@@ -10241,22 +10248,20 @@ async fn cognition_tombstones_leave_the_eligible_set_and_stay_admin_only() {
         &[("personality", 1)],
     );
     assert_eq!(state["state_digest"], json!(expected_digest));
-    let filtered = wire(
-        &expect_ok(
-            provider
-                .get_reflection_state(
-                    &principal(OPERATOR),
-                    serde_json::from_value::<MemoryReflectionsStateRequest>(json!({
-                        "space_id": SPACE,
-                        "subject_id": SUBJECT,
-                        "selection": selection_all(),
-                        "cognition_filter": alice.clone(),
-                    }))
-                    .expect("state request"),
-                )
-                .await,
-        ),
-    );
+    let filtered = wire(&expect_ok(
+        provider
+            .get_reflection_state(
+                &principal(OPERATOR),
+                serde_json::from_value::<MemoryReflectionsStateRequest>(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                    "cognition_filter": alice.clone(),
+                }))
+                .expect("state request"),
+            )
+            .await,
+    ));
     assert_eq!(filtered["basis"]["record_count"], json!(1));
 
     // A subject whose only record is tombstoned is insufficient, never a
@@ -10298,21 +10303,19 @@ async fn cognition_tombstones_leave_the_eligible_set_and_stay_admin_only() {
             )
             .await,
     );
-    let bo_state = wire(
-        &expect_ok(
-            provider
-                .get_reflection_state(
-                    &principal(OPERATOR),
-                    serde_json::from_value::<MemoryReflectionsStateRequest>(json!({
-                        "space_id": SPACE,
-                        "subject_id": OTHER_SUBJECT_Q,
-                        "selection": selection_all(),
-                    }))
-                    .expect("state request"),
-                )
-                .await,
-        ),
-    );
+    let bo_state = wire(&expect_ok(
+        provider
+            .get_reflection_state(
+                &principal(OPERATOR),
+                serde_json::from_value::<MemoryReflectionsStateRequest>(json!({
+                    "space_id": SPACE,
+                    "subject_id": OTHER_SUBJECT_Q,
+                    "selection": selection_all(),
+                }))
+                .expect("state request"),
+            )
+            .await,
+    ));
     assert_eq!(bo_state["basis"]["record_count"], json!(0));
     assert_eq!(bo_state["data_sufficiency"], json!("insufficient"));
     assert_eq!(
@@ -10335,24 +10338,26 @@ async fn cognition_tombstones_leave_the_eligible_set_and_stay_admin_only() {
     );
 
     // §7 item 2: the admin display still shows the shells, for an admin only.
-    let admin_view = wire(
-        &expect_ok(
-            provider
-                .list_records(
-                    &principal(OPERATOR),
-                    list_of(json!({
-                        "space_id": SPACE,
-                        "subject_id": SUBJECT,
-                        "selection": selection_all(),
-                        "include_tombstoned": true,
-                    })),
-                )
-                .await,
-        ),
-    );
+    let admin_view = wire(&expect_ok(
+        provider
+            .list_records(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                    "include_tombstoned": true,
+                })),
+            )
+            .await,
+    ));
     assert_eq!(
         ids_of(&admin_view),
-        vec!["rec_ctx_dead".to_string(), "rec_dead".to_string(), "rec_live".to_string()]
+        vec![
+            "rec_ctx_dead".to_string(),
+            "rec_dead".to_string(),
+            "rec_live".to_string()
+        ]
     );
     assert_eq!(admin_view["total_authorized"], json!(3));
     let shell = admin_view["records"]
@@ -10364,20 +10369,18 @@ async fn cognition_tombstones_leave_the_eligible_set_and_stay_admin_only() {
     assert!(shell.get("tombstone").is_some(), "{shell}");
 
     // The covered ordinary reader: no tombstone metadata, no admin flag.
-    let reader_view = wire(
-        &expect_ok(
-            provider
-                .list_records(
-                    &principal(READER),
-                    list_of(json!({
-                        "space_id": SPACE,
-                        "subject_id": SUBJECT,
-                        "selection": { "mode": "selected_contexts", "context_ids": [CONTEXT] },
-                    })),
-                )
-                .await,
-        ),
-    );
+    let reader_view = wire(&expect_ok(
+        provider
+            .list_records(
+                &principal(READER),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "selected_contexts", "context_ids": [CONTEXT] },
+                })),
+            )
+            .await,
+    ));
     assert_eq!(reader_view["total_authorized"], json!(0), "{reader_view}");
     assert_eq!(
         expect_reject(
@@ -10396,22 +10399,24 @@ async fn cognition_tombstones_leave_the_eligible_set_and_stay_admin_only() {
         SpokeRejectCode::NotAuthorized,
         "a covered ordinary reader never obtains the admin tombstone view"
     );
-    let reader_recall = wire(
-        &expect_ok(
-            provider
-                .recall(
-                    &principal(READER),
-                    recall_of(json!({
-                        "space_id": SPACE,
-                        "subject_id": SUBJECT,
-                        "selection": { "mode": "selected_contexts", "context_ids": [CONTEXT] },
-                        "budget": { "max_items": 10 },
-                    })),
-                )
-                .await,
-        ),
+    let reader_recall = wire(&expect_ok(
+        provider
+            .recall(
+                &principal(READER),
+                recall_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "selected_contexts", "context_ids": [CONTEXT] },
+                    "budget": { "max_items": 10 },
+                })),
+            )
+            .await,
+    ));
+    assert_eq!(
+        reader_recall["total_authorized"],
+        json!(0),
+        "{reader_recall}"
     );
-    assert_eq!(reader_recall["total_authorized"], json!(0), "{reader_recall}");
 }
 
 /// §7 item 5: a cursor carries its operation identity, so one op's page never
@@ -10481,13 +10486,19 @@ async fn cognition_cursors_bind_operation_grant_and_record_revision() {
     };
 
     // Recall ranks the fact first; list pages by record id.
-    let recall_page = wire(&expect_ok(provider.recall(&principal(OPERATOR), recall_of(None)).await));
+    let recall_page = wire(&expect_ok(
+        provider.recall(&principal(OPERATOR), recall_of(None)).await,
+    ));
     assert_eq!(recall_page["records"][0]["record_id"], json!("rec_beta"));
     let recall_cursor = recall_page["next_cursor"]
         .as_str()
         .expect("recall page 1 cursor")
         .to_string();
-    let list_page = wire(&expect_ok(provider.list_records(&principal(OPERATOR), list_of(None)).await));
+    let list_page = wire(&expect_ok(
+        provider
+            .list_records(&principal(OPERATOR), list_of(None))
+            .await,
+    ));
     assert_eq!(list_page["records"][0]["record_id"], json!("rec_alpha"));
     let list_cursor = list_page["next_cursor"]
         .as_str()
@@ -10496,28 +10507,45 @@ async fn cognition_cursors_bind_operation_grant_and_record_revision() {
 
     // Cross-operation reuse skips or duplicates: reject both directions.
     assert_eq!(
-        expect_reject(provider.list_records(&principal(OPERATOR), list_of(Some(&recall_cursor))).await),
+        expect_reject(
+            provider
+                .list_records(&principal(OPERATOR), list_of(Some(&recall_cursor)))
+                .await
+        ),
         SpokeRejectCode::CursorInvalid,
         "a recall cursor must not resume a list page"
     );
     assert_eq!(
-        expect_reject(provider.recall(&principal(OPERATOR), recall_of(Some(&list_cursor))).await),
+        expect_reject(
+            provider
+                .recall(&principal(OPERATOR), recall_of(Some(&list_cursor)))
+                .await
+        ),
         SpokeRejectCode::CursorInvalid,
         "a list cursor must not resume a recall page"
     );
 
     // Each own continuation is exact, unique and repeatable.
     let recall_tail = wire(&expect_ok(
-        provider.recall(&principal(OPERATOR), recall_of(Some(&recall_cursor))).await,
+        provider
+            .recall(&principal(OPERATOR), recall_of(Some(&recall_cursor)))
+            .await,
     ));
     assert_eq!(recall_tail["records"][0]["record_id"], json!("rec_alpha"));
     assert!(recall_tail.get("next_cursor").is_none());
     let recall_tail_again = wire(&expect_ok(
-        provider.recall(&principal(OPERATOR), recall_of(Some(&recall_cursor))).await,
+        provider
+            .recall(&principal(OPERATOR), recall_of(Some(&recall_cursor)))
+            .await,
     ));
-    assert_eq!(recall_tail_again, recall_tail, "an unchanged pin repeats exactly");
+    assert_eq!(
+        recall_tail_again, recall_tail,
+        "an unchanged pin repeats exactly"
+    );
     let list_tail = wire(&expect_ok(
-        provider.list_records(&principal(OPERATOR), list_of(Some(&list_cursor))).await,
+        provider
+            .list_records(&principal(OPERATOR), list_of(Some(&list_cursor)))
+            .await,
     ));
     assert_eq!(list_tail["records"][0]["record_id"], json!("rec_beta"));
     assert!(list_tail.get("next_cursor").is_none());
@@ -10610,12 +10638,20 @@ async fn cognition_cursors_bind_operation_grant_and_record_revision() {
         .expect("reflection page 1 cursor")
         .to_string();
     assert_eq!(
-        expect_reject(provider.list_records(&principal(OPERATOR), list_of(Some(&reflection_cursor))).await),
+        expect_reject(
+            provider
+                .list_records(&principal(OPERATOR), list_of(Some(&reflection_cursor)))
+                .await
+        ),
         SpokeRejectCode::CursorInvalid,
         "a reflection-list cursor must not resume a record list"
     );
     assert_eq!(
-        expect_reject(provider.recall(&principal(OPERATOR), recall_of(Some(&reflection_cursor))).await),
+        expect_reject(
+            provider
+                .recall(&principal(OPERATOR), recall_of(Some(&reflection_cursor)))
+                .await
+        ),
         SpokeRejectCode::CursorInvalid,
         "a reflection-list cursor must not resume a recall"
     );
@@ -10654,18 +10690,27 @@ async fn cognition_cursors_bind_operation_grant_and_record_revision() {
             .await,
     ));
     assert_eq!(
-        reflection_tail["reflections"].as_array().expect("reflections").len(),
+        reflection_tail["reflections"]
+            .as_array()
+            .expect("reflections")
+            .len(),
         1
     );
     assert_ne!(
-        reflection_tail["reflections"][0]["reflection_id"],
-        reflection_page[0]["reflection_id"],
+        reflection_tail["reflections"][0]["reflection_id"], reflection_page[0]["reflection_id"],
         "the reflection continuation is the other member"
     );
 
     // A real grant mutation moves the snapshot marker: the old cursor is dead.
-    provider.provision_grant(SPACE, grant("grt_temp_admin", "prn_temp", &["admin"], None, None, None));
-    let before = wire(&expect_ok(provider.list_records(&principal(OPERATOR), list_of(None)).await));
+    provider.provision_grant(
+        SPACE,
+        grant("grt_temp_admin", "prn_temp", &["admin"], None, None, None),
+    );
+    let before = wire(&expect_ok(
+        provider
+            .list_records(&principal(OPERATOR), list_of(None))
+            .await,
+    ));
     let before_cursor = before["next_cursor"]
         .as_str()
         .expect("list page 1 cursor")
@@ -10685,13 +10730,21 @@ async fn cognition_cursors_bind_operation_grant_and_record_revision() {
             .await,
     );
     assert_eq!(
-        expect_reject(provider.list_records(&principal(OPERATOR), list_of(Some(&before_cursor))).await),
+        expect_reject(
+            provider
+                .list_records(&principal(OPERATOR), list_of(Some(&before_cursor)))
+                .await
+        ),
         SpokeRejectCode::CursorInvalid,
         "a grant revoke invalidates a cursor over the previous snapshot"
     );
 
     // A source revision move invalidates reuse too; a fresh cursor is stable.
-    let fresh = wire(&expect_ok(provider.list_records(&principal(OPERATOR), list_of(None)).await));
+    let fresh = wire(&expect_ok(
+        provider
+            .list_records(&principal(OPERATOR), list_of(None))
+            .await,
+    ));
     let fresh_cursor = fresh["next_cursor"]
         .as_str()
         .expect("list page 1 cursor")
@@ -10712,18 +10765,28 @@ async fn cognition_cursors_bind_operation_grant_and_record_revision() {
             .await,
     );
     assert_eq!(
-        expect_reject(provider.list_records(&principal(OPERATOR), list_of(Some(&fresh_cursor))).await),
+        expect_reject(
+            provider
+                .list_records(&principal(OPERATOR), list_of(Some(&fresh_cursor)))
+                .await
+        ),
         SpokeRejectCode::CursorInvalid,
         "a moved record revision invalidates the pinned page"
     );
-    let after = wire(&expect_ok(provider.list_records(&principal(OPERATOR), list_of(None)).await));
+    let after = wire(&expect_ok(
+        provider
+            .list_records(&principal(OPERATOR), list_of(None))
+            .await,
+    ));
     let after_cursor = after["next_cursor"]
         .as_str()
         .expect("list page 1 cursor")
         .to_string();
     for _ in 0..2 {
         let tail = wire(&expect_ok(
-            provider.list_records(&principal(OPERATOR), list_of(Some(&after_cursor))).await,
+            provider
+                .list_records(&principal(OPERATOR), list_of(Some(&after_cursor)))
+                .await,
         ));
         assert_eq!(tail["records"][0]["record_id"], json!("rec_beta"));
         assert!(tail.get("next_cursor").is_none());
@@ -10846,7 +10909,8 @@ async fn cognition_provenance_basis_pin_publishes_and_reads_stale() {
     let moved_alpha = wire(&expect_ok(state_of(&alpha).await));
     assert_eq!(moved_alpha["basis"]["record_count"], json!(2));
     assert_ne!(
-        moved_alpha["state_digest"], json!(alpha_digest),
+        moved_alpha["state_digest"],
+        json!(alpha_digest),
         "a revision-only change moves the state digest"
     );
     let (moved_expected, moved_sources_expected) = expected_basis(
@@ -10882,18 +10946,26 @@ async fn cognition_provenance_basis_pin_publishes_and_reads_stale() {
         .iter()
         .find(|reflection| reflection.get("filter") == Some(&beta))
         .expect("the provenance filter is pinned on the reflection");
-    assert_eq!(alpha_reflection["basis"]["state_digest"], json!(alpha_digest));
+    assert_eq!(
+        alpha_reflection["basis"]["state_digest"],
+        json!(alpha_digest)
+    );
     assert_eq!(beta_reflection["basis"]["state_digest"], json!(beta_digest));
     assert_eq!(
         alpha_reflection["basis"]["source_set_digest"],
         json!(alpha_sources_expected)
     );
     assert_eq!(
-        alpha_reflection["basis"]["source_set_digest"], beta_reflection["basis"]["source_set_digest"],
+        alpha_reflection["basis"]["source_set_digest"],
+        beta_reflection["basis"]["source_set_digest"],
         "an equal eligible id+revision set keeps one source-set digest"
     );
     assert_eq!(alpha_reflection["basis"]["record_count"], json!(2));
-    assert_eq!(alpha_reflection["stale"], json!(true), "the moved basis reads stale");
+    assert_eq!(
+        alpha_reflection["stale"],
+        json!(true),
+        "the moved basis reads stale"
+    );
     assert_eq!(beta_reflection["stale"], json!(true));
 
     // Provenance membership: each supplied filter lists only its own pin.
@@ -11145,11 +11217,14 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
 
     let all = wire(&expect_ok(
         provider
-            .list_reflections(&principal(OPERATOR), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "limit": 10,
-            })))
+            .list_reflections(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "limit": 10,
+                })),
+            )
             .await,
     ));
     let all_ids = list_ids(&all);
@@ -11166,12 +11241,15 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
     // Request selection restricts membership to wholly covered pins.
     let subj_all = wire(&expect_ok(
         provider
-            .list_reflections(&principal(OPERATOR), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "selection": selection_all(),
-                "limit": 10,
-            })))
+            .list_reflections(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                    "limit": 10,
+                })),
+            )
             .await,
     ));
     assert_eq!(list_ids(&subj_all), all_ids, "subject_all covers every pin");
@@ -11188,18 +11266,24 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
     ));
     assert_eq!(
         list_ids(&ctx_p_inclusive),
-        vec!["refl_sqlite_0002".to_string(), "refl_sqlite_0003".to_string()],
+        vec![
+            "refl_sqlite_0002".to_string(),
+            "refl_sqlite_0003".to_string()
+        ],
         "the subject_all pin is broader than the requested view"
     );
 
     let ctx_p_narrow = wire(&expect_ok(
         provider
-            .list_reflections(&principal(OPERATOR), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "selection": { "mode": "selected_contexts", "context_ids": ["ctx_p"] },
-                "limit": 10,
-            })))
+            .list_reflections(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "selected_contexts", "context_ids": ["ctx_p"] },
+                    "limit": 10,
+                })),
+            )
             .await,
     ));
     assert_eq!(
@@ -11211,35 +11295,44 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
     // Provenance and cognition filters, alone and combined.
     let alpha_only = wire(&expect_ok(
         provider
-            .list_reflections(&principal(OPERATOR), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "filter": { "source_context_ids": ["ctx_alpha"] },
-                "limit": 10,
-            })))
+            .list_reflections(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "filter": { "source_context_ids": ["ctx_alpha"] },
+                    "limit": 10,
+                })),
+            )
             .await,
     ));
     assert_eq!(list_ids(&alpha_only), vec!["refl_sqlite_0001".to_string()]);
     let alice_only = wire(&expect_ok(
         provider
-            .list_reflections(&principal(OPERATOR), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "cognition_filter": alice.clone(),
-                "limit": 10,
-            })))
+            .list_reflections(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "cognition_filter": alice.clone(),
+                    "limit": 10,
+                })),
+            )
             .await,
     ));
     assert_eq!(list_ids(&alice_only), vec!["refl_sqlite_0001".to_string()]);
     let combined_empty = wire(&expect_ok(
         provider
-            .list_reflections(&principal(OPERATOR), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "filter": { "source_context_ids": ["ctx_alpha"] },
-                "cognition_filter": bo.clone(),
-                "limit": 10,
-            })))
+            .list_reflections(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "filter": { "source_context_ids": ["ctx_alpha"] },
+                    "cognition_filter": bo.clone(),
+                    "limit": 10,
+                })),
+            )
             .await,
     ));
     assert!(
@@ -11250,12 +11343,15 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
     // Membership happens before pages: the only matching member is page 1.
     let paged = wire(&expect_ok(
         provider
-            .list_reflections(&principal(OPERATOR), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "cognition_filter": bo.clone(),
-                "limit": 1,
-            })))
+            .list_reflections(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "cognition_filter": bo.clone(),
+                    "limit": 1,
+                })),
+            )
             .await,
     ));
     assert_eq!(list_ids(&paged), vec!["refl_sqlite_0002".to_string()]);
@@ -11267,11 +11363,14 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
     // Page continuation stays exact and non-overlapping.
     let page_one = wire(&expect_ok(
         provider
-            .list_reflections(&principal(OPERATOR), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "limit": 1,
-            })))
+            .list_reflections(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "limit": 1,
+                })),
+            )
             .await,
     ));
     let cursor = page_one["next_cursor"]
@@ -11280,12 +11379,15 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
         .to_string();
     let page_two = wire(&expect_ok(
         provider
-            .list_reflections(&principal(OPERATOR), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "limit": 1,
-                "cursor": cursor,
-            })))
+            .list_reflections(
+                &principal(OPERATOR),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "limit": 1,
+                    "cursor": cursor,
+                })),
+            )
             .await,
     ));
     assert_eq!(
@@ -11311,11 +11413,14 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
     );
     let narrow_all = wire(&expect_ok(
         provider
-            .list_reflections(&principal("prn_narrow"), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "limit": 1,
-            })))
+            .list_reflections(
+                &principal("prn_narrow"),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "limit": 1,
+                })),
+            )
             .await,
     ));
     assert_eq!(
@@ -11329,12 +11434,15 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
     );
     let narrow_view = wire(&expect_ok(
         provider
-            .list_reflections(&principal("prn_narrow"), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "selection": { "mode": "selected_contexts", "context_ids": ["ctx_p"] },
-                "limit": 10,
-            })))
+            .list_reflections(
+                &principal("prn_narrow"),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": { "mode": "selected_contexts", "context_ids": ["ctx_p"] },
+                    "limit": 10,
+                })),
+            )
             .await,
     ));
     assert_eq!(
@@ -11369,11 +11477,14 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
     );
     let pair_page = wire(&expect_ok(
         provider
-            .list_reflections(&principal("prn_pair"), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "limit": 1,
-            })))
+            .list_reflections(
+                &principal("prn_pair"),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "limit": 1,
+                })),
+            )
             .await,
     ));
     assert_eq!(
@@ -11387,12 +11498,15 @@ async fn cognition_reflection_membership_composes_selection_provenance_and_cogni
         .to_string();
     let pair_tail = wire(&expect_ok(
         provider
-            .list_reflections(&principal("prn_pair"), list_of(json!({
-                "space_id": SPACE,
-                "subject_id": SUBJECT,
-                "limit": 1,
-                "cursor": pair_cursor,
-            })))
+            .list_reflections(
+                &principal("prn_pair"),
+                list_of(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "limit": 1,
+                    "cursor": pair_cursor,
+                })),
+            )
             .await,
     ));
     assert_eq!(
@@ -11475,7 +11589,8 @@ async fn cognition_distractors_leave_the_eligible_set_before_counts() {
         .collect();
     assert_eq!(reader_ids, vec!["rec_ctx_live"]);
     assert_eq!(
-        reader_recall["total_authorized"], json!(1),
+        reader_recall["total_authorized"],
+        json!(1),
         "placement-ineligible and candidate material never inflates the count"
     );
 
@@ -11490,7 +11605,11 @@ async fn cognition_distractors_leave_the_eligible_set_before_counts() {
         }))
         .expect("recall request")
     };
-    let full = wire(&expect_ok(provider.recall(&principal(OPERATOR), operator_recall(10)).await));
+    let full = wire(&expect_ok(
+        provider
+            .recall(&principal(OPERATOR), operator_recall(10))
+            .await,
+    ));
     let ids: Vec<&str> = full["records"]
         .as_array()
         .expect("records")
@@ -11500,7 +11619,11 @@ async fn cognition_distractors_leave_the_eligible_set_before_counts() {
     assert_eq!(ids, vec!["rec_ctx_live", "rec_other_ctx"]);
     assert_eq!(full["total_authorized"], json!(2));
 
-    let bounded = wire(&expect_ok(provider.recall(&principal(OPERATOR), operator_recall(1)).await));
+    let bounded = wire(&expect_ok(
+        provider
+            .recall(&principal(OPERATOR), operator_recall(1))
+            .await,
+    ));
     assert_eq!(bounded["records"].as_array().expect("records").len(), 1);
     assert_eq!(bounded["total_authorized"], json!(2));
     assert_eq!(bounded["truncated"], json!(true));

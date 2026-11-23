@@ -1038,21 +1038,53 @@ impl EventLoop {
                                     .sessions
                                     .get(peer)
                                     .expect("session verified above");
-                                let required = crate::core::required_capability(
-                                    request.op.as_str(),
-                                )
-                                .or_else(|| {
-                                    self.config
-                                        .op_capability_requirements
-                                        .get(request.op.as_str())
-                                        .map(String::as_str)
-                                });
-                                let negotiated_allowed = required.is_some_and(|required| {
-                                    crate::core::capability_satisfies(
+                                let op_str = request.op.as_str();
+                                let core_required =
+                                    crate::core::required_capability(op_str);
+                                // Reserved `knowledge.*` names are owned by
+                                // the core dispatch decision
+                                // (spoke-knowledge-adoption contract
+                                // §Connect operation): only the single
+                                // registered op authorizes; unknown names
+                                // in the family are ineligible for the
+                                // product custom-map fallback — custom
+                                // mappings apply only outside reserved
+                                // families.
+                                let reserved_unknown =
+                                    crate::core::reserved_prefix_op(op_str);
+                                let required = if reserved_unknown {
+                                    None
+                                } else {
+                                    core_required.or_else(|| {
+                                        self.config
+                                            .op_capability_requirements
+                                            .get(op_str)
+                                            .map(String::as_str)
+                                    })
+                                };
+                                // A core-table op evaluates
+                                // `dispatch_allowed` — the same pure core
+                                // decision the responder serves — so the
+                                // `knowledge.adopt` co-capability conjunct
+                                // (`spoke-knowledge` alongside
+                                // `spoke-knowledge-adoption`) has exactly
+                                // one authority and the raw node agrees
+                                // with the composed responder.
+                                let negotiated_allowed = if reserved_unknown {
+                                    false
+                                } else if core_required.is_some() {
+                                    crate::core::dispatch_allowed(
+                                        op_str,
                                         &session.negotiated_capabilities,
-                                        required,
                                     )
-                                });
+                                } else {
+                                    required.is_some_and(|required| {
+                                        crate::core::capability_satisfies(
+                                            &session.negotiated_capabilities,
+                                            required,
+                                        )
+                                    })
+                                };
                                 let token_allowed = token_grant
                                     .as_deref()
                                     .is_none_or(|grant| {
@@ -1238,17 +1270,19 @@ impl EventLoop {
                             .clone()
                     })
                     .unwrap_or_default();
-                Some(self.sign_invoke_response(crate::core::InvokeResponseSignInput::Error {
-                    session_id: request.session_id.to_string(),
-                    sequence: request.sequence,
-                    request_id: request.request_id.to_string(),
-                    error: ErrorEnvelope {
-                        code: crate::core::EnvelopeAuthError::CODE.into(),
-                        message,
-                        details,
-                        extensions: Default::default(),
-                    },
-                }))
+                Some(
+                    self.sign_invoke_response(crate::core::InvokeResponseSignInput::Error {
+                        session_id: request.session_id.to_string(),
+                        sequence: request.sequence,
+                        request_id: request.request_id.to_string(),
+                        error: ErrorEnvelope {
+                            code: crate::core::EnvelopeAuthError::CODE.into(),
+                            message,
+                            details,
+                            extensions: Default::default(),
+                        },
+                    }),
+                )
             }
         }
     }
@@ -1631,7 +1665,8 @@ impl EventLoop {
         // CSPRNG or signing failures are not recoverable inside the event
         // loop; skip the send (the peer will simply not see a hello).
         let Ok(nonce) = generate_nonce() else { return };
-        let Ok(hello) = sign_hello(&self.identity, &nonce, &self.config.local_manifest, None) else {
+        let Ok(hello) = sign_hello(&self.identity, &nonce, &self.config.local_manifest, None)
+        else {
             return;
         };
         let request_id = self.swarm.behaviour_mut().hello.send_request(peer, hello);
@@ -1701,7 +1736,10 @@ fn cognition_gate(op: &str, payload: &Value, negotiated: &[String]) -> Cognition
     if !cognition_requirement_present(op, payload) {
         return CognitionGate::Allowed;
     }
-    if !negotiated.iter().any(|cap| cap == CAPABILITY_SPOKE_COGNITION) {
+    if !negotiated
+        .iter()
+        .any(|cap| cap == CAPABILITY_SPOKE_COGNITION)
+    {
         return CognitionGate::CapabilityMissing;
     }
     match unsupported_cognition_requirement(op, payload) {
@@ -2059,7 +2097,8 @@ mod tests {
             },
         });
         let baseline_only = vec![CAPABILITY_SPOKE_BASELINE.to_owned()];
-        let (response, calls) = dispatch_cognition_request(baseline_only.clone(), selection.clone());
+        let (response, calls) =
+            dispatch_cognition_request(baseline_only.clone(), selection.clone());
         let ConnectInvokeResponse::Variant1 { error, .. } = response else {
             panic!("an unnegotiated cognition requirement must be denied");
         };
@@ -2068,10 +2107,7 @@ mod tests {
 
         // The legacy flag is never read as the family.
         let (response, calls) = dispatch_cognition_request(
-            vec![
-                CAPABILITY_SPOKE_BASELINE.to_owned(),
-                "l5-mind".to_owned(),
-            ],
+            vec![CAPABILITY_SPOKE_BASELINE.to_owned(), "l5-mind".to_owned()],
             selection.clone(),
         );
         let ConnectInvokeResponse::Variant1 { error, .. } = response else {
@@ -2111,7 +2147,10 @@ mod tests {
             error.details.get("field").and_then(Value::as_str),
             Some("scope.cognition.filter.q_min")
         );
-        assert_eq!(calls, 0, "the handler must not run for an unsupported requirement");
+        assert_eq!(
+            calls, 0,
+            "the handler must not run for an unsupported requirement"
+        );
 
         // A served selection reaches the handler exactly once.
         let (response, calls) = dispatch_cognition_request(
@@ -2162,7 +2201,55 @@ mod tests {
             panic!("an op-denied request must be denied");
         };
         assert_eq!(error.code, "op_unsupported", "{error:?}");
-        assert_eq!(calls, 0, "the handler must not run for an op-denied request");
+        assert_eq!(
+            calls, 0,
+            "the handler must not run for an op-denied request"
+        );
+    }
+
+    /// A reserved-unknown `knowledge.*` name is terminal at the core
+    /// boundary (spoke-knowledge-adoption contract §Connect operation): even
+    /// a product custom-map row that would authorize it is never consulted —
+    /// the node refuses `op_unsupported` with zero handler calls.
+    #[tokio::test]
+    async fn reserved_knowledge_unknowns_skip_the_product_map_at_the_node_boundary() {
+        let peer_keypair = Keypair::generate_ed25519();
+        let peer = peer_keypair.public().to_peer_id();
+        let peer_seed =
+            crate::hello::ed25519_seed(&peer_keypair).expect("connect identity is Ed25519");
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls_for_handler = Arc::clone(&calls);
+        let mut cfg = config(Keypair::generate_ed25519(), vec![peer]);
+        cfg.invoke_handler = Some(Arc::new(move |_op: &str, _payload: serde_json::Value| {
+            calls_for_handler.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(serde_json::json!({ "ok": true }))
+        }));
+        // A conflicting product-map row: this op is "authorized" with a
+        // capability the session negotiated, yet the reservation must deny it
+        // before the map is ever read.
+        cfg.op_capability_requirements = HashMap::from([(
+            "knowledge.made_up".to_owned(),
+            CAPABILITY_SPOKE_KNOWLEDGE.to_owned(),
+        )]);
+        let mut loop_ = session_event_loop(
+            cfg,
+            peer,
+            peer_keypair.public(),
+            vec![CAPABILITY_SPOKE_KNOWLEDGE.to_owned()],
+        );
+        let request = signed_request(
+            &peer_seed,
+            0,
+            "req-0001",
+            "knowledge.made_up",
+            serde_json::json!({}),
+        );
+        let response = loop_.answer_inbound_invoke(&peer, &request);
+        let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+            panic!("a reserved unknown must be denied even with a custom-map row");
+        };
+        assert_eq!(error.code, "op_unsupported", "{error:?}");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     /// The product-map fallback (`op_capability_requirements`) through the
@@ -2172,19 +2259,15 @@ mod tests {
     /// knowledge-only session never reaches a baseline op's handler.
     #[tokio::test]
     async fn product_map_gates_knowledge_ops_at_the_node_boundary() {
-        let caps = |list: &[&str]| -> Vec<String> {
-            list.iter().map(|cap| (*cap).to_owned()).collect()
-        };
+        let caps =
+            |list: &[&str]| -> Vec<String> { list.iter().map(|cap| (*cap).to_owned()).collect() };
         let knowledge_op = "port.scope.list_knowledge_entries";
         for allowed in [
             caps(&[CAPABILITY_SPOKE_KNOWLEDGE]),
             caps(&[CAPABILITY_SPOKE_BASELINE, CAPABILITY_SPOKE_KNOWLEDGE]),
         ] {
-            let (response, calls) = dispatch_cognition_op_request(
-                allowed.clone(),
-                knowledge_op,
-                serde_json::json!({}),
-            );
+            let (response, calls) =
+                dispatch_cognition_op_request(allowed.clone(), knowledge_op, serde_json::json!({}));
             assert!(
                 matches!(response, ConnectInvokeResponse::Variant0 { .. }),
                 "{allowed:?} must serve {knowledge_op}: {response:?}"
@@ -2256,7 +2339,11 @@ mod tests {
                 .to_owned();
             let host = capability_list(
                 hosts
-                    .get(case.get("host").and_then(serde_json::Value::as_str).expect("host"))
+                    .get(
+                        case.get("host")
+                            .and_then(serde_json::Value::as_str)
+                            .expect("host"),
+                    )
                     .expect("host entry"),
             );
             let client = capability_list(
@@ -2270,8 +2357,10 @@ mod tests {
             );
             // Both-sided hello intersection: the family — and every other
             // capability — is negotiated only when both manifests declare it.
-            let negotiated: Vec<String> =
-                host.into_iter().filter(|cap| client.contains(cap)).collect();
+            let negotiated: Vec<String> = host
+                .into_iter()
+                .filter(|cap| client.contains(cap))
+                .collect();
             let op = case
                 .get("op")
                 .and_then(serde_json::Value::as_str)
@@ -2314,17 +2403,20 @@ mod tests {
                     .expect("code"),
                 "{case_id}: {error:?}"
             );
-            if let Some(field) = expected
-                .get("field")
-                .and_then(serde_json::Value::as_str)
-            {
+            if let Some(field) = expected.get("field").and_then(serde_json::Value::as_str) {
                 assert_eq!(
-                    error.details.get("reason").and_then(serde_json::Value::as_str),
+                    error
+                        .details
+                        .get("reason")
+                        .and_then(serde_json::Value::as_str),
                     Some("unsupported_cognition_requirement"),
                     "{case_id}: {error:?}"
                 );
                 assert_eq!(
-                    error.details.get("field").and_then(serde_json::Value::as_str),
+                    error
+                        .details
+                        .get("field")
+                        .and_then(serde_json::Value::as_str),
                     Some(field),
                     "{case_id}: {error:?}"
                 );

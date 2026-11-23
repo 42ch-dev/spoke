@@ -4,11 +4,14 @@ import {
   CAPABILITY_KE_EXTRACTION,
   CAPABILITY_L2_COMPUTABLE,
   CAPABILITY_SPOKE_BASELINE,
+  CAPABILITY_SPOKE_HISTORY,
   CAPABILITY_SPOKE_MEMORY,
   CAPABILITY_SPOKE_MEMORY_REFLECTION,
   CAPABILITY_SPOKE_MEMORY_TRANSFER,
+  cognitionRequirementField,
   dispatchAllowed,
   requiredCapability,
+  reservedPrefixOp,
   tokenAuthorizesOp,
 } from "../src/core/dispatch.js";
 
@@ -54,6 +57,8 @@ const MEMORY_TRANSFER_OPS = [
   "memory.imports.activate",
   "memory.imports.discard",
 ];
+
+const HISTORY_OPS = ["history.revisions.get", "history.revisions.prune"];
 
 describe("dispatch gate (port of dispatch.rs)", () => {
   it("baseline ops require spoke-baseline", () => {
@@ -169,5 +174,77 @@ describe("memory family", () => {
       expect(dispatchAllowed(op, ALL_MEMORY)).toBe(true);
       expect(tokenAuthorizesOp(requiredCapability(op), ALL_MEMORY)).toBe(true);
     }
+  });
+});
+
+// why: history family (spoke-history contract §Connect operations): two rows,
+// both gated on exact `spoke-history` membership — no other flag implies it
+// and a sub-flag does not exist.
+describe("history family", () => {
+  it("maps both ops to spoke-history", () => {
+    for (const op of HISTORY_OPS) {
+      expect(requiredCapability(op)).toBe(CAPABILITY_SPOKE_HISTORY);
+      expect(dispatchAllowed(op, [CAPABILITY_SPOKE_HISTORY])).toBe(true);
+      expect(tokenAuthorizesOp(requiredCapability(op), [CAPABILITY_SPOKE_HISTORY])).toBe(true);
+    }
+  });
+
+  it("no other flag satisfies the history gate", () => {
+    for (const op of HISTORY_OPS) {
+      expect(dispatchAllowed(op, [])).toBe(false);
+      expect(
+        dispatchAllowed(op, [
+          CAPABILITY_SPOKE_BASELINE,
+          "spoke-knowledge",
+          CAPABILITY_SPOKE_MEMORY,
+        ]),
+      ).toBe(false);
+    }
+    // why: an unknown `history.*` op has no row — `op_unsupported`, not a
+    // capability gap.
+    expect(requiredCapability("history.checkpoints.list")).toBeUndefined();
+    expect(dispatchAllowed("history.checkpoints.list", [CAPABILITY_SPOKE_HISTORY])).toBe(false);
+  });
+
+  it("history requests carrying a Scope.cognition selection declare a cognition requirement", () => {
+    for (const op of HISTORY_OPS) {
+      expect(
+        cognitionRequirementField(op, { scope: { scope_id: "s", cognition: {} } }),
+      ).toBe("scope.cognition");
+      expect(cognitionRequirementField(op, { scope: { scope_id: "s" } })).toBeUndefined();
+    }
+  });
+});
+
+// why: `knowledge.*` is a core-reserved product prefix (spoke-knowledge-
+// adoption contract §Connect operation): `knowledge.adopt` is its single
+// registered op and every other `knowledge.*` name is a reserved unknown —
+// refused `op_unsupported` by every dispatch surface BEFORE a product
+// custom map is consulted (QC2-16 / F-018; parity twin of the Rust
+// `reserved_prefix_op` test block).
+describe("reserved-prefix classification", () => {
+  it("only unregistered knowledge.* names are reserved", () => {
+    expect(reservedPrefixOp("knowledge.adopt")).toBe(false);
+    expect(reservedPrefixOp("knowledge.archive")).toBe(true);
+    expect(reservedPrefixOp("knowledge.")).toBe(true);
+    // Other prefixes are not reserved — their unregistered names keep the
+    // ordinary product-map path.
+    expect(reservedPrefixOp("memory.archive.purge")).toBe(false);
+    expect(reservedPrefixOp("knowledgeless")).toBe(false);
+    expect(reservedPrefixOp("port.knowledge.get")).toBe(false);
+  });
+
+  it("the registered row still carries its capability requirement", () => {
+    expect(requiredCapability("knowledge.adopt")).toBe(
+      "spoke-knowledge-adoption",
+    );
+    expect(requiredCapability("knowledge.archive")).toBeUndefined();
+    expect(
+      dispatchAllowed("knowledge.archive", [
+        CAPABILITY_SPOKE_BASELINE,
+        "spoke-knowledge",
+        "spoke-knowledge-adoption",
+      ]),
+    ).toBe(false);
   });
 });

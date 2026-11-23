@@ -1,0 +1,219 @@
+{
+  "id": "dedup-replay",
+  "title": "Prune deduplication — recorded outcome replay, payload-digest conflict, evicted receipt, key required",
+  "protocol_refs": [
+    "§9.1",
+    "§Refusal vocabulary"
+  ],
+  "cases": [
+    {
+      "id": "prune-replay-returns-recorded-outcome",
+      "invariant": "§9.1",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a same-namespace, same-key, same-digest replay returns the recorded prune outcome without re-executing the port call",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_dedup",
+            "checkpoints": [1, 3, 5],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_dedup",
+              "revision": 1,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_dedup",
+                "entry_type": "note",
+                "canonical_name": "dedup-fixture",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.prune",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_dedup",
+        "keep": 2,
+        "idempotency_key": "dedup-key-1"
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          { "path": "deleted", "equals": 1 },
+          { "path": "floor_revision", "equals": 2 }
+        ],
+        "provider_calls": 1
+      },
+      "then": [
+        {
+          "op": "history.revisions.prune",
+          "request": {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_dedup",
+            "keep": 2,
+            "idempotency_key": "dedup-key-1"
+          },
+          "expect": {
+            "success": true,
+            "state": [
+              { "path": "deleted", "equals": 1 },
+              { "path": "floor_revision", "equals": 2 }
+            ],
+            "provider_calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "prune-key-reuse-different-digest",
+      "invariant": "§9.1",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a key replayed with a different payload digest answers IDEMPOTENCY_CONFLICT, never a second execution",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_dedup",
+            "checkpoints": [1, 3, 5],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_dedup",
+              "revision": 1,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_dedup",
+                "entry_type": "note",
+                "canonical_name": "dedup-fixture",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "setup": [
+        {
+          "op": "history.revisions.prune",
+          "request": {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_dedup",
+            "keep": 2,
+            "idempotency_key": "dedup-key-2"
+          }
+        }
+      ],
+      "op": "history.revisions.prune",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_dedup",
+        "keep": 5,
+        "idempotency_key": "dedup-key-2"
+      },
+      "expect": {
+        "error_code": "IDEMPOTENCY_CONFLICT",
+        "provider_calls": 1
+      }
+    },
+    {
+      "id": "prune-evicted-outcome-receipt-expired",
+      "invariant": "§9.1",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a replay against an evicted recorded outcome answers RECEIPT_EXPIRED and never silently re-executes the prune",
+      "input": {
+        "dedup_capacity": 1,
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_dedup",
+            "checkpoints": [1, 3, 5],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_dedup",
+              "revision": 1,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_dedup",
+                "entry_type": "note",
+                "canonical_name": "dedup-fixture",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "setup": [
+        {
+          "op": "history.revisions.prune",
+          "request": {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_dedup",
+            "keep": 1,
+            "idempotency_key": "evicted-key"
+          }
+        },
+        {
+          "op": "history.revisions.prune",
+          "request": {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_dedup",
+            "keep": 1,
+            "idempotency_key": "evictor-key"
+          }
+        }
+      ],
+      "op": "history.revisions.prune",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_dedup",
+        "keep": 1,
+        "idempotency_key": "evicted-key"
+      },
+      "expect": {
+        "error_code": "RECEIPT_EXPIRED",
+        "provider_calls": 2
+      },
+      "requires": [
+        "dedup_capacity evicts the first recorded outcome under the second key, leaving the tombstone the replay hits"
+      ]
+    },
+    {
+      "id": "prune-absent-idempotency-key",
+      "invariant": "§9.1",
+      "surface": "service",
+      "outcome": "identical",
+      "what": "an absent idempotency_key on the mutating op answers INVALID_INPUT before admission, dedup and any port call",
+      "input": { "entities": [] },
+      "op": "history.revisions.prune",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_dedup",
+        "keep": 1
+      },
+      "expect": {
+        "error_code": "INVALID_INPUT",
+        "details": { "op": "history.revisions.prune" },
+        "provider_calls": 0
+      }
+    }
+  ]
+}

@@ -11,6 +11,8 @@ import type {
   Finding,
   ForkId,
   HostCapabilityManifest,
+  KnowledgeAdoptRequest,
+  KnowledgeAdoptResponse,
   KnowledgeEntry,
   MemoryCandidatesDismissRequest,
   MemoryCandidatesDismissResponse,
@@ -82,11 +84,13 @@ import type {
   ProjectRequest,
   ProjectResponse,
   Relation,
+  RevisionSnapshot,
   Rule,
   Scope,
   TimelineEvent,
 } from "@42ch/spoke-schemas";
 
+import type { HistoryPruneResult } from "../history.js";
 import type { SpokeResult } from "../result.js";
 
 /** Knowledge entry persistence — get / put by entry id. */
@@ -476,4 +480,116 @@ export interface MemoryPort {
  */
 export interface MemoryPorts {
   asMemory?: () => MemoryPort | undefined;
+}
+
+/**
+ * Optional `spoke-history` family — the injected product boundary for
+ * revision replay and explicit history pruning (spoke-history contract
+ * §Standalone `HistoryPort`).
+ *
+ * Standalone like `ExtractionPort`: `HistoryPort` is NOT part of
+ * `BaselinePorts` / `FullPorts` or the adapter aliases, and neither
+ * `KnowledgeEntryPort` nor `RelationPort` inherits it. The library contains
+ * no retention engine; providers own checkpoints, reconstruction, and every
+ * refusal: a kind it does not serve answers `HISTORY_ENTITY_UNSUPPORTED`, a
+ * revision below the retained floor answers `HISTORY_TRUNCATED`, and a
+ * revision at or above the floor that cannot be reconstructed answers
+ * `HISTORY_NOT_RETAINED`. A missing or non-disclosable entity keeps the
+ * existing `NOT_FOUND` behavior, and `pruneHistory` authorization is
+ * exactly the entity's write permission — there is no history-specific
+ * grant or refusal code.
+ *
+ * Both methods take the authenticated `Principal` first and the required
+ * effective `Scope` second (spoke-history contract §HistoryPort, mirroring
+ * `MemoryPort` and MEM-R003): the Connect serving face resolves peer
+ * admission and the optional wire `scope` into the admitted scope before
+ * the call, so the port binds entity read/write authorization to the
+ * caller rather than to payload-asserted identity. The connect
+ * idempotency envelope is a connect-layer concern — `idempotency_key` is
+ * deliberately not a port argument. Rust parity:
+ * `crates/spoke-operations/src/adapter/ports.rs` `HistoryPort`.
+ */
+export interface HistoryPort {
+  /** note: `history.revisions.get` — replay the stored entity at exactly `revision`. Read-only. */
+  getHistorySnapshot(
+    principal: Principal,
+    scope: Scope,
+    entityKind: string,
+    entityId: string,
+    revision: number,
+  ): Promise<SpokeResult<RevisionSnapshot>>;
+  /**
+   * note: `history.revisions.prune` — retain the newest `keep` checkpoints
+   * of one `(scope, entity_kind, entity_id)` target and delete every older
+   * checkpoint. The live row is not a checkpoint and never consumes `keep`;
+   * no write path performs this pruning implicitly. Prune authorization is
+   * the selected entity's write permission in `scope`.
+   */
+  pruneHistory(
+    principal: Principal,
+    scope: Scope,
+    entityKind: string,
+    entityId: string,
+    keep: number,
+  ): Promise<SpokeResult<HistoryPruneResult>>;
+}
+
+/**
+ * Availability probe for the standalone `spoke-history` family, mirroring
+ * `MemoryPorts`: adapters that serve history expose `asHistory` returning
+ * themselves; dynamically assembled boundaries omit it and the probe reads
+ * as `undefined` (parity with `requirePortMethod` miss).
+ */
+export interface HistoryPorts {
+  asHistory?: () => HistoryPort | undefined;
+}
+
+/**
+ * Optional `spoke-knowledge-adoption` family — the injected product
+ * boundary for adopting a shared `KnowledgeEntry` into a destination
+ * scope (spoke-knowledge-adoption contract §Standalone `AdoptionPort`).
+ *
+ * Standalone like `HistoryPort` and `MemoryPort`: `AdoptionPort` is NOT
+ * part of `BaselinePorts` / `FullPorts` or the adapter aliases and
+ * neither port inherits the other — `spoke-baseline` does not implicitly
+ * provide adoption. The library contains no adoption engine; providers
+ * own source visibility (a missing, out-of-scope, or owner-private source
+ * answers one generic `NOT_FOUND`), retirement-chain resolution (≤32
+ * edges; cycle / ambiguous / deleted terminal answers `SOURCE_RETIRED`
+ * with `details.retirement_chain`), the copy rules, create-only OCC, the
+ * anchor repeat rules (`already_present` at the same source revision,
+ * `REVISION_CONFLICT` with `details.adopted_revision` at a different
+ * one), and the destination write's atomicity.
+ *
+ * The method takes the authenticated `Principal` first and the admitted
+ * `Scope` second (MEM-R003 parity with `HistoryPort`): the Connect
+ * serving face resolves peer admission before the call, and the admitted
+ * scope covers source visibility and destination authorization — the
+ * wire request carries scope ids, never payload-asserted identity. The
+ * connect idempotency envelope is a connect-layer concern —
+ * `idempotency_key` is deliberately not a port argument. Rust parity:
+ * `crates/spoke-operations/src/adapter/ports.rs` `AdoptionPort`.
+ */
+export interface AdoptionPort {
+  /**
+   * note: `knowledge.adopt` — adopt a shared `KnowledgeEntry` into the
+   * destination scope, writing `adoption_anchor` with the resolved
+   * terminal source scope/id/revision. Mutating op.
+   */
+  adoptKnowledgeEntry(
+    principal: Principal,
+    scope: Scope,
+    request: KnowledgeAdoptRequest,
+  ): Promise<SpokeResult<KnowledgeAdoptResponse>>;
+}
+
+/**
+ * Availability probe for the standalone `spoke-knowledge-adoption`
+ * family, mirroring `HistoryPorts`: adapters that serve adoption expose
+ * `asAdoption` returning themselves; dynamically assembled boundaries
+ * omit it and the probe reads as `undefined` (parity with
+ * `requirePortMethod` miss).
+ */
+export interface AdoptionPorts {
+  asAdoption?: () => AdoptionPort | undefined;
 }

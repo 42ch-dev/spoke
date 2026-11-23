@@ -70,6 +70,25 @@ pub enum SpokeRejectCode {
     /// Pagination cursor is invalid — state or grant change invalidated it
     /// (§7.0.7).
     CursorInvalid,
+    // History-family vocabulary (spoke-history contract §Refusal vocabulary).
+    /// The requested revision existed below the current retained floor and
+    /// its checkpoint history was discarded (`details.floor_revision`).
+    HistoryTruncated,
+    /// The request passed the `spoke-history` connect gate, but the host
+    /// does not serve the requested `entity_kind` (`details.entity_kind`).
+    HistoryEntityUnsupported,
+    /// The requested revision is at or above the floor but cannot be
+    /// reconstructed — an implementation-declared retention gap
+    /// (`details.retention_reason`).
+    HistoryNotRetained,
+    // Adoption-family vocabulary (spoke-knowledge-adoption contract §Refusal
+    // vocabulary).
+    /// A normal put attempted to change or remove an existing destination
+    /// `adoption_anchor` (`details.entry_id`).
+    AdoptionAnchorImmutable,
+    /// Retirement-chain resolution hit a cycle, ambiguity, a deleted
+    /// terminal, or the 32-edge limit (`details.retirement_chain`).
+    SourceRetired,
 }
 
 impl SpokeRejectCode {
@@ -116,6 +135,11 @@ impl SpokeRejectCode {
             Self::ImportConflict => "IMPORT_CONFLICT",
             Self::ReceiptExpired => "RECEIPT_EXPIRED",
             Self::CursorInvalid => "CURSOR_INVALID",
+            Self::HistoryTruncated => "HISTORY_TRUNCATED",
+            Self::HistoryEntityUnsupported => "HISTORY_ENTITY_UNSUPPORTED",
+            Self::HistoryNotRetained => "HISTORY_NOT_RETAINED",
+            Self::AdoptionAnchorImmutable => "ADOPTION_ANCHOR_IMMUTABLE",
+            Self::SourceRetired => "SOURCE_RETIRED",
         }
     }
 
@@ -162,6 +186,11 @@ impl SpokeRejectCode {
             "IMPORT_CONFLICT" => Some(Self::ImportConflict),
             "RECEIPT_EXPIRED" => Some(Self::ReceiptExpired),
             "CURSOR_INVALID" => Some(Self::CursorInvalid),
+            "HISTORY_TRUNCATED" => Some(Self::HistoryTruncated),
+            "HISTORY_ENTITY_UNSUPPORTED" => Some(Self::HistoryEntityUnsupported),
+            "HISTORY_NOT_RETAINED" => Some(Self::HistoryNotRetained),
+            "ADOPTION_ANCHOR_IMMUTABLE" => Some(Self::AdoptionAnchorImmutable),
+            "SOURCE_RETIRED" => Some(Self::SourceRetired),
             _ => None,
         }
     }

@@ -331,13 +331,15 @@ pub enum HistoryDedupLookup {
 }
 
 /// The prune dedup store (spoke-history contract §9.1), keyed
-/// `(effective_scope, requester_principal_id, op, idempotency_key)` —
-/// serialized `{scopeDigest}|{principalId}|{op}|{key}` — and recording
-/// `{payload_digest, outcome}`. Host-injectable for durable persistence:
-/// entries MUST outlive a Connect session and the principal-bound
-/// namespace MUST stay stable across reconnects, which the in-memory
-/// default cannot promise — durable `HistoryDedupStore` implementations
-/// own that guarantee.
+/// `(op, effective_scope, requester_principal_id, idempotency_key)` —
+/// the RFC 8785 canonical JSON serialization of that four-member tuple
+/// is the store key itself, so member boundaries stay structural and a
+/// `|` inside a member can never collide two distinct retry identities —
+/// and recording `{payload_digest, outcome}`. Host-injectable for durable
+/// persistence: entries MUST outlive a Connect session and the
+/// principal-bound namespace MUST stay stable across reconnects, which
+/// the in-memory default cannot promise — durable `HistoryDedupStore`
+/// implementations own that guarantee.
 ///
 /// The store also owns same-key single-flight (spoke-knowledge-adoption
 /// contract §Repeat and idempotency): [`HistoryDedupStore::claim_key`]
@@ -1049,16 +1051,29 @@ impl RemoteHistoryService for HistoryPortService {
                 // §9.1: the digest over the whole request payload was
                 // computed before the `scope` member moved out.
                 let payload_digest = payload_digest.expect("prune computes the payload digest");
-                let scope_digest = match jcs_sha256_hex(
-                    &serde_json::to_value(&effective_scope).unwrap_or_else(|_| json!({})),
-                ) {
-                    SpokeResult::Ok(digest) => digest,
-                    SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+                let scope_value =
+                    serde_json::to_value(&effective_scope).unwrap_or_else(|_| json!({}));
+                // The dedup key IS the canonical serialization of the
+                // ordered retry-identity tuple — never a delimiter-joined
+                // string (contract §Repeat and idempotency): schema-opaque
+                // principal ids and arbitrary idempotency keys keep
+                // structural member boundaries, so two distinct retry
+                // identities can never derive one key.
+                let dedup_key = match serde_jcs::to_string(&json!([
+                    op,
+                    scope_value,
+                    principal.principal_id.as_str(),
+                    idempotency_key.as_str()
+                ])) {
+                    Ok(key) => key,
+                    Err(error) => {
+                        return spoke_reject(
+                            SpokeRejectCode::InternalError,
+                            format!("history prune dedup key canonicalization failed: {error}"),
+                            None,
+                        )
+                    }
                 };
-                let dedup_key = format!(
-                    "{scope_digest}|{}|{op}|{idempotency_key}",
-                    principal.principal_id.as_str()
-                );
                 // The store-interface keyed lock covers
                 // lookup → port → record: concurrent same-key prunes
                 // cannot both see `Unseen` — including across services
@@ -2119,6 +2134,62 @@ mod history_tests {
             })
         ));
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    /// PR #210 pin: a `|` inside the schema-opaque `principal_id` or an
+    /// arbitrary `idempotency_key` must never merge two distinct retry
+    /// identities into one dedup key. The joined key was
+    /// `{scope_digest}|{principal}|{op}|{key}`, so
+    /// `(principal "p", key "a|history.revisions.prune|b")` and
+    /// `(principal "p|history.revisions.prune|a", key "b")` produced the
+    /// SAME key — the second call collided with the first's recorded
+    /// outcome (an `IDEMPOTENCY_CONFLICT` on the differing payload
+    /// digest, never its own execution). The canonical-array key keeps
+    /// member boundaries structural: the two identities record two
+    /// independent outcomes and an exact repeat still replays one.
+    #[tokio::test]
+    async fn prune_dedup_key_is_structural_never_delimiter_colliding() {
+        let port = Arc::new(StubHistoryPort::new());
+        let by_peer: HistoryAdmission = Arc::new(|peer_id| {
+            if peer_id == "peer-1" {
+                spoke_ok((principal("p"), scope("s1")))
+            } else {
+                spoke_ok((
+                    principal("p|history.revisions.prune|a"),
+                    scope("s1"),
+                ))
+            }
+        });
+        let service = HistoryPortService::new(port.clone(), by_peer);
+        let first = service
+            .invoke(
+                "peer-1",
+                HISTORY_OP_PRUNE,
+                prune_payload("a|history.revisions.prune|b", 2, None),
+            )
+            .await;
+        assert!(matches!(first, SpokeResult::Ok(_)), "{first:?}");
+        // The delimiter-shifted identity: a distinct retry that must
+        // execute its own prune — not collide with the first record.
+        let second = service
+            .invoke(
+                "peer-2",
+                HISTORY_OP_PRUNE,
+                prune_payload("b", 2, None),
+            )
+            .await;
+        assert!(matches!(second, SpokeResult::Ok(_)), "{second:?}");
+        // An exact repeat of the second identity still replays its
+        // recorded outcome without re-executing.
+        let replay = service
+            .invoke(
+                "peer-2",
+                HISTORY_OP_PRUNE,
+                prune_payload("b", 2, None),
+            )
+            .await;
+        assert_eq!(second, replay);
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 2);
     }
 
     #[tokio::test]

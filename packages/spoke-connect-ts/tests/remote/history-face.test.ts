@@ -433,6 +433,36 @@ describe("HistoryPortService — prune dedup", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("a `|` inside principal_id or idempotency_key never collides two retry identities", async () => {
+    // note: PR #210 pin — the joined key was
+    // `${scopeDigest}|${principal}|${op}|${key}`, so
+    // `(principal "p", key "a|history.revisions.prune|b")` and
+    // `(principal "p|history.revisions.prune|a", key "b")` produced the
+    // SAME key: the second call collided with the first's recorded
+    // outcome (an IDEMPOTENCY_CONFLICT on the differing payload digest,
+    // never its own execution). The canonical-array key keeps member
+    // boundaries structural — the two identities record two independent
+    // outcomes and an exact repeat still replays one.
+    const OP = "history.revisions.prune";
+    const { port, calls } = countingPort({});
+    const byPeer = (peerId: string): SpokeResult<{ principal: Principal; scope: Scope }> =>
+      peerId === "peer-1"
+        ? spokeOk({ principal: { principal_id: "p", extensions: {} }, scope: SCOPE_A })
+        : spokeOk({ principal: { principal_id: `p|${OP}|a`, extensions: {} }, scope: SCOPE_A });
+    const service = new HistoryPortService(port, byPeer);
+    const first = await service.invoke("peer-1", OP, prunePayload(`a|${OP}|b`));
+    expect(first).toEqual({ ok: true, value: { deleted: 1, floor_revision: 2 } });
+    // The delimiter-shifted identity: a distinct retry that must execute
+    // its own prune — not collide with the first record.
+    const second = await service.invoke("peer-2", OP, prunePayload("b"));
+    expect(second).toEqual({ ok: true, value: { deleted: 1, floor_revision: 2 } });
+    // An exact repeat of the second identity still replays its recorded
+    // outcome without re-executing.
+    const replay = await service.invoke("peer-2", OP, prunePayload("b"));
+    expect(replay).toEqual(second);
+    expect(calls).toHaveLength(2);
+  });
+
   it("overlapping same-key prunes execute the port once", async () => {
     // note: same-key serialization (Rust parity: `dedup_lock`) — two
     // concurrent prunes racing on `unseen` run lookup → port → record

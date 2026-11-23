@@ -311,8 +311,11 @@ function adoptPayloadIntegersExact(value: unknown): boolean {
 }
 /**
  * The prune dedup store (spoke-history contract §9.1), keyed
- * `(effective_scope, requester_principal_id, op, idempotency_key)` and
- * recording `{payload_digest, outcome}`. Host-injectable for durable
+ * `(op, effective_scope, requester_principal_id, idempotency_key)` —
+ * the RFC 8785 canonical JSON serialization of that four-member tuple
+ * is the store key itself, so member boundaries stay structural and a
+ * `|` inside a member can never collide two distinct retry identities —
+ * and recording `{payload_digest, outcome}`. Host-injectable for durable
  * persistence — entries MUST outlive a Connect session and the
  * principal-bound namespace MUST stay stable across reconnects, which an
  * in-memory default cannot promise; `HistoryDedupStore` implementations
@@ -585,11 +588,27 @@ export class HistoryPortService implements RemoteHistoryService {
     if (!digestResult.ok) {
       return digestResult;
     }
-    const scopeDigest = jcsSha256Hex(effectiveScope);
-    if (!scopeDigest.ok) {
-      return scopeDigest;
+    // note: the dedup key is the RFC 8785 canonical JSON serialization of
+    // the ordered retry-identity tuple `(op, effective_scope,
+    // requester_principal_id, idempotency_key)` — structural member
+    // boundaries, never delimiter joining, so a `|` inside a member can
+    // never collide two distinct retry identities (contract §Repeat and
+    // idempotency; Rust parity: `serde_jcs::to_string` in
+    // `HistoryPortService::invoke`). The `payload_digest` is stored in
+    // the record and compared inside — same identity + different digest
+    // is the IDEMPOTENCY_CONFLICT branch.
+    const dedupKey = canonicalize([
+      op,
+      effectiveScope,
+      principal.principal_id,
+      call.idempotencyKey,
+    ]);
+    if (dedupKey === undefined) {
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        `invalid ${op} dedup tuple: not JSON-canonicalizable`,
+      );
     }
-    const dedupKey = `${scopeDigest.value}|${principal.principal_id}|${op}|${call.idempotencyKey}`;
     // note: the dedup critical section (lookup → port call → record)
     // runs under the store-interface keyed single-flight claim (Rust
     // parity: `dedup.claim_key`) — overlapping same-key prunes cannot

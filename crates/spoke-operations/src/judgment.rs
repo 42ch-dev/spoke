@@ -795,31 +795,17 @@ mod tests {
         deep
     }
 
-    /// Wire JSON text nesting `levels` objects.
-    fn deep_json_text(levels: usize) -> String {
-        let mut text = String::from(r#"{"note":"leaf"}"#);
-        for _ in 0..levels {
-            text = format!(r#"{{"nested":{text}}}"#);
-        }
-        text
-    }
-
     #[test]
-    fn wire_projection_accepts_conformance_depth_and_refuses_beyond_the_ceiling() {
+    fn wire_projection_accepts_conformance_depth() {
         // 100 levels sits inside every target engine's wire ceiling, so the
         // in-memory value validates. A 5000-level in-memory value is not
         // built here: recursive construction and drop abort the default
-        // test-thread stack.
+        // test-thread stack. The deserializer's own nesting ceiling is a
+        // serde_json implementation fact, not a Spoke refusal contract, so
+        // this suite does not pin it.
         let mut judgment = valid_judgment();
         judgment["verdict"]["detail"] = deep_detail(100);
         assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
-
-        // The receive boundary refuses wire text nested beyond serde_json's
-        // deserializer ceiling (128 levels) — a serde fact, not an
-        // INVALID_INPUT contract: no production path maps this error to a
-        // refusal code, and the spec's refusal language covers only the
-        // serializer projection.
-        assert!(serde_json::from_str::<Value>(&deep_json_text(300)).is_err());
     }
 
     #[test]

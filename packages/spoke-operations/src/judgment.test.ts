@@ -207,6 +207,20 @@ describe("validateJudgment", () => {
     expectField(validateJudgment(j), "extensions.\uE000");
   });
 
+  it("rejects a namespace key ending in a line terminator", () => {
+    // Rust `is_namespace` rejects every member outside the ASCII set —
+    // including a trailing `\n` — and the pinned TS grammar must agree.
+    const j = judgment();
+    j.extensions = { "acme_audit\n": {} } as unknown as Judgment["extensions"];
+    expectField(validateJudgment(j), "extensions.acme_audit\n");
+  });
+
+  it("accepts an ordinary namespace key", () => {
+    const j = judgment();
+    j.extensions = { "acme-audit_v2": { score: 1 } };
+    expect(validateJudgment(j)).toEqual({ ok: true });
+  });
+
   it("rejects a schema_version above the interoperable integer domain", () => {
     const j = judgment();
     (j as Record<string, unknown>).schema_version = 2 ** 53;
@@ -272,6 +286,34 @@ describe("judgmentsEqualCanonical", () => {
     expect(judgmentsEqualCanonical(judgment(), withDetail)).toEqual({
       ok: true,
       value: false,
+    });
+  });
+
+  it("refuses a non-finite member instead of coercing it to null", () => {
+    // RFC 8785 has no NaN/Infinity spelling: the wire projection would map
+    // `confidence: NaN` to `null`, so the strict path must refuse
+    // INVALID_INPUT rather than let NaN-vs-null compare equal — matching
+    // serde_jcs.
+    const nan = judgment();
+    nan.verdict.confidence = NaN;
+    const inf = judgment();
+    inf.verdict.confidence = Infinity;
+    const nul = judgment();
+    (nul.verdict as Record<string, unknown>).confidence = null;
+    for (const candidate of [nan, inf]) {
+      expect(judgmentsEqualCanonical(candidate, judgment())).toMatchObject({
+        ok: false,
+        code: "INVALID_INPUT",
+      });
+      expect(judgmentsEqualCanonical(judgment(), candidate)).toMatchObject({
+        ok: false,
+        code: "INVALID_INPUT",
+      });
+    }
+    // The coerced-equal pair the finding names: NaN vs null refuses.
+    expect(judgmentsEqualCanonical(nan, nul)).toMatchObject({
+      ok: false,
+      code: "INVALID_INPUT",
     });
   });
 });

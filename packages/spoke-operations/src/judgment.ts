@@ -59,7 +59,7 @@ const VERDICT_KEYS: Record<string, true> = {
 const DETAIL_RESERVED_MEMBERS = ["target", "evidence", "judgment_kind", "outcome"] as const;
 
 // note: Shared ExtensionMap grammar — namespace keys (contract §Wire-wide rules).
-const NAMESPACE_RE = /^[a-z][a-z0-9_-]*$/;
+const NAMESPACE_RE = /^[a-z][a-z0-9_-]*$/u;
 
 // note: Non-empty is raw JSON Schema minLength: 1 — whitespace-only strings are
 // valid wire values for every open string in this contract.
@@ -313,9 +313,13 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
  */
 function canonicalJson(value: unknown): string | undefined {
   try {
-    // note: the engine's JSON wire emission resolves `toJSON` hooks and
-    // off-wire members to their wire form before canonicalization.
-    return canonicalize(wireForm(value));
+    // note: the equality path canonicalizes the value as-is — the `wireForm`
+    // projection (validateJudgment's) coerces non-finite numbers to `null`,
+    // which would let RFC 8785-unrepresentable members compare equal. The
+    // canonicalizer still honours `toJSON` and drops no-JSON members exactly
+    // as wire emission does; it throws on non-finite numbers, cycles and
+    // bigints, surfaced as `undefined` below.
+    return canonicalize(value);
   } catch {
     return undefined;
   }

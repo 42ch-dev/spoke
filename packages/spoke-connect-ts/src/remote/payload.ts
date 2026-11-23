@@ -495,15 +495,32 @@ export function isValidRevisionSnapshot(
   );
 }
 
+/** note: closed envelope member set (`additionalProperties: false`) — a
+ * member outside it fails the Rust typed decode, so it fails here too. */
+const REVISION_SNAPSHOT_ENVELOPE_KEYS: Record<string, true> = {
+  schema_version: true,
+  entity_kind: true,
+  entity_id: true,
+  revision: true,
+  snapshot: true,
+  extensions: true,
+};
+
 /**
  * note: strict `RevisionSnapshot` envelope shape (spoke-history contract
- * §RevisionSnapshot): all six required members present and well-formed.
+ * §RevisionSnapshot): all six members present, no member outside the
+ * closed set, and `schema_version` an integer ≥ 1 (Rust `SchemaVersion`
+ * is `NonZeroU64`).
  */
 function isValidRevisionSnapshotEnvelope(snapshot: unknown): boolean {
   return (
     isRecord(snapshot) &&
+    Object.keys(snapshot).every(
+      (key) => REVISION_SNAPSHOT_ENVELOPE_KEYS[key] === true,
+    ) &&
     typeof snapshot.schema_version === "number" &&
     Number.isInteger(snapshot.schema_version) &&
+    snapshot.schema_version > 0 &&
     typeof snapshot.entity_kind === "string" &&
     typeof snapshot.entity_id === "string" &&
     isExactNonNegativeInteger(snapshot.revision) &&

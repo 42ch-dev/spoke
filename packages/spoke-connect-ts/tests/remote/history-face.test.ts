@@ -37,6 +37,7 @@ import {
   HistoryPortService,
   InMemoryHistoryDedupStore,
   type RemoteAdapter,
+  type RemoteHistoryService,
 } from "../../src/remote/index.js";
 import { isValidRevisionSnapshot } from "../../src/remote/payload.js";
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
@@ -537,6 +538,71 @@ describe("HistoryPortService — served success validation", () => {
     expect(n).toBe(1);
   });
 
+  it("a non-positive schema_version or unknown envelope member fails the envelope", () => {
+    const zero = snapshot("ke_1", 3) as unknown as Record<string, unknown>;
+    zero.schema_version = 0;
+    expect(isValidRevisionSnapshot(zero)).toBe(false);
+    const negative = snapshot("ke_1", 3) as unknown as Record<string, unknown>;
+    negative.schema_version = -1;
+    expect(isValidRevisionSnapshot(negative)).toBe(false);
+    const unknownMember = snapshot("ke_1", 3) as unknown as Record<
+      string,
+      unknown
+    >;
+    unknownMember.extra_member = true;
+    expect(isValidRevisionSnapshot(unknownMember)).toBe(false);
+  });
+
+  it("a malformed envelope answers INTERNAL_ERROR transport on the serving face", async () => {
+    const zero = snapshot("ke_1", 3) as unknown as Record<string, unknown>;
+    zero.schema_version = 0;
+    const { port } = countingPort({
+      get: async () => spokeOk(zero as unknown as RevisionSnapshot),
+    });
+    const service = new HistoryPortService(port, admission());
+    const result = await service.invoke("peer-a", "history.revisions.get", {
+      entity_kind: "knowledge_entry",
+      entity_id: "ke_1",
+      revision: 3,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "INTERNAL_ERROR",
+      details: { kind: "transport" },
+    });
+  });
+
+  it("caller mutation of a returned prune result never changes a later replay", async () => {
+    const { port } = countingPort({});
+    const service = new HistoryPortService(port, admission());
+    const payload = {
+      entity_kind: "knowledge_entry",
+      entity_id: "ke_1",
+      keep: 1,
+      idempotency_key: "k-copy",
+    };
+    const first = await service.invoke(
+      "peer-a",
+      "history.revisions.prune",
+      payload,
+    );
+    expect(first).toEqual({ ok: true, value: { deleted: 1, floor_revision: 2 } });
+    if (first.ok) {
+      // why: the caller holds the returned object; mutating it is the risk.
+      const callerView = first.value as { deleted: number };
+      callerView.deleted = 999;
+    }
+    const replay = await service.invoke(
+      "peer-a",
+      "history.revisions.prune",
+      payload,
+    );
+    expect(replay).toEqual({
+      ok: true,
+      value: { deleted: 1, floor_revision: 2 },
+    });
+  });
+
   it("get success wraps the snapshot and preserves present-empty members", async () => {
     const withEmpty = snapshot("ke_1", 3, {
       body: { tags: [], state: {}, attributes: [] },
@@ -1017,6 +1083,36 @@ describe("history serving over the loopback responder", () => {
     const host = await dialHistoryHost({
       clientCapabilities: ["spoke-history"],
       ports: { asHistory: () => service },
+    });
+    try {
+      const result = await host.client.getHistorySnapshot(
+        PRINCIPAL_A,
+        SCOPE_A,
+        "knowledge_entry",
+        "ke_1",
+        3,
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        code: "INTERNAL_ERROR",
+        details: { kind: "transport" },
+      });
+    } finally {
+      host.close();
+    }
+  });
+
+  it("a malformed snapshot envelope is a transport decode error at the RemoteAdapter boundary", async () => {
+    const zero = snapshot("ke_1", 3) as unknown as Record<string, unknown>;
+    zero.schema_version = 0;
+    // note: a raw serving face bypasses the server-side validator, so only
+    // the client's own `isValidRevisionSnapshot` gate can refuse it.
+    const rawService: RemoteHistoryService = {
+      invoke: async () => spokeOk({ snapshot: zero }),
+    };
+    const host = await dialHistoryHost({
+      clientCapabilities: ["spoke-history"],
+      ports: { asHistory: () => rawService },
     });
     try {
       const result = await host.client.getHistorySnapshot(

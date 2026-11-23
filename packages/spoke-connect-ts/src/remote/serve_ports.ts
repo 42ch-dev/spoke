@@ -630,8 +630,12 @@ export class HistoryPortService implements RemoteHistoryService {
       }
       // note: same-key same-digest replay returns the recorded outcome —
       // the settled SpokeResult verbatim, no port call, no re-evaluated
-      // preconditions (contract §9.1).
-      return existing.outcome as SpokeResult<unknown>;
+      // preconditions (contract §9.1). The replay is a fresh snapshot of
+      // the record: caller-visible mutation must never alter what a later
+      // replay observes (qc3 F-009).
+      return JSON.parse(
+        JSON.stringify(existing.outcome),
+      ) as SpokeResult<unknown>;
     }
     const result = await this.#port.pruneHistory(
       principal,
@@ -645,9 +649,15 @@ export class HistoryPortService implements RemoteHistoryService {
     // settled outcome — refusal, validated success, or the malformed-
     // success reject — is recorded: a same-digest replay returns the
     // recorded outcome verbatim and never re-executes (contract §9.1).
+    // The record is a snapshot and the returned result a SECOND one:
+    // caller-visible results never alias the dedup receipt record.
     const outcome = result.ok ? validServedPruneResult(result.value) : result;
-    await this.#dedup.record(dedupKey, payloadDigest, outcome);
-    return outcome;
+    await this.#dedup.record(
+      dedupKey,
+      payloadDigest,
+      JSON.parse(JSON.stringify(outcome)) as SpokeResult<unknown>,
+    );
+    return JSON.parse(JSON.stringify(outcome)) as SpokeResult<unknown>;
   }
 }
 

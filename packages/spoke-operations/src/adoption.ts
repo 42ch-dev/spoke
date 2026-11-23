@@ -30,8 +30,10 @@ export const RETIREMENT_CHAIN_MAX_EDGES = 32;
 export const ADOPTION_LEGACY_EXTENSIONS_NAMESPACE = "mindcore_adoption";
 
 /**
- * RFC 8785 canonical JSON bytes (as a string) of `value`, or `null` when the
- * value cannot be canonicalized (mirrors `serde_jcs::to_vec` failure).
+ * RFC 8785 canonical JSON bytes (as a string) of `value`, or `undefined`
+ * when the value cannot be canonicalized (mirrors `serde_jcs::to_vec`
+ * failure). Callers must refuse on `undefined`; it is not a comparable
+ * byte value — two failures do not mean equality.
  */
 function canonicalJson(value: unknown): string | undefined {
   try {
@@ -60,11 +62,21 @@ export function assertAdoptionAnchorPreserved(
     return spokeOk();
   }
   const candidateAnchor = candidate.adoption_anchor;
-  if (
-    candidateAnchor !== undefined &&
-    canonicalJson(candidateAnchor) === canonicalJson(storedAnchor)
-  ) {
-    return spokeOk();
+  if (candidateAnchor !== undefined) {
+    // Both canonical strings are computed before comparing: `undefined`
+    // means "cannot prove unchanged" and refuses `INVALID_INPUT` — two
+    // failed canonicalizations must not compare equal.
+    const candidateBytes = canonicalJson(candidateAnchor);
+    const storedBytes = canonicalJson(storedAnchor);
+    if (candidateBytes === undefined || storedBytes === undefined) {
+      return spokeReject(
+        "INVALID_INPUT",
+        "JCS canonicalization failed: adoption_anchor is not JSON-canonicalizable (RFC 8785)",
+      );
+    }
+    if (candidateBytes === storedBytes) {
+      return spokeOk();
+    }
   }
   return spokeReject(
     "ADOPTION_ANCHOR_IMMUTABLE",

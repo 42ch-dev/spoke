@@ -4,8 +4,11 @@
 //! must pass `validate_judgment`, every `refusals.json` case must reject
 //! `INVALID_INPUT` with `details.field` equal to the case's exact logical
 //! path, and every `canonical-parity.json` pair must canonicalize to the
-//! case's expected RFC 8785 bytes — on the raw wire value and on the typed
-//! `Judgment` alike. The TS runner
+//! case's expected RFC 8785 bytes on the raw wire value for both members;
+//! a typed `Judgment` round-trip is additionally asserted for the left
+//! member only, and only when the case's `typed_parity` flag is true (it is
+//! compared against the raw left bytes, not a separate expected value).
+//! The TS runner
 //! (`packages/spoke-operations/tests/judgment-conformance.test.ts`) asserts
 //! the same corpus, so shared `expected_canonical` strings make each vector
 //! a cross-stack byte-parity check.

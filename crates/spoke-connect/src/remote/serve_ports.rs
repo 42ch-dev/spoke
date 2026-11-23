@@ -857,23 +857,26 @@ fn valid_served_snapshot(
 }
 /// Shared `history.revisions.prune` success-shape validation (contract
 /// §Connect operations — one shape for the serving face and each
-/// `RemoteAdapter`): `deleted` is a `u64`-range integer and
-/// `floor_revision` is a present nullable member.
+/// `RemoteAdapter`): `deleted` is a count and `floor_revision` a revision,
+/// both in the interoperable `[0, 2^53]` f64-observed domain
+/// ([`revision_in_domain`]); `floor_revision` is a present nullable
+/// member. A value outside the domain is an out-of-domain provider answer
+/// and refuses like the adoption guards.
 pub(crate) fn validate_history_prune_success(value: &Value) -> SpokeResult<()> {
     let Some(object) = value.as_object() else {
         return history_transport_reject(
             "malformed history.revisions.prune success value: payload is not an object",
         );
     };
-    if !object.get("deleted").is_some_and(Value::is_u64) {
+    if !object.get("deleted").is_some_and(revision_in_domain) {
         return history_transport_reject(
-            "malformed history.revisions.prune success value: deleted must be a non-negative integer",
+            "malformed history.revisions.prune success value: deleted must be a non-negative integer within the exact-integer range",
         );
     }
     match object.get("floor_revision") {
-        Some(floor) if floor.is_null() || floor.is_u64() => spoke_ok(()),
+        Some(floor) if floor.is_null() || revision_in_domain(floor) => spoke_ok(()),
         Some(_) => history_transport_reject(
-            "malformed history.revisions.prune success value: floor_revision must be an integer or null",
+            "malformed history.revisions.prune success value: floor_revision must be an integer within the exact-integer range or null",
         ),
         None => history_transport_reject(
             "malformed history.revisions.prune success value: floor_revision must be present (nullable)",
@@ -2322,6 +2325,16 @@ mod history_tests {
         ));
         assert!(matches!(
             validate_history_prune_success(&json!({"deleted": 1, "floor_revision": "x"})),
+            SpokeResult::Reject(_)
+        ));
+        // Provider answers outside the interoperable `[0, 2^53]` domain
+        // refuse like the adoption guards — both members are revisions.
+        assert!(matches!(
+            validate_history_prune_success(&json!({"deleted": u64::MAX, "floor_revision": null})),
+            SpokeResult::Reject(_)
+        ));
+        assert!(matches!(
+            validate_history_prune_success(&json!({"deleted": 1, "floor_revision": u64::MAX})),
             SpokeResult::Reject(_)
         ));
     }

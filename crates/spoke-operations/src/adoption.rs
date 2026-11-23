@@ -27,7 +27,8 @@ pub const ADOPTION_LEGACY_EXTENSIONS_NAMESPACE: &str = "mindcore_adoption";
 
 /// RFC 8785 canonical JSON bytes of `value`, or `None` when the value
 /// cannot be canonicalized (mirrors the TypeScript `canonicalize` failure
-/// branch — two uncanonicalizable anchors compare equal, byte parity).
+/// branch). Callers must refuse on `None`; it is not a comparable byte
+/// value — two failures do not mean equality.
 fn canonical_bytes<T: Serialize>(value: &T) -> Option<Vec<u8>> {
     serde_jcs::to_vec(value).ok()
 }
@@ -47,11 +48,62 @@ pub fn assert_adoption_anchor_preserved(
     let Some(stored_anchor) = stored.and_then(|stored| stored.adoption_anchor.as_ref()) else {
         return spoke_ok_unit();
     };
-    if let Some(candidate_anchor) = candidate.adoption_anchor.as_ref() {
-        if canonical_bytes(candidate_anchor) == canonical_bytes(stored_anchor) {
-            return spoke_ok_unit();
-        }
+    // Both canonical strings are computed before comparing: a failed
+    // canonicalization means "cannot prove unchanged" and refuses
+    // `INVALID_INPUT` — two failures must not compare equal.
+    let verdict = match candidate.adoption_anchor.as_ref() {
+        Some(candidate_anchor) => anchor_verdict(
+            canonical_bytes(candidate_anchor),
+            canonical_bytes(stored_anchor),
+        ),
+        None => AnchorVerdict::Immutable,
+    };
+    match verdict {
+        AnchorVerdict::Preserved => spoke_ok_unit(),
+        AnchorVerdict::InvalidInput => spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            "JCS canonicalization failed: adoption_anchor is not JSON-canonicalizable (RFC 8785)",
+            None,
+        ),
+        AnchorVerdict::Immutable => anchor_immutable_reject(candidate, stored),
     }
+}
+
+/// The gate's verdict once the stored entry is known to carry an anchor.
+enum AnchorVerdict {
+    /// The candidate anchor canonicalizes to the stored anchor's bytes.
+    Preserved,
+    /// Either anchor failed canonicalization: refuse `INVALID_INPUT`.
+    /// `None` is "cannot prove unchanged", never byte equality.
+    InvalidInput,
+    /// The anchor was removed or canonically differs: refuse
+    /// `ADOPTION_ANCHOR_IMMUTABLE`.
+    Immutable,
+}
+
+/// Byte-equality half of the gate: only `Some == Some` proves preservation.
+fn anchor_verdict(
+    candidate_bytes: Option<Vec<u8>>,
+    stored_bytes: Option<Vec<u8>>,
+) -> AnchorVerdict {
+    match (candidate_bytes, stored_bytes) {
+        (Some(candidate_bytes), Some(stored_bytes)) => {
+            if candidate_bytes == stored_bytes {
+                AnchorVerdict::Preserved
+            } else {
+                AnchorVerdict::Immutable
+            }
+        }
+        _ => AnchorVerdict::InvalidInput,
+    }
+}
+
+/// `ADOPTION_ANCHOR_IMMUTABLE` refusal with `details.entry_id` naming the
+/// destination entry.
+fn anchor_immutable_reject(
+    candidate: &KnowledgeEntry,
+    stored: Option<&KnowledgeEntry>,
+) -> SpokeResult<()> {
     let mut details = Map::new();
     details.insert(
         "entry_id".into(),
@@ -192,4 +244,98 @@ fn source_retired<T>(message: &str, visited: &[String]) -> SpokeResult<T> {
         json!(visited.iter().map(String::as_str).collect::<Vec<_>>()),
     );
     spoke_reject(SpokeRejectCode::SourceRetired, message, Some(details))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A minimal wire-shaped entry decoded into the generated
+    /// `KnowledgeEntry` type, optionally carrying `anchor_json` as its
+    /// `adoption_anchor`.
+    fn entry_with_anchor(entry_id: &str, anchor_json: Value) -> KnowledgeEntry {
+        let mut wire = json!({
+            "schema_version": 1,
+            "entry_id": entry_id,
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "confirmed",
+            "body": {},
+            "extensions": {},
+        });
+        if !anchor_json.is_null() {
+            wire["adoption_anchor"] = anchor_json;
+        }
+        serde_json::from_value(wire).expect("wire entry decodes")
+    }
+
+    fn anchor(source_revision: u64) -> Value {
+        json!({
+            "schema_version": 1,
+            "source_entry_id": "ke_terminal",
+            "source_scope_id": "scope_a",
+            "source_revision": source_revision,
+            "extensions": {},
+        })
+    }
+
+    #[test]
+    fn identical_canonical_anchor_passes_the_gate() {
+        let stored = entry_with_anchor("ke_dst", anchor(3));
+        let candidate = entry_with_anchor("ke_dst", anchor(3));
+        assert!(matches!(
+            assert_adoption_anchor_preserved(&candidate, Some(&stored)),
+            SpokeResult::Ok(())
+        ));
+    }
+
+    #[test]
+    fn changed_anchor_refuses_immutable() {
+        let stored = entry_with_anchor("ke_dst", anchor(3));
+        let candidate = entry_with_anchor("ke_dst", anchor(4));
+        match assert_adoption_anchor_preserved(&candidate, Some(&stored)) {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::AdoptionAnchorImmutable);
+            }
+            SpokeResult::Ok(()) => panic!("expected ADOPTION_ANCHOR_IMMUTABLE"),
+        }
+    }
+
+    #[test]
+    fn non_finite_number_cannot_canonicalize() {
+        // serde_jcs refuses non-finite f64 — the `None` arm below is the
+        // gate's reach of this fact.
+        assert!(canonical_bytes(&f64::NAN).is_none());
+        assert!(canonical_bytes(&f64::INFINITY).is_none());
+    }
+
+    #[test]
+    fn two_failed_canonicalizations_do_not_prove_preservation() {
+        // Regression pin: `None == None` used to pass as "unchanged".
+        assert!(matches!(
+            anchor_verdict(None, None),
+            AnchorVerdict::InvalidInput
+        ));
+        assert!(matches!(
+            anchor_verdict(None, Some(b"{}".to_vec())),
+            AnchorVerdict::InvalidInput
+        ));
+        assert!(matches!(
+            anchor_verdict(Some(b"{}".to_vec()), None),
+            AnchorVerdict::InvalidInput
+        ));
+    }
+
+    #[test]
+    fn differing_canonical_bytes_are_immutable_not_invalid() {
+        assert!(matches!(
+            anchor_verdict(Some(b"1".to_vec()), Some(b"2".to_vec())),
+            AnchorVerdict::Immutable
+        ));
+        assert!(matches!(
+            anchor_verdict(Some(b"1".to_vec()), Some(b"1".to_vec())),
+            AnchorVerdict::Preserved
+        ));
+    }
 }

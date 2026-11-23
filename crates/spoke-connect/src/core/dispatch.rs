@@ -66,9 +66,9 @@ pub const CAPABILITY_SPOKE_JUDGMENT: &str = "spoke-judgment";
 pub const CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION: &str = "spoke-knowledge-adoption";
 
 /// Ops whose registered request carries a `Scope` and therefore the
-/// `Scope.cognition` selection slot (`common.schema.json` → `Scope`,
-/// referenced by `assemble-request` / `check-request` and the three remote
-/// Scope ops).
+/// `Scope.cognition` selection slot (`common.schema.json` → `Scope`):
+/// `assemble` / `check`, the three `port.*` Scope ops, and
+/// `history.revisions.get` / `history.revisions.prune`.
 const SCOPE_COGNITION_OPS: [&str; 7] = [
     "check",
     "assemble",

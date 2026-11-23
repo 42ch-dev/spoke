@@ -4,25 +4,17 @@ name: C++ connect (Windows + macOS)
 # carriers, exported symbols, and shared C++ smoke on both platforms.
 on:
   # Unfiltered on pull requests: windows-smoke / macos-smoke are required
-  # checks, so every PR schedules both carrier lanes. The push filter below is
-  # unchanged, so pushes outside those paths still skip them.
+  # checks, so every PR schedules both carrier lanes. Pushes rebuild on every
+  # non-docs change so a merge is never validated only by the PR path list.
   pull_request:
   push:
     branches:
       - main
-    paths:
-      - Cargo.toml
-      - Cargo.lock
-      - crates/spoke-connect-capi/**
-      - crates/spoke-connect/src/**
-      - crates/spoke-connect/Cargo.toml
-      - crates/spoke-connect/bindings/cpp/include/**
-      - crates/spoke-connect/bindings/cpp/Smoke/**
-      - crates/spoke-connect/bindings/cpp/native/**
-      - tooling/connect/cpp-build.mjs
-      - tooling/connect/cpp-symbol-check.mjs
-      - tooling/connect/cpp-smoke.mjs
-      - .github/workflows/cpp-connect.yml
+      - iteration/**
+    paths-ignore:
+      - 'docs/**'
+      - 'tooling/docs/**'
+      - '**/*.md'
   workflow_dispatch:
 
 concurrency:
@@ -31,6 +23,8 @@ concurrency:
 
 permissions:
   contents: read
+  # The build lanes fetch the committed carrier report with gh run download.
+  actions: read
 
 jobs:
   changes:
@@ -38,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.detect.outputs.code }}
+      rebuild: ${{ steps.detect.outputs.rebuild }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
@@ -46,21 +41,46 @@ jobs:
           fetch-depth: 0
       - name: Detect code changes
         id: detect
+        env:
+          # Source and recipe files whose change invalidates the committed
+          # C carriers. Prefix alternatives have no `$`; exact files do.
+          REBUILD_PATTERN: >-
+            ^(Cargo\.toml$|Cargo\.lock$|\.cargo/|rust-toolchain(\.toml)?$|crates/spoke-connect/|crates/spoke-connect-capi/|crates/spoke-schemas/|crates/spoke-operations/|tooling/connect/cpp-build\.mjs$|\.github/workflows/cpp-connect\.yml$)
         run: |
+          code=false
+          rebuild=false
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD || true)
-          if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
+            code=true
+            rebuild=true
+          # --no-renames: a file moved out of a rebuild prefix still reports
+          # its old path, so the prefix keeps triggering the rebuild.
+          elif ! files=$(git diff --no-renames --name-only "origin/${{ github.base_ref }}"...HEAD); then
+            # Fail closed: a diff failure must never be read as "docs only".
+            code=true
+            rebuild=true
           else
-            echo "code=false" >> "$GITHUB_OUTPUT"
+            if printf '%s\n' "$files" | grep -vqE '^(docs/|tooling/docs/|.*\.md$|\.mstarc$)'; then
+              code=true
+            fi
+            if printf '%s\n' "$files" | grep -qE "$REBUILD_PATTERN"; then
+              rebuild=true
+            fi
           fi
+          # Rebuild implies code: a Markdown file inside a rebuild prefix
+          # (for example crates/spoke-connect/README.md) matches the rebuild
+          # pattern while the code regex classifies it as docs.
+          if [[ "$rebuild" == "true" ]]; then
+            code=true
+          fi
+          echo "code=$code"       >> "$GITHUB_OUTPUT"
+          echo "rebuild=$rebuild" >> "$GITHUB_OUTPUT"
+          echo "code=$code rebuild=$rebuild" >> "$GITHUB_STEP_SUMMARY"
 
-  windows-smoke:
+  windows-smoke-committed:
     needs: changes
-    name: windows-smoke
+    name: windows-smoke-committed
+    # PR-time ABI proof on the committed carrier; skipped on docs-only PRs.
+    if: ${{ needs.changes.outputs.code == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -106,7 +126,6 @@ jobs:
           workspaces: .
 
       - name: Check Rust flag precedence
-        if: needs.changes.outputs.code == 'true'
         shell: pwsh
         run: |
           if (-not [string]::IsNullOrEmpty($env:RUSTFLAGS)) {
@@ -118,7 +137,6 @@ jobs:
           Write-Output "RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS are controlled empty; target-scoped CRT flags remain authoritative."
 
       - name: Report compiler and toolchain
-        if: needs.changes.outputs.code == 'true'
         shell: pwsh
         run: |
           rustc +1.98.1 -Vv
@@ -129,35 +147,151 @@ jobs:
           }
 
       - name: Check committed C ABI symbols
-        if: needs.changes.outputs.code == 'true'
         id: committed_symbols
         continue-on-error: true
-        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test
+        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test --emit-carrier-report "${{ runner.temp }}/carrier-report.json"
 
       - name: Run committed C++ smoke
-        if: needs.changes.outputs.code == 'true'
         id: committed_smoke
         continue-on-error: true
         run: node tooling/connect/cpp-smoke.mjs --rid win-x64
 
+      - name: Write committed outcomes
+        # Recorded next to the report so the hand-off artifact shows which
+        # committed checks it was produced under.
+        if: always()
+        shell: pwsh
+        run: |
+          $outcomes = [ordered]@{
+            committed_symbols = "${{ steps.committed_symbols.outcome }}"
+            committed_smoke   = "${{ steps.committed_smoke.outcome }}"
+          }
+          $outcomes | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/committed.json"
+
+      - name: Upload committed carrier report
+        # actions/upload-artifact@v4.6.2 — the build worker consumes this
+        # report instead of recompiling the carrier test surface.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: carrier-report-windows-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/carrier-report.json
+            ${{ runner.temp }}/committed.json
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Fail on committed carrier errors
+        if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
+        run: exit 1
+
+  windows-smoke-build:
+    needs: changes
+    name: windows-smoke-build
+    # Carrier rebuild plus the rebuilt ABI proof on rebuild-triggering PRs.
+    if: ${{ needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      RUSTFLAGS: ""
+      CARGO_ENCODED_RUSTFLAGS: ""
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2 — no LFS: the build only needs sources.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Setup MSVC developer environment
+        # ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+        with:
+          arch: x64
+
+      - name: Setup Node.js
+        # actions/setup-node@v4.4.0 — Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain@stable (2026-07-16)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.98.1
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1 — a distinct key: this job's dependency
+        # set differs from the committed worker's test-surface compile.
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust-cpp-win-build
+          workspaces: .
+
+      - name: Check Rust flag precedence
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrEmpty($env:RUSTFLAGS)) {
+            throw "RUSTFLAGS must be empty; it would override the target-scoped CRT flag"
+          }
+          if (-not [string]::IsNullOrEmpty($env:CARGO_ENCODED_RUSTFLAGS)) {
+            throw "CARGO_ENCODED_RUSTFLAGS must be empty; it would override the target-scoped CRT flag"
+          }
+          Write-Output "RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS are controlled empty; target-scoped CRT flags remain authoritative."
+
+      - name: Report compiler and toolchain
+        shell: pwsh
+        run: |
+          rustc +1.98.1 -Vv
+          cargo +1.98.1 -V
+          & cl.exe 2>&1 | ForEach-Object { Write-Output $_ }
+          if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 2) {
+            throw "cl.exe version probe failed with exit code $LASTEXITCODE"
+          }
+
       - name: Build Windows carrier
-        if: needs.changes.outputs.code == 'true'
         run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.98.1
 
       - name: Show native provenance
-        if: needs.changes.outputs.code == 'true'
         shell: pwsh
         run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
-      - name: Check C ABI symbols
-        if: needs.changes.outputs.code == 'true'
-        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test
 
-      - name: Run C++ smoke
-        if: needs.changes.outputs.code == 'true'
+      - name: Download committed carrier report
+        # Best effort: the committed worker may have failed before its upload,
+        # so a miss here is data for the check below, not a step failure.
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          try {
+            gh run download ${{ github.run_id }} --repo ${{ github.repository }} --name "carrier-report-windows-smoke-${{ github.run_id }}-${{ github.run_attempt }}" --dir "${{ runner.temp }}/carrier-report"
+          } catch {}
+          if (Test-Path "${{ runner.temp }}/carrier-report/carrier-report.json") {
+            Add-Content -Path $env:GITHUB_ENV -Value "REPORT_AVAILABLE=true"
+          } else {
+            Add-Content -Path $env:GITHUB_ENV -Value "REPORT_AVAILABLE=false"
+          }
+
+      - name: Check rebuilt C ABI symbols
+        # With the committed report the check skips recompiling the carrier
+        # test surface; without it the report is compiled in-process — the
+        # correctness trade-off that keeps this lane green on ABI drift.
+        id: rebuilt_symbols
+        shell: pwsh
+        run: |
+          $reportArg = @()
+          if ("${{ env.REPORT_AVAILABLE }}" -eq "true") {
+            $reportArg = @("--carrier-report", "${{ runner.temp }}/carrier-report/carrier-report.json")
+          }
+          node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test @reportArg
+
+      - name: Run rebuilt C++ smoke
+        id: rebuilt_smoke
         run: node tooling/connect/cpp-smoke.mjs --rid win-x64
 
       - name: Stage Windows native refresh artifact
-        if: needs.changes.outputs.code == 'true'
         shell: pwsh
         run: |
           $stage = Join-Path $env:RUNNER_TEMP "spoke-connect-win-x64"
@@ -167,23 +301,70 @@ jobs:
           Copy-Item crates/spoke-connect/bindings/cpp/native/provenance.json $stage
 
       - name: Upload Windows native refresh artifact
-        # actions/upload-artifact@v4.6.2
-        if: needs.changes.outputs.code == 'true'
+        # actions/upload-artifact@v4.6.2 — the attempt suffix keeps a rerun
+        # from 409ing on the previous attempt's upload.
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: spoke-connect-win-x64
+          name: spoke-connect-win-x64-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/spoke-connect-win-x64
           if-no-files-found: error
           retention-days: 5
 
-      - name: Fail on committed carrier errors
-        if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
+  windows-smoke:
+    needs: [changes, windows-smoke-committed, windows-smoke-build]
+    name: windows-smoke
+    # Never a condition that can evaluate false: a skipped required job
+    # satisfies the required check without proving anything.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert gate inputs and worker results
+        id: assert
+        shell: bash
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          REBUILD: ${{ needs.changes.outputs.rebuild }}
+          COMMITTED: ${{ needs.windows-smoke-committed.result }}
+          BUILD: ${{ needs.windows-smoke-build.result }}
+        run: |
+          problems=()
+          [[ "${CHANGES}" == "success" ]] || problems+=("changes job result=${CHANGES}")
+          [[ "${CODE}"    == "true" || "${CODE}"    == "false" ]] || problems+=("missing/empty code output '${CODE}'")
+          [[ "${REBUILD}" == "true" || "${REBUILD}" == "false" ]] || problems+=("missing/empty rebuild output '${REBUILD}'")
+          if [[ "${REBUILD}" == "true" && "${CODE}" != "true" ]]; then
+            problems+=("illegal combination rebuild=true code=${CODE} (§4.2.1)")
+          fi
+          if [[ "${CODE}" == "true" && "${COMMITTED}" != "success" ]]; then
+            problems+=("committed worker result=${COMMITTED}")
+          fi
+          # Docs-only runs no carrier work, so both workers must be skipped.
+          if [[ "${CODE}" == "false" ]]; then
+            [[ "${COMMITTED}" == "skipped" ]] || problems+=("committed worker result=${COMMITTED} on a docs-only change (must be skipped)")
+            [[ "${BUILD}" == "skipped" ]] || problems+=("build worker result=${BUILD} on a docs-only change (must be skipped)")
+          fi
+          if [[ "${REBUILD}" == "true" ]]; then
+            [[ "${BUILD}" == "success" ]] || problems+=("build worker result=${BUILD} (skipped is a failure when a rebuild is required)")
+          elif [[ "${REBUILD}" == "false" ]]; then
+            [[ "${BUILD}" == "skipped" ]] || problems+=("build worker result=${BUILD} on an ordinary PR")
+          fi
+          if (( ${#problems[@]} )); then
+            printf 'assert: %s\n' "${problems[@]}" >&2
+            { echo "### Required-check assertion failed"; printf -- '- %s\n' "${problems[@]}"; } >> "$GITHUB_STEP_SUMMARY"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail on required-check assertion
+        if: always() && steps.assert.outputs.ok != 'true'
         run: exit 1
 
-
-  macos-smoke:
+  macos-smoke-committed:
     needs: changes
-    name: macos-smoke
+    name: macos-smoke-committed
+    # PR-time ABI proof on the committed carrier; skipped on docs-only PRs.
+    if: ${{ needs.changes.outputs.code == 'true' }}
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -221,7 +402,6 @@ jobs:
           workspaces: .
 
       - name: Check Rust flag precedence
-        if: needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           if [[ -n "${RUSTFLAGS}" ]]; then
@@ -235,56 +415,205 @@ jobs:
           echo "RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS are controlled empty."
 
       - name: Report compiler and toolchain
-        if: needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           node -v
           clang++ --version
           rustc +1.98.1 -Vv
 
-
-
-      - name: Check C ABI symbols
-        if: needs.changes.outputs.code == 'true'
+      - name: Check committed C ABI symbols
         id: committed_symbols
         continue-on-error: true
-        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test
+        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test --emit-carrier-report "$RUNNER_TEMP/carrier-report.json"
 
-      - name: Run C++ smoke
-        if: needs.changes.outputs.code == 'true'
+      - name: Run committed C++ smoke
         id: committed_smoke
         continue-on-error: true
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
+      - name: Write committed outcomes
+        # Recorded next to the report so the hand-off artifact shows which
+        # committed checks it was produced under.
+        if: always()
+        shell: bash
+        run: |
+          printf '{"committed_symbols":"%s","committed_smoke":"%s"}\n' \
+            '${{ steps.committed_symbols.outcome }}' \
+            '${{ steps.committed_smoke.outcome }}' \
+            > "${RUNNER_TEMP}/committed.json"
+
+      - name: Upload committed carrier report
+        # actions/upload-artifact@v4.6.2 — the build worker consumes this
+        # report instead of recompiling the carrier test surface.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: carrier-report-macos-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/carrier-report.json
+            ${{ runner.temp }}/committed.json
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Fail on committed carrier errors
+        if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
+        run: exit 1
+
+  macos-smoke-build:
+    needs: changes
+    name: macos-smoke-build
+    # Carrier rebuild plus the rebuilt ABI proof on rebuild-triggering PRs.
+    if: ${{ needs.changes.outputs.code == 'true' && needs.changes.outputs.rebuild == 'true' }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      RUSTFLAGS: ""
+      CARGO_ENCODED_RUSTFLAGS: ""
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2 — no LFS: the build only needs sources.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        # actions/setup-node@v4.4.0 — Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain@stable (2026-07-16)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.98.1
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1 — a distinct key: this job's dependency
+        # set differs from the committed worker's test-surface compile.
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust-cpp-macos-build
+          workspaces: .
+
+      - name: Check Rust flag precedence
+        shell: bash
+        run: |
+          if [[ -n "${RUSTFLAGS}" ]]; then
+            echo "RUSTFLAGS must be empty; it would override the committed carrier recipe" >&2
+            exit 1
+          fi
+          if [[ -n "${CARGO_ENCODED_RUSTFLAGS}" ]]; then
+            echo "CARGO_ENCODED_RUSTFLAGS must be empty; it would override the committed carrier recipe" >&2
+            exit 1
+          fi
+          echo "RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS are controlled empty."
+
+      - name: Report compiler and toolchain
+        shell: bash
+        run: |
+          node -v
+          clang++ --version
+          rustc +1.98.1 -Vv
+
       - name: Build macOS carrier
-        if: needs.changes.outputs.code == 'true'
         run: node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.98.1
 
+      - name: Download committed carrier report
+        # Best effort: the committed worker may have failed before its upload,
+        # so a miss here is data for the check below, not a step failure.
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" --name "carrier-report-macos-smoke-${{ github.run_id }}-${{ github.run_attempt }}" --dir "${{ runner.temp }}/carrier-report" \
+            && [[ -f "${{ runner.temp }}/carrier-report/carrier-report.json" ]]; then
+            echo "REPORT_AVAILABLE=true" >> "${GITHUB_ENV}"
+          else
+            echo "REPORT_AVAILABLE=false" >> "${GITHUB_ENV}"
+          fi
+
       - name: Check rebuilt C ABI symbols
-        if: needs.changes.outputs.code == 'true'
-        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test
+        # With the committed report the check skips recompiling the carrier
+        # test surface; without it the report is compiled in-process — the
+        # correctness trade-off that keeps this lane green on ABI drift.
+        id: rebuilt_symbols
+        shell: bash
+        run: |
+          reportArg=()
+          if [[ "${{ env.REPORT_AVAILABLE }}" == "true" ]]; then
+            reportArg=(--carrier-report "${{ runner.temp }}/carrier-report/carrier-report.json")
+          fi
+          node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test "${reportArg[@]}"
 
       - name: Run rebuilt C++ smoke
-        if: needs.changes.outputs.code == 'true'
+        id: rebuilt_smoke
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
       - name: Stage macOS native refresh artifact
-        if: needs.changes.outputs.code == 'true'
         run: |
           mkdir -p "${RUNNER_TEMP}/spoke-connect-osx-arm64"
           cp crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib "${RUNNER_TEMP}/spoke-connect-osx-arm64/"
           cp crates/spoke-connect/bindings/cpp/native/provenance.json "${RUNNER_TEMP}/spoke-connect-osx-arm64/"
 
       - name: Upload macOS native refresh artifact
-        # actions/upload-artifact@v4.6.2
-        if: needs.changes.outputs.code == 'true'
+        # actions/upload-artifact@v4.6.2 — the attempt suffix keeps a rerun
+        # from 409ing on the previous attempt's upload.
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: spoke-connect-osx-arm64
+          name: spoke-connect-osx-arm64-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/spoke-connect-osx-arm64
           if-no-files-found: error
           retention-days: 5
 
-      - name: Fail on committed carrier errors
-        if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
+  macos-smoke:
+    needs: [changes, macos-smoke-committed, macos-smoke-build]
+    name: macos-smoke
+    # Never a condition that can evaluate false: a skipped required job
+    # satisfies the required check without proving anything.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert gate inputs and worker results
+        id: assert
+        shell: bash
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          REBUILD: ${{ needs.changes.outputs.rebuild }}
+          COMMITTED: ${{ needs.macos-smoke-committed.result }}
+          BUILD: ${{ needs.macos-smoke-build.result }}
+        run: |
+          problems=()
+          [[ "${CHANGES}" == "success" ]] || problems+=("changes job result=${CHANGES}")
+          [[ "${CODE}"    == "true" || "${CODE}"    == "false" ]] || problems+=("missing/empty code output '${CODE}'")
+          [[ "${REBUILD}" == "true" || "${REBUILD}" == "false" ]] || problems+=("missing/empty rebuild output '${REBUILD}'")
+          if [[ "${REBUILD}" == "true" && "${CODE}" != "true" ]]; then
+            problems+=("illegal combination rebuild=true code=${CODE} (§4.2.1)")
+          fi
+          if [[ "${CODE}" == "true" && "${COMMITTED}" != "success" ]]; then
+            problems+=("committed worker result=${COMMITTED}")
+          fi
+          # Docs-only runs no carrier work, so both workers must be skipped.
+          if [[ "${CODE}" == "false" ]]; then
+            [[ "${COMMITTED}" == "skipped" ]] || problems+=("committed worker result=${COMMITTED} on a docs-only change (must be skipped)")
+            [[ "${BUILD}" == "skipped" ]] || problems+=("build worker result=${BUILD} on a docs-only change (must be skipped)")
+          fi
+          if [[ "${REBUILD}" == "true" ]]; then
+            [[ "${BUILD}" == "success" ]] || problems+=("build worker result=${BUILD} (skipped is a failure when a rebuild is required)")
+          elif [[ "${REBUILD}" == "false" ]]; then
+            [[ "${BUILD}" == "skipped" ]] || problems+=("build worker result=${BUILD} on an ordinary PR")
+          fi
+          if (( ${#problems[@]} )); then
+            printf 'assert: %s\n' "${problems[@]}" >&2
+            { echo "### Required-check assertion failed"; printf -- '- %s\n' "${problems[@]}"; } >> "$GITHUB_STEP_SUMMARY"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail on required-check assertion
+        if: always() && steps.assert.outputs.ok != 'true'
         run: exit 1

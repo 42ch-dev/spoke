@@ -100,6 +100,8 @@ Every pull request must pass the required checks bound to the `main` ruleset: th
 
 Two maintenance rules follow. When a new PR validation check is added, register it in the `main` ruleset required checks in the same round; an unregistered check gates nothing. And a PR is ready only once every required check has finished successfully — a pending CodeQL or Greptile run is not a pass, and "no review comments" is not the same as a green review.
 
+Every `changes` job writes `code=…` into its step summary; the two rebuild-producing workflows ([`xcframework.yml`](.github/workflows/xcframework.yml) and [`cpp-connect.yml`](.github/workflows/cpp-connect.yml)) additionally emit a `rebuild=…` output and summary, where the three outcomes are distinct evidence. `code=false` (a docs-only diff) ends every job behind that gate after its assertion step — no checkout, no toolchain setup, no cache restore, no build and no upload — while every required context still reports because the pull-request trigger is unfiltered and each job's assertion step always runs. In the heavy workflows `code=true, rebuild=false` (the ordinary case) runs the heavy checks and exercises the committed artifacts only — the artifact lanes validate them without rebuilding. `rebuild=true` rebuilds from source; the Swift lane assembles the rebuilt xcframework but does not execute it, so a green there is an assembly result, not a runtime one. The `Build …` step in those jobs shows the same thing step by step — `skipped` for a validated-only run, `success` for a rebuild. Rename detection is off in the `changes` jobs, so a file moved out of a rebuild prefix still reports its old path and still triggers the rebuild.
+
 ## Integrator docs site
 
 The integrator-facing VitePress site lives in `docs/` (config: `docs/.vitepress/config.mts`).
@@ -114,7 +116,7 @@ Pages summarize each topic and link the normative body in `.agents/specs/` — t
 
 ## Refreshing the Swift xcframework
 
-The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-15` from the checkout's Rust sources — pinned toolchain 1.98.1, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. Every pull request runs it; pushes run it when the FFI surface changes. The job builds the committed Swift package and runs the functional smoke against its macOS library. The built xcframework and its hash manifest are uploaded as a refresh artifact.
+The three-slice `spoke_connectFFI.xcframework` is assembled in CI on `macos-15` from the checkout's Rust sources — pinned toolchain 1.98.1, four Apple targets, `--locked` builds via `tooling/connect/build-swift-xcframework.sh --phase …`. [`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml) splits the rebuild across six jobs gated on `changes.outputs.rebuild`: a `host` job for the cdylib + Swift bindings, one `slice-*` job per Apple target, and an `assemble` job that downloads the five worker artifacts, validates they share one run attempt, assembles the xcframework, and uploads it with its hash manifest and a `producer.json` record as refresh artifacts. The required `xcframework` job always runs: it asserts every worker result and keeps the committed Swift consumer smoke on `code`.
 
 Refresh the committed artifact from a run in one command (requires the `gh` CLI, `rsync`, `python3`, and `shasum`):
 

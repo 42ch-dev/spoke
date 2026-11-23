@@ -25,6 +25,17 @@ const BANNER = `/**
  */
 `;
 
+// The comment gate classifies any comment unit containing `@generated`; inject
+// the tag as the last line of every doc block so generated member comments do
+// not count as unclassified. Trailing placement keeps the doc's first prose
+// line as the symbol description (a leading tag would absorb it), and the
+// pass is idempotent over blocks that already carry the tag (the banner).
+function tagGeneratedDocBlocks(ts) {
+  return ts.replace(/^[ \t]*\/\*\*$[\s\S]*?^[ \t]*\*\/$/gm, (block) =>
+    block.includes("@generated") ? block : block.replace(/^([ \t]*)\*\/$/m, "$1* @generated\n$1*/"),
+  );
+}
+
 const SPOKE_SCHEMA_BASE = "https://spoke42.invalid/schemas/";
 
 function log(msg) {
@@ -221,7 +232,7 @@ async function generateTypeScript(schemaPaths) {
       strictIndexSignatures: true,
       declareExternallyReferenced: true,
     });
-    fs.writeFileSync(outFile, ts);
+    fs.writeFileSync(outFile, tagGeneratedDocBlocks(ts));
     log(`  wrote ${path.relative(REPO_ROOT, outFile)}`);
   }
 

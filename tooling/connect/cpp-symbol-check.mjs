@@ -61,11 +61,18 @@
  * Usage:
  *   node tooling/connect/cpp-symbol-check.mjs --header <header> --library <native>
  *   node tooling/connect/cpp-symbol-check.mjs --header <header> --library <native> --self-test
+ *   node tooling/connect/cpp-symbol-check.mjs --header <header> --library <native> --emit-carrier-report <file>
+ *   node tooling/connect/cpp-symbol-check.mjs --header <header> --library <native> --carrier-report <file>
  *
  * The layout check builds the carrier's Rust test surface, so the gate needs
- * cargo on PATH as well as the C compiler. The repository's local nightly
+ * cargo on PATH as well as the C compiler — unless `--carrier-report <file>`
+ * supplies a report captured by an earlier `--emit-carrier-report` run, in
+ * which case cargo is never invoked. The repository's local nightly
  * convention (root `AGENTS.md`: the local `-Zno-embed-metadata` flag is
- * nightly-only) is honored automatically; see `cargoCommand`.
+ * nightly-only) is honored automatically; see `cargoCommand`. The two report
+ * flags are mutually exclusive, and a flag with no value, a missing report
+ * file or a malformed one fails the gate — it never falls back to running
+ * cargo.
  *
  * `--self-test` additionally proves fail-closed behavior: temporary header
  * copies with (a) a real declaration removed, (b) an invented declaration
@@ -90,7 +97,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -197,29 +204,65 @@ function cargoCommand() {
   return ["cargo"];
 }
 
+/**
+ * The value following a flag. A flag at the end of the command line, one
+ * followed by another flag, or one followed by an empty string has no value:
+ * the path would name nothing the caller asked for, and a falsy report flag
+ * would silently fall back to running cargo.
+ */
+function flagValue(argv, index, flag) {
+  const value = argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    fail(`${flag} requires a value`);
+  }
+  return value;
+}
+
 function parseArgs(argv) {
-  const args = { header: null, library: null, selfTest: false };
+  const args = {
+    header: null,
+    library: null,
+    selfTest: false,
+    emitCarrierReport: null,
+    carrierReport: null,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === "--header") {
-      args.header = argv[index + 1];
+      args.header = flagValue(argv, index, flag);
       index += 1;
     } else if (flag === "--library") {
-      args.library = argv[index + 1];
+      args.library = flagValue(argv, index, flag);
+      index += 1;
+    } else if (flag === "--emit-carrier-report") {
+      args.emitCarrierReport = flagValue(argv, index, flag);
+      index += 1;
+    } else if (flag === "--carrier-report") {
+      args.carrierReport = flagValue(argv, index, flag);
       index += 1;
     } else if (flag === "--self-test") {
       args.selfTest = true;
     } else {
       fail(
         `unknown argument '${flag}' ` +
-          "(usage: --header <header> --library <native> [--self-test])",
+          "(usage: --header <header> --library <native> [--self-test] " +
+          "[--emit-carrier-report <file> | --carrier-report <file>])",
       );
     }
   }
   if (!args.header) fail("--header is required");
   if (!args.library) fail("--library is required");
+  if (args.emitCarrierReport && args.carrierReport) {
+    fail("--emit-carrier-report and --carrier-report are mutually exclusive");
+  }
   args.header = resolve(REPO_ROOT, args.header);
   args.library = resolve(REPO_ROOT, args.library);
+  if (args.emitCarrierReport) {
+    args.emitCarrierReport = resolve(REPO_ROOT, args.emitCarrierReport);
+  }
+  if (args.carrierReport) {
+    args.carrierReport = resolve(REPO_ROOT, args.carrierReport);
+  }
   return args;
 }
 
@@ -426,25 +469,155 @@ function carrierReport() {
     records.set(name, record);
   }
 
-  if (records.size === 0) {
+  const report = { records, typedefs, members, fieldTypes };
+  assertCarrierReportComplete(report);
+  return report;
+}
+
+/**
+ * The non-empty invariants every carrier report must satisfy, whatever its
+ * source: without layouts, callbacks and field types the comparisons would
+ * pass vacuously. The cargo path and the `--carrier-report` reader share it
+ * so a hand-off file is held to the same floor as a live run.
+ */
+function assertCarrierReportComplete(report) {
+  if (report.records.size === 0) {
     fail(
       `the carrier reported no '${LAYOUT_PREFIX}' records ` +
         "(is the carrier test surface built?)",
     );
   }
-  if (typedefs.size === 0 || members.size === 0) {
+  if (report.typedefs.size === 0 || report.members.size === 0) {
     fail(
       `the carrier reported no '${CALLBACK_PREFIX}' rows ` +
         "(is the carrier test surface built?)",
     );
   }
-  if (fieldTypes.size === 0) {
+  if (report.fieldTypes.size === 0) {
     fail(
       `the carrier reported no '${FIELD_TYPE_PREFIX}' rows ` +
         "(is the carrier test surface built?)",
     );
   }
-  return { records, typedefs, members, fieldTypes };
+}
+
+/** A Map serialized as a plain object with sorted keys, for a stable file. */
+export function sortedObject(map) {
+  // Null-prototype: an identifier spelled '__proto__' must serialize as a
+  // data property, not hit Object.prototype's setter and drop the entry.
+  const result = Object.create(null);
+  for (const key of [...map.keys()].sort()) {
+    result[key] = map.get(key);
+  }
+  return result;
+}
+
+/**
+ * The schemaVersion-1 serialization of one carrier report: Maps become
+ * objects (record field offsets are an object inside each record) with keys
+ * in sorted order, so two runs over the same layout produce identical bytes.
+ */
+export function carrierReportJson(report) {
+  const records = Object.create(null);
+  for (const name of [...report.records.keys()].sort()) {
+    const { size, align, fields } = report.records.get(name);
+    records[name] = { size, align, fields: sortedObject(fields) };
+  }
+  return (
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        records,
+        typedefs: sortedObject(report.typedefs),
+        members: sortedObject(report.members),
+        fieldTypes: sortedObject(report.fieldTypes),
+      },
+      null,
+      2,
+    ) + "\n"
+  );
+}
+
+/**
+ * A serialized Map section: it must be a plain object, and yields a Map of
+ * string values. Anything else marks the file as not a schemaVersion-1
+ * carrier report.
+ */
+function mapSection(value, path) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail(`${path}: section is not an object`);
+  }
+  const map = new Map();
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== "string") {
+      fail(`${path}: entry '${key}' is not a string`);
+    }
+    map.set(key, entry);
+  }
+  return map;
+}
+
+/**
+ * Reads the file `--carrier-report` names and rebuilds the four Maps the cargo
+ * path returns. A missing file, invalid JSON, wrong schemaVersion or
+ * malformed section fails the gate outright — it never falls back to cargo.
+ */
+export function readCarrierReport(path) {
+  const origin = `carrier report '${display(path)}'`;
+  if (!existsSync(path)) fail(`missing ${origin}`);
+  let document;
+  try {
+    document = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    fail(`${origin}: invalid JSON (${error.message})`);
+  }
+  if (document === null || typeof document !== "object" || Array.isArray(document)) {
+    fail(`${origin}: not a JSON object`);
+  }
+  if (document.schemaVersion !== 1) {
+    fail(`${origin}: schemaVersion must be 1, got ${document.schemaVersion}`);
+  }
+  if (
+    document.records === null ||
+    typeof document.records !== "object" ||
+    Array.isArray(document.records)
+  ) {
+    fail(`${origin}: 'records' is not an object`);
+  }
+  const records = new Map();
+  for (const [name, row] of Object.entries(document.records)) {
+    if (row === null || typeof row !== "object" || Array.isArray(row)) {
+      fail(`${origin}: record '${name}' is not an object`);
+    }
+    if (typeof row.size !== "number" || typeof row.align !== "number") {
+      fail(`${origin}: record '${name}' has no numeric size/align`);
+    }
+    if (
+      row.fields === null ||
+      typeof row.fields !== "object" ||
+      Array.isArray(row.fields)
+    ) {
+      fail(`${origin}: record '${name}' has a non-object 'fields'`);
+    }
+    const fields = new Map();
+    for (const [field, offset] of Object.entries(row.fields)) {
+      if (typeof offset !== "number") {
+        fail(
+          `${origin}: record '${name}' field '${field}' has a non-numeric offset`,
+        );
+      }
+      fields.set(field, offset);
+    }
+    records.set(name, { size: row.size, align: row.align, fields });
+  }
+  const report = {
+    records,
+    typedefs: mapSection(document.typedefs, `${origin}: 'typedefs'`),
+    members: mapSection(document.members, `${origin}: 'members'`),
+    fieldTypes: mapSection(document.fieldTypes, `${origin}: 'fieldTypes'`),
+  };
+  assertCarrierReportComplete(report);
+  return report;
 }
 
 /** Splits a comma-separated signature list at the top level. */
@@ -1474,7 +1647,22 @@ function main() {
     runProbes(declarations, args.header, args.library, tempDir);
     const headerText = readFileSync(args.header, "utf8");
     const records = parseRecords(headerText, args.header);
-    const carrier = carrierReport();
+    const carrier = args.carrierReport
+      ? readCarrierReport(args.carrierReport)
+      : carrierReport();
+    if (args.emitCarrierReport) {
+      try {
+        writeFileSync(args.emitCarrierReport, carrierReportJson(carrier));
+      } catch (error) {
+        fail(
+          `could not write the carrier report to ` +
+            `'${display(args.emitCarrierReport)}': ${error.message}`,
+        );
+      }
+      console.log(
+        `carrier report written to ${display(args.emitCarrierReport)}`,
+      );
+    }
     runLayoutCheck(records, carrier.records, args.header, tempDir);
     runCallbackCheck(headerText, args.header, records, carrier);
     runFieldTypeCheck(headerText, args.header, records, carrier);
@@ -1484,4 +1672,6 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

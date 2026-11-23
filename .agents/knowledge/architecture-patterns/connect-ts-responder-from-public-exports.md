@@ -1,7 +1,7 @@
 ---
 module: spoke-connect
 date: 2026-08-06
-last_updated: 2026-11-09
+last_updated: 2026-11-23
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -86,6 +86,37 @@ The responder runs two phases over the transport, exactly as the loopback host d
 4. Dispatch gate (see §4), then the op handler, then a signed response via `authenticateInvokeResponse` — success branch or error branch, never both.
 
 Gate serialization: `peek → verify → advance` must run to completion per request (the async verify would otherwise let a second request peek against the pre-advance counter and be mis-rejected as `inbound_sequence_mismatch`). Queue invokes on a `gateTail` promise; the dispatch phase after the gate may interleave — out-of-order completions are legal on the wire.
+
+The excerpts reference two consumer-owned bindings that a standalone module must declare itself — neither is a public export, and the library's internal `EnvelopeAuthError` must not be imported or re-exported by the recipe:
+
+```ts
+// Ed25519 secret key for this responder's peer identity — the same seed whose
+// public half feeds derivePeerIdFromEd25519Pubkey on the peer_id line. Loaded
+// once at startup; every sign* call below shares it.
+const seed: Uint8Array = base64UrlDecode(process.env.RESPONDER_SEED_B64 ?? "");
+
+// Local mirror of the internal rejection shape: the three kinds are the
+// envelope-auth failure vocabulary (missing / invalid / session-unbound),
+// `code` mirrors the wire ErrorEnvelope.code, and `kind` survives into
+// `details.kind` for the fail-closed gate above.
+type EnvelopeAuthErrorKind =
+  | "envelope_auth_missing"
+  | "envelope_auth_invalid"
+  | "envelope_auth_session_unbound";
+
+class EnvelopeAuthError extends Error {
+  readonly code = "auth_failed" as const;
+  readonly details: { kind: EnvelopeAuthErrorKind };
+  constructor(
+    readonly kind: EnvelopeAuthErrorKind,
+    message?: string,
+  ) {
+    super(message ?? `envelope authentication failed (${kind})`);
+    this.name = "EnvelopeAuthError";
+    this.details = { kind };
+  }
+}
+```
 
 ```ts
 // Gate phase — the custom serialized gate: peek → verify → advance, one request at a time.

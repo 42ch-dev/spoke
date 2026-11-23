@@ -627,26 +627,25 @@ fn scope_wire_equal(requested: &Scope, admitted: &Scope) -> bool {
     }
 }
 
-/// Largest integer that survives `serde_jcs`'s RFC 8785 number
-/// formatting: the crate encodes integers through `f64`, so IEEE-754
-/// exact integers (|n| ≤ 2^53 − 1) are the only members whose digest
-/// identity is preserved.
-const JCS_EXACT_INTEGER_MAX: u64 = 9_007_199_254_740_991;
-
 /// One more than the largest u64 — the TypeScript predicate's upper
 /// bound. A number at or beyond it is a float on both stacks and passes;
-/// an integral value strictly inside the u64 range but beyond
-/// [`JCS_EXACT_INTEGER_MAX`] is refused identically.
+/// an integral value strictly inside the u64 range but beyond the
+/// exact-integer endpoint is refused identically.
 const U64_RANGE_BOUND: f64 = 18_446_744_073_709_551_616.0; // 2^64
 
-/// Every integer member of `value` is inside the JCS exact-integer
-/// range. The prune dedup digest is SHA-256 over the RFC 8785 encoding
-/// of the whole request payload; an integer beyond 2^53 − 1 would
-/// collapse to the same canonical number as a distinct neighbor, so a
-/// different request could replay a recorded outcome under its own key.
-/// The serving boundary refuses such payloads with `INVALID_INPUT`
+/// Every integer member of `value` is inside the exact-integer range
+/// (`[−2^53, 2^53]`). The prune dedup digest is SHA-256 over the RFC
+/// 8785 encoding of the whole request payload; an integer beyond 2^53
+/// would collapse to the same canonical number as a distinct neighbor,
+/// so a different request could replay a recorded outcome under its own
+/// key. The serving boundary refuses such payloads with `INVALID_INPUT`
 /// instead of rounding (spoke-history contract §`HistoryPort`: the
 /// runtime never rounds an unrepresentable integer).
+///
+/// The `2^53` endpoint is admitted: it is an exact IEEE-754 integer the
+/// TypeScript `canonicalize` reference emits as `9007199254740992`
+/// (contract C5), so the digest hashes it via
+/// [`jcs_hashed_payload`].
 ///
 /// Integral floats follow the VALUE-based TypeScript rule, not the Rust
 /// token's representation (F-013): `1e16` decodes as an integral f64
@@ -661,7 +660,7 @@ fn payload_integers_jcs_exact(value: &Value) -> bool {
                     .as_u64()
                     .or_else(|| number.as_i64().map(i64::unsigned_abs))
                     .expect("integer number");
-                magnitude <= JCS_EXACT_INTEGER_MAX
+                magnitude <= ADOPT_EXACT_INTEGER_BOUND
             } else {
                 let Some(float) = number.as_f64() else {
                     return true;
@@ -670,7 +669,7 @@ fn payload_integers_jcs_exact(value: &Value) -> bool {
                     return true;
                 }
                 let magnitude = float.abs();
-                magnitude <= JCS_EXACT_INTEGER_MAX as f64 || magnitude >= U64_RANGE_BOUND
+                magnitude <= ADOPT_EXACT_INTEGER_BOUND as f64 || magnitude >= U64_RANGE_BOUND
             }
         }
         Value::Array(items) => items.iter().all(payload_integers_jcs_exact),
@@ -679,12 +678,41 @@ fn payload_integers_jcs_exact(value: &Value) -> bool {
     }
 }
 
+/// Re-spell the `±2^53` endpoint as its equal `f64` for hashing.
+/// `serde_jcs` refuses any integer beyond its `MAX_SAFE_INTEGER`
+/// (2^53 − 1) even though `2^53` is an exact IEEE-754 integer that RFC
+/// 8785 canonicalizes as `9007199254740992` — exactly the bytes the
+/// TypeScript `canonicalize` reference emits. Every other member is
+/// already canonicalized unchanged.
+fn jcs_hashed_payload(value: &Value) -> Value {
+    match value {
+        Value::Number(number)
+            if number.as_u64() == Some(ADOPT_EXACT_INTEGER_BOUND)
+                || number.as_i64() == Some(-(ADOPT_EXACT_INTEGER_BOUND as i64)) =>
+        {
+            Value::from(number.as_u64().map_or(
+                -(ADOPT_EXACT_INTEGER_BOUND as f64),
+                |magnitude| magnitude as f64,
+            ))
+        }
+        Value::Array(items) => Value::Array(items.iter().map(jcs_hashed_payload).collect()),
+        Value::Object(members) => Value::Object(
+            members
+                .iter()
+                .map(|(key, member)| (key.clone(), jcs_hashed_payload(member)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// Largest integer exactly representable as an f64 — the inclusive
-/// canonicalization bound C5 states (`[0, 2^53]`, no exponent). The
-/// history digest predicate above deliberately stops one below it: a
-/// `u64` between 2^53−1 and 2^53 has no exact integer identity once it
-/// passes through `serde_jcs`'s f64 formatting, so history refuses it;
-/// adoption admits by parsed VALUE (the JavaScript rule below).
+/// canonicalization bound C5 states (`[0, 2^53]`, no exponent). It is
+/// the shared wire endpoint for every revision-typed member and for the
+/// SchemaVersion ceiling (`2^53 − 1`); the prune digest admits it and
+/// re-spells it as the equal f64 before hashing (see
+/// [`jcs_hashed_payload`]) because `serde_jcs` itself stops at
+/// `MAX_SAFE_INTEGER`.
 const ADOPT_EXACT_INTEGER_BOUND: u64 = 1 << 53;
 
 /// Every number member of `value` validates identically after parse on
@@ -700,9 +728,10 @@ const ADOPT_EXACT_INTEGER_BOUND: u64 = 1 << 53;
 /// admits it), and the `2^53` endpoint canonicalizes without an
 /// exponent on both stacks (C5).
 ///
-/// Deliberately separate from [`payload_integers_jcs_exact`]: history's
-/// digest-integrity rule (never round an unrepresentable integer) stays
-/// untouched — this predicate is adoption-only.
+/// This predicate stays deliberately wider than
+/// [`payload_integers_jcs_exact`]: adoption admits by parsed VALUE,
+/// while the history digest refuses every integer whose canonical
+/// number would round.
 fn adopt_payload_integers_exact(value: &Value) -> bool {
     match value {
         Value::Number(number) => {
@@ -822,23 +851,56 @@ pub(crate) fn validate_history_snapshot(
             "provider returned a malformed RevisionSnapshot: snapshot variant does not agree with entity_kind",
         );
     }
-    let (nested_id, nested_revision, nested_schema_version) = match &snapshot.snapshot {
-        RevisionSnapshotSnapshot::KnowledgeEntry {
-            entry_id,
-            revision,
-            schema_version,
-            ..
-        } => (entry_id.as_str(), *revision, schema_version.0.get()),
-        RevisionSnapshotSnapshot::Relation {
-            relation_id,
-            revision,
-            schema_version,
-            ..
-        } => (relation_id.as_str(), *revision, schema_version.0.get()),
-    };
+    let (nested_id, nested_revision, nested_schema_version, nested_anchor_versions) =
+        match &snapshot.snapshot {
+            RevisionSnapshotSnapshot::KnowledgeEntry {
+                entry_id,
+                revision,
+                schema_version,
+                source_anchor,
+                adoption_anchor,
+                ..
+            } => (
+                entry_id.as_str(),
+                *revision,
+                schema_version.0.get(),
+                [
+                    source_anchor
+                        .as_ref()
+                        .map(|anchor| anchor.schema_version.0.get()),
+                    adoption_anchor
+                        .as_ref()
+                        .map(|anchor| anchor.schema_version.0.get()),
+                ],
+            ),
+            RevisionSnapshotSnapshot::Relation {
+                relation_id,
+                revision,
+                schema_version,
+                ..
+            } => (
+                relation_id.as_str(),
+                *revision,
+                schema_version.0.get(),
+                [None, None],
+            ),
+        };
     if nested_schema_version > MAX_SCHEMA_VERSION {
         return history_transport_reject(
             "provider returned a malformed RevisionSnapshot: nested schema_version above 2^53-1",
+        );
+    }
+    // The provenance anchors carry their own `schema_version` members
+    // (`SourceAnchor` / `AdoptionAnchor`); the generated carriers are
+    // unbounded `NonZeroU64`, so the SchemaVersion ceiling applies here
+    // too.
+    if nested_anchor_versions
+        .iter()
+        .flatten()
+        .any(|version| *version > MAX_SCHEMA_VERSION)
+    {
+        return history_transport_reject(
+            "provider returned a malformed RevisionSnapshot: nested anchor schema_version above 2^53-1",
         );
     }
     if nested_id != entity_id {
@@ -996,8 +1058,10 @@ impl RemoteHistoryService for HistoryPortService {
         // moves out for decoding.
         let payload_digest = if op == HISTORY_OP_PRUNE {
             // The digest covers the WHOLE request object under RFC 8785
-            // — refuse any member outside the JCS exact-integer range
-            // before hashing (see `payload_integers_jcs_exact`).
+            // — refuse any member outside the exact-integer range before
+            // hashing (see `payload_integers_jcs_exact`), then hash the
+            // copy whose `±2^53` endpoint is the equal f64
+            // (`serde_jcs` stops one below it).
             if !payload_integers_jcs_exact(&payload) {
                 return spoke_reject(
                     SpokeRejectCode::InvalidInput,
@@ -1005,7 +1069,7 @@ impl RemoteHistoryService for HistoryPortService {
                     history_input_details(op),
                 );
             }
-            match jcs_sha256_hex(&payload) {
+            match jcs_sha256_hex(&jcs_hashed_payload(&payload)) {
                 SpokeResult::Ok(digest) => Some(digest),
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             }
@@ -2062,7 +2126,7 @@ mod history_tests {
             *self.last_scope.lock().expect("lock") = Some(scope.clone());
             spoke_ok(HistoryPruneResult {
                 deleted: 1,
-                floor_revision: Some(keep + 1),
+                floor_revision: (keep < ADOPT_EXACT_INTEGER_BOUND).then_some(keep + 1),
             })
         }
     }
@@ -2570,6 +2634,54 @@ mod history_tests {
         let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
         assert!(valid_served_snapshot(snapshot, "knowledge_entry", "e1", 3).is_reject());
 
+        // The provenance anchors carry their own schema_version members;
+        // the same ceiling binds each one, nested under the entry.
+        for (field, anchor) in [
+            (
+                "source_anchor",
+                json!({
+                    "schema_version": 9_007_199_254_740_992u64,
+                    "source_id": "src",
+                    "extensions": {},
+                }),
+            ),
+            (
+                "adoption_anchor",
+                json!({
+                    "schema_version": 9_007_199_254_740_992u64,
+                    "source_entry_id": "src",
+                    "source_revision": 1,
+                    "source_scope_id": "s",
+                    "extensions": {},
+                }),
+            ),
+        ] {
+            let mut doc = snapshot_json("e1", 3);
+            doc["snapshot"][field] = anchor;
+            let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
+            assert!(
+                valid_served_snapshot(snapshot, "knowledge_entry", "e1", 3).is_reject(),
+                "{field} schema_version 2^53 must be refused"
+            );
+        }
+
+        // The SchemaVersion endpoint itself (2^53-1) is accepted.
+        let mut doc = snapshot_json("e1", 3);
+        doc["snapshot"]["source_anchor"] = json!({
+            "schema_version": MAX_SCHEMA_VERSION,
+            "source_id": "src",
+            "extensions": {},
+        });
+        doc["snapshot"]["adoption_anchor"] = json!({
+            "schema_version": MAX_SCHEMA_VERSION,
+            "source_entry_id": "src",
+            "source_revision": 1,
+            "source_scope_id": "s",
+            "extensions": {},
+        });
+        let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
+        assert!(valid_served_snapshot(snapshot, "knowledge_entry", "e1", 3).is_ok());
+
         let doc = snapshot_json("e1", 9_007_199_254_740_993u64);
         let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
         assert!(valid_served_snapshot(
@@ -2605,6 +2717,31 @@ mod history_tests {
             })
         ));
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    /// The contract's revision domain is inclusive of `2^53` (C5): the
+    /// `9007199254740992` endpoint is an exact f64, canonicalizes without
+    /// an exponent like the TypeScript `canonicalize` reference, and the
+    /// prune reaches the port. Only `2^53 + 1` is refused.
+    #[tokio::test]
+    async fn prune_keep_at_exact_integer_endpoint_reaches_port() {
+        assert_eq!(
+            serde_jcs::to_string(&jcs_hashed_payload(&json!(9_007_199_254_740_992u64)))
+                .expect("canonical string"),
+            "9007199254740992"
+        );
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let result = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_PRUNE,
+                prune_payload("k-endpoint", 9_007_199_254_740_992, None),
+            )
+            .await;
+        assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
     }
 
     /// §9.1 recorded-outcome model: a provider reject is a settled

@@ -2,14 +2,13 @@
 
 use crate::occ::assert_revision_match;
 use crate::result::{spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
+use crate::util::{validate_anchor_schema_versions, MAX_SCHEMA_VERSION};
 use serde_json::{json, Map, Value};
 use spoke_schemas::knowledge_entry::KnowledgeEntry;
 
 const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
 
-/// SchemaVersion domain (`[1, 2^53-1]`) and the inclusive revision domain
-/// (`[0, 2^53]`), both exact in the two stacks.
-const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
+/// The inclusive revision domain (`[0, 2^53]`), exact in the two stacks.
 const MAX_REVISION: u64 = 1 << 53;
 
 /// Explicit upsert path when caller supplies stored presence separately from inference.
@@ -51,6 +50,11 @@ fn validate_required_knowledge_entry_fields(candidate: &KnowledgeEntry) -> Spoke
             "KnowledgeEntry schema_version must be an integer in [1, 2^53-1]",
             Some(details),
         );
+    }
+
+    let anchors = validate_anchor_schema_versions(candidate);
+    if anchors.is_reject() {
+        return anchors;
     }
 
     if candidate.entry_id.is_empty() {
@@ -372,6 +376,53 @@ mod tests {
             }
         )
         .is_reject());
+    }
+
+    /// The provenance anchors carry their own `schema_version` members;
+    /// the entry's SchemaVersion ceiling binds them — `2^53` refuses,
+    /// `2^53-1` is accepted.
+    #[test]
+    fn enforces_nested_anchor_schema_version_ceiling() {
+        for field in ["source_anchor", "adoption_anchor"] {
+            let anchor = |version: u64| match field {
+                "source_anchor" => json!({
+                    "schema_version": version,
+                    "source_id": "src",
+                    "extensions": {},
+                }),
+                _ => json!({
+                    "schema_version": version,
+                    "source_entry_id": "src",
+                    "source_revision": 1,
+                    "source_scope_id": "s",
+                    "extensions": {},
+                }),
+            };
+            let candidate = |version: u64| {
+                let mut wire = serde_json::to_value(make_knowledge_entry(|entry| {
+                    entry.entry_id = "kb_new".into();
+                }))
+                .expect("serializable");
+                wire[field] = anchor(version);
+                serde_json::from_value::<KnowledgeEntry>(wire).expect("decodes")
+            };
+            assert!(
+                validate_upsert_knowledge_entry(
+                    &candidate(MAX_SCHEMA_VERSION),
+                    ValidateUpsertKnowledgeEntryContext::default()
+                )
+                .is_ok(),
+                "{field} schema_version 2^53-1 must be accepted"
+            );
+            assert!(
+                validate_upsert_knowledge_entry(
+                    &candidate(MAX_SCHEMA_VERSION + 1),
+                    ValidateUpsertKnowledgeEntryContext::default()
+                )
+                .is_reject(),
+                "{field} schema_version 2^53 must be refused"
+            );
+        }
     }
 
     #[test]

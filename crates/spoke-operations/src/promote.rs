@@ -1,16 +1,16 @@
 //! Promote acceptance validation and apply.
 
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
-use crate::util::validate_revision_wire;
+use crate::util::{
+    validate_anchor_schema_versions, validate_revision_wire, MAX_SCHEMA_VERSION,
+};
 use serde_json::{json, Map, Value};
 use spoke_schemas::knowledge_entry::KnowledgeEntry;
 use spoke_schemas::promote_request::PromoteRequest;
 
 const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
 
-/// SchemaVersion domain (`[1, 2^53-1]`) and the inclusive revision domain
-/// (`[0, 2^53]`), both exact in the two stacks.
-const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
+/// The inclusive revision domain (`[0, 2^53]`), exact in the two stacks.
 const MAX_REVISION: u64 = 1 << 53;
 
 fn validate_revision(candidate_wire: &Value) -> SpokeResult<()> {
@@ -27,6 +27,11 @@ fn validate_knowledge_entry_shape(candidate: &KnowledgeEntry) -> SpokeResult<()>
             "KnowledgeEntry schema_version must be an integer in [1, 2^53-1]",
             Some(details),
         );
+    }
+
+    let anchors = validate_anchor_schema_versions(candidate);
+    if anchors.is_reject() {
+        return anchors;
     }
 
     if candidate.entry_id.is_empty() {
@@ -455,6 +460,43 @@ mod tests {
             request.candidate.revision = Some(MAX_REVISION);
         }));
         assert!(result.is_reject());
+    }
+
+    /// The provenance anchors carry their own `schema_version` members;
+    /// the entry's SchemaVersion ceiling binds them through the real
+    /// request gate — `2^53` refuses, `2^53-1` is accepted.
+    #[test]
+    fn enforces_nested_anchor_schema_version_ceiling() {
+        for field in ["source_anchor", "adoption_anchor"] {
+            let anchor = |version: u64| match field {
+                "source_anchor" => json!({
+                    "schema_version": version,
+                    "source_id": "src",
+                    "extensions": {},
+                }),
+                _ => json!({
+                    "schema_version": version,
+                    "source_entry_id": "src",
+                    "source_revision": 1,
+                    "source_scope_id": "s",
+                    "extensions": {},
+                }),
+            };
+            let wire = candidate_wire(|candidate| {
+                candidate.insert(field.into(), anchor(MAX_SCHEMA_VERSION));
+            });
+            assert!(
+                validate_promote_request_wire(&wire).is_ok(),
+                "{field} schema_version 2^53-1 must be accepted"
+            );
+            let wire = candidate_wire(|candidate| {
+                candidate.insert(field.into(), anchor(MAX_SCHEMA_VERSION + 1));
+            });
+            assert!(
+                validate_promote_request_wire(&wire).is_reject(),
+                "{field} schema_version 2^53 must be refused"
+            );
+        }
     }
 
     #[test]

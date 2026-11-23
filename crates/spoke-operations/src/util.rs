@@ -2,7 +2,11 @@
 
 use crate::result::{spoke_reject, spoke_ok_unit, SpokeRejectCode, SpokeResult};
 use serde_json::{Map, Value};
+use spoke_schemas::knowledge_entry::KnowledgeEntry;
 use spoke_schemas::knowledge_entry::KnowledgeEntryBody;
+
+/// SchemaVersion domain (`[1, 2^53-1]`), exact in the two stacks.
+pub(crate) const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
 
 /// Extract a trimmed non-empty string field from a JSON object value.
 pub(crate) fn trimmed_string_field(value: &Value, field: &str) -> Option<String> {
@@ -47,6 +51,40 @@ pub(crate) fn body_wire_from_entry_wire(entry_wire: &Value) -> Value {
         .get("body")
         .cloned()
         .unwrap_or_else(|| Value::Object(Map::new()))
+}
+
+/// The nested provenance-anchor `schema_version`s obey the same
+/// `[1, 2^53-1]` SchemaVersion domain as the entry's own member: the
+/// generated `NonZeroU64` carriers have no ceiling, so the typed decode
+/// alone cannot enforce it.
+pub(crate) fn validate_anchor_schema_versions(entry: &KnowledgeEntry) -> SpokeResult<()> {
+    let anchors = [
+        (
+            "source_anchor",
+            entry.source_anchor.as_ref().map(|a| a.schema_version.0.get()),
+        ),
+        (
+            "adoption_anchor",
+            entry
+                .adoption_anchor
+                .as_ref()
+                .map(|a| a.schema_version.0.get()),
+        ),
+    ];
+    for (field, version) in anchors {
+        let Some(version) = version else { continue };
+        if version > MAX_SCHEMA_VERSION {
+            let mut details = Map::new();
+            details.insert("field".into(), Value::String(field.to_owned()));
+            details.insert("schema_version".into(), Value::from(version));
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("KnowledgeEntry {field} schema_version must be an integer in [1, 2^53-1]"),
+                Some(details),
+            );
+        }
+    }
+    spoke_ok_unit()
 }
 
 /// Inclusive revision domain (`[0, 2^53]`), exact in the two stacks.

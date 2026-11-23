@@ -1507,6 +1507,63 @@ describe("RemoteAdapter loopback interop", () => {
         chunk: { ...chunk, records: [{ revision: 2 ** 53 }] },
       }),
     ).toBe(true);
+
+    // note: the retained record's schema-owned scalars (revision starts at 1;
+    // import attribution and the tombstone marker are bounded members).
+    const record = {
+      schema_version: 1,
+      occurred_at: "2026-07-23T09:00:00Z",
+      created_at: "2026-07-23T09:00:00Z",
+      updated_at: "2026-07-23T09:00:00Z",
+      revision: 1,
+      provenance: { captured_at: "2026-07-23T09:00:00Z" },
+    };
+    expect(isValidSuccessPayload("memory.records.get", { record })).toBe(true);
+    expect(
+      isValidSuccessPayload("memory.records.get", {
+        record: { ...record, revision: 0 },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.records.get", {
+        record: {
+          ...record,
+          import_ref: {
+            import_id: "imp_1",
+            source_record_id: "rec_src",
+            source_revision: 2 ** 53 + 2,
+          },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.records.get", {
+        record: {
+          ...record,
+          import_ref: {
+            import_id: "imp_1",
+            source_record_id: "rec_src",
+            source_revision: 2 ** 53,
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isValidSuccessPayload("memory.records.get", {
+        record: {
+          ...record,
+          tombstone: { deleted_at: "2026-07-23T09:00:00", deleted_by: "prn_1" },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.records.get", {
+        record: {
+          ...record,
+          tombstone: { deleted_at: "2026-07-23T09:00:00Z", deleted_by: "prn_1" },
+        },
+      }),
+    ).toBe(true);
   });
 
   it(

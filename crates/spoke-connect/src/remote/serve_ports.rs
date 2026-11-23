@@ -1517,10 +1517,11 @@ const MAX_SCHEMA_VERSION: u64 = (1 << 53) - 1;
 /// be in the SchemaVersion domain. The generated carrier is `NonZeroU64`
 /// with no ceiling, so this raw-JSON scan re-applies the bound on every
 /// payload before its typed decode. Product-owned opaque bags
-/// (`extensions`, `modules`, `state`, `computable`) and the explicitly
-/// open `metadata` object are skipped: their keys are not protocol
-/// members, so a product value that happens to be named `schema_version`
-/// must reach the provider untouched (qc2 Important 6 / qc3-07).
+/// (`extensions`, `modules`, `state`, `computable`), the explicitly
+/// open `metadata` object, and `Finding.text_position` are skipped: their
+/// keys are not protocol members, so a product value that happens to be
+/// named `schema_version` must reach the provider untouched (qc2
+/// Important 6 / qc3-07).
 pub(crate) fn schema_versions_in_domain(value: &Value) -> bool {
     match value {
         Value::Object(members) => members.iter().all(|(key, member)| {
@@ -1528,7 +1529,7 @@ pub(crate) fn schema_versions_in_domain(value: &Value) -> bool {
                 schema_version_in_domain(member)
             } else if matches!(
                 key.as_str(),
-                "extensions" | "modules" | "state" | "computable" | "metadata"
+                "extensions" | "modules" | "state" | "computable" | "metadata" | "text_position"
             ) {
                 true
             } else {

@@ -305,7 +305,8 @@ const REQUEST_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> 
  * `port.*` reads and writes). A response envelope carries no `op`, so the
  * caller supplies the request op that produced it and only that op's set
  * applies — own-keyed, empty fallback — so no response inherits another
- * op's exception.
+ * op's exception. The same set also applies under the reverse-invoke
+ * success wrapper `payload.result` (frozen §4).
  */
 const RESPONSE_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> = {
   extract: [
@@ -461,8 +462,16 @@ function revisionPaths(
       : op !== undefined && Object.hasOwn(RESPONSE_REVISION_PATHS, op)
         ? RESPONSE_REVISION_PATHS[op]
         : NO_REVISION_PATHS;
+    // note: a reverse-invoke success wraps the served value as
+    // `payload.result` (frozen §4), so the same op's declared paths apply
+    // one level deeper on that branch.
+    const served: readonly RevisionPath[] = paths.map((path) => [
+      "payload",
+      "result",
+      ...path.slice(1),
+    ]);
     const exceptions = adoptionConflictPaths(signedObject, op);
-    return exceptions.length === 0 ? paths : [...paths, ...exceptions];
+    return [...paths, ...served, ...exceptions];
   }
   return [];
 }

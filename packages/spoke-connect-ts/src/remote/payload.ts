@@ -25,7 +25,8 @@ type FieldKind =
   | "boolean"
   | "datetime"
   | "schema_version"
-  | "revision";
+  | "revision"
+  | "record_revision";
 
 interface Field {
   name: string;
@@ -166,17 +167,30 @@ const MEMORY_CANDIDATE_SCALARS = [
   { name: "revision", kind: "revision" },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `retained-record.schema.json` (+ nested provenance). */
+/** note: wire scalars owned by `retained-record.schema.json` (+ nested provenance,
+ * import attribution and the tombstone marker). */
 const MEMORY_RECORD_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "occurred_at", kind: "datetime" },
   { name: "created_at", kind: "datetime" },
   { name: "updated_at", kind: "datetime" },
-  { name: "revision", kind: "revision" },
+  { name: "revision", kind: "record_revision" },
   {
     name: "provenance",
     kind: "object",
     nested: [{ name: "captured_at", kind: "datetime" }],
+  },
+  {
+    name: "import_ref",
+    kind: "object",
+    optional: true,
+    nested: [{ name: "source_revision", kind: "revision" }],
+  },
+  {
+    name: "tombstone",
+    kind: "object",
+    optional: true,
+    nested: [{ name: "deleted_at", kind: "datetime" }],
   },
 ] as const satisfies readonly Field[];
 
@@ -452,6 +466,10 @@ function matchesFieldKind(value: unknown, kind: FieldKind): boolean {
       );
     case "revision":
       return isRevisionInteger(value);
+    case "record_revision":
+      // note: RetainedRecord.revision is `[1, 2^53]` — the per-object
+      // counter starts at 1 (retained-record.schema.json).
+      return isRevisionInteger(value) && value >= 1;
   }
 }
 

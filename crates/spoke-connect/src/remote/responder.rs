@@ -3586,6 +3586,49 @@ mod tests {
         }
     }
 
+    fn minimal_finding() -> Value {
+        json!({
+            "schema_version": 1,
+            "finding_id": "fnd_x",
+            "severity": "minor",
+            "status": "open",
+            "title": "title",
+            "description": "description",
+            "extensions": {},
+        })
+    }
+
+    /// `Finding.text_position` is product data: a member spelled
+    /// `schema_version` reaches the provider untouched, while the finding's
+    /// own schema-owned `schema_version` stays bounded.
+    #[test]
+    fn finding_put_admits_opaque_text_position_and_bounds_schema_version() {
+        let mut finding = minimal_finding();
+        finding["text_position"] = json!({ "schema_version": "draft", "revision": "draft" });
+        let call = decode_port_call("port.finding.put", &json!({ "findings": [finding] }), None);
+        let SpokeResult::Ok(PortCall::PutFindings(findings)) = call else {
+            panic!("an opaque text_position must reach the provider")
+        };
+        assert_eq!(
+            findings[0].text_position.get("schema_version"),
+            Some(&json!("draft")),
+            "text_position is opaque"
+        );
+
+        let mut finding = minimal_finding();
+        finding["schema_version"] = json!(9_007_199_254_740_992_u64);
+        assert!(
+            matches!(
+                decode_port_call("port.finding.put", &json!({ "findings": [finding] }), None),
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "the finding's own schema_version is schema-owned"
+        );
+    }
+
     /// Every declared nested member is non-nullable: an explicit `null`
     /// inside `body`, `source_anchor`, `source_anchor.span` or
     /// `body.attributes[]` is malformed `INVALID_INPUT`, never the

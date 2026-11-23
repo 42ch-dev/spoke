@@ -612,6 +612,44 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("signs a reverse-invoke success `payload.result` revision at the endpoint", async () => {
+    // why: the reverse-invoke success branch wraps the served value as
+    // `payload.result` (frozen §4), so the op's declared response revision
+    // paths sit one level deeper on that branch.
+    const payload = {
+      result: {
+        revision: ENDPOINT,
+        adoption_anchor: { source_revision: ENDPOINT },
+      },
+    };
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        payload,
+      },
+      {},
+      "port.knowledge.put",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "port.knowledge.put",
+      ),
+    ).resolves.toBeUndefined();
+    const jcs = canonicalize({
+      session_id: response.session_id,
+      sequence: response.sequence,
+      request_id: response.request_id,
+      payload,
+    });
+    expect(jcs).toContain('"revision":9007199254740992');
+  });
+
   it("refuses a served adoption payload carrying both `entry` and `error` (GH-01)", async () => {
     // note: the adoption response carries one variant — the mixed malformed
     // payload cannot borrow the success variant's `entry.revision` endpoint.

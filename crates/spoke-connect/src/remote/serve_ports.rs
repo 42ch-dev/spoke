@@ -633,19 +633,37 @@ fn scope_wire_equal(requested: &Scope, admitted: &Scope) -> bool {
 /// exact-integer endpoint is refused identically.
 const U64_RANGE_BOUND: f64 = 18_446_744_073_709_551_616.0; // 2^64
 
+/// Top-level request members whose contract domain is inclusive of the
+/// `2^53` endpoint (plan Clarify decision 3: `revision`, `deleted`,
+/// `floor_revision`, `keep`, `expected_base_revision`,
+/// `source_revision`). No other member — in particular no product-owned
+/// `extensions` value — may use the widened endpoint.
+const REVISION_MEMBERS: [&str; 6] = [
+    "revision",
+    "deleted",
+    "floor_revision",
+    "keep",
+    "expected_base_revision",
+    "source_revision",
+];
+
 /// Every integer member of `value` is inside the exact-integer range
-/// (`[−2^53, 2^53]`). The prune dedup digest is SHA-256 over the RFC
-/// 8785 encoding of the whole request payload; an integer beyond 2^53
-/// would collapse to the same canonical number as a distinct neighbor,
-/// so a different request could replay a recorded outcome under its own
-/// key. The serving boundary refuses such payloads with `INVALID_INPUT`
-/// instead of rounding (spoke-history contract §`HistoryPort`: the
-/// runtime never rounds an unrepresentable integer).
+/// (`[−2^53, 2^53]` for a revision member, `[−2^53 + 1, 2^53 − 1]` for
+/// everything else). The prune dedup digest is SHA-256 over the RFC
+/// 8785 encoding of the whole request payload; an integer beyond the
+/// member's range would collapse to the same canonical number as a
+/// distinct neighbor, so a different request could replay a recorded
+/// outcome under its own key. The serving boundary refuses such
+/// payloads with `INVALID_INPUT` instead of rounding (spoke-history
+/// contract §`HistoryPort`: the runtime never rounds an unrepresentable
+/// integer).
 ///
-/// The `2^53` endpoint is admitted: it is an exact IEEE-754 integer the
-/// TypeScript `canonicalize` reference emits as `9007199254740992`
-/// (contract C5), so the digest hashes it via
-/// [`jcs_hashed_payload`].
+/// The `2^53` endpoint is admitted only for the top-level
+/// [`REVISION_MEMBERS`]: it is an exact IEEE-754 integer the TypeScript
+/// `canonicalize` reference emits as `9007199254740992` (contract C5),
+/// so the digest hashes it via [`jcs_hashed_payload`]. Every other
+/// numeric member keeps the pre-widening treatment, so a product-owned
+/// `Scope.extensions` value at `2^53` is still refused.
 ///
 /// Integral floats follow the VALUE-based TypeScript rule, not the Rust
 /// token's representation (F-013): `1e16` decodes as an integral f64
@@ -654,13 +672,29 @@ const U64_RANGE_BOUND: f64 = 18_446_744_073_709_551_616.0; // 2^64
 /// out-of-u64 integral floats carry no integer identity to lose.
 fn payload_integers_jcs_exact(value: &Value) -> bool {
     match value {
+        Value::Object(members) => members.iter().all(|(key, member)| {
+            integers_within_exact_range(member, REVISION_MEMBERS.contains(&key.as_str()))
+        }),
+        other => integers_within_exact_range(other, false),
+    }
+}
+
+/// Recursive form of [`payload_integers_jcs_exact`]: nested members
+/// never take the widened endpoint, and neither do arrays.
+fn integers_within_exact_range(value: &Value, revision_member: bool) -> bool {
+    let max = if revision_member {
+        ADOPT_EXACT_INTEGER_BOUND
+    } else {
+        ADOPT_EXACT_INTEGER_BOUND - 1
+    };
+    match value {
         Value::Number(number) => {
             if number.is_u64() || number.is_i64() {
                 let magnitude = number
                     .as_u64()
                     .or_else(|| number.as_i64().map(i64::unsigned_abs))
                     .expect("integer number");
-                magnitude <= ADOPT_EXACT_INTEGER_BOUND
+                magnitude <= max
             } else {
                 let Some(float) = number.as_f64() else {
                     return true;
@@ -669,11 +703,15 @@ fn payload_integers_jcs_exact(value: &Value) -> bool {
                     return true;
                 }
                 let magnitude = float.abs();
-                magnitude <= ADOPT_EXACT_INTEGER_BOUND as f64 || magnitude >= U64_RANGE_BOUND
+                magnitude <= max as f64 || magnitude >= U64_RANGE_BOUND
             }
         }
-        Value::Array(items) => items.iter().all(payload_integers_jcs_exact),
-        Value::Object(members) => members.values().all(payload_integers_jcs_exact),
+        Value::Array(items) => items
+            .iter()
+            .all(|item| integers_within_exact_range(item, false)),
+        Value::Object(members) => members
+            .values()
+            .all(|member| integers_within_exact_range(member, false)),
         _ => true,
     }
 }
@@ -1343,7 +1381,9 @@ impl RemoteAdoptionService for AdoptionPortService {
         // The digest covers the WHOLE request object under RFC 8785 —
         // refuse any member outside the adoption exact-integer rule
         // before hashing (see `adopt_payload_integers_exact`; history
-        // keeps its own stricter digest rule).
+        // keeps its own stricter digest rule), then hash the copy whose
+        // `±2^53` endpoint is the equal f64 (`serde_jcs` stops one below
+        // it, while the endpoint is a valid revision spelling).
         if !adopt_payload_integers_exact(&payload) {
             return spoke_reject(
                 SpokeRejectCode::InvalidInput,
@@ -1351,7 +1391,7 @@ impl RemoteAdoptionService for AdoptionPortService {
                 None,
             );
         }
-        let payload_digest = match jcs_sha256_hex(&payload) {
+        let payload_digest = match jcs_sha256_hex(&jcs_hashed_payload(&payload)) {
             SpokeResult::Ok(digest) => digest,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
@@ -2744,6 +2784,53 @@ mod history_tests {
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
     }
 
+    /// The widened `2^53` admission is revision-typed only: `keep`
+    /// reaches the port at the endpoint, while a product-owned
+    /// `Scope.extensions` value at the same magnitude keeps the
+    /// pre-widening refusal (`INVALID_INPUT`, no port call). The scope
+    /// here matches the admission so the digest guard — not scope
+    /// equality — is what refuses.
+    #[tokio::test]
+    async fn prune_guard_admits_the_endpoint_only_for_revision_members() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let endpoint_scope = json!({
+            "scope_id": "s1",
+            "extensions": {
+                "ns": { "value": 9_007_199_254_740_992.0 },
+            },
+        });
+        let extensions_at_endpoint = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_PRUNE,
+                prune_payload("k-ext", 2, Some(&endpoint_scope)),
+            )
+            .await;
+        assert!(
+            matches!(
+                extensions_at_endpoint,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "a non-revision member at 2^53 must refuse: {extensions_at_endpoint:?}"
+        );
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+
+        let keep_at_endpoint = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_PRUNE,
+                prune_payload("k-keep", 9_007_199_254_740_992, None),
+            )
+            .await;
+        assert!(matches!(keep_at_endpoint, SpokeResult::Ok(_)), "{keep_at_endpoint:?}");
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
     /// §9.1 recorded-outcome model: a provider reject is a settled
     /// outcome too — the same-key replay returns it verbatim without
     /// re-executing the port.
@@ -3142,6 +3229,122 @@ mod history_tests {
             "an integral-float revision serves: {result:?}"
         );
         assert_eq!(*port.0.lock().expect("capture lock"), vec![7]);
+    }
+
+    /// The adoption dedup digest hashes the WHOLE request under RFC
+    /// 8785, and `source_revision` is contract-inclusive of `2^53` (C5).
+    /// `serde_jcs` stops one below the endpoint, so the serving face
+    /// re-spells it as the equal f64 — canonical bytes
+    /// `9007199254740992`, the same bytes the TypeScript canonicalizer
+    /// emits — and the adoption reaches the provider. Replay keeps
+    /// whole-request identity; a different payload under the same key
+    /// conflicts; the literal `2^53 + 1` still refuses.
+    #[tokio::test]
+    async fn adopt_source_revision_endpoint_serves_replays_and_conflicts() {
+        struct EndpointPort {
+            calls: AtomicU64,
+        }
+        #[async_trait]
+        impl AdoptionPort for EndpointPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+                assert_eq!(request.source_revision, 1 << 53);
+                spoke_ok(
+                    serde_json::from_value(json!({
+                        "outcome": "adopted",
+                        "entry": {
+                            "schema_version": 1,
+                            "entry_id": "ke_dst",
+                            "entry_type": "note",
+                            "canonical_name": "copy",
+                            "status": "confirmed",
+                            "revision": 1,
+                            "body": {},
+                            "adoption_anchor": {
+                                "schema_version": 1,
+                                "source_scope_id": "spc_local",
+                                "source_entry_id": "src-entry",
+                                "source_revision": 9_007_199_254_740_992u64,
+                                "extensions": {},
+                            },
+                            "extensions": {},
+                        },
+                    }))
+                    .expect("response decodes"),
+                )
+            }
+        }
+        let port = Arc::new(EndpointPort {
+            calls: AtomicU64::new(0),
+        });
+        let service = AdoptionPortService::new(
+            Arc::clone(&port) as Arc<dyn AdoptionPort + Send + Sync>,
+            admission(scope("spc_local"), principal("prn_peer-a")),
+        );
+        let payload = || {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload["source_revision"] = json!(9_007_199_254_740_992u64);
+            payload
+        };
+
+        let first = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload())
+            .await;
+        let SpokeResult::Ok(first) = first else {
+            panic!("a source_revision at 2^53 must serve: {first:?}")
+        };
+        assert_eq!(first["outcome"], "adopted");
+
+        let replay = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload())
+            .await;
+        let SpokeResult::Ok(replay) = replay else {
+            panic!("same-key same-digest must replay: {replay:?}")
+        };
+        assert_eq!(replay["outcome"], "already_present");
+        assert_eq!(port.calls.load(AtomicOrdering::SeqCst), 1);
+
+        let mut conflicting = payload();
+        conflicting["source_entry_id"] = json!("src-entry-2");
+        let conflict = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, conflicting)
+            .await;
+        assert!(
+            matches!(
+                conflict,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::IdempotencyConflict,
+                    ..
+                })
+            ),
+            "same key with a different digest must conflict: {conflict:?}"
+        );
+        assert_eq!(port.calls.load(AtomicOrdering::SeqCst), 1);
+
+        let mut over_bound = payload();
+        over_bound["idempotency_key"] = json!("key-over");
+        over_bound["source_revision"] = json!(9_007_199_254_740_993u64);
+        let refused = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, over_bound)
+            .await;
+        assert!(
+            matches!(
+                refused,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "the literal 2^53 + 1 must refuse INVALID_INPUT: {refused:?}"
+        );
+        assert_eq!(port.calls.load(AtomicOrdering::SeqCst), 1);
     }
 
     /// E1/E2 fixtures: a provider result factory with an overridable

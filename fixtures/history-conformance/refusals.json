@@ -131,6 +131,7 @@
       },
       "expect": {
         "error_code": "INVALID_INPUT",
+        "details": { "op": "history.revisions.get" },
         "provider_calls": 0
       }
     },
@@ -150,6 +151,7 @@
       },
       "expect": {
         "error_code": "INVALID_INPUT",
+        "details": { "op": "history.revisions.get" },
         "provider_calls": 0
       }
     },

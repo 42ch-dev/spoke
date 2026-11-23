@@ -132,9 +132,11 @@ jobs:
           XC_SOURCE=(
             Cargo.toml Cargo.lock .cargo rust-toolchain rust-toolchain.toml
             crates/spoke-connect crates/spoke-schemas crates/spoke-operations
+            Package.swift
           )
           XC_RECIPE=(
             tooling/connect/build-swift-xcframework.sh
+            tooling/connect/xcframework-manifest.sh
             tooling/connect/normalize-cargo-version.mjs
             tooling/release/lockstep-surfaces.mjs
             .github/workflows/xcframework.yml

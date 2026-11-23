@@ -425,12 +425,13 @@ jobs:
           SOURCE_REVISION="$(git log -1 --format=%H -- \
             Cargo.toml Cargo.lock .cargo rust-toolchain rust-toolchain.toml \
             crates/spoke-connect crates/spoke-schemas crates/spoke-operations \
-            Package.swift .github/workflows/xcframework.yml "${EXCLUDES[@]}" || true)"
+            Package.swift "${EXCLUDES[@]}" || true)"
           RECIPE_REVISION="$(git log -1 --format=%H -- \
             tooling/connect/build-swift-xcframework.sh \
             tooling/connect/xcframework-manifest.sh \
             tooling/connect/normalize-cargo-version.mjs \
-            tooling/release/lockstep-surfaces.mjs "${EXCLUDES[@]}" || true)"
+            tooling/release/lockstep-surfaces.mjs \
+            .github/workflows/xcframework.yml "${EXCLUDES[@]}" || true)"
           jq -n \
             --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             --argjson runId "${GITHUB_RUN_ID}" \

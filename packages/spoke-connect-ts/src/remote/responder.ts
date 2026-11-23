@@ -316,6 +316,31 @@ export function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** qc1 F-031 / qc3 F-032 — the adoption Reject channel's revision-typed
+ * detail (`details.adopted_revision`) obeys the same `[0, 2^53]`
+ * f64-observed domain as the served branches. The guard lives here, at the
+ * lower layer both boundaries import, so the serving face AND the responder
+ * apply one rule: the responder never trusts an arbitrary injected
+ * `RemoteAdoptionService`. An out-of-domain value settles as a
+ * provider-fault `INTERNAL_ERROR` (transport kind) instead of travelling
+ * on the wire; the receipt is otherwise returned verbatim (JS numbers are
+ * already the f64-observed identity). */
+export function validateAdoptRejectReceipt(reject: SpokeReject): SpokeReject {
+  const details = reject.details;
+  if (
+    isJsonObject(details) &&
+    "adopted_revision" in details &&
+    !isAdoptExactNonNegativeInteger(details.adopted_revision)
+  ) {
+    return spokeReject(
+      SpokeRejectCode.INTERNAL_ERROR,
+      "adoption provider returned an error details.adopted_revision outside [0, 2^53]",
+      { kind: "transport" },
+    );
+  }
+  return reject;
+}
+
 const UNSUPPORTED_COGNITION_MESSAGE = "Unsupported cognition requirement";
 
 const UNAVAILABLE_COGNITION_VIEW_MESSAGE =
@@ -2194,7 +2219,15 @@ export class ConnectResponder {
       return;
     }
     if (!result.ok) {
-      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
+      // qc3 F-032 — the responder never trusts an arbitrary injected
+      // `RemoteAdoptionService`: a Reject receipt's revision-typed detail
+      // gets the same `[0, 2^53]` guard as the served branches, so an
+      // out-of-domain `details.adopted_revision` answers a provider-fault
+      // INTERNAL_ERROR instead of travelling on the wire.
+      await this.#sendReverseErrorEnvelope(
+        doc,
+        toErrorEnvelope(validateAdoptRejectReceipt(result)),
+      );
       return;
     }
     // note: the service returns the `knowledge.adopt` success branch

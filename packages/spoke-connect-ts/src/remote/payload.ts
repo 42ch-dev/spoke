@@ -888,6 +888,15 @@ function isValidHistorySuccessPayload(op: string, value: unknown): boolean {
   );
 }
 
+/** A `knowledge.adopt` response payload that carries the failure `error`
+ * member at all (valid or not): lets the client gate separate a malformed
+ * failure — a MIXED envelope (`outcome`/`entry` alongside `error`)
+ * included — from the success shape. Rust's typed untagged decode refuses
+ * a mixed envelope, so neither branch may accept it (qc1 F-032). */
+export function carriesAdoptFailureMember(value: unknown): boolean {
+  return isRecord(value) && "error" in value;
+}
+
 /** Served `knowledge.adopt` failure branch (contract §`KnowledgeAdoptResponse`
  * `OneOf1`, E3): a closed `{error, extensions?}` envelope. A provider
  * refusal travels as the response PAYLOAD (a successful port outcome),

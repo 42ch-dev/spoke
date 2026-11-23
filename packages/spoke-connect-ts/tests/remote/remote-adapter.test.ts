@@ -29,7 +29,10 @@ import type {
   CheckRequest,
   ConnectInvokeRequest,
   HostCapabilityManifest,
+  KnowledgeAdoptRequest,
   KnowledgeEntry,
+  Principal,
+  Scope,
   UpsertRequest,
 } from "@42ch/spoke-schemas";
 import {
@@ -1173,6 +1176,79 @@ describe("RemoteAdapter loopback interop", () => {
         });
         // note: a malformed payload fails only this waiter — the session stays
         // usable (parity with the Rust invoke_mapped path).
+        expect(client.state).toBe("Established");
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "refuses a mixed knowledge.adopt payload (success members + error) as INTERNAL_ERROR kind transport (qc1 F-032)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      // why: the client's adopt gate must mirror the typed Rust untagged
+      // decode, which refuses a payload carrying BOTH branch shapes — the
+      // success-shape check alone would let it through (it only requires
+      // `outcome`/`entry`). Both hellos must negotiate the adoption family
+      // so the op reaches the payload gate (the override skips dispatch).
+      const adoptionCapabilities: [string, ...string[]] = [
+        "spoke-baseline",
+        "spoke-knowledge",
+        "spoke-knowledge-adoption",
+      ];
+      const { client, host } = await dial(hostAdapter, {
+        clientManifest: {
+          ...clientManifest(),
+          capabilities: adoptionCapabilities,
+        },
+        hostManifest: {
+          ...schemaConformantManifest(),
+          capabilities: adoptionCapabilities,
+        },
+        hostResponseOverride: (request) => ({
+          session_id: request.session_id,
+          sequence: request.sequence,
+          request_id: request.request_id,
+          payload: {
+            outcome: "adopted",
+            entry: { entry_id: "ke_mixed" },
+            error: {
+              code: "REVISION_CONFLICT",
+              message: "conflict",
+              extensions: {},
+            },
+          },
+          extensions: {},
+        }),
+      });
+      try {
+        const principal: Principal = {
+          principal_id: "prn_client",
+          extensions: {},
+        };
+        const scope: Scope = { scope_id: "spc_dst", extensions: {} };
+        const request: KnowledgeAdoptRequest = {
+          source_scope_id: "spc_src",
+          source_entry_id: "ke_src",
+          source_revision: 1,
+          destination_scope_id: "spc_dst",
+          idempotency_key: "k-mixed",
+          extensions: {},
+        };
+        const result = await client.adoptKnowledgeEntry(
+          principal,
+          scope,
+          request,
+        );
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("payload decode failed"),
+          details: { kind: "transport" },
+        });
         expect(client.state).toBe("Established");
       } finally {
         client.close();

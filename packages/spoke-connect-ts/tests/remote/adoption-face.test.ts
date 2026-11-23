@@ -1680,6 +1680,48 @@ describe("connect-level adoption failure payload (F-030)", () => {
   });
 });
 
+// ── Responder adoption reject boundary (qc3 F-032) ────────────────────
+
+describe("responder adoption reject boundary (F-032)", () => {
+  it("an injected service's out-of-domain details.adopted_revision answers INTERNAL_ERROR kind transport", async () => {
+    // why: the responder must not trust an arbitrary injected
+    // `RemoteAdoptionService` — the guard cannot live only inside
+    // `AdoptionPortService`.
+    const bespoke: RemoteAdoptionService = {
+      invoke: async () =>
+        spokeReject("REVISION_CONFLICT", "conflict", {
+          adopted_revision: 9007199254740994,
+        }),
+    };
+    const dialed = await dialAdoptionHost({
+      clientCapabilities: CLIENT_CAPABILITIES,
+      ports: {
+        knowledge: {
+          store: fixtureScopedStore(fixtureState({})),
+          admission: () =>
+            spokeOk({ scope_id: DESTINATION_SCOPE, extensions: {} }),
+        },
+        asAdoption: () => bespoke,
+      },
+    });
+    try {
+      const result = await dialed.client.adoptKnowledgeEntry(
+        PRINCIPAL,
+        { scope_id: DESTINATION_SCOPE, extensions: {} },
+        adoptPayload("k-f032") as unknown as KnowledgeAdoptRequest,
+      );
+      expect(result).toEqual({
+        ok: false,
+        code: "INTERNAL_ERROR",
+        message: expect.stringContaining("outside [0, 2^53]"),
+        details: { kind: "transport" },
+      });
+    } finally {
+      dialed.close();
+    }
+  });
+});
+
 // ── Destination admission at the serving boundary (C7 / QC2-08) ────────
 
 describe("adoption destination admission (contract Wire-wide rules)", () => {

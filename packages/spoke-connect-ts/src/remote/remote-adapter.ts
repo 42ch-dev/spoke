@@ -160,6 +160,7 @@ import {
   isConnectSession,
 } from "./guards.js";
 import {
+  carriesAdoptFailureMember,
   isAdoptFailurePayload,
   isValidRevisionSnapshot,
   isValidSuccessPayload,
@@ -1777,13 +1778,25 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       // outcome, not a transport error (qc2 QC2-21 / F-030; Rust
       // `invoke_mapped<KnowledgeAdoptResponse>` decodes both branches).
       if (op === ADOPTION_OPS.adoptKnowledgeEntry) {
-        if (isAdoptFailurePayload(response.payload)) {
+        // Two-branch served payload (contract E3): `knowledge.adopt` returns
+        // its provider refusal as `{error, extensions?}` — a successful port
+        // outcome, not a transport error (qc2 QC2-21 / F-030; Rust
+        // `invoke_mapped<KnowledgeAdoptResponse>` decodes both branches).
+        // A payload carrying BOTH branch shapes is neither: the typed Rust
+        // untagged decode refuses it (qc1 F-032).
+        if (carriesAdoptFailureMember(response.payload)) {
+          if (!isAdoptFailurePayload(response.payload)) {
+            return internalError(
+              "transport",
+              "response payload decode failed: payload is not a valid knowledge.adopt failure envelope (a mixed envelope is never valid)",
+            );
+          }
           return spokeOk(response.payload as unknown as T);
         }
         if (!isValidSuccessPayload(op, response.payload)) {
           return internalError(
             "transport",
-            "response payload decode failed: payload matches neither the knowledge.adopt success nor failure shape",
+            "response payload decode failed: payload does not match the knowledge.adopt success shape",
           );
         }
         return spokeOk(response.payload as unknown as T);

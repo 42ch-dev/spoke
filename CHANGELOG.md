@@ -6,6 +6,211 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.18.0] - 2026-11-23
+
+
+### Added
+
+- **schemas:** Add spoke-judgment Judgment wire schema
+
+- **judgment:** Spoke-judgment validators, manifest row, spec/ADR, conformance
+
+- **adoption:** Spoke-knowledge-adoption wire schemas, ports, dispatch, spec/ADR, conformance
+
+
+### Breaking
+
+- **codegen:** Upgrade typify to 0.10.1 (#213)
+
+- **history:** Add spoke-history schemas, HistoryPort, dispatch rows and helpers
+
+- **adoption:** Success entry requires adoption_anchor at schema level; round-6 residuals
+
+
+### Changed
+
+- **judgment:** Add remaining conformance corpus vectors
+
+- **judgment:** Round-3 refusal vectors + regen for schema_version ceiling
+
+- **adoption:** Add retirement-chain conformance corpus
+
+- **adoption:** Responder fmt residue
+
+- **adoption:** Drop unreachable knowledge.adopt generic success shape
+
+- **judgment:** Assert engine-dependent wire-projection depth consistently
+
+- **connect:** Assert the scoped-put pre-read in the foreign ports handler sequence
+
+- **connect:** Assert smoke behavior instead of pre-read call counts
+
+
+### Documentation
+
+- **connect:** Report C ABI revision 2 in consumer-facing docs (#189)
+
+- **knowledge:** Declare consumer-owned seed and EnvelopeAuthError in responder recipe (#208)
+
+- **adr:** Record spoke history design rationale
+
+- Add normative history protocol spec
+
+- **connect:** Gate history, adoption, and judgment capabilities
+
+- **reference:** Add history, knowledge adoption, and judgment pages
+
+- **specs:** Reconcile schema inventory, index, and adoption spec path
+
+- **specs:** Relocate adoption spec to protocol/ with re-anchored links
+
+- **llms:** Include new reference pages in the agent bundle
+
+- **protocol:** Correct capability contract details
+
+- **reference:** Correct history, adoption and judgment contract claims
+
+- **inventory:** Align schema counts and capability rows
+
+- Align judgment integer domain
+
+- Complete history refusal tables, root inventory, and cognition carrier list
+
+- **spoke-connect:** Correct served adopt comment to entry.entry_id
+
+- **readme:** State data-schema totals and list the three new capability flags
+
+- Specify judgment wire projection depth
+
+- **adoption:** State cycle vs edge-limit retirement_chain shapes
+
+- **adoption:** Attribute copy rules to the provider port, not this module
+
+- **knowledge:** Close the knowledge-evolution iteration — capture the dual-run CI defect (#214)
+
+
+### Fixed
+
+- **release:** Surface breaking changes in generated changelogs (#188)
+
+- Resolve audit follow-ups and simplify the CI/test surface (#190)
+
+- **codegen:** Tag generated doc blocks @generated so the comment gate classifies them (#209)
+
+- **history:** Connect serving face, prune dedup, and snapshot presence for spoke-history
+
+- **history:** Regenerate rust schemas for presence and restored API surface
+
+- **history:** Tighten history boundary validation and dedup semantics
+
+- **history:** Retain prune dedup tombstones for the store lifetime
+
+- **history:** Deep-shape validation for nested snapshot entities on TS
+
+- **history:** Match Rust decode strictness for timestamps and maps on TS
+
+- **history:** Match chrono RFC 3339 clock edges on TS
+
+- **history:** Bound calendar day inside the TS RFC 3339 check
+
+- **judgment:** Address QC wave-1 findings per settled contract
+
+- **judgment:** Address QC round-2 findings per amended contract
+
+- **judgment:** Round-3 QC fixes — schema_version ceiling, ASCII timestamp, enumerable+codepoint probes
+
+- **judgment:** Round-4 QC fixes — typed-decode ceiling, enumerable wire projection, sorted probe
+
+- **judgment:** WireCopy projection parity — proto keys, hidden indices, opaque payloads
+
+- **judgment:** Wire projection via engine JSON emission + typed-gate spec sentence
+
+- **adoption:** Address QC wave-1 findings per settled contract
+
+- **adoption:** Address QC round-2 findings per amended contract
+
+- **adoption:** Round-3 QC fixes — caller OCC restore, single-flight default, served shape
+
+- **adoption:** Round-4 QC fixes — refusal precedence, destination admission, dedup fallback
+
+- **adoption:** Round-5 TS residuals — span domain, refusal order, reserved prefix, destination auth
+
+- **adoption:** Round-7 residuals — reserved-op terminal gate, nested-null refusal, bound doc, spec wording
+
+- **adoption:** Interoperable revision domain + presence-faithful response extensions
+
+- **adoption:** Extension-map validation on served results, failure-branch extensions, f64 decode parity
+
+- **adoption:** Served failure-envelope parity + details revision domain
+
+- **adoption:** Closed served-result member sets + dispute pins + validator docs
+
+- **adoption:** Client two-branch payload gate + Reject details domain
+
+- **adoption:** Client mixed-envelope refusal + responder reject-details boundary guard
+
+- **adoption:** Client success gate requires anchored deep-valid entry
+
+- **adoption:** Client success gate enforces closed response schema
+
+- **docs:** Align conformance fixture counts and adoption ADR spec path
+
+- **connect:** Carry op details on history INVALID_INPUT rejects
+
+- **history,adoption,judgment:** Close review-thread defects
+
+- **history:** Replay stored timestamps verbatim
+
+- **history:** Derive the prune dedup identity structurally
+
+
+### Internal
+
+- **connect:** Share the host target and fold bindgen into the xcframework build (#198)
+
+- **packages:** Classify comments into declared shapes and drop tautologies (#203)
+
+- **workflows:** Gate heavy lanes on a conditional rebuild (#204)
+
+- **connect:** Split carrier lanes and hand the ABI report to the rebuild (#205)
+
+- **xcframework:** Split rebuild into host, slice and assemble jobs (#206)
+
+- **connect:** Add recipe revision and nightly freshness check (#207)
+
+- **adoption:** Remaining round-4 hunks + rustfmt pass on touched files
+
+- **adoption:** Regen for anchor-required response + presence-faithful request map
+
+- **merge:** Integrate feature/knowledge-evolution-p2-adoption
+
+- **codegen:** Regenerate manifest carriers after capability vocabulary update
+
+- **merge:** Integrate main into iteration branch
+
+- Validate iteration branches through their pull request only
+
+
+### build
+
+- **deps:** Bump typify in /tooling/codegen/rust-gen (#191)
+
+- **deps:** Bump pollster from 1.0.1 to 1.0.2 (#192)
+
+- **deps:** Bump uuid from 1.29.2 to 1.29.3 (#193)
+
+- **deps-dev:** Bump vitest from 5.1.0 to 5.1.1 (#194)
+
+- **deps:** Bump rusqlite from 0.42.0 to 0.43.0 (#195)
+
+- **deps:** Bump ws from 8.22.2 to 8.23.0 (#196)
+
+- **deps:** Bump glob from 14.0.4 to 14.0.6 (#197)
+
+- **codegen:** Pin typify back to 0.8 pending the normalization rewrite (#211)
+
+- **deps:** Bump serde_jcs from 0.2.0 to 0.3.0 (#212)
+
 ## [0.17.0] - 2026-11-20
 
 

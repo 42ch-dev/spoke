@@ -660,25 +660,28 @@ const REVISION_MEMBERS: [&str; 6] = [
 /// outcome under its own key. The serving boundary refuses such
 /// payloads with `INVALID_INPUT` instead of rounding (spoke-history
 /// contract §`HistoryPort`: the runtime never rounds an unrepresentable
-/// integer). The history prune digest does not use this predicate: its
-/// walk owns `keep` alone and refuses every other endpoint directly.
+/// integer). The history prune digest uses it with `keep` as its only
+/// revision member, so its opaque-domain float refusal (magnitude up to
+/// `2^64`) is unchanged by the envelope normalizer's narrower negative
+/// range.
 ///
-/// `2^53` endpoint is admitted only for the top-level
-/// [`REVISION_MEMBERS`]: it is an exact IEEE-754 integer the TypeScript
-/// `canonicalize` reference emits as `9007199254740992` (contract C5),
-/// so the digest hashes it via [`respell_paths`]. Every other
-/// numeric member keeps the pre-widening treatment, so a product-owned
-/// `Scope.extensions` value at `2^53` is still refused.
+/// `2^53` endpoint is admitted only for the caller's top-level revision
+/// members ([`REVISION_MEMBERS`] for adoption, `keep` alone for prune):
+/// it is an exact IEEE-754 integer the TypeScript `canonicalize`
+/// reference emits as `9007199254740992` (contract C5), so the digest
+/// hashes it via [`respell_paths`]. Every other numeric member keeps the
+/// pre-widening treatment, so a product-owned `Scope.extensions` value
+/// at `2^53` is still refused.
 ///
 /// Integral floats follow the VALUE-based TypeScript rule, not the Rust
 /// token's representation (F-013): `1e16` decodes as an integral f64
 /// here and as an unsafe integral `number` there — the same wire
 /// payload must take the same refusal. Non-integral floats and
 /// out-of-u64 integral floats carry no integer identity to lose.
-fn payload_integers_jcs_exact(value: &Value) -> bool {
+fn payload_integers_jcs_exact(value: &Value, revision_members: &[&str]) -> bool {
     match value {
         Value::Object(members) => members.iter().all(|(key, member)| {
-            integers_within_exact_range(member, REVISION_MEMBERS.contains(&key.as_str()))
+            integers_within_exact_range(member, revision_members.contains(&key.as_str()))
         }),
         other => integers_within_exact_range(other, false),
     }
@@ -1029,6 +1032,19 @@ impl RemoteHistoryService for HistoryPortService {
         // moves out for decoding.
         let payload_digest = if op == HISTORY_OP_PRUNE {
             // The digest covers the WHOLE request object under RFC 8785.
+            // Refuse any member outside the prune's digest domain before
+            // hashing (see `payload_integers_jcs_exact`): `keep` alone may
+            // carry the `2^53` endpoint, while an opaque integral float
+            // whose magnitude lies in `[2^53, 2^64)` keeps wave E's
+            // refusal rather than the envelope normalizer's narrower
+            // negative range.
+            if !payload_integers_jcs_exact(&payload, &["keep"]) {
+                return spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("invalid {op} payload: integer member outside the exact-integer range"),
+                    history_input_details(op),
+                );
+            }
             // Normalization owns only this op's revision member (`keep`):
             // an endpoint elsewhere in the object — including the extra
             // top-level `revision` spelling the shared six-member predicate
@@ -1323,7 +1339,7 @@ impl RemoteAdoptionService for AdoptionPortService {
         // one below it, while the endpoint is a valid revision spelling).
         // An unrelated `2^53` — a product-owned `extensions` value
         // included — keeps the raw JCS treatment and refuses here.
-        if !payload_integers_jcs_exact(&payload) {
+        if !payload_integers_jcs_exact(&payload, &REVISION_MEMBERS) {
             return spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 format!("invalid {op} payload: integer member outside the exact-integer range"),
@@ -2725,6 +2741,44 @@ mod history_tests {
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
     }
 
+    /// F-QC2-01 — the prune digest keeps its previous opaque numeric
+    /// domain: an integral float `-1e19` in `extensions` lies below the
+    /// envelope normalizer's `-2^63` floor but inside the digest's old
+    /// magnitude-below-`2^64` refusal, so it is `INVALID_INPUT` before any
+    /// port call. The `keep` endpoint at `2^53` stays admitted.
+    #[tokio::test]
+    async fn prune_opaque_float_outside_previous_domain_is_invalid_input() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let mut payload = prune_payload("k-opaque-float", 2, None);
+        payload["extensions"] = json!({ "ns": { "n": -1e19 } });
+        let result = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, payload)
+            .await;
+        assert!(
+            matches!(
+                result,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "an opaque float in the previous refusal range must reject: {result:?}"
+        );
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+
+        let keep = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_PRUNE,
+                prune_payload("k-opaque-float-keep", 9_007_199_254_740_992, None),
+            )
+            .await;
+        assert!(matches!(keep, SpokeResult::Ok(_)), "{keep:?}");
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
     /// E-01 / E-QC1-01 — the prune digest normalization follows the op's
     /// `keep`-only ownership. An extra top-level `revision` with the float
     /// endpoint spelling passes the shared six-member predicate, but it is
@@ -3049,7 +3103,7 @@ mod history_tests {
             json!(-1e16),
         ] {
             assert!(
-                !payload_integers_jcs_exact(&refused),
+                !payload_integers_jcs_exact(&refused, &REVISION_MEMBERS),
                 "{refused} must be refused"
             );
         }
@@ -3061,7 +3115,7 @@ mod history_tests {
             json!(0.0),
         ] {
             assert!(
-                payload_integers_jcs_exact(&accepted),
+                payload_integers_jcs_exact(&accepted, &REVISION_MEMBERS),
                 "{accepted} must be accepted"
             );
         }

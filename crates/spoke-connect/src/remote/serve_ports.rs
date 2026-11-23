@@ -716,23 +716,28 @@ fn integers_within_exact_range(value: &Value, revision_member: bool) -> bool {
     }
 }
 
-/// Re-spell the `±2^53` endpoint as its equal `f64` for hashing.
-/// `serde_jcs` refuses any integer beyond its `MAX_SAFE_INTEGER`
-/// (2^53 − 1) even though `2^53` is an exact IEEE-754 integer that RFC
-/// 8785 canonicalizes as `9007199254740992` — exactly the bytes the
-/// TypeScript `canonicalize` reference emits. Every other member is
-/// already canonicalized unchanged.
+/// Re-spell an integer `±2^53` endpoint as its equal `f64` for hashing;
+/// every other value keeps its token. `serde_jcs` refuses any integer
+/// beyond its `MAX_SAFE_INTEGER` (2^53 − 1) even though `2^53` is an
+/// exact IEEE-754 integer that RFC 8785 canonicalizes as
+/// `9007199254740992` — exactly the bytes the TypeScript `canonicalize`
+/// reference emits.
+fn jcs_endpoint_respelled(value: &Value) -> Option<Value> {
+    let number = value.as_number()?;
+    if number.as_u64() == Some(ADOPT_EXACT_INTEGER_BOUND) {
+        Some(Value::from(ADOPT_EXACT_INTEGER_BOUND as f64))
+    } else if number.as_i64() == Some(-(ADOPT_EXACT_INTEGER_BOUND as i64)) {
+        Some(Value::from(-(ADOPT_EXACT_INTEGER_BOUND as f64)))
+    } else {
+        None
+    }
+}
+
+/// Re-spell every integer `±2^53` in `value` as its equal `f64` for
+/// hashing. The caller must have admitted the endpoint only where the
+/// contract allows it — otherwise an unrelated integer is widened.
 fn jcs_hashed_payload(value: &Value) -> Value {
     match value {
-        Value::Number(number)
-            if number.as_u64() == Some(ADOPT_EXACT_INTEGER_BOUND)
-                || number.as_i64() == Some(-(ADOPT_EXACT_INTEGER_BOUND as i64)) =>
-        {
-            Value::from(number.as_u64().map_or(
-                -(ADOPT_EXACT_INTEGER_BOUND as f64),
-                |magnitude| magnitude as f64,
-            ))
-        }
         Value::Array(items) => Value::Array(items.iter().map(jcs_hashed_payload).collect()),
         Value::Object(members) => Value::Object(
             members
@@ -740,8 +745,26 @@ fn jcs_hashed_payload(value: &Value) -> Value {
                 .map(|(key, member)| (key.clone(), jcs_hashed_payload(member)))
                 .collect(),
         ),
-        other => other.clone(),
+        other => jcs_endpoint_respelled(other).unwrap_or_else(|| other.clone()),
     }
+}
+
+/// Adoption's digest normalization: `source_revision` is the sole
+/// revision-typed member of the adoption request, so it alone takes the
+/// `±2^53` endpoint re-spelling. Every other member keeps the raw JCS
+/// treatment — `serde_jcs` stops at `2^53 − 1`, so a product-owned
+/// `extensions` integer at `2^53` still refuses before the provider.
+fn adopt_hashed_payload(payload: &Value) -> Value {
+    let Value::Object(mut members) = payload.clone() else {
+        return payload.clone();
+    };
+    if let Some(revision) = members
+        .get("source_revision")
+        .and_then(jcs_endpoint_respelled)
+    {
+        members.insert("source_revision".to_owned(), revision);
+    }
+    Value::Object(members)
 }
 
 /// Largest integer exactly representable as an f64 — the inclusive
@@ -1382,8 +1405,10 @@ impl RemoteAdoptionService for AdoptionPortService {
         // refuse any member outside the adoption exact-integer rule
         // before hashing (see `adopt_payload_integers_exact`; history
         // keeps its own stricter digest rule), then hash the copy whose
-        // `±2^53` endpoint is the equal f64 (`serde_jcs` stops one below
-        // it, while the endpoint is a valid revision spelling).
+        // `source_revision` endpoint is the equal f64 (`serde_jcs` stops
+        // one below it, while the endpoint is a valid revision spelling).
+        // Only that revision-typed member is re-spelled: an unrelated
+        // `2^53` integer keeps the raw JCS treatment and refuses here.
         if !adopt_payload_integers_exact(&payload) {
             return spoke_reject(
                 SpokeRejectCode::InvalidInput,
@@ -1391,7 +1416,7 @@ impl RemoteAdoptionService for AdoptionPortService {
                 None,
             );
         }
-        let payload_digest = match jcs_sha256_hex(&jcs_hashed_payload(&payload)) {
+        let payload_digest = match jcs_sha256_hex(&adopt_hashed_payload(&payload)) {
             SpokeResult::Ok(digest) => digest,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
@@ -3345,6 +3370,73 @@ mod history_tests {
             "the literal 2^53 + 1 must refuse INVALID_INPUT: {refused:?}"
         );
         assert_eq!(port.calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    /// Important 1 (fix 3): the adoption digest's `±2^53` endpoint is
+    /// revision-typed only. `source_revision = 2^53` reaches the provider,
+    /// while the same integer in a product-owned `extensions` value keeps
+    /// the pre-widening JCS treatment and refuses before any provider
+    /// call.
+    #[tokio::test]
+    async fn adopt_endpoint_is_admitted_only_for_source_revision() {
+        struct CountingPort(AtomicU64);
+        #[async_trait]
+        impl AdoptionPort for CountingPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                self.0.fetch_add(1, AtomicOrdering::SeqCst);
+                assert_eq!(request.source_revision, 1 << 53);
+                spoke_ok(
+                    serde_json::from_value(json!({
+                        "outcome": "adopted",
+                        "entry": served_entry(1 << 53, 1),
+                    }))
+                    .expect("response decodes"),
+                )
+            }
+        }
+        let port = Arc::new(CountingPort(AtomicU64::new(0)));
+        let service = AdoptionPortService::new(
+            Arc::clone(&port) as Arc<dyn AdoptionPort + Send + Sync>,
+            admission(scope("spc_local"), principal("prn_peer-a")),
+        );
+        let payload = |extensions: Option<Value>| {
+            let mut payload = adopt_payload(extensions);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload
+        };
+
+        let mut extensions_at_endpoint = payload(Some(json!({
+            "ns": { "value": 9_007_199_254_740_992u64 },
+        })));
+        extensions_at_endpoint["idempotency_key"] = json!("key-ext");
+        let refused = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, extensions_at_endpoint)
+            .await;
+        assert!(
+            matches!(
+                refused,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "an extensions integer at 2^53 must refuse: {refused:?}"
+        );
+        assert_eq!(port.0.load(AtomicOrdering::SeqCst), 0);
+
+        let mut revision_at_endpoint = payload(None);
+        revision_at_endpoint["source_revision"] = json!(9_007_199_254_740_992u64);
+        let served = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, revision_at_endpoint)
+            .await;
+        assert!(matches!(served, SpokeResult::Ok(_)), "{served:?}");
+        assert_eq!(port.0.load(AtomicOrdering::SeqCst), 1);
     }
 
     /// E1/E2 fixtures: a provider result factory with an overridable

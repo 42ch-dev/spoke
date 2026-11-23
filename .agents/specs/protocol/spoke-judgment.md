@@ -91,6 +91,12 @@ and ignored by `validateJudgment` — and prototype members are likewise exclude
 enumeration this contract names, including the reserved-name probe over `verdict.detail`, reads
 exactly this own-enumerable scope.
 
+**Wire-projection nesting depth.** Projecting a judgment onto its wire form runs through the
+implementation's JSON serializer. A value whose nesting exceeds that serializer's ceiling is
+refused with `INVALID_INPUT` and `details.field = "judgment"`; the ceiling is
+implementation-defined and is not part of this contract. A depth that every mainstream JSON
+serializer accepts (the shipped conformance depth) is accepted on both stacks.
+
 ### `Judgment`
 
 `Judgment` is a closed object (`additionalProperties: false`):

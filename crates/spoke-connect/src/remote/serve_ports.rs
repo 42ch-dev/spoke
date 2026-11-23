@@ -3043,6 +3043,10 @@ mod history_tests {
             }),
             // unknown TOP-LEVEL member on the success branch
             json!({ "outcome": "adopted", "entry": entry, "surprise": true }),
+            // `outcome` outside the closed vocabulary
+            json!({ "outcome": "unexpected", "entry": entry }),
+            // success `extensions` must be an ExtensionMap
+            json!({ "outcome": "adopted", "entry": entry, "extensions": [] }),
             // unknown TOP-LEVEL member on the failure branch
             json!({
                 "error": { "code": "REVISION_CONFLICT", "message": "x", "extensions": {} },

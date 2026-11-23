@@ -950,17 +950,31 @@ export function isAdoptFailurePayload(value: unknown): boolean {
   return true;
 }
 
-/** Served `knowledge.adopt` success branch (contract §`KnowledgeAdoptResponse`
- * `OneOf0`): `{outcome, entry, extensions?}` where `entry` is a COMPLETE
- * `KnowledgeEntry` carrying a well-formed `adoption_anchor` — the same bar
- * the serving face and the typed Rust `OneOfEntry` decode apply.
- * Accepting the shallow success shape alone would surface `spokeOk` for a
- * payload the Rust client refuses (qc1 F-033). */
+/** Served `knowledge.adopt` success branch (knowledge-adopt-response
+ * schema `OneOf0`, `additionalProperties: false`): the closed top-level
+ * member set `{outcome, entry, extensions?}`; `outcome` is the closed
+ * vocabulary `"adopted" | "already_present"`; `extensions` is an
+ * `ExtensionMap` when supplied; and `entry` is a COMPLETE `KnowledgeEntry`
+ * carrying a well-formed `adoption_anchor` — the same bar the serving face
+ * and the typed Rust `OneOfEntry` decode apply. Accepting the shallow
+ * `{outcome, entry}` shape alone would surface `spokeOk` for a payload the
+ * Rust client refuses (qc1 F-033 / round-15). */
 export function isValidAdoptSuccessPayload(value: unknown): boolean {
-  if (!isValidSuccessPayload("knowledge.adopt", value)) {
+  if (!isRecord(value)) {
     return false;
   }
-  const entry = (value as Record<string, unknown>).entry;
+  for (const member of Object.keys(value)) {
+    if (member !== "outcome" && member !== "entry" && member !== "extensions") {
+      return false;
+    }
+  }
+  if (value.outcome !== "adopted" && value.outcome !== "already_present") {
+    return false;
+  }
+  if ("extensions" in value && !isValidExtensionMap(value.extensions)) {
+    return false;
+  }
+  const entry = value.entry;
   return (
     isRecord(entry) &&
     isValidKnowledgeEntryDeep(entry) &&

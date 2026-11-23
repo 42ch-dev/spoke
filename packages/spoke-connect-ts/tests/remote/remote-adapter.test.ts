@@ -1259,7 +1259,7 @@ describe("RemoteAdapter loopback interop", () => {
   );
 
   it(
-    "refuses a knowledge.adopt success entry missing its adoption_anchor, and accepts a complete anchored entry (qc1 F-033)",
+    "validates the knowledge.adopt success branch against the published schema (entry completeness, outcome vocabulary, closed members, extensions) (qc1 F-033)",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
       // why: the shallow success shape only requires `entry` to be an
@@ -1357,6 +1357,66 @@ describe("RemoteAdapter loopback interop", () => {
       } finally {
         valid.client.close();
         valid.host.close();
+      }
+
+      // (c) schema-level success rules — closed outcome vocabulary, closed
+      // top-level member set, ExtensionMap extensions — each refused
+      // (qc1 round-15; the typed Rust decode enforces the same rules).
+      const refuse = async (payload: unknown, label: string) => {
+        const dialed = await dialWithPayload(payload);
+        try {
+          const result = await dialed.client.adoptKnowledgeEntry(
+            principal,
+            scope,
+            request,
+          );
+          expect(result, label).toEqual({
+            ok: false,
+            code: SpokeRejectCode.INTERNAL_ERROR,
+            message: expect.stringContaining("payload decode failed"),
+            details: { kind: "transport" },
+          });
+        } finally {
+          dialed.client.close();
+          dialed.host.close();
+        }
+      };
+      await refuse(
+        { outcome: "unexpected", entry: anchoredEntry },
+        "outcome outside the closed vocabulary",
+      );
+      await refuse(
+        { outcome: "adopted", entry: anchoredEntry, surprise: true },
+        "unknown top-level member",
+      );
+      await refuse(
+        { outcome: "adopted", entry: anchoredEntry, extensions: [] },
+        "extensions is not an ExtensionMap",
+      );
+
+      // (d) a valid `extensions` member serves verbatim.
+      const extended = await dialWithPayload({
+        outcome: "already_present",
+        entry: anchoredEntry,
+        extensions: { product: { v: 1 } },
+      });
+      try {
+        const result = await extended.client.adoptKnowledgeEntry(
+          principal,
+          scope,
+          request,
+        );
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toEqual({
+            outcome: "already_present",
+            entry: anchoredEntry,
+            extensions: { product: { v: 1 } },
+          });
+        }
+      } finally {
+        extended.client.close();
+        extended.host.close();
       }
     },
     15000,

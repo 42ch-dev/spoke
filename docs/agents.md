@@ -26,7 +26,7 @@ A docs page that contradicts `schemas/` is a docs bug. Do not generate code from
 1. `/reference/protocol` — schema inventory, capability flags, `extensions` and `modules` contract.
 2. `/reference/data-model` — object fields. Read the object before writing a literal.
 3. `/reference/ops` — request and response envelopes, `Scope`, `ErrorEnvelope`.
-4. The capability reference you need: `/reference/memory`, `/reference/mind-state`, `/reference/connect`.
+4. The capability reference you need: `/reference/memory`, `/reference/mind-state`, `/reference/connect`, `/reference/history`, `/reference/knowledge-adoption`, `/reference/judgment`.
 5. `/how-to/implement-adapter` and `/how-to/orchestrate-ops` — ports and `orchestrate*` sequences.
 6. `/explanation/concepts` — layers and dual-concern pairs, when a name looks ambiguous.
 
@@ -38,6 +38,9 @@ A docs page that contradicts `schemas/` is a docs bug. Do not generate code from
 | Call an op | `/reference/ops` | `/how-to/orchestrate-ops` |
 | Add a capability flag | `/reference/protocol` | `/explanation/concepts` |
 | Serve memory | `/reference/memory` | `/how-to/implement-adapter` |
+| Replay or bound stored history | `/reference/history` | `/reference/connect` |
+| Adopt a shared entry | `/reference/knowledge-adoption` | `/reference/data-model` |
+| Validate a verdict payload | `/reference/judgment` | `/reference/ops` |
 | Open a cross-process session | `/reference/connect` | `/how-to/connect-ts-client` |
 | Proxy adapter ports over a transport | `/how-to/connect-remote-adapter` | `/reference/connect` |
 | Call or expose a remote tool | `/reference/connect` | `/how-to/connect-remote-tools` |

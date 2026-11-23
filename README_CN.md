@@ -139,6 +139,9 @@ if (result.ok) {
 | 核对字段名与必填集合 | [数据模型](https://spoke.42ch.dev/zh/reference/data-model) |
 | 编写或读取 op 信封 | [Ops 线上](https://spoke.42ch.dev/zh/reference/ops) |
 | 提供按主体的记忆服务 | [记忆（Memory）](https://spoke.42ch.dev/zh/reference/memory) |
+| 回放某个 revision 或裁剪已存历史 | [历史（History）](https://spoke.42ch.dev/zh/reference/history) |
+| 采纳共享条目到个人集合 | [知识采纳（Knowledge adoption）](https://spoke.42ch.dev/zh/reference/knowledge-adoption) |
+| 校验判定载荷 | [判定（Judgment）](https://spoke.42ch.dev/zh/reference/judgment) |
 | 建立跨进程会话 | [Connect](https://spoke.42ch.dev/zh/reference/connect) |
 | 理解分层模型 | [核心概念](https://spoke.42ch.dev/zh/explanation/concepts) |
 | 发布本体词汇 | [领域画像](https://spoke.42ch.dev/zh/explanation/domain-profiles) |

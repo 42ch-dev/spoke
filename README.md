@@ -139,6 +139,9 @@ The site is organised by job:
 | Check field names and required sets | [Data model](https://spoke.42ch.dev/reference/data-model) |
 | Write or read an op envelope | [Ops wire](https://spoke.42ch.dev/reference/ops) |
 | Serve per-subject memory | [Memory](https://spoke.42ch.dev/reference/memory) |
+| Replay a revision or bound stored history | [History](https://spoke.42ch.dev/reference/history) |
+| Adopt a shared entry into a collection | [Knowledge adoption](https://spoke.42ch.dev/reference/knowledge-adoption) |
+| Validate a verdict payload | [Judgment](https://spoke.42ch.dev/reference/judgment) |
 | Open a cross-process session | [Connect](https://spoke.42ch.dev/reference/connect) |
 | Understand the layer model | [Concepts](https://spoke.42ch.dev/explanation/concepts) |
 | Publish ontology vocabulary | [Domain profiles](https://spoke.42ch.dev/explanation/domain-profiles) |

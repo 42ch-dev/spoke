@@ -160,6 +160,18 @@ Short-lived, capability-scoped grant proof carried as the opaque `proof` on `Con
 
 ---
 
+### spoke-history
+
+Optional capability family (`spoke-history`) for revision observability. `RevisionSnapshot` carries a stored entity's state at one revision — open `entity_kind` (core values `knowledge_entry`, `relation`), `entity_id`, `revision`, the snapshot object, `extensions` — and stored timestamps replay byte-for-byte as stored. Two ops: `history.revisions.get` replays a stated revision (below the retained floor answers `HISTORY_TRUNCATED` with `details.floor_revision`) and `history.revisions.prune` bounds the history (`keep` counts checkpoints excluding the live row; `floor_revision` is the newest deleted checkpoint plus one, so a revision derived from a surviving checkpoint stays answerable; pruning reuses the entity's write permission). Storage and replay engines stay product-owned; the standalone `HistoryPort` is the adapter seam.
+
+### spoke-knowledge-adoption
+
+Optional capability family (`spoke-knowledge-adoption`, declared together with `spoke-knowledge`) for taking a shared entry into a destination scope. `KnowledgeEntry.adoption_anchor` is a protocol field (`AdoptionAnchor`) recording the resolved terminal live source — scope, entry id, revision — and is immutable after creation (a `put` that changes it answers `ADOPTION_ANCHOR_IMMUTABLE` with `details.entry_id`). One op `knowledge.adopt` writes the copy as one create-only CAS transaction: an exact repeat answers `already_present`, a different revision answers `REVISION_CONFLICT` with `details.adopted_revision`, an owner-private source answers `NOT_FOUND`, and a retired source resolves through the retirement chain to its terminal live source (a cycle or ambiguity answers `SOURCE_RETIRED` with `details.retirement_chain`). `source_anchor` keeps its own provenance meaning and is cleared on the copy; `modules.cognition` is not copied; `owner` and `disclosure` reset to the destination's values. The standalone `AdoptionPort` is the adapter seam.
+
+### spoke-judgment
+
+Optional capability family (`spoke-judgment`) for a validatable verdict envelope — a data capability with no Connect dispatch row. `Judgment` carries `judgment_kind` (open vocabulary, core `consistency` / `support` / `acceptance` / `review`), `target`, `evidence[]` (each a `JudgmentRef` pinning a positive `revision`), and `verdict { outcome, confidence?, detail? }`, where `detail` is an opaque object that may not carry protocol-level members. The pure validators `validateJudgment` / `validate_judgment` refuse missing core fields, an empty outcome, confidence outside `[0,1]`, non-positive revisions, and protocol members smuggled into `verdict.detail`, naming the violated field; two implementations agree byte-for-byte under RFC 8785 canonical JSON. `deliberate` stays a product op carried through `tools.*`; the reasoner and thresholds remain product-owned.
+
 ## Core `entry_type` vocabulary (documented, not enforced)
 
 Open string on `KnowledgeEntry.entry_type`. Full table with typical-use rows: [`spoke-data-model.md` §Open vocabulary](.agents/specs/protocol/spoke-data-model.md#open-vocabulary). Schema `description` core list in `knowledge-entry.schema.json` MUST match that table.
@@ -244,6 +256,9 @@ Integrators may map one local mental fact to one or more of these surfaces. SPOK
 | [`.agents/specs/protocol/spoke-protocol.md`](.agents/specs/protocol/spoke-protocol.md) | Umbrella spec |
 | [`.agents/specs/protocol/spoke-protocol-layers.md`](.agents/specs/protocol/spoke-protocol-layers.md) | L0–L8, capability levels, Timeline tiers |
 | [`.agents/specs/protocol/spoke-data-model.md`](.agents/specs/protocol/spoke-data-model.md) | Data objects, Rule, TimelineEvent, TimelineScale |
+| [`.agents/specs/protocol/spoke-history.md`](.agents/specs/protocol/spoke-history.md) | `spoke-history` — revision snapshots, retained floor, explicit prune |
+| [`.agents/specs/protocol/spoke-knowledge-adoption.md`](.agents/specs/protocol/spoke-knowledge-adoption.md) | `spoke-knowledge-adoption` — anchor, `knowledge.adopt`, retirement chain |
+| [`.agents/specs/protocol/spoke-judgment.md`](.agents/specs/protocol/spoke-judgment.md) | `spoke-judgment` — Judgment envelope and the pure validator |
 | [`.agents/specs/extensions/spoke-extension-modules.md`](.agents/specs/extensions/spoke-extension-modules.md) | Core / modules / extensions triad |
 | [`.agents/specs/domain-profiles/domain-profile-narrative-structure.md`](.agents/specs/domain-profiles/domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
 | [`.agents/specs/domain-profiles/domain-profile-lore-activation.md`](.agents/specs/domain-profiles/domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` |

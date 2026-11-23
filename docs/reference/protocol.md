@@ -65,7 +65,7 @@ After schema decoding, an unknown predicate, a known-but-unimplemented view/dime
 
 ## Related
 
-- [Data model reference](/reference/data-model) — field tables for all eleven data objects.
+- [Data model reference](/reference/data-model) — field tables for all 27 data schemas.
 - [Ops wire reference](/reference/ops) — request/response envelopes, `Scope`, `ErrorEnvelope`.
 - [Connect reference](/reference/connect) — the opt-in envelope family.
 - [Cognition records](/reference/data-model#cognition-spoke-cognition) — `q`, optional metrics, filter grammar and projections.

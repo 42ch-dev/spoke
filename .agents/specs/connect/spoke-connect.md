@@ -459,7 +459,7 @@ All deny paths produce no handler side effect; the sequence and envelope-auth de
 
 ### Revision integers
 
-Every revision-typed integer that crosses a connect session is an exact integer in the closed interval `[0, 2^53]` (`0` … `9007199254740992`), the domain [`spoke-data-model.md`](../protocol/spoke-data-model.md) §Shared wire scalars defines. `2^53` is valid; `2^53 + 1`, every larger value, negatives and non-integers are refused on both stacks. A member's own schema may narrow the interval (`minimum: 1`); it can never widen it. A nullable member carries the interval whenever it is present.
+Every revision-typed integer that crosses a connect session is an exact integer in the closed interval `[0, 2^53]` (`0` … `9007199254740992`), the domain [`spoke-data-model.md`](../protocol/spoke-data-model.md) §Shared wire scalars defines. The bound is asserted on the parsed integer value: `2^53` is valid; a JavaScript host, whose IEEE-754 parser cannot preserve integers above `2^53`, refuses the first representable value above `2^53`, every larger representable value, negatives and non-integers on both stacks. Exact refusal of an unrepresentable wire literal such as `2^53 + 1` is a parser-level property. A member's own schema may narrow the interval (`minimum: 1`); it can never widen it. A nullable member carries the interval whenever it is present.
 
 | Member | Payload |
 |--------|---------|

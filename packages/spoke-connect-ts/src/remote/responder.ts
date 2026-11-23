@@ -575,7 +575,7 @@ function validateKnowledgeEntryFields(
   const schemaVersion = entry.schema_version;
   if (
     typeof schemaVersion !== "number" ||
-    !Number.isInteger(schemaVersion) ||
+    !Number.isSafeInteger(schemaVersion) ||
     schemaVersion < 1
   ) {
     return "entry.schema_version must be an integer >= 1";
@@ -694,7 +694,7 @@ function isValidSourceAnchor(value: unknown): boolean {
   const schemaVersion = value.schema_version;
   if (
     typeof schemaVersion !== "number" ||
-    !Number.isInteger(schemaVersion) ||
+    !Number.isSafeInteger(schemaVersion) ||
     schemaVersion < 1
   ) {
     return false;

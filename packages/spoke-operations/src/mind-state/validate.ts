@@ -96,9 +96,10 @@ export function validateMindState(state: unknown): state is MindState {
     }
   }
 
+  // note: SchemaVersion is [1, 2^53-1]; `Number.isSafeInteger` is that ceiling.
   if (
     typeof state.schema_version !== "number" ||
-    !Number.isInteger(state.schema_version) ||
+    !Number.isSafeInteger(state.schema_version) ||
     state.schema_version < 1
   ) {
     return false;

@@ -587,18 +587,7 @@ function isDeclaredProbability(
 }
 
 function isTimestamp(value: unknown): boolean {
-  if (typeof value !== "string" || !isStrictTimestamp(value)) {
-    return false;
-  }
-
-  if (value.slice(17, 19) !== "60") {
-    return true;
-  }
-  // why: fictional leap seconds need a UTC month boundary, not a historical lookup.
-  const precedingSecond = Date.parse(`${value.slice(0, 17)}59${value.slice(19)}`);
-  const utc = new Date(precedingSecond);
-  return utc.getUTCHours() === 23 && utc.getUTCMinutes() === 59 &&
-    new Date(precedingSecond + 1000).getUTCDate() === 1;
+  return typeof value === "string" && isStrictTimestamp(value);
 }
 
 // note: A single metric whose estimand is fixed by its enclosing metrics key.

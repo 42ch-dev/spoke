@@ -206,6 +206,25 @@ const STRICT_TIMESTAMP_ATTR: &str =
     "# [serde (try_from = \"::std::string::String\" , into = \"::std::string::String\")] pub struct ";
 const CHRONO_PARSE_BODY: &str = "{ Ok (Self (value . parse () ?)) }";
 const STRICT_PARSE_BODY: &str = "{ Ok (Self (crate :: timestamp :: parse_strict (value) ?)) }";
+const DATETIME_INNER_TYPE: &str = ":: chrono :: DateTime";
+
+/// Independent count of emitted transparent newtypes whose declaration carries
+/// a `chrono::DateTime` inner type, regardless of the exact tail spelling the
+/// rewrite matches. A copy that changes its inner-type representation is still
+/// counted here, so the rewrite count cannot silently fall short.
+fn count_datetime_newtypes(rust: &str) -> usize {
+    let mut count = 0;
+    let mut rest = rust;
+    while let Some(idx) = rest.find(TRANSPARENT_ATTR) {
+        rest = &rest[idx + TRANSPARENT_ATTR.len()..];
+        let Some(end) = rest.find(';') else { break };
+        if rest[..end].contains(DATETIME_INNER_TYPE) {
+            count += 1;
+        }
+        rest = &rest[end + 1..];
+    }
+    count
+}
 
 /// Strict-timestamp rewrite: every `DateTime<Utc>` newtype gets serde
 /// `try_from`/`into = String` and one hand-written strict parser, so decode and
@@ -237,7 +256,7 @@ fn rewrite_strict_timestamps(rust: &str) -> Result<String, String> {
     }
     out.push_str(rest);
 
-    let datetime_newtypes = rust.matches(DATETIME_NEWTYPE_TAIL).count();
+    let datetime_newtypes = count_datetime_newtypes(rust);
     if datetime_newtypes != names.len() {
         return Err(format!(
             "{rule}: matched {} of {datetime_newtypes} DateTime newtype(s)",
@@ -2315,6 +2334,19 @@ mod tests {
             .expect_err("missing FromStr body must fail generation");
         assert!(
             error.contains("unexpected FromStr body for Timestamp"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn a_datetime_newtype_with_an_unexpected_spelling_fails_loudly() {
+        // note: the independent scan sees the `:: chrono :: DateTime` inner type
+        // even when the declaration tail no longer matches the rewrite.
+        let source = "# [serde (transparent)] pub struct Timestamp (:: chrono :: DateTime < :: chrono :: offset :: Utc >) ;";
+        let error = rewrite_strict_timestamps(source)
+            .expect_err("an unrewritten DateTime newtype must fail generation");
+        assert!(
+            error.contains("matched 0 of 1 DateTime newtype(s)"),
             "unexpected error: {error}"
         );
     }

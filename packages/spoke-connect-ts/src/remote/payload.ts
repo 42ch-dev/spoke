@@ -511,7 +511,7 @@ function isValidRevisionSnapshotEnvelope(snapshot: unknown): boolean {
       (key) => REVISION_SNAPSHOT_ENVELOPE_KEYS[key] === true,
     ) &&
     typeof snapshot.schema_version === "number" &&
-    Number.isInteger(snapshot.schema_version) &&
+    Number.isSafeInteger(snapshot.schema_version) &&
     snapshot.schema_version > 0 &&
     typeof snapshot.entity_kind === "string" &&
     typeof snapshot.entity_id === "string" &&

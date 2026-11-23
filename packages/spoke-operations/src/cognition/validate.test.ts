@@ -354,3 +354,29 @@ describe("C5 relative diagnostic field", () => {
     ).toBe(true);
   });
 });
+
+describe("cognition Timestamp boundary", () => {
+  it("exposes the shared leap-second verdict", () => {
+    const vector = vectorFile.vectors.find(
+      (candidate) => candidate.id === "belief-whitespace-identities-valid",
+    );
+    expect(vector).toBeDefined();
+    const record = vector?.input as Record<string, unknown>;
+    expect(validateCognitionRecord(record)).toBe(true);
+    // note: shared contract admits `:60` on any date; cognition adds no month rule.
+    expect(
+      validateCognitionRecord({
+        ...record,
+        effective_at: "2026-07-23T09:00:60Z",
+      }),
+    ).toBe(true);
+    for (const refused of [
+      "2026-07-23T09:00:60",
+      "2026-07-23 09:00:60Z",
+    ]) {
+      expect(
+        validateCognitionRecord({ ...record, effective_at: refused }),
+      ).toBe(false);
+    }
+  });
+});

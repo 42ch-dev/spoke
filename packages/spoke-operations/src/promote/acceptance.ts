@@ -48,9 +48,10 @@ function validateKnowledgeEntryShape(candidate: KnowledgeEntry): SpokeResult<voi
     }
   }
 
+  // note: SchemaVersion is [1, 2^53-1]; `Number.isSafeInteger` is that ceiling.
   if (
     typeof candidate.schema_version !== "number" ||
-    !Number.isInteger(candidate.schema_version) ||
+    !Number.isSafeInteger(candidate.schema_version) ||
     candidate.schema_version < 1
   ) {
     return spokeReject(

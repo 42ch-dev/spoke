@@ -9,9 +9,12 @@ import { isRevisionInteger } from "../../src/remote/payload.js";
 
 // Shared boundary contract (spoke-data-model §Shared wire scalars): the
 // revision integer accepts the INCLUSIVE `2^53` ceiling; `sequence` stays one
-// below it. `2^53 + 1` is not a JS number — it rounds to `2^53` — so the
-// nearest representable out-of-domain integer is `2^53 + 2`; the exact
-// `2^53 + 1` refusal is Rust-side (u64).
+// below it. The bound is asserted on the parsed integer value, so a JS host
+// refuses the first representable value above it: `2^53 + 2`. The literal
+// `2^53 + 1` is unrepresentable in IEEE-754 and rounds to `2^53` during a JS
+// JSON parse, so its exact refusal is a parser-level property (Rust u64) —
+// this test does not claim to prove refusal of that literal. See
+// `.agents/specs/protocol/spoke-data-model.md:525`.
 const boundaryCases = JSON.parse(
   readFileSync(
     join(

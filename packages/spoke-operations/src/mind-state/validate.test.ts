@@ -61,6 +61,16 @@ describe("validateMindState", () => {
     expect(validateMindState(validState)).toBe(true);
   });
 
+  // note: shared contract — SchemaVersion is `[1, 2^53-1]`; `2^53` is refused.
+  it("enforces the SchemaVersion ceiling", () => {
+    expect(validateMindState({ ...validState, schema_version: 2 ** 53 - 1 })).toBe(
+      true,
+    );
+    expect(validateMindState({ ...validState, schema_version: 2 ** 53 })).toBe(
+      false,
+    );
+  });
+
   it("accepts a minimal required-only record", () => {
     expect(
       validateMindState({

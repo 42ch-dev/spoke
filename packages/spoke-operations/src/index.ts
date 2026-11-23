@@ -78,6 +78,7 @@ export {
 } from "./computable/validate.js";
 
 export { validateMindState } from "./mind-state/validate.js";
+export { isStrictTimestamp } from "./timestamp.js";
 
 export {
   validateCognitionRecord,

@@ -73,9 +73,9 @@
       "input": { "assessment_context": { "fork_id": { "eq": "" } } }
     },
     {
-      "id": "timestamp-leap-impossible-clock-reject",
+      "id": "timestamp-leap-any-date-valid",
       "shape": "cognition-module",
-      "expected": "reject",
+      "expected": "accept",
       "input": {
         "records": [],
         "world_facts": [{
@@ -121,9 +121,9 @@
       }
     },
     {
-      "id": "timestamp-leap-not-utc-month-end-reject",
+      "id": "timestamp-leap-not-utc-month-end-valid",
       "shape": "cognition-module",
-      "expected": "reject",
+      "expected": "accept",
       "input": {
         "records": [],
         "world_facts": [{
@@ -137,9 +137,9 @@
       }
     },
     {
-      "id": "timestamp-leap-local-month-end-offset-reject",
+      "id": "timestamp-leap-local-month-end-offset-valid",
       "shape": "cognition-module",
-      "expected": "reject",
+      "expected": "accept",
       "input": {
         "records": [],
         "world_facts": [{

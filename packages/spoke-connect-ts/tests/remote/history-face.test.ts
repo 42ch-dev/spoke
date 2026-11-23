@@ -195,6 +195,15 @@ describe("decodeHistoryCall — closed request shape", () => {
     }
   });
 
+  it("enforces the SchemaVersion [1, 2^53-1] ceiling on the snapshot envelope", () => {
+    expect(
+      isValidRevisionSnapshot({ ...snapshot("ke_1", 1), schema_version: 2 ** 53 - 1 }),
+    ).toBe(true);
+    expect(
+      isValidRevisionSnapshot({ ...snapshot("ke_1", 1), schema_version: 2 ** 53 }),
+    ).toBe(false);
+  });
+
   it("enforces idempotency_key 1–128 chars on prune", () => {
     const payload = {
       entity_kind: "knowledge_entry",

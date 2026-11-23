@@ -1173,6 +1173,7 @@ impl EventLoop {
                                                 request_id: request.request_id.to_string(),
                                                 payload,
                                             },
+                                            Some(request.op.as_str()),
                                         ),
                                         Ok(Err(error)) => self.sign_invoke_response(
                                             crate::core::InvokeResponseSignInput::Error {
@@ -1181,6 +1182,7 @@ impl EventLoop {
                                                 request_id: request.request_id.to_string(),
                                                 error,
                                             },
+                                            Some(request.op.as_str()),
                                         ),
                                         Err(_) => self.error_response(
                                             request,
@@ -1271,17 +1273,20 @@ impl EventLoop {
                     })
                     .unwrap_or_default();
                 Some(
-                    self.sign_invoke_response(crate::core::InvokeResponseSignInput::Error {
-                        session_id: request.session_id.to_string(),
-                        sequence: request.sequence,
-                        request_id: request.request_id.to_string(),
-                        error: ErrorEnvelope {
-                            code: crate::core::EnvelopeAuthError::CODE.into(),
-                            message,
-                            details,
-                            extensions: Default::default(),
+                    self.sign_invoke_response(
+                        crate::core::InvokeResponseSignInput::Error {
+                            session_id: request.session_id.to_string(),
+                            sequence: request.sequence,
+                            request_id: request.request_id.to_string(),
+                            error: ErrorEnvelope {
+                                code: crate::core::EnvelopeAuthError::CODE.into(),
+                                message,
+                                details,
+                                extensions: Default::default(),
+                            },
                         },
-                    }),
+                        Some(request.op.as_str()),
+                    ),
                 )
             }
         }
@@ -1307,17 +1312,20 @@ impl EventLoop {
         message: String,
         details: Map<String, Value>,
     ) -> ConnectInvokeResponse {
-        self.sign_invoke_response(crate::core::InvokeResponseSignInput::Error {
-            session_id: request.session_id.to_string(),
-            sequence: request.sequence,
-            request_id: request.request_id.to_string(),
-            error: ErrorEnvelope {
-                code: code.into(),
-                message,
-                details,
-                extensions: Default::default(),
+        self.sign_invoke_response(
+            crate::core::InvokeResponseSignInput::Error {
+                session_id: request.session_id.to_string(),
+                sequence: request.sequence,
+                request_id: request.request_id.to_string(),
+                error: ErrorEnvelope {
+                    code: code.into(),
+                    message,
+                    details,
+                    extensions: Default::default(),
+                },
             },
-        })
+            Some(request.op.as_str()),
+        )
     }
 
     /// Sign an inbound-invoke response with this node's Ed25519 identity
@@ -1333,10 +1341,11 @@ impl EventLoop {
     fn sign_invoke_response(
         &self,
         input: crate::core::InvokeResponseSignInput,
+        op: Option<&str>,
     ) -> ConnectInvokeResponse {
         let seed = crate::hello::ed25519_seed(&self.identity)
             .expect("connect identity is Ed25519 (validated at the hello exchange)");
-        crate::core::authenticate_invoke_response(&seed, &input, HashMap::new())
+        crate::core::authenticate_invoke_response_with_op(&seed, &input, HashMap::new(), op)
             .expect("authenticate_invoke_response is infallible for a valid 32-byte seed")
     }
 

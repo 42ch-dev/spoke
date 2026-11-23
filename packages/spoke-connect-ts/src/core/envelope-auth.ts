@@ -300,12 +300,11 @@ const REQUEST_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> 
 
 /**
  * note: response paths that own a revision integer — the direction-wide
- * union of the Rust `RESPONSE_REVISION_PATHS` table (a response envelope
- * carries no op, so the union over the response schemas is the exact set),
- * including the adoption refusal at both owning branches.
+ * union of the Rust `RESPONSE_REVISION_PATHS` table. A response envelope
+ * carries no op, so the caller supplies the request op that produced it and
+ * the op-scoped additions come from `RESPONSE_OP_REVISION_PATHS`.
  */
 const RESPONSE_REVISION_PATHS: readonly RevisionPath[] = [
-  ["error", "details", "adopted_revision"],
   ["payload", "adoption_anchor", "source_revision"],
   ["payload", "candidate", "revision"],
   ["payload", "candidates", "adoption_anchor", "source_revision"],
@@ -320,7 +319,6 @@ const RESPONSE_REVISION_PATHS: readonly RevisionPath[] = [
   ["payload", "deleted"],
   ["payload", "entry", "adoption_anchor", "source_revision"],
   ["payload", "entry", "revision"],
-  ["payload", "error", "details", "adopted_revision"],
   ["payload", "floor_revision"],
   ["payload", "grants", "revision"],
   ["payload", "knowledge_entries", "adoption_anchor", "source_revision"],
@@ -344,20 +342,46 @@ const RESPONSE_REVISION_PATHS: readonly RevisionPath[] = [
   ["payload", "subject", "revision"],
 ];
 
+/**
+ * note: response paths that only one op owns (Rust
+ * `RESPONSE_OP_REVISION_PATHS`). The adoption refusal vocabulary
+ * (`error.details.adopted_revision`, and the served error branch inside
+ * `payload`) belongs to `knowledge.adopt` alone; an absent or unlisted op
+ * contributes nothing, so a generic `INVALID_INPUT` response with an opaque
+ * `details.adopted_revision` owns no revision slot.
+ */
+const RESPONSE_OP_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> = {
+  "knowledge.adopt": [
+    ["error", "details", "adopted_revision"],
+    ["payload", "error", "details", "adopted_revision"],
+  ],
+};
+
+/** note: the response paths the supplying request op owns — own-keyed, empty fallback. */
+function responseOpPaths(op: string | undefined): readonly RevisionPath[] {
+  return op !== undefined && Object.hasOwn(RESPONSE_OP_REVISION_PATHS, op)
+    ? RESPONSE_OP_REVISION_PATHS[op]
+    : NO_REVISION_PATHS;
+}
+
 /** note: the owning revision paths of one signed object (Rust `revision_paths`). */
 function revisionPaths(
   signedObject: Record<string, unknown>,
+  op?: string,
 ): readonly RevisionPath[] {
-  const op = signedObject.op;
-  if (typeof op === "string") {
+  const signedOp = signedObject.op;
+  if (typeof signedOp === "string") {
     // note: own-key lookup — the open op vocabulary admits prototype names
     // such as `constructor`, which own no paths and must not inherit one.
-    return Object.hasOwn(REQUEST_REVISION_PATHS, op)
-      ? REQUEST_REVISION_PATHS[op]
+    return Object.hasOwn(REQUEST_REVISION_PATHS, signedOp)
+      ? REQUEST_REVISION_PATHS[signedOp]
       : NO_REVISION_PATHS;
   }
   if ("payload" in signedObject || "error" in signedObject) {
-    return RESPONSE_REVISION_PATHS;
+    const extra = responseOpPaths(op);
+    return extra.length === 0
+      ? RESPONSE_REVISION_PATHS
+      : [...RESPONSE_REVISION_PATHS, ...extra];
   }
   return [];
 }
@@ -432,8 +456,11 @@ function assertRevisionDomain(
   }
 }
 
-function jcsBytes(signedObject: Record<string, unknown>): Uint8Array {
-  assertRevisionDomain(signedObject, revisionPaths(signedObject));
+function jcsBytes(
+  signedObject: Record<string, unknown>,
+  op?: string,
+): Uint8Array {
+  assertRevisionDomain(signedObject, revisionPaths(signedObject, op));
   const jcs = canonicalize(signedObject);
   if (jcs === undefined) {
     throw new EnvelopeAuthError(
@@ -447,11 +474,12 @@ function jcsBytes(signedObject: Record<string, unknown>): Uint8Array {
 async function signEnvelope(
   secret: Uint8Array,
   signedObject: Record<string, unknown>,
+  op?: string,
 ): Promise<string> {
   if (secret.length !== 32) {
     throw new CoreError("crypto", "secret must be 32 bytes");
   }
-  const bytes = jcsBytes(signedObject);
+  const bytes = jcsBytes(signedObject, op);
   return base64UrlEncode(await signEd25519(secret, bytes));
 }
 
@@ -504,11 +532,12 @@ async function verifyCanonicalSignature(
   publicKey: Uint8Array,
   signedObject: Record<string, unknown>,
   signature: Uint8Array,
+  op?: string,
 ): Promise<void> {
   if (publicKey.length !== 32) {
     throw new CoreError("crypto", "public key must be 32 bytes");
   }
-  const bytes = jcsBytes(signedObject);
+  const bytes = jcsBytes(signedObject, op);
   if (!(await verifyEd25519(publicKey, bytes, signature))) {
     throw new EnvelopeAuthError(
       "envelope_auth_invalid",
@@ -615,20 +644,27 @@ export async function verifyInvokeRequestAuth(
  * The signed object mirrors the wire branch exactly — `{session_id,
  * sequence, request_id, payload}` for the success branch, `{session_id,
  * sequence, request_id, error}` for the error branch. The branches are never
- * merged.
+ * merged. `op` is the request op the response answers: the signed object
+ * carries no `op`, so it selects that op's response revision paths (the
+ * adoption refusal vocabulary).
  */
 export async function authenticateInvokeResponse(
   secret: Uint8Array,
   response: InvokeResponseSignInput,
   extensions: EnvelopeExtensions = {},
+  op?: string,
 ): Promise<ConnectInvokeResponse> {
   if ("payload" in response) {
-    const signature = await signEnvelope(secret, {
-      session_id: response.session_id,
-      sequence: response.sequence,
-      request_id: response.request_id,
-      payload: response.payload,
-    });
+    const signature = await signEnvelope(
+      secret,
+      {
+        session_id: response.session_id,
+        sequence: response.sequence,
+        request_id: response.request_id,
+        payload: response.payload,
+      },
+      op,
+    );
     return {
       session_id: response.session_id,
       sequence: response.sequence,
@@ -638,12 +674,16 @@ export async function authenticateInvokeResponse(
       extensions,
     };
   }
-  const signature = await signEnvelope(secret, {
-    session_id: response.session_id,
-    sequence: response.sequence,
-    request_id: response.request_id,
-    error: response.error,
-  });
+  const signature = await signEnvelope(
+    secret,
+    {
+      session_id: response.session_id,
+      sequence: response.sequence,
+      request_id: response.request_id,
+      error: response.error,
+    },
+    op,
+  );
   return {
     session_id: response.session_id,
     sequence: response.sequence,
@@ -660,12 +700,15 @@ export async function authenticateInvokeResponse(
  * must carry exactly one of `payload` / `error` (never both — the signed
  * object mirrors the wire branch, never a merged object), the signed object
  * must have exact keys for that branch, and on success the envelope's
- * `session_id` must equal the bound session (step 6).
+ * `session_id` must equal the bound session (step 6). `op` is the request op
+ * the response answers, which selects that op's response revision paths — a
+ * response envelope carries no `op` of its own.
  */
 export async function verifyInvokeResponseAuth(
   publicKey: Uint8Array,
   response: ConnectInvokeResponse,
   expectedSessionId: string,
+  op?: string,
 ): Promise<void> {
   const wire = response as unknown as Record<string, unknown>;
   const signature = requireSignature(wire.signature);
@@ -704,7 +747,7 @@ export async function verifyInvokeResponseAuth(
     };
   }
 
-  await verifyCanonicalSignature(publicKey, signedObject, signature);
+  await verifyCanonicalSignature(publicKey, signedObject, signature, op);
 
   if (wire.session_id !== expectedSessionId) {
     throw new EnvelopeAuthError(

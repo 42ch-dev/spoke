@@ -440,6 +440,9 @@ struct EstablishedSession {
 /// task (mirror of TS `PendingInvoke`; the timeout task plays `setTimeout`).
 struct PendingInvoke {
     correlation: Correlation,
+    /// The request op: a response envelope carries no `op`, so the waiter
+    /// supplies it to select the op-scoped response revision paths.
+    op: String,
     tx: tokio::sync::mpsc::Sender<Result<ConnectInvokeResponse, RemoteError>>,
     timeout_task: tokio::task::JoinHandle<()>,
 }
@@ -814,7 +817,12 @@ impl RemoteAdapter {
                     // of the response's authenticator and surfaces as
                     // `envelope_auth_invalid` — never mislabeled as a
                     // correlation mismatch.
-                    crate::core::verify_invoke_response_auth(&self.remote_pubkey, &doc, &session_id)
+                    crate::core::verify_invoke_response_auth_with_op(
+                        &self.remote_pubkey,
+                        &doc,
+                        &session_id,
+                        Some(&entry.op),
+                    )
                         .map_err(|error| match error.kind() {
                             Some(kind) => RemoteError::new(
                                 envelope_auth_kind_to_remote_error(kind),
@@ -897,7 +905,7 @@ impl RemoteAdapter {
             error.insert("details".into(), Value::Object(details.clone()));
         }
         error.insert("extensions".into(), json!({}));
-        let signed = crate::core::authenticate_invoke_response(
+        let signed = crate::core::authenticate_invoke_response_with_op(
             &session.local_secret,
             &crate::core::InvokeResponseSignInput::Error {
                 session_id: session_id.to_owned(),
@@ -911,6 +919,7 @@ impl RemoteAdapter {
                 })?,
             },
             HashMap::new(),
+            doc.get("op").and_then(Value::as_str),
         )
         .map_err(|error| {
             RemoteError::new(
@@ -1149,7 +1158,7 @@ impl RemoteAdapter {
             SpokeResult::Ok(value) => {
                 // Success branch: `payload = { "result": <opaque JSON> }`
                 // (frozen §4).
-                let signed = crate::core::authenticate_invoke_response(
+                let signed = crate::core::authenticate_invoke_response_with_op(
                     &local_secret,
                     &crate::core::InvokeResponseSignInput::Success {
                         session_id: session_id.to_owned(),
@@ -1158,6 +1167,7 @@ impl RemoteAdapter {
                         payload: json!({ "result": value }),
                     },
                     HashMap::new(),
+                    Some(op),
                 )
                 .map_err(|error| {
                     RemoteError::new(
@@ -1176,7 +1186,7 @@ impl RemoteAdapter {
                         .expect("ops error envelope serializes"),
                 )
                 .expect("field-identical error envelope converts");
-                let signed = crate::core::authenticate_invoke_response(
+                let signed = crate::core::authenticate_invoke_response_with_op(
                     &local_secret,
                     &crate::core::InvokeResponseSignInput::Error {
                         session_id: session_id.to_owned(),
@@ -1185,6 +1195,7 @@ impl RemoteAdapter {
                         error,
                     },
                     HashMap::new(),
+                    Some(op),
                 )
                 .map_err(|error| {
                     RemoteError::new(
@@ -1353,6 +1364,7 @@ impl RemoteAdapter {
             request_id.clone(),
             PendingInvoke {
                 correlation: Correlation::from(&request),
+                op: op.to_owned(),
                 tx: tx.clone(),
                 timeout_task,
             },

@@ -418,6 +418,8 @@ export interface RemoteAdapterOptions {
 
 interface PendingInvoke {
   correlation: Correlation;
+  /** note: the request op — a response envelope carries no op of its own. */
+  op: string;
   resolve: (response: ConnectInvokeResponse) => void;
   reject: (error: RemoteError) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -1352,7 +1354,12 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
           // branch). A forged/tampered response fails closed — only this
           // waiter, never a session-state mutation.
           checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
-          await verifyInvokeResponseAuth(this.#remotePubkey, doc, session.session_id);
+          await verifyInvokeResponseAuth(
+            this.#remotePubkey,
+            doc,
+            session.session_id,
+            entry.op,
+          );
           entry.resolve(doc);
         } catch (error) {
           if (error instanceof EnvelopeAuthError) {
@@ -1404,12 +1411,17 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       return;
     }
     this.#sendReverseResponse(
-      await authenticateInvokeResponse(this.#secret, {
-        session_id: doc.session_id,
-        sequence: doc.sequence,
-        request_id: doc.request_id,
-        error,
-      }),
+      await authenticateInvokeResponse(
+        this.#secret,
+        {
+          session_id: doc.session_id,
+          sequence: doc.sequence,
+          request_id: doc.request_id,
+          error,
+        },
+        {},
+        doc.op,
+      ),
     );
   }
 
@@ -1548,14 +1560,19 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       if (result.ok) {
         // note: success branch is `payload = { "result": <opaque JSON> }` (frozen §4).
         this.#sendReverseResponse(
-          await authenticateInvokeResponse(this.#secret, {
-            session_id: doc.session_id,
-            sequence: doc.sequence,
-            request_id: doc.request_id,
-            payload: {
-              result: "value" in result ? result.value : undefined,
+          await authenticateInvokeResponse(
+            this.#secret,
+            {
+              session_id: doc.session_id,
+              sequence: doc.sequence,
+              request_id: doc.request_id,
+              payload: {
+                result: "value" in result ? result.value : undefined,
+              },
             },
-          }),
+            {},
+            doc.op,
+          ),
         );
       } else {
         await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
@@ -1643,6 +1660,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
           sequence: unsigned.sequence,
           request_id: unsigned.request_id,
         },
+        op,
         resolve,
         reject,
         timer,

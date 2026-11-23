@@ -140,12 +140,11 @@ const REQUEST_REVISION_PATHS: &[(&str, &[RevisionPath])] = &[
 
 /// Response paths that own a revision integer — the union over
 /// `schemas/ops/*-response.schema.json` plus the bare entity payloads of the
-/// `port.*` reads and the adoption refusal vocabulary
-/// (`error.details.adopted_revision`, and the served error branch
-/// `KnowledgeAdoptResponse` carries inside `payload`). A response envelope
-/// does not carry the op, so the direction-wide union is the exact set.
+/// `port.*` reads. A response envelope carries no `op`, so the caller
+/// supplies the request op that produced it and the op-scoped additions come
+/// from [`RESPONSE_OP_REVISION_PATHS`]; the direction-wide set here is what
+/// every response owns.
 const RESPONSE_REVISION_PATHS: &[RevisionPath] = &[
-    &["error", "details", "adopted_revision"],
     &["payload", "adoption_anchor", "source_revision"],
     &["payload", "candidate", "revision"],
     &[
@@ -171,7 +170,6 @@ const RESPONSE_REVISION_PATHS: &[RevisionPath] = &[
     &["payload", "deleted"],
     &["payload", "entry", "adoption_anchor", "source_revision"],
     &["payload", "entry", "revision"],
-    &["payload", "error", "details", "adopted_revision"],
     &["payload", "floor_revision"],
     &["payload", "grants", "revision"],
     &[
@@ -211,6 +209,21 @@ const RESPONSE_REVISION_PATHS: &[RevisionPath] = &[
     &["payload", "subject", "revision"],
 ];
 
+/// Response paths that only one op owns. A response envelope carries no
+/// `op`, so the request op is supplied out-of-band: the adoption refusal
+/// vocabulary (`error.details.adopted_revision`, and the served error branch
+/// `KnowledgeAdoptResponse` carries inside `payload`) belongs to
+/// `knowledge.adopt` alone. An absent or unlisted op contributes nothing
+/// ("own-keyed, empty fallback"), so a generic `INVALID_INPUT` response with
+/// an opaque `details.adopted_revision` owns no revision slot.
+const RESPONSE_OP_REVISION_PATHS: &[(&str, &[RevisionPath])] = &[(
+    "knowledge.adopt",
+    &[
+        &["error", "details", "adopted_revision"],
+        &["payload", "error", "details", "adopted_revision"],
+    ],
+)];
+
 /// Re-spell an integer `±2^53` as its equal `f64`; every other value keeps
 /// its token.
 pub(crate) fn respell_endpoint(value: &Value) -> Option<Value> {
@@ -225,19 +238,32 @@ pub(crate) fn respell_endpoint(value: &Value) -> Option<Value> {
 }
 
 /// The revision paths of one signed object: a request selects its op's
-/// request paths, a response (neither carries `op`) takes the direction-wide
-/// set, and a session envelope owns no revision member.
-fn revision_paths(signed: &Value) -> &'static [RevisionPath] {
+/// request paths, a response takes the direction-wide set plus the paths the
+/// supplying request op owns, and a session envelope owns no revision member.
+fn revision_paths(
+    signed: &Value,
+    response_op: Option<&str>,
+) -> (&'static [RevisionPath], &'static [RevisionPath]) {
     if let Some(op) = signed.get("op").and_then(Value::as_str) {
-        return REQUEST_REVISION_PATHS
-            .iter()
-            .find_map(|(name, paths)| (*name == op).then_some(*paths))
-            .unwrap_or(&[]);
+        return (
+            REQUEST_REVISION_PATHS
+                .iter()
+                .find_map(|(name, paths)| (*name == op).then_some(*paths))
+                .unwrap_or(&[]),
+            &[],
+        );
     }
     if signed.get("payload").is_some() || signed.get("error").is_some() {
-        return RESPONSE_REVISION_PATHS;
+        let op_paths = response_op
+            .and_then(|op| {
+                RESPONSE_OP_REVISION_PATHS
+                    .iter()
+                    .find_map(|(name, paths)| (*name == op).then_some(*paths))
+            })
+            .unwrap_or(&[]);
+        return (RESPONSE_REVISION_PATHS, op_paths);
     }
-    &[]
+    (&[], &[])
 }
 
 /// Refuse an integral float whose parsed value the peer would classify as an
@@ -266,13 +292,25 @@ fn float_domain_error(number: &serde_json::Number, revision: bool) -> Option<ser
 /// (nested members and array elements included), refusing an integral float
 /// outside an owning revision path. Every other integer keeps its token, so
 /// `serde_jcs` refuses it at the endpoint.
+#[cfg(any(test, feature = "remote-adapter"))]
 pub(crate) fn respell_paths(
     value: Value,
     paths: &[RevisionPath],
 ) -> Result<Value, serde_json::Error> {
+    respell_paths_with(value, paths, &[])
+}
+
+/// [`respell_paths`] over one direction-wide set plus the op-scoped paths a
+/// response owns; the extra paths only apply at the root of `value`.
+fn respell_paths_with(
+    value: Value,
+    paths: &[RevisionPath],
+    extra: &[RevisionPath],
+) -> Result<Value, serde_json::Error> {
     fn walk(
         value: Value,
         paths: &[RevisionPath],
+        extra: &[RevisionPath],
         depth: usize,
         revision: bool,
     ) -> Result<Value, serde_json::Error> {
@@ -290,7 +328,7 @@ pub(crate) fn respell_paths(
             // are not wire members.
             Value::Array(items) => items
                 .into_iter()
-                .map(|item| walk(item, paths, depth, false))
+                .map(|item| walk(item, paths, extra, depth, false))
                 .collect::<Result<Vec<_>, _>>()
                 .map(Value::Array),
             Value::Object(members) => {
@@ -300,7 +338,7 @@ pub(crate) fn respell_paths(
                     // sibling path never supplies this member's component.
                     let mut continuations: Vec<RevisionPath> = Vec::new();
                     let mut terminal = false;
-                    for path in paths {
+                    for path in paths.iter().chain(extra.iter()) {
                         if !matches!(path.get(depth), Some(component) if *component == key.as_str())
                         {
                             continue;
@@ -308,17 +346,17 @@ pub(crate) fn respell_paths(
                         if path.len() == depth + 1 {
                             terminal = true;
                         } else {
-                            continuations.push(path);
+                            continuations.push(*path);
                         }
                     }
                     // A member no path owns keeps no path state, but its own
                     // subtree still faces the endpoint refusal.
                     let member = if terminal {
-                        walk(member, &[], depth + 1, true)?
+                        walk(member, &[], &[], depth + 1, true)?
                     } else if continuations.is_empty() {
-                        walk(member, &[], 0, false)?
+                        walk(member, &[], &[], 0, false)?
                     } else {
-                        walk(member, &continuations, depth + 1, false)?
+                        walk(member, &continuations, &[], depth + 1, false)?
                     };
                     walked.push((key, member));
                 }
@@ -327,18 +365,35 @@ pub(crate) fn respell_paths(
             other => Ok(other),
         }
     }
-    walk(value, paths, 0, false)
+    walk(value, paths, extra, 0, false)
 }
 
 /// JCS-canonical UTF-8 bytes with the `±2^53` revision endpoint re-spelling
 /// at the signed object's owning paths: `serde_json::to_value` (so typed
 /// signed objects and opaque payloads share one path) → [`respell_paths`] →
-/// `serde_jcs::to_vec`.
+/// `serde_jcs::to_vec`. A request or session envelope carries its own owner
+/// set; a response needs the request op that produced it
+/// ([`canonical_bytes_with_op`]). Production signing always names the op
+/// (requests carry theirs inside the signed object), so the no-op form is
+/// test-facing.
+#[cfg(test)]
 pub(crate) fn canonical_bytes<T>(value: &T) -> Result<Vec<u8>, serde_json::Error>
 where
     T: Serialize + ?Sized,
 {
+    canonical_bytes_with_op(value, None)
+}
+
+/// [`canonical_bytes`] with the request op that produced a response envelope
+/// (ignored when the signed object carries its own `op`).
+pub(crate) fn canonical_bytes_with_op<T>(
+    value: &T,
+    response_op: Option<&str>,
+) -> Result<Vec<u8>, serde_json::Error>
+where
+    T: Serialize + ?Sized,
+{
     let signed = serde_json::to_value(value)?;
-    let paths = revision_paths(&signed);
-    serde_jcs::to_vec(&respell_paths(signed, paths)?)
+    let (paths, extra) = revision_paths(&signed, response_op);
+    serde_jcs::to_vec(&respell_paths_with(signed, paths, extra)?)
 }

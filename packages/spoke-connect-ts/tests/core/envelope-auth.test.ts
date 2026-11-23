@@ -528,40 +528,78 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
   });
 
   it("signs the adoption refusal `error.details.adopted_revision` at the endpoint", async () => {
-    const response = await authenticateInvokeResponse(EMITTER_SEED, {
-      session_id: SESSION_ID,
-      sequence: 0,
-      request_id: "req-0001",
-      error: {
-        code: "REVISION_CONFLICT",
-        message: "destination already anchors the source",
-        details: { adopted_revision: ENDPOINT },
-        extensions: {},
-      },
-    });
-    await expect(
-      verifyInvokeResponseAuth(EMITTER_PUBKEY, response, SESSION_ID),
-    ).resolves.toBeUndefined();
-  });
-
-  it("signs the served adoption refusal `payload.error.details.adopted_revision` at the endpoint", async () => {
-    const response = await authenticateInvokeResponse(EMITTER_SEED, {
-      session_id: SESSION_ID,
-      sequence: 0,
-      request_id: "req-0001",
-      payload: {
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
         error: {
           code: "REVISION_CONFLICT",
           message: "destination already anchors the source",
           details: { adopted_revision: ENDPOINT },
           extensions: {},
         },
-        extensions: {},
       },
-    });
+      {},
+      "knowledge.adopt",
+    );
     await expect(
-      verifyInvokeResponseAuth(EMITTER_PUBKEY, response, SESSION_ID),
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "knowledge.adopt",
+      ),
     ).resolves.toBeUndefined();
+  });
+
+  it("signs the served adoption refusal `payload.error.details.adopted_revision` at the endpoint", async () => {
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        payload: {
+          error: {
+            code: "REVISION_CONFLICT",
+            message: "destination already anchors the source",
+            details: { adopted_revision: ENDPOINT },
+            extensions: {},
+          },
+          extensions: {},
+        },
+      },
+      {},
+      "knowledge.adopt",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "knowledge.adopt",
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses the adoption refusal endpoint without its owning op (D-01)", async () => {
+    // note: the exception is op-scoped, not vocabulary-scoped — the same
+    // REVISION_CONFLICT receipt owns no revision slot for another op.
+    await expect(
+      authenticateInvokeResponse(EMITTER_SEED, {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        error: {
+          code: "REVISION_CONFLICT",
+          message: "destination already anchors the source",
+          details: { adopted_revision: ENDPOINT },
+          extensions: {},
+        },
+      }),
+    ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
   });
 
   it("refuses the first representable integer past the endpoint on an owning path", async () => {
@@ -578,7 +616,7 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
 
   it("refuses an open `error.details` member that borrows a sibling path component (D-01)", async () => {
     const messages: string[] = [];
-    for (const opaqueMember of ["revision", "counter"]) {
+    for (const opaqueMember of ["revision", "counter", "adopted_revision"]) {
       messages.push(
         (await responseRefusal({
           session_id: SESSION_ID,
@@ -595,8 +633,9 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
     }
     // note: `ErrorEnvelope.details` is an open bag — it may not borrow
     // `payload.entry.revision`, and the key's spelling cannot change the
-    // verdict, so both members refuse identically.
-    expect(messages[0]).toBe(messages[1]);
+    // verdict, so every member refuses identically (including the
+    // op-scoped `adopted_revision`, which owns no slot without its op).
+    expect(new Set(messages).size).toBe(1);
     expect(messages[0]).toContain("outside the revision member domain");
   });
 

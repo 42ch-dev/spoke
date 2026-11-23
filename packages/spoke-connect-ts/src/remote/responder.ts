@@ -1177,6 +1177,8 @@ export interface ConnectResponderOptions {
 
 interface PendingReverseInvoke {
   correlation: Correlation;
+  /** note: the request op — a response envelope carries no op of its own. */
+  op: string;
   resolve: (response: ConnectInvokeResponse) => void;
   reject: (error: ResponderError) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -1829,14 +1831,19 @@ export class ConnectResponder {
     if (result.ok) {
       // note: success branch — `payload = { "result": <opaque JSON> }` (frozen §4).
       this.#sendReverseResponse(
-        await authenticateInvokeResponse(this.#secret, {
-          session_id: doc.session_id,
-          sequence: doc.sequence,
-          request_id: doc.request_id,
-          payload: {
-            result: "value" in result ? result.value : undefined,
+        await authenticateInvokeResponse(
+          this.#secret,
+          {
+            session_id: doc.session_id,
+            sequence: doc.sequence,
+            request_id: doc.request_id,
+            payload: {
+              result: "value" in result ? result.value : undefined,
+            },
           },
-        }),
+          {},
+          doc.op,
+        ),
       );
     } else {
       await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
@@ -2621,12 +2628,17 @@ export class ConnectResponder {
     payload: unknown,
   ): Promise<void> {
     this.#sendReverseResponse(
-      await authenticateInvokeResponse(this.#secret, {
-        session_id: doc.session_id,
-        sequence: doc.sequence,
-        request_id: doc.request_id,
-        payload: (payload ?? {}) as Record<string, unknown>,
-      }),
+      await authenticateInvokeResponse(
+        this.#secret,
+        {
+          session_id: doc.session_id,
+          sequence: doc.sequence,
+          request_id: doc.request_id,
+          payload: (payload ?? {}) as Record<string, unknown>,
+        },
+        {},
+        doc.op,
+      ),
     );
   }
 
@@ -2635,12 +2647,17 @@ export class ConnectResponder {
     error: ErrorEnvelope,
   ): Promise<void> {
     this.#sendReverseResponse(
-      await authenticateInvokeResponse(this.#secret, {
-        session_id: doc.session_id,
-        sequence: doc.sequence,
-        request_id: doc.request_id,
-        error,
-      }),
+      await authenticateInvokeResponse(
+        this.#secret,
+        {
+          session_id: doc.session_id,
+          sequence: doc.sequence,
+          request_id: doc.request_id,
+          error,
+        },
+        {},
+        doc.op,
+      ),
     );
   }
 
@@ -2667,7 +2684,12 @@ export class ConnectResponder {
         throw new ResponderError("session_closed", "connect session closed");
       }
       checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
-      await verifyInvokeResponseAuth(clientPubkey, doc, session.session_id);
+      await verifyInvokeResponseAuth(
+        clientPubkey,
+        doc,
+        session.session_id,
+        entry.op,
+      );
       entry.resolve(doc);
     } catch (error) {
       if (error instanceof EnvelopeAuthError) {
@@ -2749,6 +2771,7 @@ export class ConnectResponder {
           sequence: unsigned.sequence,
           request_id: unsigned.request_id,
         },
+        op,
         resolve,
         reject,
         timer,

@@ -127,6 +127,8 @@ export {
 
 interface PendingInvoke {
   correlation: Correlation;
+  /** note: the request op — a response envelope carries no op of its own. */
+  op: string;
   resolve: (response: ConnectInvokeResponse) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -244,7 +246,12 @@ export async function connectClient(
           // exact wire branch). A forged/tampered response fails closed —
           // only this waiter, never a session-state mutation.
           checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
-          await verifyInvokeResponseAuth(remotePubkey, doc, session.session_id);
+          await verifyInvokeResponseAuth(
+            remotePubkey,
+            doc,
+            session.session_id,
+            entry.op,
+          );
           entry.resolve(doc);
         } catch (error) {
           entry.reject(error instanceof Error ? error : new Error(String(error)));
@@ -397,6 +404,7 @@ export async function connectClient(
             sequence: unsigned.sequence,
             request_id: unsigned.request_id,
           },
+          op,
           resolve,
           reject,
           timer,

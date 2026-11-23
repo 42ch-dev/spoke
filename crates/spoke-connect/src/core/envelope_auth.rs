@@ -413,12 +413,13 @@ fn invoke_response_signed_object(
 fn sign_envelope(
     secret: &[u8],
     signed_object: &impl serde::Serialize,
+    response_op: Option<&str>,
 ) -> Result<String, CoreError> {
     if secret.len() != 32 {
         return Err(CoreError::Crypto("secret must be 32 bytes".into()));
     }
     let signing_key = SigningKey::from_bytes(secret.try_into().expect("length checked above"));
-    let bytes = crate::core::jcs::canonical_bytes(signed_object)
+    let bytes = crate::core::jcs::canonical_bytes_with_op(signed_object, response_op)
         .map_err(|e| CoreError::Jcs(e.to_string()))?;
     let signature: Signature = signing_key.sign(&bytes);
     Ok(URL_SAFE_NO_PAD.encode(signature.to_bytes()))
@@ -469,13 +470,14 @@ fn verify_canonical_signature(
     public_key: &[u8],
     signed_object: &serde_json::Value,
     signature: &[u8; 64],
+    response_op: Option<&str>,
 ) -> Result<(), EnvelopeAuthError> {
     if public_key.len() != 32 {
         return Err(EnvelopeAuthError::Crypto("public key must be 32 bytes".into()));
     }
     let verifying_key = VerifyingKey::from_bytes(public_key.try_into().expect("length checked above"))
         .map_err(|e| EnvelopeAuthError::Crypto(format!("invalid Ed25519 public key: {e}")))?;
-    let bytes = crate::core::jcs::canonical_bytes(signed_object).map_err(|e| {
+    let bytes = crate::core::jcs::canonical_bytes_with_op(signed_object, response_op).map_err(|e| {
         EnvelopeAuthError::Invalid(format!("signed object is not JSON-serializable: {e}"))
     })?;
     let signature = Signature::from_bytes(signature);
@@ -497,7 +499,7 @@ pub(crate) fn authenticate_session(
     session: &SessionSignInput,
     extensions: EnvelopeExtensions,
 ) -> Result<ConnectSession, CoreError> {
-    let signature = sign_envelope(secret, session)?;
+    let signature = sign_envelope(secret, session, None)?;
     Ok(ConnectSession {
         session_id: session
             .session_id
@@ -542,7 +544,7 @@ pub(crate) fn verify_session_auth(
 ) -> Result<(), EnvelopeAuthError> {
     let signature = require_signature(session)?;
     let signed_object = session_signed_object(session)?;
-    verify_canonical_signature(public_key, &signed_object, &signature)?;
+    verify_canonical_signature(public_key, &signed_object, &signature, None)?;
     // Binding fields are strings on every schema-valid envelope, but verify
     // runs on the raw wire form before typed deserialization: a key-holding
     // signer could craft a signed envelope with a non-string peer id, which
@@ -578,7 +580,7 @@ pub(crate) fn authenticate_invoke_request(
     request: &InvokeRequestSignInput,
     extensions: EnvelopeExtensions,
 ) -> Result<ConnectInvokeRequest, CoreError> {
-    let signature = sign_envelope(secret, request)?;
+    let signature = sign_envelope(secret, request, None)?;
     Ok(ConnectInvokeRequest {
         auth: request.auth.clone(),
         op: request.op.parse().expect("non-empty op parses"),
@@ -620,7 +622,7 @@ pub(crate) fn verify_invoke_request_auth(
 ) -> Result<(), EnvelopeAuthError> {
     let signature = require_signature(request)?;
     let signed_object = invoke_request_signed_object(request)?;
-    verify_canonical_signature(public_key, &signed_object, &signature)?;
+    verify_canonical_signature(public_key, &signed_object, &signature, None)?;
     // Fail closed on a non-string session_id (raw wire form — see
     // verify_session_auth): a non-string can never match the bound session.
     let session_id = request
@@ -642,11 +644,26 @@ pub(crate) fn verify_invoke_request_auth(
 /// The signed object mirrors the wire branch exactly — `{session_id,
 /// sequence, request_id, payload}` for the success branch, `{session_id,
 /// sequence, request_id, error}` for the error branch. The branches are
-/// never merged.
+/// never merged. This form names no request op; production callers use
+/// [`authenticate_invoke_response_with_op`] because a response envelope
+/// carries no `op` of its own.
+#[allow(dead_code)]
 pub(crate) fn authenticate_invoke_response(
     secret: &[u8],
     response: &InvokeResponseSignInput,
     extensions: EnvelopeExtensions,
+) -> Result<ConnectInvokeResponse, CoreError> {
+    authenticate_invoke_response_with_op(secret, response, extensions, None)
+}
+
+/// [`authenticate_invoke_response`] with the request op the response answers:
+/// it selects that op's response revision paths (the adoption refusal
+/// vocabulary).
+pub(crate) fn authenticate_invoke_response_with_op(
+    secret: &[u8],
+    response: &InvokeResponseSignInput,
+    extensions: EnvelopeExtensions,
+    response_op: Option<&str>,
 ) -> Result<ConnectInvokeResponse, CoreError> {
     match response {
         InvokeResponseSignInput::Success {
@@ -663,6 +680,7 @@ pub(crate) fn authenticate_invoke_response(
                     request_id,
                     payload,
                 },
+                response_op,
             )?;
             Ok(ConnectInvokeResponse::Variant0 {
                 session_id: session_id.clone(),
@@ -689,6 +707,7 @@ pub(crate) fn authenticate_invoke_response(
                     request_id,
                     error,
                 },
+                response_op,
             )?;
             Ok(ConnectInvokeResponse::Variant1 {
                 session_id: session_id.clone(),
@@ -733,14 +752,29 @@ where
 /// branch, never a merged object), the signed object must have exact keys
 /// for that branch, and on success the envelope's `session_id` must equal
 /// the bound session (step 6).
+///
+/// No request op is named here: production callers use
+/// [`verify_invoke_response_auth_with_op`] (a response envelope carries no
+/// `op`), so this default is test-facing.
+#[allow(dead_code)]
 pub(crate) fn verify_invoke_response_auth(
     public_key: &[u8],
     response: &serde_json::Value,
     expected_session_id: &str,
 ) -> Result<(), EnvelopeAuthError> {
+    verify_invoke_response_auth_with_op(public_key, response, expected_session_id, None)
+}
+
+/// [`verify_invoke_response_auth`] with the request op the response answers.
+pub(crate) fn verify_invoke_response_auth_with_op(
+    public_key: &[u8],
+    response: &serde_json::Value,
+    expected_session_id: &str,
+    response_op: Option<&str>,
+) -> Result<(), EnvelopeAuthError> {
     let signature = require_signature(response)?;
     let signed_object = invoke_response_signed_object(response)?;
-    verify_canonical_signature(public_key, &signed_object, &signature)?;
+    verify_canonical_signature(public_key, &signed_object, &signature, response_op)?;
     // Fail closed on a non-string session_id (raw wire form — see
     // verify_session_auth): a non-string can never match the bound session.
     let session_id = response
@@ -1083,7 +1117,7 @@ mod tests {
         let mut wire = wire_of(&session);
         wire["initiator_peer_id"] = serde_json::json!(123);
         let signed_object = session_signed_object(&wire).expect("signed object");
-        let signature = sign_envelope(&emitter_seed(), &signed_object).expect("re-sign");
+        let signature = sign_envelope(&emitter_seed(), &signed_object, None).expect("re-sign");
         wire["signature"] = serde_json::json!(signature);
         expect_kind(
             verify_session_auth(
@@ -1346,7 +1380,7 @@ mod tests {
         let mut wire = wire_of(&request);
         wire["session_id"] = serde_json::json!(123);
         let signed_object = invoke_request_signed_object(&wire).expect("signed object");
-        let signature = sign_envelope(&emitter_seed(), &signed_object).expect("re-sign");
+        let signature = sign_envelope(&emitter_seed(), &signed_object, None).expect("re-sign");
         wire["signature"] = serde_json::json!(signature);
         expect_kind(
             verify_invoke_request_auth(&emitter_pubkey(), &wire, SESSION_ID),
@@ -1745,13 +1779,16 @@ mod tests {
         );
     }
 
-    /// C-01 — the adoption refusal carries `details.adopted_revision` at the
-    /// `2^53` endpoint in both owning branches: the transport error envelope
-    /// (`error.details`) and the served error branch the adoption response
-    /// carries inside `payload`. Both sign and verify over the same bytes.
+    /// C-01 / D-01 — the adoption refusal carries `details.adopted_revision`
+    /// at the `2^53` endpoint in both owning branches: the transport error
+    /// envelope (`error.details`) and the served error branch the adoption
+    /// response carries inside `payload`. The paths belong to the
+    /// `knowledge.adopt` response alone, so the signer/verifier must name
+    /// that op; both branches then sign and verify over the same bytes.
     #[test]
     fn response_signs_adoption_refusal_revisions_at_the_endpoint() {
         const ENDPOINT: u64 = 9_007_199_254_740_992;
+        const ADOPT: Option<&str> = Some("knowledge.adopt");
 
         let mut details = serde_json::Map::new();
         details.insert("adopted_revision".into(), serde_json::json!(ENDPOINT));
@@ -1762,7 +1799,7 @@ mod tests {
             message: "destination already anchors the source".to_string(),
         };
 
-        let transport_error = authenticate_invoke_response(
+        let transport_error = authenticate_invoke_response_with_op(
             &emitter_seed(),
             &InvokeResponseSignInput::Error {
                 session_id: SESSION_ID.to_string(),
@@ -1771,19 +1808,20 @@ mod tests {
                 error: envelope,
             },
             Default::default(),
+            ADOPT,
         )
         .expect("an adoption refusal at the endpoint signs");
         let wire = wire_of(&transport_error);
-        verify_invoke_response_auth(&emitter_pubkey(), &wire, SESSION_ID)
+        verify_invoke_response_auth_with_op(&emitter_pubkey(), &wire, SESSION_ID, ADOPT)
             .expect("the error branch verifies");
-        let bytes = crate::core::jcs::canonical_bytes(&wire).expect("JCS");
+        let bytes = crate::core::jcs::canonical_bytes_with_op(&wire, ADOPT).expect("JCS");
         let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
         assert!(
             jcs.contains("\"adopted_revision\":9007199254740992"),
             "the refusal endpoint hashes as its equal f64: {jcs}"
         );
 
-        let served_error = authenticate_invoke_response(
+        let served_error = authenticate_invoke_response_with_op(
             &emitter_seed(),
             &InvokeResponseSignInput::Success {
                 session_id: SESSION_ID.to_string(),
@@ -1800,17 +1838,42 @@ mod tests {
                 }),
             },
             Default::default(),
+            ADOPT,
         )
         .expect("the served error branch signs");
         let wire = wire_of(&served_error);
-        verify_invoke_response_auth(&emitter_pubkey(), &wire, SESSION_ID)
+        verify_invoke_response_auth_with_op(&emitter_pubkey(), &wire, SESSION_ID, ADOPT)
             .expect("the served error branch verifies");
-        let bytes = crate::core::jcs::canonical_bytes(&wire).expect("JCS");
+        let bytes = crate::core::jcs::canonical_bytes_with_op(&wire, ADOPT).expect("JCS");
         let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
         assert!(
             jcs.contains("\"adopted_revision\":9007199254740992"),
             "the served refusal endpoint hashes as its equal f64: {jcs}"
         );
+
+        // Without the owning op the same receipt owns no revision slot: the
+        // exception is scoped to the adoption response, not to the vocabulary.
+        let wrong_code = authenticate_invoke_response(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Error {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                error: ErrorEnvelope {
+                    code: "REVISION_CONFLICT".to_string(),
+                    details: {
+                        let mut details = serde_json::Map::new();
+                        details.insert("adopted_revision".into(), serde_json::json!(ENDPOINT));
+                        details
+                    },
+                    extensions: Default::default(),
+                    message: "destination already anchors the source".to_string(),
+                },
+            },
+            Default::default(),
+        )
+        .expect_err("an unnamed op owns no response revision path");
+        assert!(matches!(wrong_code, CoreError::Jcs(_)), "{wrong_code:?}");
 
         // The next integer has no canonical signed identity in either branch.
         let mut details = serde_json::Map::new();
@@ -1818,7 +1881,7 @@ mod tests {
             "adopted_revision".into(),
             serde_json::json!(ENDPOINT + 1),
         );
-        let error = authenticate_invoke_response(
+        let error = authenticate_invoke_response_with_op(
             &emitter_seed(),
             &InvokeResponseSignInput::Error {
                 session_id: SESSION_ID.to_string(),
@@ -1832,6 +1895,7 @@ mod tests {
                 },
             },
             Default::default(),
+            ADOPT,
         )
         .expect_err("2^53 + 1 has no canonical signed identity");
         assert!(matches!(error, CoreError::Jcs(_)), "{error:?}");
@@ -1840,13 +1904,16 @@ mod tests {
     /// D-01 — the walk carries only matched path prefixes: an open
     /// `ErrorEnvelope.details` member owns no revision slot, so it cannot
     /// borrow `revision` from a sibling path at the same depth. The
-    /// prefix-exact owner set still admits its own endpoint, including a
-    /// mixed-prefix path (`payload.snapshot.adoption_anchor.source_revision`).
+    /// op-scoped adoption vocabulary is no exception for a generic refusal:
+    /// without the `knowledge.adopt` op, `details.adopted_revision` owns no
+    /// revision slot either. The prefix-exact owner set still admits its own
+    /// endpoint, including a mixed-prefix path
+    /// (`payload.snapshot.adoption_anchor.source_revision`).
     #[test]
     fn signed_walk_matches_paths_by_prefix_not_by_component() {
         const ENDPOINT: u64 = 9_007_199_254_740_992;
 
-        for member in ["revision", "counter"] {
+        for member in ["revision", "counter", "adopted_revision"] {
             let mut details = serde_json::Map::new();
             details.insert(member.into(), serde_json::json!(ENDPOINT));
             let error = authenticate_invoke_response(

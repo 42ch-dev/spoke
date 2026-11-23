@@ -81,12 +81,13 @@ use spoke_schemas::{
 
 use crate::cognition::{unsupported_cognition_requirement, WIRE_INVALID_INPUT};
 use crate::core::{
-    authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
+    authenticate_invoke_request, authenticate_invoke_response_with_op, authenticate_session,
     check_response_correlation, cognition_requirement_present, derive_peer_id_from_ed25519_pubkey,
     is_allowlisted, required_capability, sign_hello_ed25519, verify_hello_ed25519,
-    verify_invoke_request_auth, verify_invoke_response_auth, Correlation, EnvelopeAuthError,
-    InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput, NonceStore, OutboundSequence,
-    SessionSignInput, CAPABILITY_KE_OWNERSHIP, CAPABILITY_SPOKE_COGNITION,
+    verify_invoke_request_auth, verify_invoke_response_auth_with_op, Correlation,
+    EnvelopeAuthError, InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput,
+    NonceStore, OutboundSequence, SessionSignInput, CAPABILITY_KE_OWNERSHIP,
+    CAPABILITY_SPOKE_COGNITION,
 };
 use crate::hello::generate_nonce;
 use crate::remote::remote_adapter::{
@@ -1038,6 +1039,9 @@ fn adoption_panic_uncertain_reject() -> SpokeReject {
 /// timeout task (mirror of the adapter's `PendingInvoke`).
 struct PendingReverseInvoke {
     correlation: Correlation,
+    /// The request op: a response envelope carries no `op`, so the waiter
+    /// supplies it to select the op-scoped response revision paths.
+    op: String,
     tx: tokio::sync::mpsc::Sender<Result<ConnectInvokeResponse, ResponderError>>,
     timeout_task: tokio::task::JoinHandle<()>,
 }
@@ -1849,7 +1853,7 @@ impl ConnectResponder {
             SpokeResult::Ok(value) => {
                 // Success branch: `payload = { "result": <opaque JSON> }`
                 // (frozen §4).
-                let signed = authenticate_invoke_response(
+                let signed = authenticate_invoke_response_with_op(
                     &secret,
                     &InvokeResponseSignInput::Success {
                         session_id: session_id.to_owned(),
@@ -1858,6 +1862,7 @@ impl ConnectResponder {
                         payload: json!({ "result": value }),
                     },
                     HashMap::new(),
+                    doc.get("op").and_then(Value::as_str),
                 )
                 .map_err(|error| {
                     ResponderError::new(
@@ -1877,7 +1882,7 @@ impl ConnectResponder {
                             .expect("ops error envelope serializes"),
                     )
                     .expect("field-identical error envelope converts");
-                let signed = authenticate_invoke_response(
+                let signed = authenticate_invoke_response_with_op(
                     &secret,
                     &InvokeResponseSignInput::Error {
                         session_id: session_id.to_owned(),
@@ -1886,6 +1891,7 @@ impl ConnectResponder {
                         error,
                     },
                     HashMap::new(),
+                    doc.get("op").and_then(Value::as_str),
                 )
                 .map_err(|error| {
                     ResponderError::new(
@@ -2906,7 +2912,7 @@ impl ConnectResponder {
             error.insert("details".into(), Value::Object(details.clone()));
         }
         error.insert("extensions".into(), json!({}));
-        let signed = authenticate_invoke_response(
+        let signed = authenticate_invoke_response_with_op(
             &self.local_secret,
             &InvokeResponseSignInput::Error {
                 session_id: session_id.to_owned(),
@@ -2920,6 +2926,7 @@ impl ConnectResponder {
                 })?,
             },
             HashMap::new(),
+            doc.get("op").and_then(Value::as_str),
         )
         .map_err(|error| {
             ResponderError::new(
@@ -2949,7 +2956,7 @@ impl ConnectResponder {
         } else {
             payload
         };
-        let signed = authenticate_invoke_response(
+        let signed = authenticate_invoke_response_with_op(
             &self.local_secret,
             &InvokeResponseSignInput::Success {
                 session_id: session_id.to_owned(),
@@ -2958,6 +2965,7 @@ impl ConnectResponder {
                 payload,
             },
             HashMap::new(),
+            doc.get("op").and_then(Value::as_str),
         )
         .map_err(|error| {
             ResponderError::new(
@@ -3014,7 +3022,13 @@ impl ConnectResponder {
                 )
             })
             .and_then(|()| {
-                verify_invoke_response_auth(&client_pubkey, doc, &session_id).map_err(|error| {
+                verify_invoke_response_auth_with_op(
+                    &client_pubkey,
+                    doc,
+                    &session_id,
+                    Some(&entry.op),
+                )
+                .map_err(|error| {
                     match error.kind() {
                         Some(kind) => ResponderError::new(
                             match kind {
@@ -3135,6 +3149,7 @@ impl ConnectResponder {
                     request_id: request_id.clone(),
                 },
                 tx: tx.clone(),
+                op: op.to_owned(),
                 timeout_task,
             },
         );

@@ -1426,7 +1426,7 @@ fn revision_in_domain(value: &Value) -> bool {
 ///   `KnowledgeEntry` with every required wire member, not merely a
 ///   well-formed anchor. `destination_entry_id` binds the served
 ///   `entry.entry_id` when the request supplied one; an absent selector
-///   defaults to the entry's own id (`entry.id` supplies it), so no
+///   defaults to the entry's own id (`entry.entry_id` supplies it), so no
 ///   equality check applies then.
 /// - Failure (`OneOf1`, contract E3): `{error, extensions?}` — a
 ///   provider error envelope emitted verbatim, never converted into a

@@ -60,12 +60,11 @@ string: a whitespace-only string (a lone space, `U+FEFF`) is a valid non-empty w
 open string in this contract, matching the schema exactly.
 
 **Interoperable integer domain.** The integer-valued members — `schema_version`, `target.revision`,
-and every `evidence[].revision` — take non-negative integers exactly representable on the wire: the
-interoperable domain is `[0, 2^53-1]`, the JSON numbers that are at once u64-safe and IEEE-754
-binary64-safe. The wire schema pins this domain with `maximum: 9007199254740991`. Integral spellings
-such as `1.0` denote the integer they spell on the wire. A non-integral or out-of-domain value
-returns `INVALID_INPUT` at that member's field path. The per-field positivity rules
-(`schema_version >= 1`, `revision >= 1`) apply within the domain.
+and every `evidence[].revision` — take positive integers exactly representable on the wire: the
+interoperable domain is `[1, 2^53-1]`, the JSON numbers that are at once u64-safe and IEEE-754
+binary64-safe. The wire schema pins this domain with `minimum: 1` and `maximum: 9007199254740991`.
+Integral spellings such as `1.0` denote the integer they spell on the wire. A non-integral or
+out-of-domain value returns `INVALID_INPUT` at that member's field path.
 
 **`created_at` offset and raw match.** `created_at` is an RFC 3339 `date-time` carrying an explicit
 UTC offset (`Z` or `±hh:mm`); an offsetless timestamp returns `INVALID_INPUT` at `created_at`. The
@@ -269,7 +268,7 @@ names) or `extensions.<ns>`.
    member outside the documented field set.
 2. `evidence` is always present (empty array is valid) and every evidence item carries a required
    positive-integer `revision`; the target's `revision` is optional but positive when present.
-   Every integer member stays inside the interoperable `[0, 2^53-1]` domain.
+   Every integer member stays inside the interoperable `[1, 2^53-1]` domain.
 3. `verdict.detail` direct members never include the reserved names `target`, `evidence`,
    `judgment_kind`, `outcome`; only own enumerable members count, and multi-member refusals report
    the fixed probe order. `extensions` member violations likewise report the first offending key in

@@ -10,6 +10,8 @@ Wire authority stays in root [`schemas/`](../../schemas/); these pages describe 
 | [`protocol/spoke-protocol-layers.md`](protocol/spoke-protocol-layers.md) | Layer model and capability levels (baseline + optional flags) |
 | [`protocol/spoke-data-model.md`](protocol/spoke-data-model.md) | Data wire shapes: KnowledgeEntry, Rule, TimelineEvent, TimelineScale, host manifest, MindState |
 | [`protocol/spoke-judgment.md`](protocol/spoke-judgment.md) | `spoke-judgment` data capability: Judgment envelope, JudgmentRef, verdict core/detail, `validateJudgment`, RFC 8785 comparison, manifest-only advertisement |
+| [`protocol/spoke-knowledge-adoption.md`](protocol/spoke-knowledge-adoption.md) | `spoke-knowledge-adoption`: `AdoptionAnchor` provenance, `knowledge.adopt` adoption op, copy rules, refusal vocabulary |
+| [`protocol/spoke-history.md`](protocol/spoke-history.md) | `spoke-history`: `RevisionSnapshot` stored entity state, `history.revisions.get` replay, `history.revisions.prune` retained floor |
 | [`protocol/spoke-ops.md`](protocol/spoke-ops.md) | Ops wire layer: request/response families, optional ops, error envelope |
 | [`protocol/spoke-operations.md`](protocol/spoke-operations.md) | Operations library: pure helpers, adapter ports, injection orchestration |
 | [`protocol/spoke-version-release.md`](protocol/spoke-version-release.md) | Lockstep SemVer, tag convention, CI-gated release policy |
@@ -19,7 +21,6 @@ Wire authority stays in root [`schemas/`](../../schemas/); these pages describe 
 | [`connect/connect-cpp-binding.md`](connect/connect-cpp-binding.md) | C/C++ carrier ABI, C++17 convenience layer, native artifact rules |
 | [`connect/connect-csharp-binding.md`](connect/connect-csharp-binding.md) | C# binding surface, regenerate/build/run, fork drop condition |
 | [`memory/spoke-memory.md`](memory/spoke-memory.md) | `spoke-memory` family: models, invariants, 33 ops, wire mapping |
-| [`memory/spoke-knowledge-adoption.md`](memory/spoke-knowledge-adoption.md) | `spoke-knowledge-adoption`: `AdoptionAnchor` provenance, `knowledge.adopt` adoption op, copy rules, refusal vocabulary |
 | [`cognition/spoke-cognition-data-contract.md`](cognition/spoke-cognition-data-contract.md) | Cognition records, attribution, projections, Memory carrier, pure helpers |
 | [`cognition/spoke-cognition-consumer-contract.md`](cognition/spoke-cognition-consumer-contract.md) | Served-surface conformance, negotiation, library ownership |
 | [`domain-profiles/domain-profile-narrative-structure.md`](domain-profiles/domain-profile-narrative-structure.md) | Narrative-structure profile: Beat senses, `precedes`, `structural_role` |

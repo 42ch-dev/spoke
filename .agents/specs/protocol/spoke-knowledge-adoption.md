@@ -2,17 +2,17 @@
 
 > **Status:** Normative
 > **Document class:** Normative — optional capability family (wire + operations + connect serving)
-> **Parent:** [`spoke-protocol.md`](../protocol/spoke-protocol.md)
+> **Parent:** [`spoke-protocol.md`](spoke-protocol.md)
 > **Wire SSOT:** `schemas/data/adoption-anchor.schema.json`, `schemas/ops/knowledge-adopt-request.schema.json`, `schemas/ops/knowledge-adopt-response.schema.json`
 > **Operations library:** `packages/spoke-operations/src/adoption.ts`, `crates/spoke-operations/src/adoption.rs`; port `AdoptionPort` in `packages/spoke-operations/src/adapter/ports.ts`, `crates/spoke-operations/src/adapter/ports.rs`; put-path anchor gate in `packages/spoke-operations/src/adapter/orchestrate.ts`, `crates/spoke-operations/src/adapter/orchestrate.rs`
 > **Connect serving:** `RemoteAdoptionService` / `AdoptionPortService` in `crates/spoke-connect/src/remote/serve_ports.rs`, `packages/spoke-connect-ts/src/remote/serve_ports.ts`; dispatch rows in `crates/spoke-connect/src/core/dispatch.rs`, `packages/spoke-connect-ts/src/core/dispatch.ts`
-> **Capability decision:** [`2026-11-23-spoke-knowledge-adoption.md`](../../adr/implemented/feature/2026-11-23-spoke-knowledge-adoption.md)
+> **Capability decision:** [`2026-11-23-spoke-knowledge-adoption.md`](../adr/implemented/feature/2026-11-23-spoke-knowledge-adoption.md)
 
 ## Scope
 
 This page specifies the optional `spoke-knowledge-adoption` capability: adopting a shared `KnowledgeEntry` into a destination scope. It fixes the `AdoptionAnchor` provenance shape and its immutability, the `knowledge.adopt` wire request and response, the standalone `AdoptionPort`, the copy and governance-reset rules, retirement-chain resolution, repeat and connect idempotency, the refusal vocabulary, atomicity, and the connect capability gate.
 
-It does not define physical storage; how a `merged` entry names its successors (a storage-owned input to the resolver); transport beyond the existing Connect invoke envelope; baseline `port.*` ops or `ScopedKnowledgePort` serving (see [`spoke-operations.md`](../protocol/spoke-operations.md)); the semantics of product `extensions` namespaces; or any refresh or synchronization of previously adopted copies — an adopted copy is written once and is never refreshed or re-anchored by adoption.
+It does not define physical storage; how a `merged` entry names its successors (a storage-owned input to the resolver); transport beyond the existing Connect invoke envelope; baseline `port.*` ops or `ScopedKnowledgePort` serving (see [`spoke-operations.md`](spoke-operations.md)); the semantics of product `extensions` namespaces; or any refresh or synchronization of previously adopted copies — an adopted copy is written once and is never refreshed or re-anchored by adoption.
 
 ## Current state
 
@@ -43,7 +43,7 @@ These rules govern the named write paths, serializations, and dispatch decisions
 | Capability ID | Gates | Relation |
 |---------------|-------|----------|
 | `spoke-knowledge-adoption` | `knowledge.adopt` | Declaring it requires also declaring `spoke-knowledge` (mandatory co-capability) |
-| `spoke-knowledge` | Remote scoped knowledge serving (see [`spoke-operations.md`](../protocol/spoke-operations.md)) | Never satisfied by `spoke-baseline`; serves as adoption's co-capability |
+| `spoke-knowledge` | Remote scoped knowledge serving (see [`spoke-operations.md`](spoke-operations.md)) | Never satisfied by `spoke-baseline`; serves as adoption's co-capability |
 
 Rules:
 
@@ -101,7 +101,7 @@ adopt_knowledge_entry(principal, scope, request)
 | `scope` | shared `Scope` | Admitted scope context for source visibility and destination authorization; explicit second parameter. |
 | `request` | `KnowledgeAdoptRequest` | Adoption selectors, destination id override, retry key, and extensions. |
 
-- Principal identity and scope derive from the host's authenticated admission context, never from payload fields (`MEM-R003` parity in [`spoke-memory.md`](spoke-memory.md); same principal-first, scope-at-port shape as `HistoryPort`).
+- Principal identity and scope derive from the host's authenticated admission context, never from payload fields (`MEM-R003` parity in [`spoke-memory.md`](../memory/spoke-memory.md); same principal-first, scope-at-port shape as `HistoryPort`).
 - Source and destination scoped-serving dependencies are host-supplied port composition, selected by the host rather than by payload identity: the host decides where copies can land.
 - TypeScript uses `adoptKnowledgeEntry(principal, scope, request)` returning `Promise<SpokeResult<KnowledgeAdoptResponse>>`. Rust uses `#[async_trait] async fn adopt_knowledge_entry(&self, principal, scope, request) -> SpokeResult<KnowledgeAdoptResponse>` with borrowed admission/scope/request arguments and a `Send` future. Expected refusals are returned as `SpokeResult` values, not thrown.
 - The port receives the full `KnowledgeAdoptRequest`, including `idempotency_key` — both language servings pass the complete typed request object to the provider. Deduplication stays Connect-owned; `idempotency_key` is pass-through context for the provider.

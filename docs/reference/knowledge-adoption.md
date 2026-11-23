@@ -69,7 +69,12 @@ A closed object recording adoption provenance on the destination entry:
 
 A live requested source is adopted directly. A source with status `merged` is resolved through its retirement chain to a terminal live source, and adoption copies the terminal, never a retired intermediate. The anchor records the terminal live source's `source_scope_id`, `source_entry_id`, and `source_revision`; the default destination id is that terminal `source_entry_id`.
 
-Resolution follows at most 32 retirement edges after the requested entry (`RETIREMENT_CHAIN_MAX_EDGES`) and tracks every visited entry id. A chain that reaches a live terminal at exactly 32 edges succeeds. A cycle, a `merged` entry with zero or multiple successors, a successor that resolves to a missing or unresolvable entry, a terminal entry whose status is `deleted`, or a required 33rd edge refuses `SOURCE_RETIRED` with `details.retirement_chain` listing exactly the visited source entry ids, beginning with the requested id and ending at the last resolved node.
+Resolution follows at most 32 retirement edges after the requested entry (`RETIREMENT_CHAIN_MAX_EDGES`) and tracks every visited entry id. A chain that reaches a live terminal at exactly 32 edges succeeds.
+
+A refusal answers `SOURCE_RETIRED` with `details.retirement_chain`, the ordered source entry ids beginning with the requested id. The array's shape depends on the refusal:
+
+- **Cycle** — the id that closes the loop is visited before the refusal, so the repeated id is listed again as the final element: `ke_a → ke_b → ke_c → ke_a` reports `["ke_a","ke_b","ke_c","ke_a"]`.
+- **Every other refusal** — a `merged` entry with zero or multiple successors, a successor that resolves to a missing or unresolvable entry, a terminal entry whose status is `deleted`, or a required 33rd edge — lists only ids already resolved: the unvisited successor is never listed, so the array ends at the last resolved node.
 
 ### Copy rules
 

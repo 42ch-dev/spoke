@@ -69,7 +69,12 @@ title: 知识采纳参考
 
 存活的可请求源被直接采纳。状态为 `merged` 的源经其退役链解析到终态存活源，采纳复制终态，绝不复制已退役中间节点。锚点记录终态存活源的 `source_scope_id`、`source_entry_id` 与 `source_revision`；默认目标 id 即该终态 `source_entry_id`。
 
-解析在请求条目之后最多沿 32 条退役边（`RETIREMENT_CHAIN_MAX_EDGES`），并追踪每个访问过的条目 id。恰在 32 条边上到达存活终态的链成功。出现环、`merged` 条目零个或多个后继、后继解析到缺失或不可解析条目、终态条目状态为 `deleted`，或需要第 33 条边时，拒绝 `SOURCE_RETIRED`，其 `details.retirement_chain` 精确列出访问过的源条目 id，从请求 id 开始，到最后解析到的节点结束。
+解析在请求条目之后最多沿 32 条退役边（`RETIREMENT_CHAIN_MAX_EDGES`），并追踪每个访问过的条目 id。恰在 32 条边上到达存活终态的链成功。
+
+拒绝时以 `SOURCE_RETIRED` 应答，`details.retirement_chain` 为源条目 id 的有序数组，从请求 id 开始。数组形状取决于拒绝类型：
+
+- **环** —— 闭环的那个 id 在拒绝之前已被访问，因此该重复 id 会再次作为最后一个元素列出：`ke_a → ke_b → ke_c → ke_a` 报告 `["ke_a","ke_b","ke_c","ke_a"]`。
+- **其它所有拒绝** —— `merged` 条目零个或多个后继、后继解析到缺失或不可解析条目、终态条目状态为 `deleted`，或需要第 33 条边 —— 只列出已解析的 id：未访问的后继绝不列出，因此数组在最后解析到的节点结束。
 
 ### 复制规则
 

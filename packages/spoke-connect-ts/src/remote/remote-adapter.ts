@@ -162,6 +162,7 @@ import {
 import {
   carriesAdoptFailureMember,
   isAdoptFailurePayload,
+  isValidAdoptSuccessPayload,
   isValidRevisionSnapshot,
   isValidSuccessPayload,
 } from "./payload.js";
@@ -1778,10 +1779,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       // outcome, not a transport error (qc2 QC2-21 / F-030; Rust
       // `invoke_mapped<KnowledgeAdoptResponse>` decodes both branches).
       if (op === ADOPTION_OPS.adoptKnowledgeEntry) {
-        // Two-branch served payload (contract E3): `knowledge.adopt` returns
-        // its provider refusal as `{error, extensions?}` — a successful port
-        // outcome, not a transport error (qc2 QC2-21 / F-030; Rust
-        // `invoke_mapped<KnowledgeAdoptResponse>` decodes both branches).
         // A payload carrying BOTH branch shapes is neither: the typed Rust
         // untagged decode refuses it (qc1 F-032).
         if (carriesAdoptFailureMember(response.payload)) {
@@ -1793,10 +1790,10 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
           }
           return spokeOk(response.payload as unknown as T);
         }
-        if (!isValidSuccessPayload(op, response.payload)) {
+        if (!isValidAdoptSuccessPayload(response.payload)) {
           return internalError(
             "transport",
-            "response payload decode failed: payload does not match the knowledge.adopt success shape",
+            "response payload decode failed: payload does not match the knowledge.adopt success shape (entry must be a complete KnowledgeEntry with its adoption_anchor)",
           );
         }
         return spokeOk(response.payload as unknown as T);

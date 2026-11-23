@@ -1259,6 +1259,110 @@ describe("RemoteAdapter loopback interop", () => {
   );
 
   it(
+    "refuses a knowledge.adopt success entry missing its adoption_anchor, and accepts a complete anchored entry (qc1 F-033)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      // why: the shallow success shape only requires `entry` to be an
+      // object; the typed Rust `OneOfEntry` decode requires every
+      // `KnowledgeEntry` member plus `adoption_anchor`, so the client gate
+      // must deep-validate the entry or it surfaces `spokeOk` for a payload
+      // Rust refuses.
+      const adoptionCapabilities: [string, ...string[]] = [
+        "spoke-baseline",
+        "spoke-knowledge",
+        "spoke-knowledge-adoption",
+      ];
+      const dialWithPayload = (payload: unknown) =>
+        dial(hostAdapter, {
+          clientManifest: {
+            ...clientManifest(),
+            capabilities: adoptionCapabilities,
+          },
+          hostManifest: {
+            ...schemaConformantManifest(),
+            capabilities: adoptionCapabilities,
+          },
+          hostResponseOverride: (request) => ({
+            session_id: request.session_id,
+            sequence: request.sequence,
+            request_id: request.request_id,
+            payload,
+            extensions: {},
+          }),
+        });
+      const principal: Principal = {
+        principal_id: "prn_client",
+        extensions: {},
+      };
+      const scope: Scope = { scope_id: "spc_dst", extensions: {} };
+      const request: KnowledgeAdoptRequest = {
+        source_scope_id: "spc_src",
+        source_entry_id: "ke_src",
+        source_revision: 1,
+        destination_scope_id: "spc_dst",
+        idempotency_key: "k-f033",
+        extensions: {},
+      };
+      const anchoredEntry: KnowledgeEntry = {
+        ...freshEntry("ke_dst", "dst"),
+        adoption_anchor: {
+          schema_version: 1,
+          source_scope_id: "spc_src",
+          source_entry_id: "ke_src",
+          source_revision: 1,
+          extensions: {},
+        },
+      };
+
+      // (a) entry without `adoption_anchor` → INTERNAL_ERROR transport.
+      const unanchored = await dialWithPayload({
+        outcome: "adopted",
+        entry: freshEntry("ke_dst", "dst"),
+      });
+      try {
+        const result = await unanchored.client.adoptKnowledgeEntry(
+          principal,
+          scope,
+          request,
+        );
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("payload decode failed"),
+          details: { kind: "transport" },
+        });
+      } finally {
+        unanchored.client.close();
+        unanchored.host.close();
+      }
+
+      // (b) a complete anchored entry serves verbatim.
+      const valid = await dialWithPayload({
+        outcome: "adopted",
+        entry: anchoredEntry,
+      });
+      try {
+        const result = await valid.client.adoptKnowledgeEntry(
+          principal,
+          scope,
+          request,
+        );
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toEqual({
+            outcome: "adopted",
+            entry: anchoredEntry,
+          });
+        }
+      } finally {
+        valid.client.close();
+        valid.host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
     "maps a correlation mismatch to INTERNAL_ERROR kind correlation_mismatch without closing the session",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();

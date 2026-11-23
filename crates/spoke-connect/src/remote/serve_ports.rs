@@ -3162,6 +3162,35 @@ mod history_tests {
         assert!(matches!(decoded, KnowledgeAdoptResponse::Variant1 { .. }));
     }
 
+    /// qc1 F-033 — parity pin for the TS client gate (`isValidAdoptSuccessPayload`):
+    /// the typed `KnowledgeAdoptResponse` decode refuses a success entry
+    /// without `adoption_anchor`, so the shallow `{outcome, entry}` shape
+    /// alone is never a valid success payload.
+    #[test]
+    fn adopt_success_entry_requires_adoption_anchor() {
+        let mut unanchored = served_entry(2, 1);
+        unanchored
+            .as_object_mut()
+            .expect("entry is an object")
+            .remove("adoption_anchor");
+        assert!(
+            serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+                "outcome": "adopted",
+                "entry": unanchored,
+            }))
+            .is_err(),
+            "a success entry without adoption_anchor must not decode"
+        );
+        assert!(
+            serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+                "outcome": "adopted",
+                "entry": served_entry(2, 1),
+            }))
+            .is_ok(),
+            "a complete anchored entry decodes"
+        );
+    }
+
     /// qc1 F-031 — a provider Reject receipt's `details.adopted_revision`
     /// obeys the same `[0, 2^53]` f64-observed domain as the served
     /// branches: an out-of-domain value settles as a provider-fault

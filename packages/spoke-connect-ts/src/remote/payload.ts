@@ -950,6 +950,24 @@ export function isAdoptFailurePayload(value: unknown): boolean {
   return true;
 }
 
+/** Served `knowledge.adopt` success branch (contract §`KnowledgeAdoptResponse`
+ * `OneOf0`): `{outcome, entry, extensions?}` where `entry` is a COMPLETE
+ * `KnowledgeEntry` carrying a well-formed `adoption_anchor` — the same bar
+ * the serving face and the typed Rust `OneOfEntry` decode apply.
+ * Accepting the shallow success shape alone would surface `spokeOk` for a
+ * payload the Rust client refuses (qc1 F-033). */
+export function isValidAdoptSuccessPayload(value: unknown): boolean {
+  if (!isValidSuccessPayload("knowledge.adopt", value)) {
+    return false;
+  }
+  const entry = (value as Record<string, unknown>).entry;
+  return (
+    isRecord(entry) &&
+    isValidKnowledgeEntryDeep(entry) &&
+    isWellFormedAdoptionAnchor(entry.adoption_anchor)
+  );
+}
+
 export function isValidSuccessPayload(op: string, value: unknown): boolean {
   if (op === "history.revisions.get" || op === "history.revisions.prune") {
     return isValidHistorySuccessPayload(op, value);

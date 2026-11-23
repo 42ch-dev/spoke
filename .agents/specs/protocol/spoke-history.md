@@ -70,7 +70,9 @@ identical RFC 8785 canonical bytes.
 
 Both operations require negotiated `spoke-history`. Without it, Connect refuses with
 `op_unsupported` or `capability_missing` before invoking the handler and without side effects.
-`HISTORY_ENTITY_UNSUPPORTED` applies only after that gate admits the operation.
+`HISTORY_ENTITY_UNSUPPORTED` applies only after that gate admits the operation. After the core
+dispatch row admits an operation, a request whose `scope.cognition` declares a requirement must
+also satisfy negotiated `spoke-cognition` before the responder probes the history port.
 
 `revision` and `keep` are non-negative integers with no schema maximum. A receiver that cannot
 represent either value exactly refuses with `INVALID_INPUT`; it never rounds, truncates, or coerces
@@ -106,8 +108,10 @@ For checkpoints `{1,3,5}` and `keep=2`, the live row is excluded, the retained c
 returns `HISTORY_TRUNCATED` with `details.floor_revision=2`; revision 2 remains answerable from
 retained checkpoint 3 and is not truncated.
 
-A conditional entity `put` below the floor retains the entity's existing optimistic-concurrency
-outcome. History does not add a write-floor check or a parallel stale-revision refusal.
+A conditional entity `put` compares `expected_base_revision` with the current stored row and
+returns `STORED_REVISION_STALE` on a mismatch. This OCC outcome is independent of the retained
+floor: a stale base refuses at, above, or below the floor. History does not add a write-floor check
+or a parallel stale-revision refusal.
 
 ### Authorization and pruning
 
@@ -152,8 +156,9 @@ the deduplication rules above. Capability denials remain Connect-layer `op_unsup
 
 ## Invariants
 
-1. `spoke-history` is optional and independently negotiated; only exact capability membership gates
-   either history operation, and denied dispatch has no handler side effects.
+1. `spoke-history` is optional and independently negotiated; its core dispatch rows require exact
+   capability membership for either history operation, and denied dispatch has no handler side
+   effects.
 2. `RevisionSnapshot` preserves the complete selected entity, matching envelope and nested ids and
    revisions, stored field presence, extensions, and RFC 8785 canonical bytes.
 3. Replay never re-derives cognition or other derived state. Derived revisions at or above the

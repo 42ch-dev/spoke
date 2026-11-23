@@ -6,7 +6,7 @@
 > **Wire SSOT:** `schemas/data/adoption-anchor.schema.json`, `schemas/ops/knowledge-adopt-request.schema.json`, `schemas/ops/knowledge-adopt-response.schema.json`
 > **Operations library:** `packages/spoke-operations/src/adoption.ts`, `crates/spoke-operations/src/adoption.rs`; port `AdoptionPort` in `packages/spoke-operations/src/adapter/ports.ts`, `crates/spoke-operations/src/adapter/ports.rs`; put-path anchor gate in `packages/spoke-operations/src/adapter/orchestrate.ts`, `crates/spoke-operations/src/adapter/orchestrate.rs`
 > **Connect serving:** `RemoteAdoptionService` / `AdoptionPortService` in `crates/spoke-connect/src/remote/serve_ports.rs`, `packages/spoke-connect-ts/src/remote/serve_ports.ts`; dispatch rows in `crates/spoke-connect/src/core/dispatch.rs`, `packages/spoke-connect-ts/src/core/dispatch.ts`
-> **Capability decision:** [`2026-11-23-spoke-knowledge-adoption.md`](../adr/implemented/feature/2026-11-23-spoke-knowledge-adoption.md)
+> **Capability decision:** [`2026-11-23-spoke-knowledge-adoption.md`](../../adr/implemented/feature/2026-11-23-spoke-knowledge-adoption.md)
 
 ## Scope
 
@@ -32,11 +32,11 @@ These rules govern the named write paths, serializations, and dispatch decisions
 
 - **Scoped-put refusal precedence.** The scoped `knowledge.put` write applies the caller's `expected_base_revision` as the compare-and-swap fence; an absent caller base is create-only, and an existing entry is never overwritten. Its checks run in a fixed order against the stored state: (a) request validation answers `INVALID_INPUT` first — an explicit-null `destination_entry_id` or any malformed request — regardless of the stored state; (b) the caller OCC fence answers `REVISION_CONFLICT` when an absent base meets an occupied slot — the create-only put refusal — and `STORED_REVISION_STALE` when a present base mismatches the stored revision or meets an absent slot; (c) a fence-matching write that would change or remove a stored `adoption_anchor` answers `ADOPTION_ANCHOR_IMMUTABLE`. The anchor check reads the stored entry and runs inside the same critical section as the fence check, after it. Binding the fence to the stored revision instead of the caller base is a defect.
 - **Injected dedup stores.** A `HistoryDedupStore` that does not implement same-key exclusion inherits a process-wide single-flight claim from the serving layer — the default claim is keyed on the four-member retry identity and held in process memory. Callers that share a store across services get the same guarantee. Cross-process durability stays provider-owned.
-- **Served success shape.** A `knowledge.adopt` success `entry` validates against the published `knowledge-entry` wire shape — all required fields — and does not rest on a well-formed `adoption_anchor` alone; with `destination_entry_id` absent, the success `entry.id` supplies the destination id.
+- **Served success shape.** A `knowledge.adopt` success `entry` validates against the published `knowledge-entry` wire shape — all required fields — and does not rest on a well-formed `adoption_anchor` alone; with `destination_entry_id` absent, the success `entry.entry_id` supplies the destination id.
 - **Request `extensions` emission.** The typed Rust request serializer emits `extensions` even when empty; response-side `extensions` is an optional member per the published schema and a present-empty `extensions: {}` is legal on either outcome branch.
 - **Canonical numeric spelling.** `payload_digest` and recorded-outcome canonicalization use RFC 8785 number spelling on both stacks; integral floats within `[0, 2^53]` serialize without exponent.
 - **Reserved-prefix ownership.** `knowledge.*` op names not registered in the core dispatch table are refused by the Connect core decision (`op_unsupported`) before any product custom-map lookup.
-- **Destination admission order.** `knowledge.adopt` admission checks destination `space_id` authorization before source-chain resolution begins; an out-of-scope destination refuses `NOT_AUTHORIZED` without touching the source.
+- **Destination admission order.** `knowledge.adopt` admission compares `request.destination_scope_id` with the admitted `Scope.scope_id` before source-chain resolution begins; a mismatch refuses `NOT_AUTHORIZED` without touching the source.
 
 ### Capability flags
 
@@ -165,7 +165,7 @@ Every spoke-operations knowledge write orchestration that stores a `KnowledgeEnt
 | `SOURCE_RETIRED` | Retirement resolution encounters a cycle, ambiguity, a deleted terminal, or the 32-edge limit. | Exactly `retirement_chain`: the ordered visited source-entry-id array. |
 | `REVISION_CONFLICT` | An existing destination copy anchors a different source revision. | Exactly `adopted_revision`: the integer revision in the existing anchor. |
 | `NOT_FOUND` | The requested source is missing, or the requested or resolved terminal source is outside the admitted scope or owner-private to another viewpoint. | No source-identifying members; one generic absence. |
-| `NOT_AUTHORIZED` | The `knowledge.adopt` destination scope fails destination `space_id` authorization, checked before source-chain resolution begins (Wire-wide rules). | No adoption-specific members; the source stays untouched. |
+| `NOT_AUTHORIZED` | `request.destination_scope_id` differs from the admitted `Scope.scope_id`, checked before source-chain resolution begins (Wire-wide rules). | No adoption-specific members; the source stays untouched. |
 | `IDEMPOTENCY_CONFLICT` | A connect request reuses an idempotency key with a different request digest. | No adoption-specific members. |
 `ADOPTION_ANCHOR_IMMUTABLE` and `SOURCE_RETIRED` are adoption-family `SpokeRejectCode` members; `REVISION_CONFLICT`, `NOT_FOUND`, `NOT_AUTHORIZED`, and `IDEMPOTENCY_CONFLICT` reuse their existing codes and meanings. `INVALID_INPUT` answers malformed payloads at the serving boundary; `RECEIPT_EXPIRED` answers dedup-record eviction; `OUTCOME_UNCERTAIN` (`details.retry_class: "uncertain"`, `kind: "timeout"` / `"panic"`) answers a serve wait that exceeds the local budget or a service failure after invocation — the outcome is unknown, provider work is neither cancelled nor rolled back, and the caller recovers by replaying the same idempotency key.
 

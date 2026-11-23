@@ -10,6 +10,7 @@ mod error;
 mod finding;
 mod history;
 mod knowledge_entry;
+mod judgment;
 mod memory;
 mod mind_state;
 mod occ;
@@ -100,6 +101,7 @@ pub use adapter::ports::{ExtractRunInput, ExtractionPort, ExtractionResult};
 pub use adapter::{MemoryPort, MemoryPorts};
 pub use adapter::{HistoryPort, HistoryPorts};
 pub use history::{revision_snapshots_equal_canonical, HistoryPruneResult};
+pub use judgment::{judgments_equal_canonical, validate_judgment, validate_judgment_typed};
 
 /// Re-export wire types for integrator convenience.
 pub use spoke_schemas;

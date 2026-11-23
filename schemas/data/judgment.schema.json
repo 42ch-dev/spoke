@@ -1,0 +1,184 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/judgment.schema.json",
+  "title": "Judgment",
+  "description": "spoke-judgment assessment envelope: a declared verdict about a target, backed by evidence that pins exact revisions. Optional data/conformance capability — defines no engine, reasoner, storage behavior, or Connect operation.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "judgment_id",
+    "judgment_kind",
+    "target",
+    "evidence",
+    "verdict",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Wire schema version (integer >= 1) in the interoperable integer domain.",
+      "allOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        {
+          "maximum": 9007199254740991
+        }
+      ]
+    },
+    "judgment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque stable judgment id."
+    },
+    "judgment_kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Open string. Core vocabulary (documented, not enforced): consistency (assesses consistency), support (assesses evidentiary support), acceptance (assesses acceptance), review (records a review outcome). Products MAY emit namespaced kinds such as my-product:belief-assessment; unknown non-empty values remain valid and need no registry update."
+    },
+    "target": {
+      "$ref": "#/definitions/JudgmentRef"
+    },
+    "evidence": {
+      "type": "array",
+      "description": "JudgmentRef list backing the judgment; present even when empty. Every item is a JudgmentEvidenceRef — a JudgmentRef narrowed to a required positive revision, so evidence always carries the exact revisions the judgment relies on.",
+      "items": {
+        "$ref": "#/definitions/JudgmentEvidenceRef"
+      }
+    },
+    "verdict": {
+      "$ref": "#/definitions/Verdict"
+    },
+    "basis": {
+      "type": "string",
+      "description": "Optional product-supplied explanation or rationale; it does not replace evidence."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "JudgmentRef": {
+      "title": "JudgmentRef",
+      "description": "Dedicated lightweight reference used by Judgment.target and every Judgment.evidence[] item. Carries only kind, id, optional product scope, and optional revision; it does not reuse CognitionReference or CognitionTarget. On Judgment.target the revision is optional and positive when present.",
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Identifies the referenced thing's kind without a protocol registry; open string."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque stable id within the applicable kind and product scope."
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional product scope for the reference. Not a required component of the referenced thing's identity."
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Pins the referenced revision when revision pinning applies; positive (>= 1) when present."
+        }
+      },
+      "additionalProperties": false
+    },
+    "JudgmentEvidenceRef": {
+      "title": "JudgmentEvidenceRef",
+      "description": "JudgmentRef narrowed for Judgment.evidence[] items: revision is required and positive — the exact revision the judgment relies on.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/JudgmentRef"
+        },
+        {
+          "type": "object",
+          "required": [
+            "revision"
+          ],
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "description": "Required positive revision — evidence refs always pin the exact revision relied on."
+            }
+          }
+        }
+      ]
+    },
+    "Verdict": {
+      "title": "Verdict",
+      "description": "Closed verdict core plus open product detail.",
+      "type": "object",
+      "required": [
+        "outcome"
+      ],
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Portable core outcome; open string."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Optional core confidence value in [0, 1]."
+        },
+        "detail": {
+          "type": "object",
+          "description": "Optional product-specific assessment content, opaque to the envelope validator and included in canonicalization. Direct members MUST NOT duplicate protocol-level envelope locations: the reserved direct member names are target, evidence, judgment_kind, and outcome.",
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "target",
+                "evidence",
+                "judgment_kind",
+                "outcome"
+              ]
+            },
+            "title": "DetailKey"
+          },
+          "additionalProperties": {
+            "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "judgment_id": "jdg_01HXAB",
+      "judgment_kind": "consistency",
+      "target": {
+        "kind": "knowledge_entry",
+        "id": "kb_01HXYZ"
+      },
+      "evidence": [
+        {
+          "kind": "knowledge_entry",
+          "id": "kb_01HARBOR",
+          "revision": 3
+        }
+      ],
+      "verdict": {
+        "outcome": "consistent",
+        "confidence": 0.9
+      },
+      "extensions": {}
+    }
+  ]
+}

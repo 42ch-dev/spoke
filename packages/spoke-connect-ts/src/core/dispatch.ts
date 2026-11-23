@@ -64,6 +64,15 @@ export const CAPABILITY_SPOKE_COGNITION = "spoke-cognition";
 export const CAPABILITY_SPOKE_HISTORY = "spoke-history";
 
 /**
+ * Optional data/conformance capability: a host that validates or produces
+ * `Judgment` envelopes advertises `spoke-judgment` in
+ * `HostCapabilityManifest.capabilities` (spoke-judgment wire contract
+ * §Manifest). Manifest-only — it gates NO op, so `requiredCapability` has no
+ * row for it and `tools.*` ops keep their own exact-string gates.
+ */
+export const CAPABILITY_SPOKE_JUDGMENT = "spoke-judgment";
+
+/**
  * Wire spelling of a dispatch-layer validation verdict (consumer contract
  * §2.2). The ops protocol spells the same internal code `INVALID_INPUT` on
  * its envelopes; a rejection taken at the pre-handler boundary carries this

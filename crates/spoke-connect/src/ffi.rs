@@ -6026,11 +6026,23 @@ mod connect_responder_ffi_tests {
             "expected application passthrough row, got {err:?}"
         );
 
+        // The scoped put pre-reads its destination to enforce anchor
+        // immutability and caller OCC, so the handler sees that read before
+        // the write. Exact sequence, not just a count: put pre-read, put,
+        // round-trip get, denied get.
+        let calls = responder_calls.lock().expect("calls lock");
         assert_eq!(
-            responder_calls.lock().expect("calls lock").len(),
-            3,
-            "the foreign ports handler served put / get / denied get"
+            *calls,
+            vec![
+                "get_knowledge_entry:kb_ffi_ports_put".to_string(),
+                "put_knowledge_entry".to_string(),
+                "get_knowledge_entry:kb_ffi_ports_put".to_string(),
+                "get_knowledge_entry:kb_ffi_ports_missing".to_string(),
+            ],
+            "the foreign ports handler served the anchor/OCC pre-read, the put, \
+             the round-trip get, then the denied get"
         );
+        drop(calls);
         dialer.close();
         responder.close();
     }

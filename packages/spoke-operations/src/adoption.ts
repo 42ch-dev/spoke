@@ -1,9 +1,10 @@
 /**
  * `spoke-knowledge-adoption` family helpers: the `adoption_anchor`
  * immutability gate for the normal put path, the bounded retirement-chain
- * resolver, and the destination copy builder (spoke-knowledge-adoption
- * contract §Anchor immutability / §Retirement-chain resolution /
- * §Copy rules and create-only OCC).
+ * resolver — the destination copy rules live in provider
+ * `AdoptionPort` implementations (`adapter/ports.ts`), not this module
+ * (spoke-knowledge-adoption contract §Anchor immutability /
+ * §Retirement-chain resolution / §Copy rules and create-only OCC).
  *
  * Equality of two anchors is RFC 8785 canonical-JSON byte equality — the
  * same rule `history.ts` `revisionSnapshotsEqualCanonical` applies, so a

@@ -1836,4 +1836,159 @@ mod tests {
         .expect_err("2^53 + 1 has no canonical signed identity");
         assert!(matches!(error, CoreError::Jcs(_)), "{error:?}");
     }
+
+    /// D-01 — the walk carries only matched path prefixes: an open
+    /// `ErrorEnvelope.details` member owns no revision slot, so it cannot
+    /// borrow `revision` from a sibling path at the same depth. The
+    /// prefix-exact owner set still admits its own endpoint, including a
+    /// mixed-prefix path (`payload.snapshot.adoption_anchor.source_revision`).
+    #[test]
+    fn signed_walk_matches_paths_by_prefix_not_by_component() {
+        const ENDPOINT: u64 = 9_007_199_254_740_992;
+
+        for member in ["revision", "counter"] {
+            let mut details = serde_json::Map::new();
+            details.insert(member.into(), serde_json::json!(ENDPOINT));
+            let error = authenticate_invoke_response(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Error {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    error: ErrorEnvelope {
+                        code: "INVALID_INPUT".to_string(),
+                        details,
+                        extensions: Default::default(),
+                        message: "a generic refusal".to_string(),
+                    },
+                },
+                Default::default(),
+            )
+            .expect_err("an open details member owns no revision slot");
+            assert!(
+                matches!(error, CoreError::Jcs(_)),
+                "error.details.{member} refuses: {error:?}"
+            );
+        }
+
+        // Mixed prefix near miss: `payload.snapshot.adoption_anchor` carries no
+        // owning path — only `payload.snapshot.snapshot.adoption_anchor` and
+        // `payload.adoption_anchor` do — so the endpoint refuses instead of
+        // borrowing `adoption_anchor`/`source_revision` from different paths.
+        for near_miss in [
+            serde_json::json!({
+                "snapshot": { "adoption_anchor": { "source_revision": ENDPOINT } },
+            }),
+            // `payload.error.details` continues through the served adoption
+            // refusal, but `source_revision` there belongs to
+            // `payload.records.import_ref.source_revision`.
+            serde_json::json!({
+                "error": { "details": { "source_revision": ENDPOINT } },
+            }),
+        ] {
+            let error = authenticate_invoke_response(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Success {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    payload: near_miss.clone(),
+                },
+                Default::default(),
+            )
+            .expect_err("a spliced path owns nothing");
+            assert!(
+                matches!(error, CoreError::Jcs(_)),
+                "near miss {near_miss} refuses: {error:?}"
+            );
+        }
+
+        // The declared owners keep the endpoint, each through its own prefix.
+        let response = authenticate_invoke_response(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({
+                    "adoption_anchor": { "source_revision": ENDPOINT },
+                    "snapshot": {
+                        "snapshot": { "adoption_anchor": { "source_revision": ENDPOINT } },
+                    },
+                    "relation": { "revision": ENDPOINT },
+                }),
+            },
+            Default::default(),
+        )
+        .expect("every owning path keeps its endpoint");
+        let wire = wire_of(&response);
+        verify_invoke_response_auth(&emitter_pubkey(), &wire, SESSION_ID)
+            .expect("both sides canonicalize the same bytes");
+        let bytes = crate::core::jcs::canonical_bytes(&wire).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert_eq!(
+            jcs.matches("\"source_revision\":9007199254740992").count(),
+            2,
+            "both adoption anchors own the endpoint: {jcs}"
+        );
+        assert!(
+            jcs.contains("\"revision\":9007199254740992"),
+            "the relation revision owns the endpoint: {jcs}"
+        );
+    }
+
+    /// D-QC2-01 — an integral float has the peer's parsed value, so it takes
+    /// the same verdict as the integer spelling: refused everywhere except
+    /// the `±2^53` endpoint of an owning revision path, where the canonical
+    /// bytes are the unchanged endpoint spelling.
+    #[test]
+    fn signed_walk_refuses_opaque_endpoint_floats() {
+        const ENDPOINT: f64 = 9_007_199_254_740_992.0;
+
+        for opaque_member in ["revision", "counter"] {
+            let mut input = request_input(None);
+            input.op = "port.relation.put".to_string();
+            input.payload = serde_json::json!({
+                "relation": {
+                    "revision": 1,
+                    "metadata": { opaque_member: ENDPOINT },
+                },
+                "expected_base_revision": null,
+            });
+            let error = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+                .expect_err("an integral float at the endpoint has no non-owning domain");
+            assert!(
+                matches!(error, CoreError::Jcs(_)),
+                "metadata.{opaque_member} refuses the float spelling: {error:?}"
+            );
+        }
+
+        let mut unlisted = request_input(None);
+        unlisted.op = "port.finding.put".to_string();
+        unlisted.payload = serde_json::json!({ "note": ENDPOINT });
+        let error = authenticate_invoke_request(&emitter_seed(), &unlisted, Default::default())
+            .expect_err("a non-revision member owns no endpoint in either spelling");
+        assert!(matches!(error, CoreError::Jcs(_)), "{error:?}");
+
+        // The owning path admits the float spelling with the same bytes as
+        // the integer spelling.
+        let mut input = request_input(None);
+        input.op = "port.relation.put".to_string();
+        input.payload = serde_json::json!({
+            "relation": { "revision": ENDPOINT },
+            "expected_base_revision": null,
+        });
+        let request = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+            .expect("relation.revision owns the float endpoint");
+        let wire = wire_of(&request);
+        verify_invoke_request_auth(&emitter_pubkey(), &wire, SESSION_ID)
+            .expect("the float endpoint verifies");
+        let signed_object = invoke_request_signed_object(&wire).expect("signed object");
+        let bytes = crate::core::jcs::canonical_bytes(&signed_object).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"revision\":9007199254740992"),
+            "the float endpoint keeps the integer spelling: {jcs}"
+        );
+    }
 }

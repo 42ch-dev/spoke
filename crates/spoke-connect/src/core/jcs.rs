@@ -15,13 +15,30 @@
 //! outside the tables keeps its token, so an integer JavaScript cannot
 //! represent (`2^53 + 1`) still refuses instead of being rounded into the
 //! signed identity.
+//!
+//! Path matching is prefix-exact: each descent carries only the paths whose
+//! components already matched, so an open object (`ErrorEnvelope.details`,
+//! `Relation.metadata`) cannot borrow a component from a sibling path.
+//!
+//! The same identity argument covers an integral float: the peer parses
+//! `9007199254740992.0` into the same IEEE-754 number as the integer
+//! spelling, so a non-owning value at `±2^53` refuses whatever its token,
+//! and an owning path admits the endpoint in either spelling.
 
+use serde::de::Error as _;
 use serde::Serialize;
 use serde_json::Value;
 
 /// Largest integer exactly representable as an f64 (`2^53`) — the
 /// inclusive canonicalization bound C5 states (`[0, 2^53]`, no exponent).
 pub(crate) const EXACT_INTEGER_BOUND: u64 = 1 << 53;
+
+/// `2^64` as an `f64`: the first magnitude past the integer tokens
+/// `serde_json` keeps exact, mirroring the TypeScript endpoint guard.
+const U64_RANGE_BOUND: f64 = 18_446_744_073_709_551_616.0;
+
+/// `-2^63` as an `f64`: the low end of the integer token range.
+const I64_RANGE_BOUND: f64 = -9_223_372_036_854_775_808.0;
 
 /// One root-relative wire path (object keys; arrays are transparent).
 pub(crate) type RevisionPath = &'static [&'static str];
@@ -223,50 +240,91 @@ fn revision_paths(signed: &Value) -> &'static [RevisionPath] {
     &[]
 }
 
+/// Refuse an integral float whose parsed value the peer would classify as an
+/// out-of-domain integer: only the `±2^53` endpoint of an owning revision
+/// path has a shared IEEE-754 identity, so signing any other such value
+/// would emit bytes the peer refuses to verify.
+fn float_domain_error(number: &serde_json::Number, revision: bool) -> Option<serde_json::Error> {
+    // An integer token keeps its own treatment: exactly `±2^53` re-spells on
+    // an owning path and `serde_jcs` refuses the rest past `2^53 − 1`.
+    if number.is_u64() || number.is_i64() {
+        return None;
+    }
+    let value = number.as_f64()?;
+    let bound = EXACT_INTEGER_BOUND as f64;
+    let out_of_domain = (value >= bound && value < U64_RANGE_BOUND)
+        || (value <= -bound && value >= I64_RANGE_BOUND);
+    if !out_of_domain || (revision && value.abs() == bound) {
+        return None;
+    }
+    Some(serde_json::Error::custom(format!(
+        "number {value} is outside the revision member domain of the signed object"
+    )))
+}
+
 /// Re-spell an integer `±2^53` only at the given root-relative paths
-/// (nested members and array elements included). Every other integer keeps
-/// its token, so `serde_jcs` refuses it at the endpoint.
-pub(crate) fn respell_paths(value: Value, paths: &[RevisionPath]) -> Value {
-    fn walk(value: Value, paths: &[RevisionPath], depth: usize, revision: bool) -> Value {
+/// (nested members and array elements included), refusing an integral float
+/// outside an owning revision path. Every other integer keeps its token, so
+/// `serde_jcs` refuses it at the endpoint.
+pub(crate) fn respell_paths(
+    value: Value,
+    paths: &[RevisionPath],
+) -> Result<Value, serde_json::Error> {
+    fn walk(
+        value: Value,
+        paths: &[RevisionPath],
+        depth: usize,
+        revision: bool,
+    ) -> Result<Value, serde_json::Error> {
         match value {
-            Value::Number(_) if revision => respell_endpoint(&value).unwrap_or(value),
+            Value::Number(number) => {
+                if let Some(error) = float_domain_error(&number, revision) {
+                    return Err(error);
+                }
+                let respelled = revision
+                    .then(|| respell_endpoint(&Value::Number(number.clone())))
+                    .flatten();
+                Ok(respelled.unwrap_or(Value::Number(number)))
+            }
             // An array element shares its array's path: positional indexes
             // are not wire members.
-            Value::Array(items) => Value::Array(
-                items
-                    .into_iter()
-                    .map(|item| walk(item, paths, depth, false))
-                    .collect(),
-            ),
-            Value::Object(members) => Value::Object(
-                members
-                    .into_iter()
-                    .map(|(key, member)| {
-                        let (terminal, continues) =
-                            paths.iter().fold((false, false), |state, path| {
-                                match path.get(depth) {
-                                    Some(component) if *component == key.as_str() => {
-                                        if path.len() == depth + 1 {
-                                            (true, state.1)
-                                        } else {
-                                            (state.0, true)
-                                        }
-                                    }
-                                    _ => state,
-                                }
-                            });
-                        // No path continues through this key, so no deeper
-                        // member can own a revision slot.
-                        let member = if terminal || continues {
-                            walk(member, paths, depth + 1, terminal)
+            Value::Array(items) => items
+                .into_iter()
+                .map(|item| walk(item, paths, depth, false))
+                .collect::<Result<Vec<_>, _>>()
+                .map(Value::Array),
+            Value::Object(members) => {
+                let mut walked = Vec::with_capacity(members.len());
+                for (key, member) in members {
+                    // Carry only the paths whose prefix already matched, so a
+                    // sibling path never supplies this member's component.
+                    let mut continuations: Vec<RevisionPath> = Vec::new();
+                    let mut terminal = false;
+                    for path in paths {
+                        if !matches!(path.get(depth), Some(component) if *component == key.as_str())
+                        {
+                            continue;
+                        }
+                        if path.len() == depth + 1 {
+                            terminal = true;
                         } else {
-                            member
-                        };
-                        (key, member)
-                    })
-                    .collect(),
-            ),
-            other => other,
+                            continuations.push(path);
+                        }
+                    }
+                    // A member no path owns keeps no path state, but its own
+                    // subtree still faces the endpoint refusal.
+                    let member = if terminal {
+                        walk(member, &[], depth + 1, true)?
+                    } else if continuations.is_empty() {
+                        walk(member, &[], 0, false)?
+                    } else {
+                        walk(member, &continuations, depth + 1, false)?
+                    };
+                    walked.push((key, member));
+                }
+                Ok(Value::Object(walked.into_iter().collect()))
+            }
+            other => Ok(other),
         }
     }
     walk(value, paths, 0, false)
@@ -282,5 +340,5 @@ where
 {
     let signed = serde_json::to_value(value)?;
     let paths = revision_paths(&signed);
-    serde_jcs::to_vec(&respell_paths(signed, paths))
+    serde_jcs::to_vec(&respell_paths(signed, paths)?)
 }

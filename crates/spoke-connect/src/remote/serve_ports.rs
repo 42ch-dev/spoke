@@ -1039,7 +1039,9 @@ impl RemoteHistoryService for HistoryPortService {
                     history_input_details(op),
                 );
             }
-            match jcs_sha256_hex(&respell_paths(payload.clone(), &[&["keep"]])) {
+            let normalized = respell_paths(payload.clone(), &[&["keep"]])
+                .expect("the pre-check refuses every out-of-domain number");
+            match jcs_sha256_hex(&normalized) {
                 SpokeResult::Ok(digest) => Some(digest),
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             }
@@ -2759,7 +2761,8 @@ mod history_tests {
             serde_jcs::to_string(&respell_paths(
                 json!({ "keep": 9_007_199_254_740_992u64 }),
                 &[&["keep"]],
-            ))
+            )
+            .expect("the endpoint re-spells"))
             .expect("canonical string"),
             "{\"keep\":9007199254740992}"
         );

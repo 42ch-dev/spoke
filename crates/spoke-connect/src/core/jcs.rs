@@ -24,7 +24,10 @@
 //! caller supplies the request op that produced it and only that op's
 //! response set applies (own-keyed, empty fallback) — a
 //! `knowledge.adopt` response never inherits `payload.deleted` from
-//! `history.revisions.prune`. The adoption `details.adopted_revision`
+//! `history.revisions.prune`. A reverse-invoke success wraps the served
+//! value as `payload.result` (frozen §4), so the same set also owns those
+//! paths one level deeper, exactly as `remote-adapter` emits them. The
+//! adoption `details.adopted_revision`
 //! exception additionally follows its owning discriminator: only a
 //! `REVISION_CONFLICT` branch owns it, so a generic rejection on the same op
 //! keeps the `2^53 − 1` bound.
@@ -152,7 +155,9 @@ const REQUEST_REVISION_PATHS: &[(&str, &[RevisionPath])] = &[
 /// `port.*` reads and writes. A response envelope carries no `op`, so the
 /// caller supplies the request op that produced it and only that op's
 /// response set applies: no response inherits another op's exception
-/// (own-keyed, empty fallback).
+/// (own-keyed, empty fallback). The same set also applies under the
+/// reverse-invoke success wrapper `payload.result` (frozen §4), so the shape
+/// `remote-adapter` emits owns the same revisions one level deeper.
 const RESPONSE_REVISION_PATHS: &[(&str, &[RevisionPath])] = &[
     (
         "extract",
@@ -356,6 +361,12 @@ const ADOPTION_TRANSPORT_CONFLICT_PATH: RevisionPath =
 const ADOPTION_SERVED_CONFLICT_PATH: RevisionPath =
     &["payload", "error", "details", "adopted_revision"];
 
+/// The reverse-invoke success wrapper (frozen §4): a served value sits at
+/// `payload.result`, so the op's declared paths apply with their tails
+/// indexed two components below the signed root.
+const SERVED_RESULT_MEMBER: &str = "result";
+const SERVED_RESULT_DEPTH: usize = 2;
+
 /// Re-spell an integer `±2^53` as its equal `f64`; every other value keeps
 /// its token.
 pub(crate) fn respell_endpoint(value: &Value) -> Option<Value> {
@@ -371,18 +382,22 @@ pub(crate) fn respell_endpoint(value: &Value) -> Option<Value> {
 
 /// The revision paths of one signed object: a request selects its op's
 /// request paths, a response takes only the supplying request op's response
-/// paths plus the adoption `REVISION_CONFLICT` detail when that branch's
-/// discriminator matches, and a session envelope owns no revision member.
+/// paths plus the served tails of those paths under the reverse-invoke
+/// success wrapper `payload.result` plus the adoption `REVISION_CONFLICT`
+/// detail when that branch's discriminator matches, and a session envelope
+/// owns no revision member. Returned as (root-relative set, op-scoped
+/// exceptions, served tails rooted at the wrapper).
 fn revision_paths(
     signed: &Value,
     response_op: Option<&str>,
-) -> (&'static [RevisionPath], Vec<RevisionPath>) {
+) -> (&'static [RevisionPath], Vec<RevisionPath>, Vec<RevisionPath>) {
     if let Some(op) = signed.get("op").and_then(Value::as_str) {
         return (
             REQUEST_REVISION_PATHS
                 .iter()
                 .find_map(|(name, paths)| (*name == op).then_some(*paths))
                 .unwrap_or(&[]),
+            Vec::new(),
             Vec::new(),
         );
     }
@@ -418,9 +433,20 @@ fn revision_paths(
                 exceptions.push(ADOPTION_SERVED_CONFLICT_PATH);
             }
         }
-        return (paths, exceptions);
+        // A reverse-invoke success wraps the served value as `payload.result`
+        // (frozen §4), so the same op's declared paths own that branch one
+        // level deeper. The walk enters these tails at the wrapper.
+        let mut served = Vec::new();
+        for path in paths {
+            if let Some((root, tail)) = path.split_first() {
+                if *root == "payload" && !tail.is_empty() {
+                    served.push(tail);
+                }
+            }
+        }
+        return (paths, exceptions, served);
     }
-    (&[], Vec::new())
+    (&[], Vec::new(), Vec::new())
 }
 
 /// Refuse an integral float whose parsed value the peer would classify as an
@@ -454,22 +480,33 @@ pub(crate) fn respell_paths(
     value: Value,
     paths: &[RevisionPath],
 ) -> Result<Value, serde_json::Error> {
-    respell_paths_with(value, paths, &[])
+    respell_paths_with(value, paths, &[], &[])
+}
+
+/// The owning path sets of one object level: the root-relative sets plus the
+/// served tails the reverse-invoke success wrapper `payload.result` adds.
+#[derive(Clone, Copy)]
+struct Owners<'a> {
+    paths: &'a [RevisionPath],
+    extra: &'a [RevisionPath],
+    served: &'a [RevisionPath],
 }
 
 /// [`respell_paths`] over one direction-wide set plus the op-scoped paths a
-/// response owns; the extra paths only apply at the root of `value`.
+/// response owns; the extra paths only apply at the root of `value`. Served
+/// tails only apply inside the reverse-invoke wrapper `payload.result`.
 fn respell_paths_with(
     value: Value,
     paths: &[RevisionPath],
     extra: &[RevisionPath],
+    served: &[RevisionPath],
 ) -> Result<Value, serde_json::Error> {
     fn walk(
         value: Value,
-        paths: &[RevisionPath],
-        extra: &[RevisionPath],
+        owners: Owners<'_>,
         depth: usize,
         revision: bool,
+        in_payload: bool,
     ) -> Result<Value, serde_json::Error> {
         match value {
             Value::Number(number) => {
@@ -485,7 +522,7 @@ fn respell_paths_with(
             // are not wire members.
             Value::Array(items) => items
                 .into_iter()
-                .map(|item| walk(item, paths, extra, depth, false))
+                .map(|item| walk(item, owners, depth, false, false))
                 .collect::<Result<Vec<_>, _>>()
                 .map(Value::Array),
             Value::Object(members) => {
@@ -494,8 +531,9 @@ fn respell_paths_with(
                     // Carry only the paths whose prefix already matched, so a
                     // sibling path never supplies this member's component.
                     let mut continuations: Vec<RevisionPath> = Vec::new();
+                    let mut served_continuations: Vec<RevisionPath> = Vec::new();
                     let mut terminal = false;
-                    for path in paths.iter().chain(extra.iter()) {
+                    for path in owners.paths.iter().chain(owners.extra.iter()) {
                         if !matches!(path.get(depth), Some(component) if *component == key.as_str())
                         {
                             continue;
@@ -506,14 +544,53 @@ fn respell_paths_with(
                             continuations.push(*path);
                         }
                     }
+                    if let Some(index) = depth.checked_sub(SERVED_RESULT_DEPTH) {
+                        // Served tails already entered the wrapper: match
+                        // them by prefix like the root set.
+                        for path in owners.served {
+                            if !matches!(path.get(index), Some(component) if *component == key.as_str())
+                            {
+                                continue;
+                            }
+                            if path.len() == index + 1 {
+                                terminal = true;
+                            } else {
+                                served_continuations.push(*path);
+                            }
+                        }
+                    }
+                    // The wrapper is entered only on its own spine
+                    // (`payload.result`), so a sibling member under `payload`
+                    // owns no served path.
+                    let payload_entry = depth == 0 && key == "payload";
+                    let spine = payload_entry || (in_payload && key == SERVED_RESULT_MEMBER);
+                    let child_served: &[RevisionPath] = if spine {
+                        owners.served
+                    } else {
+                        &served_continuations
+                    };
                     // A member no path owns keeps no path state, but its own
                     // subtree still faces the endpoint refusal.
                     let member = if terminal {
-                        walk(member, &[], &[], depth + 1, true)?
-                    } else if continuations.is_empty() {
-                        walk(member, &[], &[], 0, false)?
+                        walk(
+                            member,
+                            Owners { paths: &[], extra: &[], served: &[] },
+                            depth + 1,
+                            true,
+                            false,
+                        )?
                     } else {
-                        walk(member, &continuations, &[], depth + 1, false)?
+                        walk(
+                            member,
+                            Owners {
+                                paths: &continuations,
+                                extra: &[],
+                                served: child_served,
+                            },
+                            depth + 1,
+                            false,
+                            payload_entry,
+                        )?
                     };
                     walked.push((key, member));
                 }
@@ -522,7 +599,7 @@ fn respell_paths_with(
             other => Ok(other),
         }
     }
-    walk(value, paths, extra, 0, false)
+    walk(value, Owners { paths, extra, served }, 0, false, false)
 }
 
 /// JCS-canonical UTF-8 bytes with the `±2^53` revision endpoint re-spelling
@@ -551,6 +628,6 @@ where
     T: Serialize + ?Sized,
 {
     let signed = serde_json::to_value(value)?;
-    let (paths, extra) = revision_paths(&signed, response_op);
-    serde_jcs::to_vec(&respell_paths_with(signed, paths, &extra)?)
+    let (paths, extra, served) = revision_paths(&signed, response_op);
+    serde_jcs::to_vec(&respell_paths_with(signed, paths, &extra, &served)?)
 }

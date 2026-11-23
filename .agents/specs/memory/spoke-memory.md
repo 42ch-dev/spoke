@@ -986,7 +986,7 @@ This section states what this repository contains today for the family. Normativ
 
 - **13 data schemas:** `schemas/data/` — `memory-space`, `subject`, `principal`, `memory-grant`, `retained-record`, `memory-candidate`, `profile-document`, `reflection`, `memory-receipt`, `read-selection`, `provenance-filter`, `memory-export-bundle`, `memory-export-chunk`.
 - **66 op schemas:** 33 request + 33 response pairs named `memory-<segments>-{request,response}.schema.json` under `schemas/ops/`.
-- **79 family schema files**, counted by `EXPECTED_SCHEMA_COUNT` in [`tooling/codegen/assert-schema-count.mjs`](../../../tooling/codegen/assert-schema-count.mjs) alongside the rest of the inventory (114 committed `*.schema.json` files in total). [`schemas/README.md`](../../../schemas/README.md) lists the family.
+- **79 family schema files**, counted by `EXPECTED_SCHEMA_COUNT` in [`tooling/codegen/assert-schema-count.mjs`](../../../tooling/codegen/assert-schema-count.mjs) alongside the rest of the inventory (123 committed `*.schema.json` files in total). [`schemas/README.md`](../../../schemas/README.md) lists the family.
 - **Generated packages:** TypeScript `packages/spoke-schemas/src/generated/{data,ops}/` and Rust `crates/spoke-schemas/src/generated/{data,ops}/`; drift fails `pnpm run verify-codegen`.
 
 #### 18.2 Operations library

@@ -10,7 +10,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 | 列 | 内容 |
 |----|------|
-| **数据线上（Data wire）** | 十一个数据对象：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、HostCapabilityManifest、Rule、TimelineEvent、CognitionRecord、MindState、ToolDescriptor（[`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)），共享定义在 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common)；可选 `spoke-memory` 族在同一编写规则下增加十三个记忆模型 |
+| **数据线上（Data wire）** | 十四个数据对象：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、HostCapabilityManifest、Rule、TimelineEvent、CognitionRecord、MindState、ToolDescriptor、RevisionSnapshot、AdoptionAnchor、Judgment（[`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)），共享定义在 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common)；可选 `spoke-memory` 族在同一编写规则下增加十三个记忆模型 |
 | **操作线上（Ops wire）** | 五个基线操作族 —— upsert、extract→promote、relate、check、assemble —— 以传输无关的请求/响应信封承载（[`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)），`l2-computable` 下另有可选 `project` / `compute`，`ke-extraction` 下另有可选 `extract`，以及 33 个操作的 `spoke-memory` 族 |
 | **操作库（Operations library）** | 在生成的线上类型之上的手写行为层：纯函数生命周期辅助、按能力切片的 adapter ports 与注入式编排（TypeScript `@42ch/spoke-operations`；Rust `spoke-operations`，锁步 SemVer） |
 
@@ -20,7 +20,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 ## Schema 清单与代码生成姿态
 
-线上清单为 **114 个已提交的 `*.schema.json`**：2 common + 24 data + 82 ops + 6 connect 信封。可选 `spoke-memory` 族贡献其中 79 个（13 个数据模型 + 33 组请求/响应配对）。基线集成方使用其中的 **21** 个 schema 文件（2 common + 9 data + 10 基线 ops）：九个基线数据 schema 包含 `ToolDescriptor`，而 `CognitionRecord` 与 `MindState` 是两个可选的非记忆数据文件。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 校验已提交的生成树：schema 数量、opaque JSON 类型契约、TypeScript typecheck 与 `cargo check --workspace`；schema 变更与重新生成输出落在同一提交。
+线上清单为 **123 个已提交的 `*.schema.json`**：2 common + 27 data + 88 ops + 6 connect 信封。可选 `spoke-memory` 族贡献其中 79 个（13 个数据模型 + 33 组请求/响应配对）。基线集成方使用其中的 **21** 个 schema 文件（2 common + 9 data + 10 基线 ops）：九个基线数据 schema 包含 `ToolDescriptor`，而 `CognitionRecord`、`MindState`、`RevisionSnapshot`、`AdoptionAnchor` 与 `Judgment` 是五个可选的非记忆数据文件。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 校验已提交的生成树：schema 数量、opaque JSON 类型契约、TypeScript typecheck 与 `cargo check --workspace`；schema 变更与重新生成输出落在同一提交。
 
 ## 扩展契约
 
@@ -47,6 +47,9 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 | `spoke-knowledge` | 三个 connect 知识 port 操作（`port.knowledge.get`、`port.knowledge.put`、`port.scope.list_knowledge_entries`），经独立 `ScopedKnowledgePort` 服务并带逐对等节点作用域准入。该标志必须在 `negotiated_capabilities` 中显式出现；`spoke-baseline` 只授权基线操作 |
 | `spoke-connect` | 可选交互信封族；讲该协议的主机在 `HostCapabilityManifest.capabilities` 中列出该标志 |
 | `spoke-memory` | 可选按主体记忆族：十三个模型与 33 个 `memory.*` 操作，外加独立 `MemoryPort`。两个可选的子标志 —— `spoke-memory-reflection`（3 个反思操作）与 `spoke-memory-transfer`（5 个导出/导入操作）—— 均要求 `spoke-memory`。见 [记忆参考](/zh/reference/memory) |
+| `spoke-history` | 可选修订历史族：`RevisionSnapshot` 外加 `history.revisions.get` / `history.revisions.prune` 操作。见 [历史参考](/zh/reference/history) |
+| `spoke-knowledge-adoption` | 可选采纳族：`AdoptionAnchor` 外加 `knowledge.adopt`；声明该标志还要求同时声明 `spoke-knowledge`。见 [知识采纳参考](/zh/reference/knowledge-adoption) |
+| `spoke-judgment` | 可选 `Judgment` 数据信封：纯验证与规范比较；该标志本身不声明任何操作。见 [判定参考](/zh/reference/judgment) |
 
 ## 认知协商与拒绝 {#cognition-negotiation-and-rejection}
 

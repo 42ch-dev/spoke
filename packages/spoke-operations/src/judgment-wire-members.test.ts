@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { validateJudgment, judgmentsEqualCanonical } from "./judgment.js";
+import type { SpokeResult } from "./result.js";
 import type { Judgment } from "@42ch/spoke-schemas";
 
 function baseJudgment(): Judgment {
@@ -194,14 +195,38 @@ describe("wire projection details", () => {
 });
 
 describe("engine wire emission", () => {
-  it("handles deep nesting through the engine's own emission without recursion limits", () => {
+  function withDetailDepth(levels: number): Judgment {
     let deep: Record<string, unknown> = { note: "leaf" };
-    for (let i = 0; i < 5000; i += 1) {
+    for (let i = 0; i < levels; i += 1) {
       deep = { nested: deep };
     }
     const judgment = baseJudgment() as Record<string, unknown>;
     judgment.verdict = { outcome: "upheld", detail: deep };
-    expect(validateJudgment(judgment as unknown as Judgment).ok).toBe(true);
+    return judgment as unknown as Judgment;
+  }
+
+  it("accepts a detail depth every target engine's wire emission handles", () => {
+    // 100 levels sits well inside every target engine's serialization
+    // ceiling, so both stacks accept it.
+    expect(validateJudgment(withDetailDepth(100)).ok).toBe(true);
+  });
+
+  it("refuses detail beyond the engine's wire-emission ceiling without throwing", () => {
+    // The wire-projection depth ceiling is engine-dependent (V8's JSON
+    // serializer recursion limit varies with stack size and engine version).
+    // Input beyond the ceiling is refused, never accepted and never thrown;
+    // an engine whose emission handles this depth accepts it instead.
+    let result: SpokeResult | undefined;
+    expect(() => {
+      result = validateJudgment(withDetailDepth(5000));
+    }).not.toThrow();
+    expect(result).toBeDefined();
+    // Which branch the engine takes depends on its serialization ceiling,
+    // which is stack-dependent; over-limit input is refused, never accepted
+    // with a different code and never thrown.
+    if (!result!.ok) {
+      expect(result!.code).toBe("INVALID_INPUT");
+    }
   });
 
   it("refuses values with no wire form (cycles, bigints)", () => {

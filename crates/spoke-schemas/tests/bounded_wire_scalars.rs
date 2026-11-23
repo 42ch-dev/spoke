@@ -111,6 +111,66 @@ fn revision_ceiling_is_inclusive() {
     );
 }
 
+/// The bound is asserted on the parsed value: an integral-float spelling of
+/// an in-domain revision decodes (`9007199254740992.0` ≡ `2^53`), while an
+/// exact integer past the endpoint refuses without an `f64` round-trip.
+#[test]
+fn integral_float_spellings_decode_by_parsed_value() {
+    let mut value = relation(None, None);
+    value["revision"] = json!(9_007_199_254_740_992.0);
+    let decoded: Relation =
+        serde_json::from_value(value).expect("the endpoint as an integral float");
+    assert_eq!(decoded.revision, Some(REVISION_MAX));
+
+    let anchor = |revision: Value| {
+        json!({
+            "schema_version": 1,
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_source",
+            "source_revision": revision,
+            "extensions": {},
+        })
+    };
+    let decoded: AdoptionAnchor = serde_json::from_value(anchor(json!(9_007_199_254_740_992.0)))
+        .expect("the anchor endpoint as an integral float");
+    assert_eq!(decoded.source_revision, REVISION_MAX);
+    assert!(
+        serde_json::from_value::<AdoptionAnchor>(anchor(json!(9_007_199_254_740_993_u64))).is_err(),
+        "an exact integer past the endpoint refuses"
+    );
+
+    let mut value = relation(None, None);
+    value["revision"] = json!(9_007_199_254_740_993_u64);
+    assert!(
+        serde_json::from_value::<Relation>(value).is_err(),
+        "an exact 2^53+1 is never rounded into the domain"
+    );
+    let mut value = relation(None, None);
+    value["revision"] = json!(1.5);
+    assert!(
+        serde_json::from_value::<Relation>(value).is_err(),
+        "a non-integral number is not a revision"
+    );
+
+    // The narrowed Judgment ceiling applies to a float spelling too.
+    let evidence = |revision: Value| {
+        json!({
+            "id": "ke_a",
+            "kind": "knowledge_entry",
+            "revision": revision,
+        })
+    };
+    let decoded: JudgmentEvidenceRef =
+        serde_json::from_value(evidence(json!(9007199254740991.0)))
+            .expect("2^53-1 as an integral float");
+    assert_eq!(decoded.revision.get(), VERSION_MAX);
+    assert!(
+        serde_json::from_value::<JudgmentEvidenceRef>(evidence(json!(9_007_199_254_740_992.0)))
+            .is_err(),
+        "Judgment refuses the 2^53 endpoint in either spelling"
+    );
+}
+
 #[test]
 fn judgment_revision_stays_one_below_the_revision_ceiling() {
     let evidence = |revision: u64| {

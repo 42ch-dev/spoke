@@ -18,6 +18,8 @@ title: History reference
 
 `capabilities` is an open string array with unique members, so declaring `spoke-history` is additive to the existing capability vocabulary.
 
+Exact `spoke-history` membership admits the core row. A request whose `scope.cognition` declares a requirement additionally needs `spoke-cognition` in the negotiated set: the responder refuses `capability_missing` before probing the history port, so `spoke-history` alone does not admit a cognition-bearing request.
+
 ## Operations
 
 | `op` | Request | Success value | Idempotency |
@@ -85,13 +87,15 @@ The Connect serving face is `RemoteHistoryService` over a provider `HistoryPort`
 | `HISTORY_TRUNCATED` | The requested revision is below the current retained floor and its checkpoint history was discarded | `{ "floor_revision": integer ≥ 0 }` |
 | `HISTORY_ENTITY_UNSUPPORTED` | Connect admitted the operation but the host does not serve the requested `entity_kind` | `{ "entity_kind": string }` with the exact requested kind |
 | `HISTORY_NOT_RETAINED` | The requested revision is at or above the floor but cannot be reconstructed because of an implementation-declared retention gap | `{ "retention_reason": string }` — provider-supplied, human-readable; the stable code remains authoritative |
-| `op_unsupported` / `capability_missing` | Connect dispatch denies the row because `spoke-history` is absent from the negotiated set (no capability row, or row present but not negotiated) | None; the refusal precedes the handler with no side effects |
-| `INVALID_INPUT` | Malformed request; an absent `idempotency_key` on prune; a `revision` or `keep` value outside the receiving runtime's exact-integer range | Field-level detail as for any malformed request |
+| `capability_missing` | `spoke-history` is absent from the negotiated set (no capability row, or row present but not negotiated) | None; the refusal precedes the handler with no side effects |
+| `op_unsupported` | `spoke-history` is negotiated but the host exposes no history serving face | None; the refusal precedes the handler with no side effects |
+| `INVALID_INPUT` | Malformed request; an absent `idempotency_key` on prune; a `revision` or `keep` value outside the receiving runtime's exact-integer range | `{ "op": string }`; the decoder diagnostic is carried in `message` and callers branch on the code |
 | `NOT_FOUND` | The entity is missing or non-disclosable, or the request `scope` differs from the peer's admitted scope on `history.revisions.get` | None beyond the shared envelope |
 | Entity authorization outcome | A prune caller lacks the selected entity's write permission, or the request `scope` differs from the admitted scope on prune | The entity's existing write-authorization refusal |
-| `STORED_REVISION_STALE` | A conditional entity put targets a revision below the floor and the caller's `expected_revision` lags the stored revision | The entity's existing stale-revision details |
+| `STORED_REVISION_STALE` | A conditional entity put names an `expected_base_revision` that does not equal the current row revision; history floor state plays no part | The entity's existing stale-revision details, for example `{ "expectedBaseRevision": 1, "storeRevision": 5 }` |
 | `IDEMPOTENCY_CONFLICT` | A prune retry reuses the same key with a different payload digest | None |
 | `RECEIPT_EXPIRED` | A prune retry replays a key whose recorded outcome was evicted | None |
+| `OUTCOME_UNCERTAIN` | The serve wait exceeds the local budget after invocation, or the service fails after invocation; the provider outcome is unknown | `{ "retry_class": "uncertain", "kind": "timeout" \| "panic" }` |
 
 `HISTORY_TRUNCATED`, `HISTORY_ENTITY_UNSUPPORTED`, and `HISTORY_NOT_RETAINED` are new `SpokeRejectCode` members; the remaining codes keep their established meanings.
 
@@ -103,7 +107,7 @@ The Connect serving face is `RemoteHistoryService` over a provider `HistoryPort`
 - **Pruning is explicit.** `history.revisions.prune` is the only path that deletes checkpoints; no write path prunes implicitly. `keep` counts retained checkpoints and excludes the live row.
 - **Prune uses entity write permission.** Pruning requires exactly the same permission as a put to the selected entity in the same scope. Reads follow the selected entity's read and disclosure rules. There is no separate `history_admin` grant and no history-specific authorization code.
 - **Idempotency is connect-owned.** The service records `{payload_digest, outcome}` under `(effective_scope, requester_principal_id, op, idempotency_key)`, where `payload_digest` is SHA-256 over RFC 8785 canonical JSON of the request payload. Same-key, same-digest replay returns the recorded outcome without re-executing the port call; a recorded response-validation failure replays as that error; a different digest answers `IDEMPOTENCY_CONFLICT`; an evicted record answers `RECEIPT_EXPIRED` and never re-executes. Dedup records outlive a Connect session, and a tombstone from an evicted record is retained for the store's lifetime.
-- **OCC is unchanged.** A conditional entity put below the floor keeps the entity's existing optimistic-concurrency behavior; history adds no parallel write-conflict refusal and the write path does not consult history floor state.
+- **OCC is unchanged.** A conditional entity put compares `expected_base_revision` against the current row revision; history adds no parallel write-conflict refusal, and neither floor state nor retained history admits or refuses a write.
 - **Integer range is exact.** `revision` and `keep` have `u64` semantics with no schema maximum. A runtime that cannot represent a received value exactly refuses the request with `INVALID_INPUT` at decode and never rounds, truncates, or coerces it.
 - **Scope is admitted, not asserted.** The request `scope` is optional; when present it equals the admitted scope. A mismatch answers `NOT_FOUND` for get and the selected entity's write-authorization denial for prune, without invoking the port.
 - **Success values validate at both decode boundaries.** The serving face validates provider output before emitting success and each `RemoteAdapter` validates the response before returning `Ok`; a malformed success value produces a transport decode error, never `Ok`.

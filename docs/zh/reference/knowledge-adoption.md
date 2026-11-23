@@ -47,7 +47,7 @@ title: 知识采纳参考
 | 成员 | 契约 |
 |------|------|
 | `outcome` | 新写入副本为 `"adopted"`；重复规则返回的既有副本为 `"already_present"` |
-| `entry` | 目标 `KnowledgeEntry`，始终携带格式良好的 `adoption_anchor`；`destination_entry_id` 缺省时，`entry.id` 提供目标 id |
+| `entry` | 目标 `KnowledgeEntry`，始终携带格式良好的 `adoption_anchor`；其 `entry_id` 即目标 id —— 提供的 `destination_entry_id`，缺省时为解析后的终态 `source_entry_id` |
 
 提供方结果若条目缺少锚点，或锚点不符合 `AdoptionAnchor` schema，则作为传输/服务拒绝应答，绝不为 `Ok`。
 
@@ -69,7 +69,7 @@ title: 知识采纳参考
 
 存活的可请求源被直接采纳。状态为 `merged` 的源经其退役链解析到终态存活源，采纳复制终态，绝不复制已退役中间节点。锚点记录终态存活源的 `source_scope_id`、`source_entry_id` 与 `source_revision`；默认目标 id 即该终态 `source_entry_id`。
 
-解析在请求条目之后最多沿 32 条退役边（`RETIREMENT_CHAIN_MAX_EDGES`），并追踪每个访问过的条目 id。出现环、`merged` 条目零个或多个后继、后继解析到缺失或不可解析条目、终态条目状态为 `deleted`，或需要第 33 条边时，拒绝 `SOURCE_RETIRED`，其 `details.retirement_chain` 精确列出访问过的源条目 id，从请求 id 开始，到最后解析到的节点结束。
+解析在请求条目之后最多沿 32 条退役边（`RETIREMENT_CHAIN_MAX_EDGES`），并追踪每个访问过的条目 id。恰在 32 条边上到达存活终态的链成功。出现环、`merged` 条目零个或多个后继、后继解析到缺失或不可解析条目、终态条目状态为 `deleted`，或需要第 33 条边时，拒绝 `SOURCE_RETIRED`，其 `details.retirement_chain` 精确列出访问过的源条目 id，从请求 id 开始，到最后解析到的节点结束。
 
 ### 复制规则
 
@@ -99,7 +99,7 @@ Connect 在准入的 port 调用之前拥有去重，采用 `MemoryPort` 模型�
 
 - 重试身份是有序数组 `(op, effective_scope, requester_principal_id, idempotency_key)` 的 RFC 8785 规范 JSON 序列化；不同元组在两个语言栈与重连之间始终推导出不同身份。
 - 该身份下的记录携带 `payload_digest` —— 完整请求载荷对象 RFC 8785 规范 JSON 的 SHA-256 摘要，保留成员存在性。
-- 同一重试身份且 `payload_digest` 相同，返回记录结果且 `outcome: "already_present"`；不发生第二次提供方调用或写入。
+- 同一重试身份且 `payload_digest` 相同，返回记录结果，且不发生第二次提供方调用或写入。记录的成功以 `outcome: "already_present"` 重放；记录的拒绝按该拒绝原样重放。
 - 同一重试身份但 `payload_digest` 不同，拒绝 `IDEMPOTENCY_CONFLICT`。
 - 单飞由去重存储接口拥有：一个存储由多个服务实例共享时，每个重试身份最多一次在途提供方调用；未以已结算结果结束的提供方调用释放其认领，下一次调用重新调用提供方。
 - 去重记录比 Connect 会话存活更久；记录被逐出时应答 `RECEIPT_EXPIRED`，且不重新执行采纳。
@@ -109,15 +109,17 @@ Connect 在准入的 port 调用之前拥有去重，采用 `MemoryPort` 模型�
 | 代码 | 条件 | 精确 `details` |
 |------|------|----------------|
 | `ADOPTION_ANCHOR_IMMUTABLE` | 普通 put 试图更改或移除目标既有的 `adoption_anchor` | 恰为 `entry_id`，即目标条目 id |
-| `SOURCE_RETIRED` | 退役解析遇到环、歧义、已删除终态，或达到 32 边上限 | 恰为 `retirement_chain`，即有序的已访问源条目 id 数组 |
+| `SOURCE_RETIRED` | 退役解析遇到环、歧义、已删除终态，或需要第 33 条退役边 | 恰为 `retirement_chain`，即有序的已访问源条目 id 数组 |
 | `REVISION_CONFLICT` | 既有目标副本锚定了不同的源修订 | 恰为 `adopted_revision`，即既有锚点中的整数修订 |
+| `REVISION_CONFLICT` | create-only 目标 put 遇到无法按 `adoption_anchor` 分类的无关占用者 | 无 `adopted_revision` 成员；即 create-only put 拒绝 |
 | `NOT_FOUND` | 所请求源缺失，或所请求/解析后的终态源在准入作用域之外，或对另一视角 owner-private | 不含任何标识源的成员；同一通用缺失 |
-| `NOT_AUTHORIZED` | 目标作用域未通过目标 `space_id` 授权；该检查先于源链解析 | 无采纳专用成员；源保持不变 |
+| `NOT_AUTHORIZED` | 请求 `destination_scope_id` 与准入的 `Scope.scope_id` 不同；该检查先于源链解析 | 无采纳专用成员；源保持不变 |
 | `IDEMPOTENCY_CONFLICT` | Connect 请求复用幂等键但请求摘要不同 | 无采纳专用成员 |
-| `INVALID_INPUT` | 载荷畸形，包括请求 `extensions` 无效 | 与任何畸形请求相同的字段级细节 |
+| `INVALID_INPUT` | 载荷畸形，包括请求 `extensions` 无效 | 无结构化 `details`；解码器诊断放在 `message` 中，调用方按代码分支 |
 | `RECEIPT_EXPIRED` | 该重试身份的去重记录已被逐出 | 共享信封之外无额外成员 |
 | `OUTCOME_UNCERTAIN` | 服务等待超出本地预算，或调用后发生服务失败；提供方结果未知 | `retry_class: "uncertain"`、`kind: "timeout"` \| `"panic"` |
-| `op_unsupported` / `capability_missing` | 所需能力字符串不在协商集中，Connect 分派拒绝该行 | 无；拒绝先于处理方执行且无副作用 |
+| `capability_missing` | `spoke-knowledge-adoption` 或 `spoke-knowledge` 不在协商集中 | 无；拒绝先于处理方执行且无副作用 |
+| `op_unsupported` | 两个能力字符串都已协商，但主机未提供采纳服务面 | 无；拒绝先于处理方执行且无副作用 |
 
 `ADOPTION_ANCHOR_IMMUTABLE` 与 `SOURCE_RETIRED` 是采纳族的 `SpokeRejectCode` 成员；`REVISION_CONFLICT`、`NOT_FOUND`、`NOT_AUTHORIZED`、`IDEMPOTENCY_CONFLICT` 与 `INVALID_INPUT` 保持既有代码与含义。`OUTCOME_UNCERTAIN` 报告未知结果：提供方工作既不被取消也不回滚，调用方通过重放同一幂等键恢复。
 
@@ -129,7 +131,7 @@ Connect 在准入的 port 调用之前拥有去重，采用 `MemoryPort` 模型�
 - **`source_anchor` 是独立溯源。** 在目标条目上，`source_anchor` 是独立的溯源字段，并在已采纳副本上被清空。产品专用的 source-anchor 编解码器不是采纳编码；采纳溯源只存在于 `adoption_anchor`。
 - **目标治理优先。** 目标 `owner` 与 `disclosure` 值治理新副本；源治理值绝不被继承。`modules.cognition` 绝不跨越。
 - **缺失是通用的。** 加载失败的所请求源、准入作用域之外的解析终态，以及对另一视角 owner-private 的条目，都产生同一 `NOT_FOUND`，不含标识源的细节，也不发生目标写入。重复调用产生同一缺失。
-- **准入先于解析。** 目标 `space_id` 授权先于源链解析开始检查；作用域外的目标拒绝 `NOT_AUTHORIZED`，不触碰源。
+- **准入先于解析。** 目标准入在源链解析开始前比较 `destination_scope_id` 与准入的 `Scope.scope_id`；作用域外的目标拒绝 `NOT_AUTHORIZED`，不触碰源。
 - **保留前缀。** `knowledge.adopt` 是唯一已注册的 `knowledge.*` 操作。其它任何 `knowledge.*` 字符串在查询任何产品自定义能力映射之前以 `op_unsupported` 拒绝；`ConnectConfig.op_capability_requirements` 与组合响应方等价物都无法注册或授权未知保留名。
 - **载荷作用域 id 是选择器。** 调用方必须经主机准入上下文同时准入所请求源与目标作用域；请求作用域 id 是对该准入的校验，绝不是权威。
 - **成功值在边界校验。** 提供方成功值在发出前校验；畸形的提供方结果应答 `INTERNAL_ERROR` 传输拒绝，绝不为 `Ok`。

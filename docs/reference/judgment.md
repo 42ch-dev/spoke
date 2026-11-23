@@ -81,7 +81,7 @@ Products add namespaced kinds such as `my-product:belief-assessment`. Unknown no
 ### Wire-wide rules
 
 - **Non-empty strings.** Non-empty means JSON Schema `minLength: 1` measured on the raw wire string; a whitespace-only string is a valid non-empty wire value for every open string in this contract.
-- **Interoperable integer domain.** `schema_version`, `target.revision`, and every `evidence[].revision` take non-negative integers in `[0, 2^53-1]`, the JSON numbers that are both u64-safe and IEEE-754 binary64-safe; the schema pins this with `maximum: 9007199254740991`. Integral spellings such as `1.0` denote the integer they spell. A non-integral or out-of-domain value returns `INVALID_INPUT` at that member's field path.
+- **Interoperable integer domain.** `schema_version`, `target.revision`, and every `evidence[].revision` take integers in `[1, 2^53-1]` — the JSON numbers that are both u64-safe and IEEE-754 binary64-safe; the schema pins this with `minimum: 1` and `maximum: 9007199254740991`. Integral spellings such as `1.0` denote the integer they spell. A non-integral or out-of-domain value returns `INVALID_INPUT` at that member's field path.
 - **`created_at` offset and raw match.** `created_at` is an RFC 3339 `date-time` with an explicit UTC offset (`Z` or `±hh:mm`); an offsetless timestamp returns `INVALID_INPUT` at `created_at`. The grammar matches the raw wire string exactly as received: leading or trailing whitespace returns `INVALID_INPUT`, and any non-ASCII character — including `U+2212` MINUS SIGN in an offset — returns `INVALID_INPUT`, while ASCII `T`/`t` separators and `Z`/`z` suffixes stay accepted per RFC 3339. Leap-second `23:59:60` spellings remain accepted and invalid calendar days remain refused.
 - **Extension maps.** `extensions` follows the shared `ExtensionMap` grammar: namespace keys match `^[a-z][a-z0-9_-]*$` and each value is an object. A non-conforming entry returns `INVALID_INPUT` with `details.field` at the offending member; several failing entries report the first offender in lexicographic key order over Unicode code points, deterministic across stacks. The check reads namespace key and value kind only; map children stay opaque.
 - **Wire member enumerability.** Only an object's own enumerable properties are wire members. A non-enumerable own property never reaches the wire, and prototype members are excluded from every member enumeration this contract names, including the reserved-name probe over `verdict.detail`.
@@ -114,11 +114,12 @@ Canonical equality is wire-form equality. `judgmentsEqualCanonical(left, right)`
 
 ## Refusal vocabulary
 
-Every shape violation returns `INVALID_INPUT` with `details.field` containing the exact logical field path; `field` is the only protocol-required member of `details` for these refusals, and the human-readable `message` carries no stable machine semantics. Judgment validation introduces no new reject codes.
+Every shape violation returns `INVALID_INPUT` with `details.field` set to the reported logical field path — the offending member for a value violation, the containing closed object for an unknown member; `field` is the only protocol-required member of `details` for these refusals, and the human-readable `message` carries no stable machine semantics. Judgment validation introduces no new reject codes.
 
 | Condition | `details.field` |
 |-----------|-----------------|
-| Missing or extra member, wrong type, or failed constraint | The logical path of the offending member: dotted members and bracketed array indices, for example `judgment_kind`, `target.revision`, `evidence[0].revision`, `verdict.outcome`, `verdict.confidence` |
+| Missing member, wrong type, or failed constraint | The logical path of the offending member: dotted members and bracketed array indices, for example `judgment_kind`, `target.revision`, `evidence[0].revision`, `verdict.outcome`, `verdict.confidence` |
+| Member outside a closed object's shape | The containing closed object's path: `judgment`, `target`, `evidence[n]`, or `verdict` |
 | Reserved direct member in `verdict.detail` | `verdict.detail.<name>`, where `<name>` is the first present reserved member in the fixed probe order `target`, `evidence`, `judgment_kind`, `outcome` |
 | Non-conforming `extensions` entry | `extensions.<namespace>`, the first offender in lexicographic key order |
 | Malformed `created_at` | `created_at` |
@@ -130,7 +131,7 @@ The shared `SpokeResult` / `SpokeRejectCode` surface carries the reject envelope
 - **Data and validator conformance only.** The capability defines no engine, reasoner, storage behavior, or Connect operation. How a judgment is produced, stored, or acted on stays product-owned.
 - **Existing `tools.*` transport.** A tool whose payload carries `Judgment` is declared by its `ToolDescriptor` in `HostCapabilityManifest.tools[]` and invoked through the existing opaque `{ "arguments": ... }` / `{ "result": ... }` tool payloads. Each `tools.<ns>.<tool_id>` operation is gated on exact membership of that full operation string in `negotiated_capabilities` — for example `tools.mindcore.deliberate` is gated on `tools.mindcore.deliberate`. `spoke-judgment` is neither a substitute nor an additional dispatch gate for any `tools.*` operation.
 - **Portable envelope, product content.** `basis` is a product-supplied rationale and does not replace `evidence`. Product assessment content beyond the portable core belongs in `verdict.detail` (never under the reserved direct member names) or `extensions.<ns>`.
-- **Evidence pins revisions.** `evidence` is always present, the empty array is valid, and every evidence item carries a required positive-integer `revision`; the target's `revision` is optional but positive when present. Every integer member stays inside the interoperable `[0, 2^53-1]` domain.
+- **Evidence pins revisions.** `evidence` is always present, the empty array is valid, and every evidence item carries a required positive-integer `revision`; the target's `revision` is optional but positive when present. Every integer member stays inside the interoperable `[1, 2^53-1]` domain.
 - **Open vocabularies round-trip.** `judgment_kind`, `verdict.outcome`, and `JudgmentRef.kind` round-trip verbatim; unknown values are valid without registry updates.
 - **Cross-stack identity.** TypeScript and Rust helpers stay behaviorally identical — field-path strings, reject codes, and canonical comparison semantics — at package lockstep SemVer.
 

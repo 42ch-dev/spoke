@@ -47,7 +47,7 @@ The standard ops `oneOf` success/failure envelope. The success branch carries `o
 | Member | Contract |
 |--------|----------|
 | `outcome` | `"adopted"` for a newly written copy; `"already_present"` for an existing copy returned by the repeat rules |
-| `entry` | The destination `KnowledgeEntry`, always carrying a well-formed `adoption_anchor`; when `destination_entry_id` is absent, `entry.id` supplies the destination id |
+| `entry` | The destination `KnowledgeEntry`, always carrying a well-formed `adoption_anchor`; its `entry_id` is the destination id — the supplied `destination_entry_id`, or the resolved terminal `source_entry_id` when absent |
 
 A provider result whose entry lacks the anchor or carries an anchor outside the `AdoptionAnchor` schema is answered as a transport/serving refusal, never `Ok`.
 
@@ -69,7 +69,7 @@ A closed object recording adoption provenance on the destination entry:
 
 A live requested source is adopted directly. A source with status `merged` is resolved through its retirement chain to a terminal live source, and adoption copies the terminal, never a retired intermediate. The anchor records the terminal live source's `source_scope_id`, `source_entry_id`, and `source_revision`; the default destination id is that terminal `source_entry_id`.
 
-Resolution follows at most 32 retirement edges after the requested entry (`RETIREMENT_CHAIN_MAX_EDGES`) and tracks every visited entry id. A cycle, a `merged` entry with zero or multiple successors, a successor that resolves to a missing or unresolvable entry, a terminal entry whose status is `deleted`, or a required 33rd edge refuses `SOURCE_RETIRED` with `details.retirement_chain` listing exactly the visited source entry ids, beginning with the requested id and ending at the last resolved node.
+Resolution follows at most 32 retirement edges after the requested entry (`RETIREMENT_CHAIN_MAX_EDGES`) and tracks every visited entry id. A chain that reaches a live terminal at exactly 32 edges succeeds. A cycle, a `merged` entry with zero or multiple successors, a successor that resolves to a missing or unresolvable entry, a terminal entry whose status is `deleted`, or a required 33rd edge refuses `SOURCE_RETIRED` with `details.retirement_chain` listing exactly the visited source entry ids, beginning with the requested id and ending at the last resolved node.
 
 ### Copy rules
 
@@ -99,7 +99,7 @@ Connect owns deduplication before the admitted port call, using the `MemoryPort`
 
 - The retry identity is the RFC 8785 canonical JSON serialization of the ordered array `(op, effective_scope, requester_principal_id, idempotency_key)`; distinct tuples always derive distinct identities across both stacks and reconnects.
 - The record under that identity carries `payload_digest` — the SHA-256 digest over RFC 8785 canonical JSON of the complete request payload object, preserving member presence.
-- Same retry identity with the same `payload_digest` returns the recorded outcome with `outcome: "already_present"`; no second provider call or write occurs.
+- Same retry identity with the same `payload_digest` returns the recorded outcome and no second provider call or write occurs. A recorded success replays with `outcome` normalized to `"already_present"`; a recorded refusal replays unchanged as that refusal.
 - Same retry identity with a different `payload_digest` refuses `IDEMPOTENCY_CONFLICT`.
 - Single-flight is owned by the dedup store interface: one store shared by multiple service instances yields at most one in-flight provider invocation per retry identity, and a provider invocation that ends without a settled outcome releases its claim so the next call invokes the provider again.
 - Dedup records outlive the Connect session; an evicted record answers `RECEIPT_EXPIRED` and the adoption is not re-executed.
@@ -109,15 +109,17 @@ Connect owns deduplication before the admitted port call, using the `MemoryPort`
 | Code | Condition | Exact `details` |
 |------|-----------|-----------------|
 | `ADOPTION_ANCHOR_IMMUTABLE` | A normal put attempts to change or remove an existing destination `adoption_anchor` | Exactly `entry_id`, the destination entry id |
-| `SOURCE_RETIRED` | Retirement resolution meets a cycle, ambiguity, a deleted terminal, or the 32-edge limit | Exactly `retirement_chain`, the ordered visited source-entry-id array |
+| `SOURCE_RETIRED` | Retirement resolution meets a cycle, ambiguity, a deleted terminal, or requires a 33rd retirement edge | Exactly `retirement_chain`, the ordered visited source-entry-id array |
 | `REVISION_CONFLICT` | An existing destination copy anchors a different source revision | Exactly `adopted_revision`, the integer revision in the existing anchor |
+| `REVISION_CONFLICT` | The create-only destination put finds an unrelated occupant with no `adoption_anchor` to classify | No `adopted_revision` member; the create-only put refusal |
 | `NOT_FOUND` | The requested source is missing, or the requested or resolved terminal source is outside the admitted scope or owner-private to another viewpoint | No source-identifying members; one generic absence |
-| `NOT_AUTHORIZED` | The destination scope fails destination `space_id` authorization, checked before source-chain resolution | No adoption-specific members; the source stays untouched |
+| `NOT_AUTHORIZED` | The request `destination_scope_id` differs from the admitted `Scope.scope_id`, checked before source-chain resolution | No adoption-specific members; the source stays untouched |
 | `IDEMPOTENCY_CONFLICT` | A Connect request reuses an idempotency key with a different request digest | No adoption-specific members |
-| `INVALID_INPUT` | A malformed payload, including invalid request `extensions` | Field-level detail as for any malformed request |
+| `INVALID_INPUT` | A malformed payload, including invalid request `extensions` | No structured `details`; the decoder diagnostic is carried in `message` and callers branch on the code |
 | `RECEIPT_EXPIRED` | A dedup record for the retry identity was evicted | None beyond the shared envelope |
 | `OUTCOME_UNCERTAIN` | A serve wait exceeds the local budget or a service failure follows invocation; the provider outcome is unknown | `retry_class: "uncertain"`, `kind: "timeout"` \| `"panic"` |
-| `op_unsupported` / `capability_missing` | Connect dispatch denies the row because the required capability strings are absent from the negotiated set | None; the refusal precedes the handler with no side effects |
+| `capability_missing` | `spoke-knowledge-adoption` or `spoke-knowledge` is absent from the negotiated set | None; the refusal precedes the handler with no side effects |
+| `op_unsupported` | Both capability strings are negotiated but the host exposes no adoption serving face | None; the refusal precedes the handler with no side effects |
 
 `ADOPTION_ANCHOR_IMMUTABLE` and `SOURCE_RETIRED` are adoption-family `SpokeRejectCode` members; `REVISION_CONFLICT`, `NOT_FOUND`, `NOT_AUTHORIZED`, `IDEMPOTENCY_CONFLICT`, and `INVALID_INPUT` keep their existing codes and meanings. `OUTCOME_UNCERTAIN` reports an unknown outcome: provider work is neither cancelled nor rolled back, and the caller recovers by replaying the same idempotency key.
 
@@ -129,7 +131,7 @@ Connect owns deduplication before the admitted port call, using the `MemoryPort`
 - **`source_anchor` is separate provenance.** On the destination entry, `source_anchor` is an independent provenance field and is cleared on the adopted copy. Product-specific source-anchor codecs are not adoption encoding; adoption provenance lives only in `adoption_anchor`.
 - **Destination governance wins.** Destination `owner` and `disclosure` values govern the new copy; source governance values are never inherited. `modules.cognition` never crosses.
 - **Absence is generic.** A requested source that fails to load, a resolved terminal outside the admitted scope, and an entry owner-private to another viewpoint produce the same `NOT_FOUND` with no source-identifying details and no destination write. Repeated calls produce the same absence.
-- **Admission precedes resolution.** Destination `space_id` authorization is checked before source-chain resolution begins; an out-of-scope destination refuses `NOT_AUTHORIZED` without touching the source.
+- **Admission precedes resolution.** Destination admission compares `destination_scope_id` with the admitted `Scope.scope_id` before source-chain resolution begins; an out-of-scope destination refuses `NOT_AUTHORIZED` without touching the source.
 - **Reserved prefix.** `knowledge.adopt` is the only registered `knowledge.*` operation. Every other `knowledge.*` string is refused with `op_unsupported` before any product custom-capability map is consulted; `ConnectConfig.op_capability_requirements` and composed-responder equivalents cannot register or authorize an unknown reserved name.
 - **Payload scope ids are selectors.** The caller must be admitted to both the requested source and the destination scope through the host's admission context; request scope ids are validated against that admission and are never authority.
 - **Success values validate at the boundary.** Provider success values are validated before emission; a malformed provider result answers an `INTERNAL_ERROR` transport refusal, never `Ok`.

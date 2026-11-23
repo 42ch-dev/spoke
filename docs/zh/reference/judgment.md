@@ -81,7 +81,7 @@ title: 判定参考
 ### 线上通用规则
 
 - **非空字符串。** 非空指在原始线上字符串上度量的 JSON Schema `minLength: 1`；仅含空白的字符串对本契约中每个开放字符串都是有效的非空线上值。
-- **互操作整数域。** `schema_version`、`target.revision` 与每个 `evidence[].revision` 采用 `[0, 2^53-1]` 内的非负整数，即同时满足 u64 安全与 IEEE-754 binary64 安全的 JSON 数；schema 以 `maximum: 9007199254740991` 钉住该域。`1.0` 这类整数拼写表示其所拼写的整数。非整数或域外值在该成员的字段路径返回 `INVALID_INPUT`。
+- **互操作整数域。** `schema_version`、`target.revision` 与每个 `evidence[].revision` 采用 `[1, 2^53-1]` 内的整数，即同时满足 u64 安全与 IEEE-754 binary64 安全的 JSON 数；schema 以 `minimum: 1` 与 `maximum: 9007199254740991` 钉住该域。`1.0` 这类整数拼写表示其所拼写的整数。非整数或域外值在该成员的字段路径返回 `INVALID_INPUT`。
 - **`created_at` 偏移与原始匹配。** `created_at` 是带显式 UTC 偏移（`Z` 或 `±hh:mm`）的 RFC 3339 `date-time`；无偏移时间戳在 `created_at` 返回 `INVALID_INPUT`。语法按收到的原始线上字符串精确匹配：前后空白返回 `INVALID_INPUT`；任何非 ASCII 字符 —— 包括偏移中的 `U+2212` MINUS SIGN —— 返回 `INVALID_INPUT`；ASCII `T`/`t` 分隔符与 `Z`/`z` 后缀按 RFC 3339 保持接受。闰秒 `23:59:60` 拼写保持接受，无效日历日保持拒绝。
 - **扩展映射。** `extensions` 遵循共享 `ExtensionMap` 语法：namespace 键匹配 `^[a-z][a-z0-9_-]*$`，每个值为对象。不合规条目在违规成员处以 `details.field` 返回 `INVALID_INPUT`；多个失败条目报告按 Unicode 码点字典序的首个违规者，跨栈确定。检查只读取 namespace 键与值种类；映射子项保持不透明。
 - **线上成员可枚举性。** 只有对象自身的可枚举属性是线上成员。不可枚举的自有属性绝不进入线上，原型成员同样被排除在本契约命名的每个成员枚举之外，包括对 `verdict.detail` 的保留名探测。
@@ -114,11 +114,12 @@ TypeScript 暴露 `validateJudgment(judgment: Judgment): SpokeResult<void>`；Ru
 
 ## 拒绝词汇（Refusal vocabulary）
 
-每个形状违规都返回 `INVALID_INPUT`，`details.field` 含确切逻辑字段路径；`field` 是这些拒绝中 `details` 唯一由协议要求的成员，人类可读的 `message` 不携带稳定机器语义。判定校验不引入新的拒绝代码。
+每个形状违规都返回 `INVALID_INPUT`，`details.field` 设为所报告的字段路径 —— 取值违规为违规成员，未知成员为所在封闭对象；`field` 是这些拒绝中 `details` 唯一由协议要求的成员，人类可读的 `message` 不携带稳定机器语义。判定校验不引入新的拒绝代码。
 
 | 条件 | `details.field` |
 |------|-----------------|
-| 成员缺失或多余、类型错误或约束失败 | 违规成员的逻辑路径：点分成员与方括号数组下标，例如 `judgment_kind`、`target.revision`、`evidence[0].revision`、`verdict.outcome`、`verdict.confidence` |
+| 成员缺失、类型错误或约束失败 | 违规成员的逻辑路径：点分成员与方括号数组下标，例如 `judgment_kind`、`target.revision`、`evidence[0].revision`、`verdict.outcome`、`verdict.confidence` |
+| 封闭对象形状之外的成员 | 所在封闭对象的路径：`judgment`、`target`、`evidence[n]` 或 `verdict` |
 | `verdict.detail` 中的保留直接成员 | `verdict.detail.<name>`，其中 `<name>` 是固定探测顺序 `target`、`evidence`、`judgment_kind`、`outcome` 中首个存在的保留成员 |
 | 不合规的 `extensions` 条目 | `extensions.<namespace>`，即按字典序的首个违规者 |
 | 畸形 `created_at` | `created_at` |
@@ -130,7 +131,7 @@ TypeScript 暴露 `validateJudgment(judgment: Judgment): SpokeResult<void>`；Ru
 - **仅数据与校验器一致性。** 该能力不定义引擎、推理器、存储行为或 Connect 操作。判定如何产出、存储或被使用由产品拥有。
 - **复用既有 `tools.*` 传输。** 载荷携带 `Judgment` 的工具由其 `ToolDescriptor` 在 `HostCapabilityManifest.tools[]` 中声明，并经既有不透明 `{ "arguments": ... }` / `{ "result": ... }` 工具载荷调用。每个 `tools.<ns>.<tool_id>` 操作按其完整操作字符串在 `negotiated_capabilities` 中的精确成员资格门控 —— 例如 `tools.mindcore.deliberate` 由 `tools.mindcore.deliberate` 门控。`spoke-judgment` 对任何 `tools.*` 操作既不是替代物，也不是额外分派门禁。
 - **可移植信封，产品内容。** `basis` 是产品提供的理由，不替代 `evidence`。超出可移植核心的产品评估内容属于 `verdict.detail`（绝不使用保留直接成员名）或 `extensions.<ns>`。
-- **证据钉住修订。** `evidence` 始终存在，空数组合法，每个证据项携带必填的正整数 `revision`；目标的 `revision` 可选，存在时为正。每个整数成员都保持在互操作 `[0, 2^53-1]` 域内。
+- **证据钉住修订。** `evidence` 始终存在，空数组合法，每个证据项携带必填的正整数 `revision`；目标的 `revision` 可选，存在时为正。每个整数成员都保持在互操作 `[1, 2^53-1]` 域内。
 - **开放词汇原样往返。** `judgment_kind`、`verdict.outcome` 与 `JudgmentRef.kind` 原样往返；未知值有效且无需注册表更新。
 - **跨栈一致。** TypeScript 与 Rust 辅助函数在包锁步 SemVer 下保持行为一致 —— 字段路径字符串、拒绝代码与规范比较语义相同。
 

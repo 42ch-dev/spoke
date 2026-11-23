@@ -18,6 +18,8 @@ title: 历史参考
 
 `capabilities` 是成员唯一的开放字符串数组，因此声明 `spoke-history` 对既有能力词汇是增量的。
 
+`spoke-history` 的精确成员资格准入核心行。请求的 `scope.cognition` 声明了要求时，还须协商 `spoke-cognition`：响应方在探测历史 port 之前拒绝 `capability_missing`，因此单有 `spoke-history` 不能准入带认知要求的请求。
+
 ## 操作（Operations）
 
 | `op` | 请求 | 成功值 | 幂等性 |
@@ -85,13 +87,15 @@ Connect 服务面是 `RemoteHistoryService`，经 `HistoryPortService` 适配提
 | `HISTORY_TRUNCATED` | 所请求修订低于当前保留地板，其检查点历史已被丢弃 | `{ "floor_revision": integer ≥ 0 }` |
 | `HISTORY_ENTITY_UNSUPPORTED` | Connect 已准入该操作，但主机不服务所请求的 `entity_kind` | `{ "entity_kind": string }`，含所请求的确切种类 |
 | `HISTORY_NOT_RETAINED` | 所请求修订位于地板或其上，但因实现声明的保留缺口无法重建 | `{ "retention_reason": string }` —— 提供方给出的可读原因；稳定代码仍是权威 |
-| `op_unsupported` / `capability_missing` | `spoke-history` 不在协商集中，Connect 分派拒绝该行（无能力行，或行存在但未协商） | 无；拒绝先于处理方执行且无副作用 |
-| `INVALID_INPUT` | 请求畸形；裁剪缺 `idempotency_key`；`revision` 或 `keep` 超出接收运行时的精确整数范围 | 与任何畸形请求相同的字段级细节 |
+| `capability_missing` | `spoke-history` 不在协商集中（无能力行，或行存在但未协商） | 无；拒绝先于处理方执行且无副作用 |
+| `op_unsupported` | `spoke-history` 已协商，但主机未提供服务历史面 | 无；拒绝先于处理方执行且无副作用 |
+| `INVALID_INPUT` | 请求畸形；裁剪缺 `idempotency_key`；`revision` 或 `keep` 超出接收运行时的精确整数范围 | `{ "op": string }`；解码器诊断放在 `message` 中，调用方按代码分支 |
 | `NOT_FOUND` | 实体缺失或不可披露，或 `history.revisions.get` 的请求 `scope` 与对等节点准入作用域不一致 | 共享信封之外无额外成员 |
 | 实体授权结果 | 裁剪调用方缺少所选实体的写权限，或裁剪请求 `scope` 与准入作用域不一致 | 实体既有的写授权拒绝 |
-| `STORED_REVISION_STALE` | 条件实体 put 指向地板之下的修订，且调用方 `expected_revision` 落后于已存修订 | 实体既有的过期修订细节 |
+| `STORED_REVISION_STALE` | 条件实体 put 的 `expected_base_revision` 不等于当前行修订；历史地板状态不参与 | 实体既有的过期修订细节，例如 `{ "expectedBaseRevision": 1, "storeRevision": 5 }` |
 | `IDEMPOTENCY_CONFLICT` | 裁剪重试复用同一键但载荷摘要不同 | 无 |
 | `RECEIPT_EXPIRED` | 裁剪重试重放其记录结果已被逐出的键 | 无 |
+| `OUTCOME_UNCERTAIN` | 调用后服务等待超出本地预算，或调用后服务失败；提供方结果未知 | `{ "retry_class": "uncertain", "kind": "timeout" \| "panic" }` |
 
 `HISTORY_TRUNCATED`、`HISTORY_ENTITY_UNSUPPORTED` 与 `HISTORY_NOT_RETAINED` 是新增的 `SpokeRejectCode` 成员；其余代码保持既有含义。
 
@@ -103,7 +107,7 @@ Connect 服务面是 `RemoteHistoryService`，经 `HistoryPortService` 适配提
 - **裁剪是显式的。** `history.revisions.prune` 是删除检查点的唯一路径；任何写路径都不隐式裁剪。`keep` 统计保留的检查点数，不含活行。
 - **裁剪使用实体写权限。** 裁剪要求与同一作用域内对所选实体 put 完全相同的权限。读取遵循所选实体的读取与披露规则。不存在单独的 `history_admin` 授权，也没有历史专用授权代码。
 - **幂等由 connect 拥有。** 服务面按 `(effective_scope, requester_principal_id, op, idempotency_key)` 记录 `{payload_digest, outcome}`，其中 `payload_digest` 是请求载荷 RFC 8785 规范 JSON 的 SHA-256。同键同摘要重放返回记录结果且不重新执行 port 调用；记录下来的响应校验失败以该错误重放；摘要不同应答 `IDEMPOTENCY_CONFLICT`；记录被逐出应答 `RECEIPT_EXPIRED` 且绝不重新执行。去重记录比 Connect 会话存活更久，被逐出记录留下的墓碑保留至存储生命周期结束。
-- **OCC 不变。** 地板之下的条件实体 put 保持实体既有的乐观并发行为；历史不增加并行的写冲突拒绝，写路径也不查询历史地板状态。
+- **OCC 不变。** 条件实体 put 将 `expected_base_revision` 与当前行修订比较；历史不增加并行的写冲突拒绝，地板状态与保留历史都不准入或拒绝写入。
 - **整数范围精确。** `revision` 与 `keep` 具有 `u64` 语义且无 schema 上限。无法精确表示所接收值的运行时在解码时以 `INVALID_INPUT` 拒绝，绝不取整、截断或强制转换。
 - **作用域是准入结果，不是断言。** 请求 `scope` 可选；存在时必须等于准入作用域。不一致时，get 应答 `NOT_FOUND`，prune 应答所选实体既有的写授权拒绝，且不调用 port。
 - **成功值在两端解码边界校验。** 服务面在发出成功前校验提供方输出，每个 `RemoteAdapter` 在返回 `Ok` 前校验响应；畸形成功值产生传输解码错误，绝不产生 `Ok`。

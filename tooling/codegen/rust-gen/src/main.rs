@@ -1037,7 +1037,7 @@ mod tests {
 
     fn builder_field(name: &str) -> String {
         format!(
-            "{name} : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String > , "
+            "{name} : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String , > , "
         )
     }
 
@@ -1063,7 +1063,7 @@ mod tests {
         wire.push_str("pub required : ");
         wire.push_str(STRING_VEC);
         wire.push_str(" , } ");
-        builder.push_str("required : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String > , } ");
+        builder.push_str("required : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String , > , } ");
         setter_source.push_str("} }");
         format!("{wire}{builder}{setter_source}")
     }
@@ -1146,7 +1146,7 @@ mod tests {
             "pub struct {owner} {{ # [serde (default , skip_serializing_if = \"::std::vec::Vec::is_empty\")] pub cognition : {COGNITION_VEC} , # [serde (default , skip_serializing_if = \"::std::vec::Vec::is_empty\")] pub context_ids : {STRING_VEC} , }} "
         );
         let builder = format!(
-            "pub mod builder {{ # [derive (Clone , Debug)] pub struct {owner} {{ cognition : :: std :: result :: Result < :: std :: vec :: Vec < super :: CognitionRecord > , :: std :: string :: String > , context_ids : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String > , }} }} "
+            "pub mod builder {{ # [derive (Clone , Debug)] pub struct {owner} {{ cognition : :: std :: result :: Result < :: std :: vec :: Vec < super :: CognitionRecord > , :: std :: string :: String , > , context_ids : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String , > , }} }} "
         );
         let setters = format!(
             "impl {owner} {{ pub fn cognition < T > (mut self , value : T) -> Self where T : :: std :: convert :: TryInto < :: std :: vec :: Vec < super :: CognitionRecord > > , T :: Error : :: std :: fmt :: Display , {{ self . cognition = value . try_into () . map_err (| e | format ! (\"error converting supplied value for cognition: {{e}}\")) ; self }} pub fn context_ids < T > (mut self , value : T) -> Self where T : :: std :: convert :: TryInto < :: std :: vec :: Vec < :: std :: string :: String > > , T :: Error : :: std :: fmt :: Display , {{ self . context_ids = value . try_into () . map_err (| e | format ! (\"error converting supplied value for context_ids: {{e}}\")) ; self }} }}"
@@ -1174,7 +1174,7 @@ mod tests {
         assert!(output.contains(
             "cognition : :: std :: result :: Result < :: std :: option :: Option < :: std :: vec :: Vec < super :: CognitionRecord"
         ));
-        assert!(output.contains("context_ids : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String >"));
+        assert!(output.contains("context_ids : :: std :: result :: Result < :: std :: vec :: Vec < :: std :: string :: String > , :: std :: string :: String , >"));
         assert!(output.contains(
             "self . cognition = value . try_into () . map (:: std :: option :: Option :: Some)"
         ));

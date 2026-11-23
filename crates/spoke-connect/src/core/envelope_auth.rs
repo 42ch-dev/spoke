@@ -12,11 +12,12 @@
 //! characters).
 //!
 //! Canonicalization is [`crate::core::jcs::canonical_bytes`], which
-//! re-spells an integer `±2^53` as its equal `f64`: `2^53` is a revision
-//! endpoint both stacks admit and the TypeScript canonicalizer emits that
-//! number's spelling. Every other integer keeps its token, so an integer
-//! JavaScript cannot represent (`2^53 + 1`) still refuses instead of
-//! rounding.
+//! re-spells an integer `±2^53` carried by a revision-typed member as its
+//! equal `f64`: `2^53` is a revision endpoint both stacks admit and the
+//! TypeScript canonicalizer emits that number's spelling. Every other
+//! integer keeps its token, so an integer JavaScript cannot represent
+//! (`2^53 + 1`) still refuses instead of rounding, and so does the `2^53`
+//! endpoint outside the revision vocabulary (no contract domain).
 //!
 //! Signed-object rules (locked):
 //! - `extensions` and the `signature` field are excluded from every signed
@@ -1656,6 +1657,42 @@ mod tests {
         assert!(
             matches!(error, CoreError::Jcs(_)),
             "canonicalization refuses the integer: {error:?}"
+        );
+    }
+
+    /// The endpoint re-spelling is limited to revision-typed members: a
+    /// nested revision member canonicalizes as the TypeScript number
+    /// spelling, while any other member at `±2^53` has no contract domain
+    /// and refuses at the signed boundary (qc2 signed-boundary finding).
+    #[test]
+    fn signed_object_respells_only_revision_members() {
+        let mut input = request_input(None);
+        input.op = "port.knowledge.put".to_string();
+        input.payload = serde_json::json!({
+            "entry": { "revision": 9_007_199_254_740_992_u64 },
+            "expected_base_revision": null,
+        });
+        let request = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+            .expect("a nested revision member takes the endpoint spelling");
+        let wire = wire_of(&request);
+        verify_invoke_request_auth(&emitter_pubkey(), &wire, SESSION_ID)
+            .expect("both sides canonicalize the same bytes");
+        let signed_object = invoke_request_signed_object(&wire).expect("signed object");
+        let bytes = crate::core::jcs::canonical_bytes(&signed_object).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"revision\":9007199254740992"),
+            "the nested revision endpoint hashes as its equal f64: {jcs}"
+        );
+
+        let mut input = request_input(None);
+        input.op = "port.finding.put".to_string();
+        input.payload = serde_json::json!({ "note": 9_007_199_254_740_992_u64 });
+        let error = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+            .expect_err("a non-revision member has no endpoint domain");
+        assert!(
+            matches!(error, CoreError::Jcs(_)),
+            "the signed boundary refuses a non-revision endpoint: {error:?}"
         );
     }
 }

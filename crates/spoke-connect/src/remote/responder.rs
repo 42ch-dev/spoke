@@ -95,7 +95,7 @@ use crate::remote::remote_adapter::{
     RemoteErrorKind as ResponderErrorKind, RemoteIdentity, ToolHandler,
 };
 use crate::remote::serve_ports::{
-    exact_revision_u64, f64_identity_revision_u64, schema_versions_in_domain, RemoteServePorts,
+    exact_revision_u64, schema_versions_in_domain, RemoteServePorts,
 };
 use crate::remote::transport::Transport;
 use crate::remote::{
@@ -485,22 +485,14 @@ fn decode_knowledge_call<'a>(
             // bound runs on the RAW payload (TS parity:
             // `isAdoptExactNonNegativeInteger` inside
             // `isValidKnowledgeEntryDeep` / `validateKnowledgeOpPayload`).
-            const ADOPT_EXACT_INTEGER_BOUND: u64 = 1 << 53;
+            // The bound is compared on the exact integer representation
+            // (qc3-05): an exact `9007199254740993` refuses instead of
+            // rounding into `2^53`, while an integral-float spelling is
+            // admitted by its parsed value.
             fn adopt_domain(value: Option<&Value>) -> bool {
                 match value {
-                    None => true,
-                    Some(Value::Null) => true,
-                    Some(Value::Number(number)) => number.as_f64().is_some_and(|float| {
-                        // The bound is evaluated on the f64 VALUE — the
-                        // same number JavaScript observes — so an integer
-                        // spelling between u64 and its f64 rounding
-                        // (`9007199254740993` ≡ `9007199254740992.0`)
-                        // admits or refuses identically on both stacks.
-                        float.fract() == 0.0
-                            && float >= 0.0
-                            && float <= ADOPT_EXACT_INTEGER_BOUND as f64
-                    }),
-                    Some(_) => false,
+                    None | Some(Value::Null) => true,
+                    Some(value) => exact_revision_u64(value).is_some(),
                 }
             }
             if let Some(members) = payload.get("entry").and_then(Value::as_object) {
@@ -531,66 +523,32 @@ fn decode_knowledge_call<'a>(
                     None,
                 );
             }
-            // qc3 F-006 residual — the typed `u64` decoders must see the
-            // SAME integer identity JavaScript observes: every number
-            // parses to one f64, so an in-domain revision member
-            // (`9007199254740993` or `3.0`) normalizes to the f64-rounded
-            // `u64` before decode — mirroring
-            // `adopt_request_from_payload`'s `float as u64` rewrite. The
-            // copy is made only when a member's spelling actually differs
-            // from the f64-observed `u64` (qc3 F-025): an ordinary
-            // integer payload decodes from the borrowed value.
-            let entry_members = payload.get("entry").and_then(Value::as_object);
-            let needs_rewrite = |revision: Option<&Value>| {
-                revision
-                    .and_then(f64_identity_revision_u64)
-                    .is_some_and(|rounded| revision.and_then(Value::as_u64) != Some(rounded))
+            let entry = match payload_field::<KnowledgeEntry>(payload, "entry", op) {
+                SpokeResult::Ok(value) => value,
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
-            let rewrite_needed = needs_rewrite(entry_members.and_then(|e| e.get("revision")))
-                || needs_rewrite(
-                    entry_members
-                        .and_then(|e| e.get("adoption_anchor"))
-                        .and_then(Value::as_object)
-                        .and_then(|anchor| anchor.get("source_revision")),
-                )
-                || needs_rewrite(payload.get("expected_base_revision"));
-            let mut normalized_payload;
-            let decode_payload = if rewrite_needed {
-                normalized_payload = payload.clone();
-                let normalize_revision = |member: Option<&mut Value>| {
-                    let Some(member) = member else { return };
-                    if let Some(rounded) = f64_identity_revision_u64(member) {
-                        *member = json!(rounded);
+            // The raw `Option<u64>` binding refuses an integral-float
+            // spelling; the member decodes through its exact integer
+            // representation like `relation.put` does (qc3-05).
+            let expected = match payload.get("expected_base_revision") {
+                Some(Value::Null) => None,
+                Some(value) => match exact_revision_u64(value) {
+                    Some(revision) => Some(revision),
+                    None => {
+                        return spoke_reject(
+                            SpokeRejectCode::InvalidInput,
+                            "invalid port.knowledge.put payload: expected_base_revision must be an integer within [0, 2^53] or null",
+                            None,
+                        )
                     }
-                };
-                if let Some(members) = normalized_payload
-                    .get_mut("entry")
-                    .and_then(Value::as_object_mut)
-                {
-                    normalize_revision(members.get_mut("revision"));
-                    normalize_revision(
-                        members
-                            .get_mut("adoption_anchor")
-                            .and_then(Value::as_object_mut)
-                            .and_then(|anchor| anchor.get_mut("source_revision")),
-                    );
+                },
+                None => {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        "invalid port.knowledge.put payload: missing expected_base_revision",
+                        None,
+                    )
                 }
-                normalize_revision(normalized_payload.get_mut("expected_base_revision"));
-                &normalized_payload
-            } else {
-                payload
-            };
-            let entry = match payload_field::<KnowledgeEntry>(decode_payload, "entry", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
-            };
-            let expected = match payload_field::<Option<u64>>(
-                decode_payload,
-                "expected_base_revision",
-                op,
-            ) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
             spoke_ok(KnowledgeCall::PutKnowledgeEntry(entry, expected))
         }
@@ -3418,19 +3376,17 @@ mod tests {
         )
     }
 
-    /// qc3 F-026 — the put decode normalizes every f64-spelling revision
-    /// member to the identity JavaScript observes, on BOTH branches of the
-    /// conditional copy: an ordinary integer payload decodes from the
-    /// borrowed value, a `3.0` float spelling and a between-f64-integers
-    /// spelling take the rewrite branch. Both branches must produce the
-    /// same decoded call.
+    /// qc3-05 — every revision slot of `port.knowledge.put` is compared on
+    /// its exact integer representation: an integral-float spelling decodes
+    /// by its parsed value, an exact integer past the endpoint refuses
+    /// instead of rounding back into the domain.
     #[test]
-    fn scoped_put_normalizes_f64_revision_spellings() {
+    fn scoped_put_decodes_float_revisions_and_refuses_exact_overflow() {
         for (spelling, expected) in [
             (json!(3), 3_u64),
             (json!(3.0), 3_u64),
             (json!(9007199254740992_u64), 9007199254740992_u64),
-            (json!(9007199254740993_u64), 9007199254740992_u64),
+            (json!(9007199254740992.0), 9007199254740992_u64),
         ] {
             let mut entry = minimal_put_entry();
             entry["revision"] = spelling.clone();
@@ -3446,12 +3402,52 @@ mod tests {
             assert_eq!(
                 entry.revision,
                 Some(expected),
-                "entry.revision={spelling} must decode to the f64-observed identity"
+                "entry.revision={spelling} must decode by its parsed value"
             );
             assert_eq!(
                 base_revision,
                 Some(expected),
-                "expected_base_revision={spelling} must decode to the f64-observed identity"
+                "expected_base_revision={spelling} must decode by its parsed value"
+            );
+        }
+
+        let rejects = |entry: Value, base: Value| {
+            matches!(
+                decode_knowledge_call(
+                    "port.knowledge.put",
+                    &json!({ "entry": entry, "expected_base_revision": base }),
+                    None,
+                ),
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            )
+        };
+        for refused in [
+            json!(9007199254740993_u64),
+            json!(9007199254740994_u64),
+            json!(1.5),
+            json!(-1),
+        ] {
+            let mut entry = minimal_put_entry();
+            entry["revision"] = refused.clone();
+            assert!(rejects(entry, Value::Null), "entry.revision={refused}");
+            assert!(
+                rejects(minimal_put_entry(), refused.clone()),
+                "expected_base_revision={refused}"
+            );
+            let mut entry = minimal_put_entry();
+            entry["adoption_anchor"] = json!({
+                "schema_version": 1,
+                "source_scope_id": "spc_local",
+                "source_entry_id": "ke_src",
+                "source_revision": refused.clone(),
+                "extensions": {},
+            });
+            assert!(
+                rejects(entry, Value::Null),
+                "adoption_anchor.source_revision={refused}"
             );
         }
     }

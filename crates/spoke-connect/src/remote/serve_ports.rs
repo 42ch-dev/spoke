@@ -1381,6 +1381,23 @@ fn valid_served_adopt_result(
     let Some(object) = value.as_object() else {
         return history_transport_reject("adoption provider returned a non-object response");
     };
+    // Failure branch (`OneOf1 {error, extensions}` - contract E3): a
+    // provider error envelope with an optional `extensions` member is
+    // emitted verbatim. Supplied `extensions` members are
+    // presence-faithful (E2), and their `ExtensionMap` well-formedness
+    // is already enforced by the typed `Shared2` decode - a provider
+    // cannot construct a key outside `^[a-z][a-z0-9_-]*$`.
+    if let Some(error) = object.get("error") {
+        let error_ok = error.is_object()
+            && serde_json::from_value::<spoke_schemas::common::ErrorEnvelope>(error.clone())
+                .is_ok();
+        if !error_ok {
+            return history_transport_reject(
+                "adoption provider returned a malformed error envelope",
+            );
+        }
+        return spoke_ok(value.clone());
+    }
     let outcome = object
         .get("outcome")
         .and_then(Value::as_str)
@@ -1422,14 +1439,20 @@ fn valid_served_adopt_result(
         );
     };
     // Contract E1 — revision-typed members live in the interoperable
-    // integer domain `[0, 2^53]` on the wire (TS parity:
-    // `isAdoptExactNonNegativeInteger` inside the deep checks).
-    if let Some(revision) = decoded_entry.revision {
-        if revision > ADOPT_EXACT_INTEGER_BOUND {
-            return history_transport_reject(
-                "adoption provider returned an entry with revision outside [0, 2^53]",
-            );
-        }
+    // integer domain `[0, 2^53]` on the wire; the bound is evaluated on
+    // the f64 VALUE JavaScript observes, not the `u64` token — so
+    // `9007199254740993` admits identically on both stacks (qc3 F-006).
+    let entry_revision_ok = entry.get("revision").is_none_or(|revision| {
+        revision.as_f64().is_some_and(|float| {
+            float.fract() == 0.0
+                && float >= 0.0
+                && float <= ADOPT_EXACT_INTEGER_BOUND as f64
+        })
+    });
+    if !entry_revision_ok {
+        return history_transport_reject(
+            "adoption provider returned an entry with revision outside [0, 2^53]",
+        );
     }
     let anchor_revision_ok = entry
         .get("adoption_anchor")
@@ -1456,12 +1479,41 @@ fn valid_served_adopt_result(
             );
         }
     }
+    // qc3 F-006 residual — JavaScript parses every number to one f64,
+    // so the emitted revision members normalize to the SAME integer
+    // identity a JS reader observes (`9007199254740993` serves as the
+    // exact `9007199254740992.0`, float spellings decode like integer
+    // ones): rewrite the in-domain members to the f64-rounded `u64`
+    // before emit, mirroring `adopt_request_from_payload`'s
+    // `float as u64` rewrite.
+    let mut entry = entry.clone();
+    {
+        let mut normalize = |member: Option<&mut Value>| {
+            if let Some(Value::Number(number)) = member {
+                if let Some(float) = number.as_f64() {
+                    if float.fract() == 0.0
+                        && float >= 0.0
+                        && float <= ADOPT_EXACT_INTEGER_BOUND as f64
+                    {
+                        *number = serde_json::Number::from(float as u64);
+                    }
+                }
+            }
+        };
+        normalize(entry.get_mut("revision"));
+        normalize(
+            entry
+                .get_mut("adoption_anchor")
+                .and_then(Value::as_object_mut)
+                .and_then(|anchor| anchor.get_mut("source_revision")),
+        );
+    }
     // The emitted success carries `{outcome, entry}` plus a
     // producer-supplied `extensions` member verbatim (contract E2:
     // absent ≡ present-empty, but a supplied member is never dropped).
     let mut response = serde_json::Map::new();
     response.insert("outcome".into(), Value::String(outcome.expect("validated above")));
-    response.insert("entry".into(), entry.clone());
+    response.insert("entry".into(), entry);
     if let Some(extensions) = object.get("extensions") {
         response.insert("extensions".into(), extensions.clone());
     }
@@ -2749,6 +2801,80 @@ mod history_tests {
                 );
             }
         }
+    }
+
+    /// qc1 F-004 / qc3 F-021/F-023 — a supplied response `extensions`
+    /// member must satisfy the shared `ExtensionMap` rule on BOTH
+    /// outcome branches, and a producer refusal envelope
+    /// (`OneOf1 {error, extensions}`) serves verbatim.
+    #[tokio::test]
+    async fn served_result_validates_extensions_and_serves_the_failure_branch() {
+        struct FixedPort(Value);
+        #[async_trait]
+        impl AdoptionPort for FixedPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                spoke_ok(
+                    serde_json::from_value(self.0.clone()).expect("response decodes"),
+                )
+            }
+        }
+        let admission = || admission(scope("spc_local"), principal("prn_peer-a"));
+        let payload = || {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload
+        };
+        let serve = |response: Value| async move {
+            AdoptionPortService::new(Arc::new(FixedPort(response)), admission())
+                .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload())
+                .await
+        };
+
+        // A failure branch with a supplied `extensions` member serves
+        // verbatim (E3 + E2 parity with the success branch).
+        let refusal = serve(json!({
+            "error": {
+                "code": "REVISION_CONFLICT",
+                "message": "conflict",
+                "details": {},
+                "extensions": {},
+            },
+            "extensions": { "product": { "v": 1 } },
+        }))
+        .await;
+        let SpokeResult::Ok(value) = refusal else {
+            panic!("a valid failure branch must serve: {refusal:?}")
+        };
+        assert_eq!(value["extensions"], json!({ "product": { "v": 1 } }));
+        assert!(value.get("error").is_some());
+
+        // qc3 F-006 residual: the emitted revision identity is the
+        // f64-observed value — `9007199254740993` serves as
+        // `9007199254740992`, the number JavaScript reads.
+        let normalized = serve(json!({
+            "outcome": "adopted",
+            "entry": served_entry(9007199254740993, 9007199254740993),
+        }))
+        .await;
+        let SpokeResult::Ok(value) = normalized else {
+            panic!("an in-domain spelling must serve: {normalized:?}")
+        };
+        assert_eq!(
+            value["entry"]["adoption_anchor"]["source_revision"],
+            json!(9007199254740992_u64),
+            "anchor revision normalizes to the f64-observed identity"
+        );
+        assert_eq!(
+            value["entry"]["revision"],
+            json!(9007199254740992_u64),
+            "entry revision normalizes to the f64-observed identity"
+        );
     }
 
     /// F-007 fixture: a lookup/record-only dedup store whose every

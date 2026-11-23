@@ -1083,6 +1083,45 @@ function validServedAdoptResult(
       { kind: "transport" },
     );
   }
+  // Failure branch (`OneOf1` — contract E3): a provider error envelope
+  // with an optional `extensions` member, emitted verbatim. A supplied
+  // `extensions` on EITHER branch must satisfy `ExtensionMap` (namespace
+  // pattern + object values) — the same rule request payloads enforce
+  // (qc1 F-004 / qc3 F-021/F-023).
+  if ("error" in value) {
+    if (
+      !isJsonObject(value.error) ||
+      typeof value.error.code !== "string" ||
+      typeof value.error.message !== "string" ||
+      !isValidExtensionMap(value.error.extensions)
+    ) {
+      return spokeReject(
+        SpokeRejectCode.INTERNAL_ERROR,
+        "adoption provider returned a malformed error envelope",
+        { kind: "transport" },
+      );
+    }
+    if ("extensions" in value && !isValidExtensionMap(value.extensions)) {
+      return spokeReject(
+        SpokeRejectCode.INTERNAL_ERROR,
+        "adoption provider returned a malformed extensions member",
+        { kind: "transport" },
+      );
+    }
+    const emitted: Record<string, unknown> = { error: value.error };
+    if ("extensions" in value) {
+      emitted.extensions = value.extensions;
+    }
+    return spokeOk(JSON.parse(JSON.stringify(emitted)) as unknown);
+  }
+
+  if ("extensions" in value && !isValidExtensionMap(value.extensions)) {
+    return spokeReject(
+      SpokeRejectCode.INTERNAL_ERROR,
+      "adoption provider returned a malformed extensions member",
+      { kind: "transport" },
+    );
+  }
   const outcome = value.outcome;
   if (outcome !== "adopted" && outcome !== "already_present") {
     return spokeReject(

@@ -1304,6 +1304,73 @@ describe("served result E1 revision domain + E2 extensions presence", () => {
   });
 });
 
+describe("served result failure branch + extension validation (E3 / qc3 F-021/F-023)", () => {
+  const localPayload = () => ({
+    ...adoptPayload("k-e1"),
+    source_scope_id: DESTINATION_SCOPE,
+  });
+  const serveWith = (result: unknown) =>
+    new AdoptionPortService(
+      {
+        adoptKnowledgeEntry: async () =>
+          spokeOk(result as KnowledgeAdoptResponse),
+      },
+      DEDUP_ADMISSION,
+      { dedupStore: new InMemoryHistoryDedupStore() },
+    );
+
+  it("a failure branch with a supplied extensions member serves verbatim (E3 + E2)", async () => {
+    const service = serveWith({
+      error: {
+        code: "REVISION_CONFLICT",
+        message: "conflict",
+        details: {},
+        extensions: {},
+      },
+      extensions: { product: { v: 1 } },
+    });
+    const result = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      localPayload(),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok && result.value !== null && typeof result.value === "object") {
+      expect(result.value).toMatchObject({
+        error: { code: "REVISION_CONFLICT", message: "conflict" },
+        extensions: { product: { v: 1 } },
+      });
+    }
+  });
+
+  it("a malformed response extensions member refuses INTERNAL_ERROR on both branches (qc3 F-023)", async () => {
+    for (const branch of [
+      { outcome: "adopted", entry: { entry_id: "ke_dst" } },
+      {
+        error: {
+          code: "REVISION_CONFLICT",
+          message: "conflict",
+          details: {},
+          extensions: {},
+        },
+      },
+    ]) {
+      for (const extensions of [{ "Bad-Key": {} }, { ns: 5 }]) {
+        const service = serveWith({ ...branch, extensions });
+        const result = await service.invoke(
+          "peer_a",
+          "knowledge.adopt",
+          localPayload(),
+        );
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.code).toBe("INTERNAL_ERROR");
+        }
+      }
+    }
+  });
+});
+
 // ── Destination admission at the serving boundary (C7 / QC2-08) ────────
 
 describe("adoption destination admission (contract Wire-wide rules)", () => {

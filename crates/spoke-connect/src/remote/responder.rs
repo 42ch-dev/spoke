@@ -517,12 +517,50 @@ fn decode_knowledge_call<'a>(
                     None,
                 );
             }
-            let entry = match payload_field::<KnowledgeEntry>(payload, "entry", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
-            };
-            let expected = match payload_field::<Option<u64>>(payload, "expected_base_revision", op)
+            // qc3 F-006 residual — the typed `u64` decoders must see the
+            // SAME integer identity JavaScript observes: every number
+            // parses to one f64, so an in-domain revision member
+            // (`9007199254740993` or `3.0`) normalizes to the f64-rounded
+            // `u64` before decode — mirroring
+            // `adopt_request_from_payload`'s `float as u64` rewrite.
+            let mut normalized_payload = payload.clone();
             {
+                let mut normalize_revision = |member: Option<&mut Value>| {
+                    if let Some(Value::Number(number)) = member {
+                        if let Some(float) = number.as_f64() {
+                            if float.fract() == 0.0
+                                && float >= 0.0
+                                && float <= ADOPT_EXACT_INTEGER_BOUND as f64
+                            {
+                                *number = serde_json::Number::from(float as u64);
+                            }
+                        }
+                    }
+                };
+                if let Some(members) = normalized_payload
+                    .get_mut("entry")
+                    .and_then(Value::as_object_mut)
+                {
+                    normalize_revision(members.get_mut("revision"));
+                    normalize_revision(
+                        members
+                            .get_mut("adoption_anchor")
+                            .and_then(Value::as_object_mut)
+                            .and_then(|anchor| anchor.get_mut("source_revision")),
+                    );
+                }
+                normalize_revision(normalized_payload.get_mut("expected_base_revision"));
+            }
+            let entry =
+                match payload_field::<KnowledgeEntry>(&normalized_payload, "entry", op) {
+                    SpokeResult::Ok(value) => value,
+                    SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+                };
+            let expected = match payload_field::<Option<u64>>(
+                &normalized_payload,
+                "expected_base_revision",
+                op,
+            ) {
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };

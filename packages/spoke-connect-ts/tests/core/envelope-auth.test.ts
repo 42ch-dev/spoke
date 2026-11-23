@@ -469,6 +469,16 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
     throw new Error("expected the signed boundary to refuse the payload");
   }
 
+  async function responseRefusal(response: InvokeResponseSignInput): Promise<Error> {
+    try {
+      await authenticateInvokeResponse(EMITTER_SEED, response);
+    } catch (error) {
+      expect(error).toMatchObject({ kind: "envelope_auth_invalid" });
+      return error as Error;
+    }
+    throw new Error("expected the signed boundary to refuse the payload");
+  }
+
   it("signs `relation.revision` at the endpoint and verifies the same bytes", async () => {
     const request = requestInput({
       op: "port.relation.put",
@@ -562,6 +572,88 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
           op: "history.revisions.prune",
           payload: { keep: ENDPOINT + 2 },
         }),
+      ),
+    ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+  });
+
+  it("refuses an open `error.details` member that borrows a sibling path component (D-01)", async () => {
+    const messages: string[] = [];
+    for (const opaqueMember of ["revision", "counter"]) {
+      messages.push(
+        (await responseRefusal({
+          session_id: SESSION_ID,
+          sequence: 0,
+          request_id: "req-0001",
+          error: {
+            code: "INVALID_INPUT",
+            message: "a generic refusal",
+            details: { [opaqueMember]: ENDPOINT },
+            extensions: {},
+          },
+        })).message,
+      );
+    }
+    // note: `ErrorEnvelope.details` is an open bag — it may not borrow
+    // `payload.entry.revision`, and the key's spelling cannot change the
+    // verdict, so both members refuse identically.
+    expect(messages[0]).toBe(messages[1]);
+    expect(messages[0]).toContain("outside the revision member domain");
+  });
+
+  it("refuses a path spliced from two owning prefixes (D-01)", async () => {
+    for (const payload of [
+      // note: only `payload.snapshot.snapshot.adoption_anchor` owns the
+      // endpoint, so one `snapshot` level may not borrow it.
+      { snapshot: { adoption_anchor: { source_revision: ENDPOINT } } },
+      // note: `payload.error.details` continues through the served adoption
+      // refusal, but `source_revision` there belongs to
+      // `payload.records.import_ref.source_revision`.
+      { error: { details: { source_revision: ENDPOINT } } },
+    ]) {
+      await expect(
+        authenticateInvokeResponse(EMITTER_SEED, {
+          session_id: SESSION_ID,
+          sequence: 0,
+          request_id: "req-0001",
+          payload,
+        }),
+      ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+    }
+  });
+
+  it("admits every owning revision path through its own prefix (D-01)", async () => {
+    const response = await authenticateInvokeResponse(EMITTER_SEED, {
+      session_id: SESSION_ID,
+      sequence: 0,
+      request_id: "req-0001",
+      payload: {
+        adoption_anchor: { source_revision: ENDPOINT },
+        snapshot: {
+          snapshot: { adoption_anchor: { source_revision: ENDPOINT } },
+        },
+        relation: { revision: ENDPOINT },
+      },
+    });
+    await expect(
+      verifyInvokeResponseAuth(EMITTER_PUBKEY, response, SESSION_ID),
+    ).resolves.toBeUndefined();
+  });
+
+  it("signs an unknown op whose name collides with `Object.prototype` (D-02)", async () => {
+    const request = requestInput({
+      op: "constructor",
+      payload: { note: "product data" },
+    });
+    const signed = await authenticateInvokeRequest(EMITTER_SEED, request);
+    await expect(
+      verifyInvokeRequestAuth(EMITTER_PUBKEY, signed, SESSION_ID),
+    ).resolves.toBeUndefined();
+    // note: an unknown op owns no revision path, so its payload endpoint
+    // refuses instead of inheriting `Object.prototype.constructor`.
+    await expect(
+      authenticateInvokeRequest(
+        EMITTER_SEED,
+        requestInput({ op: "constructor", payload: { note: ENDPOINT } }),
       ),
     ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
   });

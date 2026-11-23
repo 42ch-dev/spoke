@@ -348,8 +348,13 @@ const RESPONSE_REVISION_PATHS: readonly RevisionPath[] = [
 function revisionPaths(
   signedObject: Record<string, unknown>,
 ): readonly RevisionPath[] {
-  if (typeof signedObject.op === "string") {
-    return REQUEST_REVISION_PATHS[signedObject.op] ?? [];
+  const op = signedObject.op;
+  if (typeof op === "string") {
+    // note: own-key lookup — the open op vocabulary admits prototype names
+    // such as `constructor`, which own no paths and must not inherit one.
+    return Object.hasOwn(REQUEST_REVISION_PATHS, op)
+      ? REQUEST_REVISION_PATHS[op]
+      : NO_REVISION_PATHS;
   }
   if ("payload" in signedObject || "error" in signedObject) {
     return RESPONSE_REVISION_PATHS;
@@ -402,8 +407,8 @@ function assertRevisionDomain(
     return;
   }
   for (const [key, member] of Object.entries(value)) {
+    const continuations: RevisionPath[] = [];
     let terminal = false;
-    let continues = false;
     for (const path of paths) {
       if (path[depth] !== key) {
         continue;
@@ -411,16 +416,18 @@ function assertRevisionDomain(
       if (path.length === depth + 1) {
         terminal = true;
       } else {
-        continues = true;
+        continuations.push(path);
       }
     }
-    // note: a declared path owns this key; every other member is product
-    // data whose integers still face the refusal, so the walk descends with
-    // no path state instead of skipping the subtree.
-    if (terminal || continues) {
-      assertRevisionDomain(member, paths, depth + 1, terminal);
-    } else {
+    // note: carry only the paths whose prefix already matched, so a sibling
+    // path never supplies this member's component. A member no path owns
+    // keeps no path state, but its subtree still faces the endpoint refusal.
+    if (terminal) {
+      assertRevisionDomain(member, NO_REVISION_PATHS, depth + 1, true);
+    } else if (continuations.length === 0) {
       assertRevisionDomain(member, NO_REVISION_PATHS, 0, false);
+    } else {
+      assertRevisionDomain(member, continuations, depth + 1, false);
     }
   }
 }

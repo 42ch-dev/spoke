@@ -1301,6 +1301,10 @@ describe("RemoteAdapter loopback interop", () => {
       const malformed: Record<string, unknown> = {
         kb_schema_version_zero: { ...entry, schema_version: 0 },
         kb_revision_negative: { ...entry, revision: -1 },
+        // note: an integral float above `2^53` is signable (the signed gate
+        // refuses only the `[2^53, 2^64)` integer-token range), so this case
+        // still exercises the consumer-side upper bound.
+        kb_revision_over: { ...entry, revision: 1e20 },
         kb_created_at_naive: {
           ...entry,
           created_at: "2026-07-23T09:00:00",

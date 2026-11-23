@@ -12,6 +12,9 @@ path = "src/main.rs"
 
 [dependencies]
 glob = "0.3"
-typify = "0.10"
+# 0.9+ renders typespace code differently (trailing commas, TryFrom wrappers),
+# which the normalization passes below match token-by-token. Upgrade together
+# with those passes, not alone.
+typify = "0.8"
 serde_json = "1"
 schemars = "0.8"

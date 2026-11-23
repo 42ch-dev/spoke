@@ -15,3 +15,10 @@ updates:
     directory: "/tooling/codegen/rust-gen"
     schedule:
       interval: weekly
+    ignore:
+      # typify 0.9+ changes the rendered typespace tokens that
+      # src/main.rs normalizes; that upgrade needs the passes rewritten.
+      - dependency-name: "typify"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"

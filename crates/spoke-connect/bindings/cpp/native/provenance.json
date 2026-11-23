@@ -3,9 +3,10 @@
   "nativeArtifacts": {
     "osx-arm64": {
       "target": "aarch64-apple-darwin",
-      "sourceRevision": "620fae5fef0006e38d371f7b002e9293196de0ab",
-      "rustcVersion": "rustc 1.101.0-nightly (249c1e4e3 2026-11-05)\nbinary: rustc\ncommit-hash: 249c1e4e31111b54ad2483cfd4cea06c7020c653\ncommit-date: 2026-11-05\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.5",
-      "compilerVersion": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+      "sourceRevision": "69094fc8b81291293a04c58eea09e690a3de1398",
+      "recipeRevision": "ac508b0e487d03b94955af74c8ecab035c00bcfb",
+      "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+      "compilerVersion": "Apple clang version 17.0.0 (clang-1700.0.13.5)",
       "buildFlags": {
         "cargoArgs": [
           "build",
@@ -25,13 +26,14 @@
       "artifacts": [
         {
           "path": "libspoke_connect_capi.dylib",
-          "sha256": "f4d9455c132fe4d0b4900a755a2937e181d1f6c883db7496c7ce817015c3f9c3"
+          "sha256": "69f9eff32d7174d96add88b38afc77cde824992524d2e8d76bb5b715278bd2d3"
         }
       ]
     },
     "win-x64": {
       "target": "x86_64-pc-windows-msvc",
-      "sourceRevision": "620fae5fef0006e38d371f7b002e9293196de0ab",
+      "sourceRevision": "69094fc8b81291293a04c58eea09e690a3de1398",
+      "recipeRevision": "ac508b0e487d03b94955af74c8ecab035c00bcfb",
       "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
       "compilerVersion": "Microsoft (R) C/C++ Optimizing Compiler Version 19.52.37029 for x64",
       "buildFlags": {
@@ -56,7 +58,7 @@
       "artifacts": [
         {
           "path": "spoke_connect_capi.dll",
-          "sha256": "4c7508ea4cda64b731adccf2e8d3d6c456f4303292c3e646681876991bff7559"
+          "sha256": "c11b4a3c93ca1d9203a9852f4bc09acdcb29669da36ca2b01f553ba959cb8f7b"
         },
         {
           "path": "spoke_connect_capi.dll.lib",

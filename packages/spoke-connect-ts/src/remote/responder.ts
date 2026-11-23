@@ -115,7 +115,7 @@ import {
   isConnectInvokeRequest,
   isConnectInvokeResponse,
 } from "./guards.js";
-import { isValidKnowledgeEntryDeep, isAdoptExactNonNegativeInteger } from "./payload.js";
+import { isValidKnowledgeEntryDeep, isRevisionInteger } from "./payload.js";
 import type { RemoteAdoptionService, RemoteHistoryService } from "./serve_ports.js";
 import type { RemoteIdentity, ToolHandler } from "./remote-adapter.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
@@ -330,7 +330,7 @@ export function validateAdoptRejectReceipt(reject: SpokeReject): SpokeReject {
   if (
     isJsonObject(details) &&
     "adopted_revision" in details &&
-    !isAdoptExactNonNegativeInteger(details.adopted_revision)
+    !isRevisionInteger(details.adopted_revision)
   ) {
     return spokeReject(
       SpokeRejectCode.INTERNAL_ERROR,
@@ -654,7 +654,7 @@ export function validateKnowledgeOpPayload(
     if (
       expected !== undefined &&
       expected !== null &&
-      !isAdoptExactNonNegativeInteger(expected)
+      !isRevisionInteger(expected)
     ) {
       return scopePayloadReject(
         op,

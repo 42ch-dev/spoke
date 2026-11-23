@@ -1,6 +1,6 @@
 import type { CognitionRecord } from "@42ch/spoke-schemas";
 
-import { isParseableDateTime } from "../timestamp.js";
+import { isStrictTimestamp } from "../timestamp.js";
 import {
   spokeOk,
   spokeReject,
@@ -587,12 +587,7 @@ function isDeclaredProbability(
 }
 
 function isTimestamp(value: unknown): boolean {
-  if (
-    typeof value !== "string" ||
-    value !== value.trim() ||
-    !/(?:[Zz]|[+-]\d{2}:\d{2})$/.test(value) ||
-    !isParseableDateTime(value)
-  ) {
+  if (typeof value !== "string" || !isStrictTimestamp(value)) {
     return false;
   }
 

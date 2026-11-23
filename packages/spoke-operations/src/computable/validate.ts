@@ -6,7 +6,7 @@ import type {
   ProjectRequest,
 } from "@42ch/spoke-schemas";
 
-import { isParseableDateTime } from "../timestamp.js";
+import { isStrictTimestamp } from "../timestamp.js";
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";
 
@@ -81,7 +81,7 @@ export function validateComputableLogEntry(
 ): SpokeResult<void> {
   if (
     !isNonEmptyTrimmedString(entry.logged_at) ||
-    !isParseableDateTime(entry.logged_at.trim())
+    !isStrictTimestamp(entry.logged_at)
   ) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,

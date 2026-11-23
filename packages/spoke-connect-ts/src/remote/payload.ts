@@ -412,23 +412,15 @@ function isValidExtractSuccessPayload(value: unknown): boolean {
   return true;
 }
 
-/** note: `revision` / `deleted` / `floor_revision` are `u64` on the wire — exact integers only, never rounded (spoke-history contract). */
-function isExactNonNegativeInteger(value: unknown): value is number {
-  return (
-    typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-  );
-}
-
 /**
- * note: the adoption numeric rule (spoke-knowledge-adoption contract,
- * canonical numeric spelling — C5): an integral value is admissible at
- * the INCLUSIVE `2^53` endpoint, one step beyond `Number.isSafeInteger`.
- * `AdoptionAnchor.source_revision` and the adopt request's
- * `source_revision` use this bound — the endpoint is the same wire
- * number Rust's `adopt_request_from_payload` admits (qc1 F-013 /
- * qc3 F-006). History's stricter `u64`-exact rule above stays untouched.
+ * note: every revision-typed wire integer (`revision`, `deleted`,
+ * `floor_revision`, `keep`, `expected_base_revision`, `source_revision`,
+ * adopted-revision details) is an exact integer in `[0, 2^53]` — the ceiling
+ * is `2^53` inclusive, one step beyond `Number.isSafeInteger`
+ * (spoke-data-model §Shared wire scalars). `sequence` is not a revision
+ * integer and keeps its own `2^53-1` bound.
  */
-export function isAdoptExactNonNegativeInteger(value: unknown): value is number {
+export function isRevisionInteger(value: unknown): value is number {
   return (
     typeof value === "number" &&
     Number.isInteger(value) &&
@@ -490,7 +482,7 @@ export function isValidRevisionSnapshot(
     return false;
   }
   return (
-    isExactNonNegativeInteger(entity.revision) &&
+    isRevisionInteger(entity.revision) &&
     entity.revision === value.revision
   );
 }
@@ -523,7 +515,7 @@ function isValidRevisionSnapshotEnvelope(snapshot: unknown): boolean {
     snapshot.schema_version > 0 &&
     typeof snapshot.entity_kind === "string" &&
     typeof snapshot.entity_id === "string" &&
-    isExactNonNegativeInteger(snapshot.revision) &&
+    isRevisionInteger(snapshot.revision) &&
     isRecord(snapshot.snapshot) &&
     isValidExtensionMap(snapshot.extensions)
   );
@@ -773,7 +765,7 @@ export function isWellFormedAdoptionAnchor(value: unknown): boolean {
     value.source_scope_id.length === 0 ||
     typeof value.source_entry_id !== "string" ||
     value.source_entry_id.length === 0 ||
-    !isAdoptExactNonNegativeInteger(value.source_revision)
+    !isRevisionInteger(value.source_revision)
   ) {
     return false;
   }
@@ -837,7 +829,7 @@ export function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): bool
   // `revision` is revision-typed payload: the interoperable integer
   // domain is `[0, 2^53]` inclusive (contract E1); `owner` / `disclosure`
   // are non-empty when present.
-  if ("revision" in entity && !isAdoptExactNonNegativeInteger(entity.revision)) {
+  if ("revision" in entity && !isRevisionInteger(entity.revision)) {
     return false;
   }
   for (const key of ["owner", "disclosure"] as const) {
@@ -887,10 +879,10 @@ function isValidHistorySuccessPayload(op: string, value: unknown): boolean {
   }
   return (
     isRecord(value) &&
-    isExactNonNegativeInteger(value.deleted) &&
+    isRevisionInteger(value.deleted) &&
     "floor_revision" in value &&
     (value.floor_revision === null ||
-      isExactNonNegativeInteger(value.floor_revision))
+      isRevisionInteger(value.floor_revision))
   );
 }
 
@@ -945,7 +937,7 @@ export function isAdoptFailurePayload(value: unknown): boolean {
     }
     if (
       "adopted_revision" in error.details &&
-      !isAdoptExactNonNegativeInteger(error.details.adopted_revision)
+      !isRevisionInteger(error.details.adopted_revision)
     ) {
       return false;
     }

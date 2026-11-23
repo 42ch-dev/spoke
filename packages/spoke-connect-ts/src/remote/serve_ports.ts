@@ -39,7 +39,7 @@ import {
   validateDeclaredScope,
 } from "./responder.js";
 import {
-  isAdoptExactNonNegativeInteger,
+  isRevisionInteger,
   isValidExtensionMap,
   isValidKnowledgeEntryDeep,
   isValidRevisionSnapshot,
@@ -93,13 +93,6 @@ function historyInputReject(op: string, detail: string): SpokeReject {
     SpokeRejectCode.INVALID_INPUT,
     `invalid ${op} payload: ${detail}`,
     { op },
-  );
-}
-
-/** note: `revision` / `keep` are `u64` on the wire — JS must refuse values it cannot represent exactly, never round (spoke-history contract §HistoryPort). */
-function isExactNonNegativeInteger(value: unknown): value is number {
-  return (
-    typeof value === "number" && Number.isSafeInteger(value) && value >= 0
   );
 }
 
@@ -204,10 +197,10 @@ export function decodeHistoryCall(
   const scope = scopeResult.value;
   switch (op) {
     case HISTORY_OP_GET: {
-      if (!isExactNonNegativeInteger(payload.revision)) {
+      if (!isRevisionInteger(payload.revision)) {
         return historyInputReject(
           op,
-          "revision must be a non-negative integer the runtime can represent exactly",
+          "revision must be a non-negative integer within [0, 2^53]",
         );
       }
       return spokeOk({
@@ -219,10 +212,10 @@ export function decodeHistoryCall(
       });
     }
     case HISTORY_OP_PRUNE: {
-      if (!isExactNonNegativeInteger(payload.keep)) {
+      if (!isRevisionInteger(payload.keep)) {
         return historyInputReject(
           op,
-          "keep must be a non-negative integer the runtime can represent exactly",
+          "keep must be a non-negative integer within [0, 2^53]",
         );
       }
       const key = payload.idempotency_key;
@@ -711,10 +704,10 @@ function validServedSnapshot(
 function validServedPruneResult(value: unknown): SpokeResult<unknown> {
   if (
     !isJsonObject(value) ||
-    !isExactNonNegativeInteger(value.deleted) ||
+    !isRevisionInteger(value.deleted) ||
     !("floor_revision" in value) ||
     (value.floor_revision !== null &&
-      !isExactNonNegativeInteger(value.floor_revision))
+      !isRevisionInteger(value.floor_revision))
   ) {
     return spokeReject(
       SpokeRejectCode.INTERNAL_ERROR,
@@ -835,19 +828,13 @@ export function decodeAdoptionCall(
     );
   }
   const sourceRevision = payload.source_revision;
-  // note: the decode bound is the inclusive adoption endpoint `2^53`
-  // (C5; qc1 F-013 / qc3 F-006) — NOT `Number.isSafeInteger`, which
-  // stops one below it and would split the endpoint from Rust's
-  // `adopt_request_from_payload` decode.
-  if (
-    typeof sourceRevision !== "number" ||
-    !Number.isInteger(sourceRevision) ||
-    sourceRevision < 0 ||
-    sourceRevision > ADOPT_EXACT_INTEGER_BOUND
-  ) {
+  // note: the revision domain is `[0, 2^53]` inclusive — NOT
+  // `Number.isSafeInteger`, which stops one below it and would split the
+  // endpoint from Rust's `adopt_request_from_payload` decode.
+  if (!isRevisionInteger(sourceRevision)) {
     return adoptionInputReject(
       op,
-      "source_revision must be a non-negative integer within the exact-integer range",
+      "source_revision must be a non-negative integer within [0, 2^53]",
     );
   }
   const destinationEntryId = payload.destination_entry_id;
@@ -1223,7 +1210,7 @@ function validServedAdoptResult(
       }
       if (
         "adopted_revision" in value.error.details &&
-        !isAdoptExactNonNegativeInteger(value.error.details.adopted_revision)
+        !isRevisionInteger(value.error.details.adopted_revision)
       ) {
         return spokeReject(
           SpokeRejectCode.INTERNAL_ERROR,

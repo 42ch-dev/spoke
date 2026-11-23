@@ -161,8 +161,8 @@ where
 
 const STORED_TIMESTAMP_IMPL: &str = r#"
 /// RFC 3339 timestamp that keeps its stored wire spelling. Decode accepts the
-/// same strings as `chrono::DateTime<Utc>` and encode returns the stored
-/// bytes, so a replayed snapshot matches what the provider stored
+/// same strings as `Timestamp` and encode returns the stored bytes, so a
+/// replayed snapshot matches what the provider stored
 /// (spoke-history §Stored timestamps).
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(try_from = "::std::string::String", into = "::std::string::String")]
@@ -172,7 +172,7 @@ impl ::std::convert::TryFrom<&str> for StoredTimestamp {
     type Error = ::chrono::ParseError;
 
     fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
-        value.parse::<::chrono::DateTime<::chrono::offset::Utc>>()?;
+        crate::timestamp::parse_strict(value)?;
         ::std::result::Result::Ok(Self(value.to_string()))
     }
 }
@@ -191,6 +191,86 @@ impl ::std::convert::From<StoredTimestamp> for ::std::string::String {
     }
 }
 "#;
+
+// typify maps the shared `Timestamp` definition to `chrono::DateTime<Utc>` and
+// lets chrono parse it on both the serde path and `FromStr`; chrono's RFC 3339
+// parsers admit a space separator, a `UTC` suffix, un-padded fields and
+// surrounding whitespace, all refused by the wire grammar (spoke-data-model
+// §Shared wire scalars). Every inlined copy of the definition is the same
+// transparent newtype, so the rewrite matches on the inner type instead of the
+// type name.
+const TRANSPARENT_ATTR: &str = "# [serde (transparent)] pub struct ";
+const DATETIME_NEWTYPE_TAIL: &str =
+    " (pub :: chrono :: DateTime < :: chrono :: offset :: Utc >) ;";
+const STRICT_TIMESTAMP_ATTR: &str =
+    "# [serde (try_from = \"::std::string::String\" , into = \"::std::string::String\")] pub struct ";
+const CHRONO_PARSE_BODY: &str = "{ Ok (Self (value . parse () ?)) }";
+const STRICT_PARSE_BODY: &str = "{ Ok (Self (crate :: timestamp :: parse_strict (value) ?)) }";
+
+/// Strict-timestamp rewrite: every `DateTime<Utc>` newtype gets serde
+/// `try_from`/`into = String` and one hand-written strict parser, so decode and
+/// `FromStr` agree with the TypeScript gate. Encode uses the spelling chrono's
+/// serde impl emits, keeping accepted values byte-identical.
+fn rewrite_strict_timestamps(rust: &str) -> Result<String, String> {
+    let rule = "strict timestamp";
+    let mut out = String::with_capacity(rust.len() + 4096);
+    let mut rest = rust;
+    let mut names: Vec<String> = Vec::new();
+
+    while let Some(idx) = rest.find(TRANSPARENT_ATTR) {
+        out.push_str(&rest[..idx]);
+        rest = &rest[idx + TRANSPARENT_ATTR.len()..];
+        let name_len = rest
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .unwrap_or(rest.len());
+        let name = &rest[..name_len];
+        let tail = &rest[name_len..];
+        if !tail.starts_with(DATETIME_NEWTYPE_TAIL) {
+            // Some other transparent newtype keeps its generated attribute.
+            out.push_str(TRANSPARENT_ATTR);
+            continue;
+        }
+        out.push_str(STRICT_TIMESTAMP_ATTR);
+        out.push_str(name);
+        rest = tail;
+        names.push(name.to_string());
+    }
+    out.push_str(rest);
+
+    let datetime_newtypes = rust.matches(DATETIME_NEWTYPE_TAIL).count();
+    if datetime_newtypes != names.len() {
+        return Err(format!(
+            "{rule}: matched {} of {datetime_newtypes} DateTime newtype(s)",
+            names.len()
+        ));
+    }
+
+    for name in &names {
+        let impl_head = format!("impl :: std :: str :: FromStr for {name} {{");
+        let at = out
+            .find(&impl_head)
+            .ok_or_else(|| format!("{rule}: no FromStr impl for {name}"))?;
+        let body_at = out[at..]
+            .find(CHRONO_PARSE_BODY)
+            .map(|rel| at + rel)
+            .ok_or_else(|| format!("{rule}: unexpected FromStr body for {name}"))?;
+        out.replace_range(
+            body_at..body_at + CHRONO_PARSE_BODY.len(),
+            STRICT_PARSE_BODY,
+        );
+    }
+
+    if names.is_empty() {
+        return Ok(out);
+    }
+    for name in &names {
+        out.push_str(&format!(
+            " impl :: std :: convert :: From < {name} > for :: std :: string :: String {{ fn from (value : {name}) -> Self {{ value . 0 . to_rfc3339_opts (:: chrono :: SecondsFormat :: AutoSi , true) }} }}"
+        ));
+    }
+    eprintln!("{rule}s: {} newtype(s)", names.len());
+    Ok(out)
+}
 
 /// Index of the `>` matching the `<` at `open`.
 fn matching_angle(text: &str, open: usize) -> Option<usize> {
@@ -1552,6 +1632,12 @@ fn generate_schema_rust(
             schema_path.display()
         )
     })?;
+    let rust = rewrite_strict_timestamps(&rust).map_err(|err| {
+        format!(
+            "strict-timestamp rewrite failed for {}: {err}",
+            schema_path.display()
+        )
+    })?;
     let rust = if about_boxed {
         normalize_about_boxed_option_fields(&rust).map_err(|err| {
             format!(
@@ -1713,6 +1799,20 @@ fn main() {
         eprintln!(
             "error: expected {EXPECTED_SCHEMA_COUNT} Rust schema file(s), generated {}",
             generated_files.len()
+        );
+        process::exit(1);
+    }
+
+    // A typify token change would silently relax every Timestamp newtype; the
+    // common module always carries one, so fail generation instead.
+    let common_module = out_root.join("common/common.rs");
+    let strict_timestamp = fs::read_to_string(&common_module)
+        .map(|text| text.contains("crate :: timestamp :: parse_strict (value)"))
+        .unwrap_or(false);
+    if !strict_timestamp {
+        eprintln!(
+            "error: no strict Timestamp rewrite in {}",
+            common_module.display()
         );
         process::exit(1);
     }
@@ -2168,6 +2268,53 @@ mod tests {
             .expect_err("non-snapshot owner must fail generation");
         assert!(
             error.contains("outside RevisionSnapshotSnapshot"),
+            "unexpected error: {error}"
+        );
+    }
+
+    fn datetime_newtype(name: &str) -> String {
+        format!(
+            "# [serde (transparent)] pub struct {name} (pub :: chrono :: DateTime < :: chrono :: offset :: Utc >) ; impl :: std :: str :: FromStr for {name} {{ type Err = < :: chrono :: DateTime < :: chrono :: offset :: Utc > as :: std :: str :: FromStr > :: Err ; fn from_str (value : & str) -> :: std :: result :: Result < Self , Self :: Err > {{ Ok (Self (value . parse () ?)) }} }}"
+        )
+    }
+
+    #[test]
+    fn datetime_newtypes_parse_through_the_strict_gate() {
+        let source = format!(
+            "{}{}# [serde (transparent)] pub struct Plain (pub :: std :: string :: String) ;",
+            datetime_newtype("Timestamp"),
+            datetime_newtype("Shared0"),
+        );
+        let output = rewrite_strict_timestamps(&source).expect("rewrites");
+        assert_eq!(
+            output
+                .matches("try_from = \"::std::string::String\" , into = \"::std::string::String\"")
+                .count(),
+            2
+        );
+        assert_eq!(
+            output.matches("crate :: timestamp :: parse_strict (value)").count(),
+            2
+        );
+        assert_eq!(
+            output
+                .matches("impl :: std :: convert :: From <")
+                .count() >= 2,
+            true
+        );
+        assert!(
+            output.contains("# [serde (transparent)] pub struct Plain (pub :: std :: string :: String) ;"),
+            "unrelated newtype must keep its attribute: {output}"
+        );
+    }
+
+    #[test]
+    fn a_datetime_newtype_without_its_parser_fails_loudly() {
+        let broken = datetime_newtype("Timestamp").replace(CHRONO_PARSE_BODY, "");
+        let error = rewrite_strict_timestamps(&broken)
+            .expect_err("missing FromStr body must fail generation");
+        assert!(
+            error.contains("unexpected FromStr body for Timestamp"),
             "unexpected error: {error}"
         );
     }

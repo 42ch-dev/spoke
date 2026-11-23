@@ -3785,7 +3785,7 @@ impl ::std::str::FromStr for Shared10 {
 }
 #[doc = "RFC 3339 UTC datetime string."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(transparent)]
+#[serde(try_from = "::std::string::String", into = "::std::string::String")]
 pub struct Shared11(pub ::chrono::DateTime<::chrono::offset::Utc>);
 impl ::std::ops::Deref for Shared11 {
     type Target = ::chrono::DateTime<::chrono::offset::Utc>;
@@ -3811,7 +3811,7 @@ impl ::std::fmt::Display for Shared11 {
 impl ::std::str::FromStr for Shared11 {
     type Err = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
-        Ok(Self(value.parse()?))
+        Ok(Self(crate::timestamp::parse_strict(value)?))
     }
 }
 #[doc = "Live retained record. Tombstoned records use the TombstonedRecord variant; the tombstone property is deliberately absent here so a live record cannot carry one."]
@@ -18546,6 +18546,13 @@ impl ::std::convert::TryFrom<String> for Shared11 {
     type Error = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
     fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
         value.parse()
+    }
+}
+impl ::std::convert::From<Shared11> for ::std::string::String {
+    fn from(value: Shared11) -> Self {
+        value
+            .0
+            .to_rfc3339_opts(::chrono::SecondsFormat::AutoSi, true)
     }
 }
 /// Presence-sensitive array decode: `Some` keeps an explicitly present array

@@ -387,13 +387,24 @@ fn revision_paths(
         );
     }
     if signed.get("payload").is_some() || signed.get("error").is_some() {
-        let paths = response_op
-            .and_then(|op| {
-                RESPONSE_REVISION_PATHS
-                    .iter()
-                    .find_map(|(name, paths)| (*name == op).then_some(*paths))
-            })
-            .unwrap_or(&[]);
+        // A response carries one variant: a transport error at the root or a
+        // served `payload.error` owns no success path, so a malformed payload
+        // carrying both `entry` and `error` cannot borrow the success set.
+        let error_variant = signed.get("error").is_some()
+            || signed
+                .get("payload")
+                .is_some_and(|payload| payload.get("error").is_some());
+        let paths = if error_variant {
+            &[][..]
+        } else {
+            response_op
+                .and_then(|op| {
+                    RESPONSE_REVISION_PATHS
+                        .iter()
+                        .find_map(|(name, paths)| (*name == op).then_some(*paths))
+                })
+                .unwrap_or(&[])
+        };
         let mut exceptions = Vec::new();
         if response_op == Some("knowledge.adopt") {
             if signed.pointer("/error/code").and_then(Value::as_str)

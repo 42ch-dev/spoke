@@ -446,9 +446,19 @@ function revisionPaths(
       : NO_REVISION_PATHS;
   }
   if ("payload" in signedObject || "error" in signedObject) {
+    // note: one variant per response — a transport error at the root or a
+    // served `payload.error` owns no success path, so a malformed payload
+    // carrying both `entry` and `error` cannot borrow the success set.
+    const payload = signedObject.payload;
+    const errorVariant =
+      "error" in signedObject ||
+      (typeof payload === "object" &&
+        payload !== null &&
+        "error" in (payload as Record<string, unknown>));
     // note: own-key lookup — an absent or unlisted op owns no response path.
-    const paths =
-      op !== undefined && Object.hasOwn(RESPONSE_REVISION_PATHS, op)
+    const paths = errorVariant
+      ? NO_REVISION_PATHS
+      : op !== undefined && Object.hasOwn(RESPONSE_REVISION_PATHS, op)
         ? RESPONSE_REVISION_PATHS[op]
         : NO_REVISION_PATHS;
     const exceptions = adoptionConflictPaths(signedObject, op);

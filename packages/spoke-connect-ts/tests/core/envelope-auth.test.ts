@@ -584,6 +584,60 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("signs the adoption success variant's `entry.revision` at the endpoint", async () => {
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        payload: {
+          outcome: "adopted",
+          entry: {
+            revision: ENDPOINT,
+            adoption_anchor: { source_revision: ENDPOINT },
+          },
+        },
+      },
+      {},
+      "knowledge.adopt",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "knowledge.adopt",
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses a served adoption payload carrying both `entry` and `error` (GH-01)", async () => {
+    // note: the adoption response carries one variant — the mixed malformed
+    // payload cannot borrow the success variant's `entry.revision` endpoint.
+    await expect(
+      authenticateInvokeResponse(
+        EMITTER_SEED,
+        {
+          session_id: SESSION_ID,
+          sequence: 0,
+          request_id: "req-0001",
+          payload: {
+            error: {
+              code: "REVISION_CONFLICT",
+              message: "destination already anchors the source",
+              details: { adopted_revision: ENDPOINT },
+              extensions: {},
+            },
+            entry: { revision: ENDPOINT },
+          },
+        },
+        {},
+        "knowledge.adopt",
+      ),
+    ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+  });
+
   it("refuses the adoption refusal endpoint without its owning op (D-01)", async () => {
     // note: the exception is op-scoped, not vocabulary-scoped — the same
     // REVISION_CONFLICT receipt owns no revision slot for another op.

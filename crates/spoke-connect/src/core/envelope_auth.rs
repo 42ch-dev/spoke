@@ -2108,6 +2108,51 @@ mod tests {
         .expect_err("knowledge.adopt does not inherit the prune exception");
         assert!(matches!(inherited, CoreError::Jcs(_)), "{inherited:?}");
 
+        // GH-01: a served payload carries one variant. The mixed malformed
+        // payload (`error` AND `entry`) owns only the error variant, so it
+        // cannot borrow the success variant's `entry.revision` endpoint.
+        let mixed = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({
+                    "error": {
+                        "code": "REVISION_CONFLICT",
+                        "message": "destination already anchors the source",
+                        "details": { "adopted_revision": ENDPOINT },
+                        "extensions": {},
+                    },
+                    "entry": { "revision": ENDPOINT },
+                }),
+            },
+            Default::default(),
+            ADOPT,
+        )
+        .expect_err("a mixed served payload owns only the error variant");
+        assert!(matches!(mixed, CoreError::Jcs(_)), "{mixed:?}");
+
+        // The success variant keeps its own endpoint.
+        let success = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({
+                    "outcome": "adopted",
+                    "entry": { "revision": ENDPOINT },
+                }),
+            },
+            Default::default(),
+            ADOPT,
+        )
+        .expect("the adoption success variant owns entry.revision");
+        let wire = wire_of(&success);
+        verify_invoke_response_auth_with_op(&emitter_pubkey(), &wire, SESSION_ID, ADOPT)
+            .expect("the success variant verifies");
+
         // The actual prune response still signs and verifies at the endpoint.
         let prune = authenticate_invoke_response_with_op(
             &emitter_seed(),

@@ -19,7 +19,7 @@ The repository is the single source of truth: hand-written JSON Schemas, generat
 
 ## What you get
 
-- **One wire dialect** — 14 data objects and 5 baseline op families, with 123 committed JSON Schemas as the source of truth.
+- **One wire dialect** — 27 data schemas (14 non-Memory data objects plus 13 optional Memory models) and 5 baseline op families, with 123 committed JSON Schemas as the source of truth.
 - **Typed clients on both sides** — `@42ch/spoke-schemas` on npm and `spoke-schemas` on crates.io, generated from the same schemas.
 - **Protocol behavior as a library** — `@42ch/spoke-operations` / `spoke-operations` ship pure validators, capability-sliced adapter ports, and `orchestrate*` entrypoints.
 - **Optional capability families** — computable body state, forks, cognition, cross-product modules, extraction, ownership, memory, signed cross-process connect, revision history, knowledge adoption, and judgment.
@@ -122,6 +122,9 @@ All published packages share one lockstep SemVer.
 | `spoke-connect` | signed hello, session, invoke and auth envelopes |
 | `spoke-knowledge` | scoped KnowledgeEntry get/put/list serving on the connect face |
 | `spoke-memory` | 13 memory models and 33 `memory.*` ops, with reflection and transfer sub-flags |
+| `spoke-history` | `RevisionSnapshot` plus the `history.revisions.get` / `history.revisions.prune` ops |
+| `spoke-knowledge-adoption` | `AdoptionAnchor` plus `knowledge.adopt`; also requires `spoke-knowledge` |
+| `spoke-judgment` | the `Judgment` data envelope — a manifest-only data capability that declares no op of its own |
 
 Capability reference: [Protocol](https://spoke.42ch.dev/reference/protocol), [Concepts](https://spoke.42ch.dev/explanation/concepts).
 

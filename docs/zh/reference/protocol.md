@@ -65,7 +65,7 @@ schema 解码后，未知谓词、已知但未实现的视图/维度/指标过�
 
 ## 相关页面
 
-- [数据模型参考](/zh/reference/data-model) —— 十一个数据对象的字段表。
+- [数据模型参考](/zh/reference/data-model) —— 27 个数据 schema 的字段表。
 - [操作线上参考（Ops wire）](/zh/reference/ops) —— 请求/响应信封、`Scope`、`ErrorEnvelope`。
 - [connect 参考](/zh/reference/connect) —— 可选信封族。
 - [认知记录](/zh/reference/data-model#cognition-spoke-cognition) —— `q`、可选指标、过滤语法与投影。

@@ -94,7 +94,7 @@ use crate::remote::remote_adapter::{
     wire_response_correlation, RemoteError as ResponderError,
     RemoteErrorKind as ResponderErrorKind, RemoteIdentity, ToolHandler,
 };
-use crate::remote::serve_ports::RemoteServePorts;
+use crate::remote::serve_ports::{exact_revision_u64, RemoteServePorts};
 use crate::remote::transport::Transport;
 use crate::remote::{
     baseline_scope_shape, port_dispatch_allowed, requires_ownership_capability,

@@ -542,6 +542,74 @@ describe("connectResponder port serving (D4 catalogue)", () => {
   );
 
   it(
+    "validates the nullable relation.put CAS fence before the provider (qc1 F-004)",
+    async () => {
+      // why: the baseline Relation dispatch used to cast
+      // `expected_base_revision` straight to the provider; Rust refuses an
+      // out-of-domain parse before constructing the call. The inclusive
+      // `2^53` endpoint must reach the provider, the next representable value
+      // (`2^53 + 2`) must refuse `INVALID_INPUT` with zero provider calls.
+      const baseline = asBaselineOnly(ToyWorldAdapter.withCommittedFixtures());
+      const bases: (number | null)[] = [];
+      const ports: BaselinePorts = {
+        ...baseline,
+        putRelation: async (relation, expectedBaseRevision) => {
+          bases.push(expectedBaseRevision);
+          return spokeOk(relation);
+        },
+      };
+      const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =
+        await startRawResponder({ ports });
+      try {
+        const { session_id: sessionId } = await rawHandshake(clientEnd, {
+          seed: seedClient,
+          manifest: toolManifest("test-client"),
+          pubkeyResponder,
+          peerIdResponder,
+        });
+        const relation = {
+          schema_version: 1,
+          relation_id: "rel_boundary",
+          relation_type: "related_to",
+          from_id: "kb_from",
+          to_id: "kb_to",
+          extensions: {},
+        };
+        const accepted = await signInvokeRequest(seedClient, {
+          session_id: sessionId,
+          sequence: 0,
+          request_id: "relation-put-ceiling",
+          op: "port.relation.put",
+          payload: { relation, expected_base_revision: 2 ** 53 },
+        });
+        await clientEnd.send(encodeEnvelope(accepted));
+        const acceptedResponse = decodeEnvelope(await clientEnd.recv()) as {
+          error?: unknown;
+        };
+        expect(acceptedResponse.error).toBeUndefined();
+        expect(bases).toEqual([2 ** 53]);
+
+        const refused = await signInvokeRequest(seedClient, {
+          session_id: sessionId,
+          sequence: 1,
+          request_id: "relation-put-over-ceiling",
+          op: "port.relation.put",
+          payload: { relation, expected_base_revision: 2 ** 53 + 2 },
+        });
+        await clientEnd.send(encodeEnvelope(refused));
+        const refusedResponse = decodeEnvelope(await clientEnd.recv()) as {
+          error: { code: string };
+        };
+        expect(refusedResponse.error.code).toBe(SpokeRejectCode.INVALID_INPUT);
+        expect(bases).toEqual([2 ** 53]);
+      } finally {
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
     "answers an unknown port method with the dispatch-deny branch (op_unsupported)",
     async () => {
       const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =

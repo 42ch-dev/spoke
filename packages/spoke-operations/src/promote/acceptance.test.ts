@@ -207,4 +207,47 @@ describe("applyPromoteAcceptance", () => {
       expect(result.value.updated_at).toBeUndefined();
     }
   });
+
+  it("refuses an increment from the 2^53 ceiling", () => {
+    const result = applyPromoteAcceptance(
+      makeRequest({ candidate: makeCandidate({ revision: 2 ** 53 }) }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ revision: 2 ** 53 });
+    }
+  });
+
+  it("refuses a candidate revision above the 2^53 ceiling", () => {
+    const result = validatePromoteRequest(
+      makeRequest({ candidate: makeCandidate({ revision: 2 ** 53 + 2 }) }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
+
+  it("refuses a nested anchor schema_version above 2^53-1", () => {
+    const result = validatePromoteRequest(
+      makeRequest({
+        candidate: makeCandidate({
+          source_anchor: {
+            schema_version: 2 ** 53,
+            source_id: "src_1",
+            extensions: {},
+          },
+        }),
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "source_anchor" });
+    }
+  });
 });

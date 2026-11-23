@@ -59,6 +59,8 @@ import { issueCapabilityToken } from "../../src/core/capability-token.js";
 // 4-field (pre-dial-binding) responder hello served over a scripted
 // transport — test-only import; the adapter surface stays clean.
 import { signHelloEd25519 } from "../../src/core/hello.js";
+import { authenticateSession } from "../../src/core/envelope-auth.js";
+import { generateNonce } from "../../src/core/nonce.js";
 import { schemaConformantManifest } from "../fixtures/golden.js";
 import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
 import { MAX_SEQUENCE } from "../../src/core/sequence.js";
@@ -758,6 +760,79 @@ describe("RemoteAdapter loopback interop", () => {
   );
 
   it(
+    "fails the dial when the session snapshot opened_at is not a strict timestamp (qc1 F-005)",
+    async () => {
+      // why: the session snapshot guard checks presence only, so a validly
+      // signed snapshot with an offsetless `opened_at` could establish a
+      // session. The shared strict RFC 3339 grammar is the one Timestamp
+      // contract and must fail the dial before any session state exists.
+      const seedHost = seed(0xa0);
+      const seedClient = seed(0x10);
+      const pubkeyHost = getPublicKeyEd25519(seedHost);
+      const peerIdHost = derivePeerIdFromEd25519Pubkey(pubkeyHost);
+      const peerIdClient = derivePeerIdFromEd25519Pubkey(
+        getPublicKeyEd25519(seedClient),
+      );
+      const textEncoder = new TextEncoder();
+
+      let capturedInitiatorNonce: string | undefined;
+      let received = 0;
+      const scriptedTransport: Transport = {
+        send: async (bytes) => {
+          const doc: unknown = decodeJsonMessage(bytes);
+          if (
+            typeof doc === "object" &&
+            doc !== null &&
+            "nonce" in doc &&
+            typeof doc.nonce === "string"
+          ) {
+            capturedInitiatorNonce = doc.nonce;
+          }
+        },
+        recv: async () => {
+          received += 1;
+          if (received === 1) {
+            if (capturedInitiatorNonce === undefined) {
+              throw new Error("initiator hello was not observed");
+            }
+            const hello = await signHelloEd25519(
+              seedHost,
+              generateNonce(),
+              schemaConformantManifest(),
+              capturedInitiatorNonce,
+            );
+            return textEncoder.encode(encodeJsonMessage(hello));
+          }
+          if (received === 2) {
+            const session = await authenticateSession(seedHost, {
+              session_id: "sess-invalid-opened-at",
+              initiator_peer_id: peerIdClient,
+              responder_peer_id: peerIdHost,
+              opened_at: "2026-07-23T09:00:00",
+              negotiated_capabilities: ["spoke-baseline"],
+              initial_sequence: 0,
+            });
+            return textEncoder.encode(encodeJsonMessage(session));
+          }
+          throw new Error("scripted transport closed");
+        },
+        close: () => {},
+      };
+
+      await expect(
+        connectRemoteAdapter({
+          transport: scriptedTransport,
+          localIdentity: { seed: seedClient },
+          localManifest: clientManifest(),
+          remotePubkey: pubkeyHost,
+          allowlist: [peerIdHost],
+        }),
+      ).rejects.toThrow(/opened_at/);
+    },
+    15000,
+  );
+
+  it(
     "propagates protocol_version_mismatch through the dial when the responder hello version mismatches",
     async () => {
       const seedHost = seed(0xa0);
@@ -1176,6 +1251,88 @@ describe("RemoteAdapter loopback interop", () => {
         });
         // note: a malformed payload fails only this waiter — the session stays
         // usable (parity with the Rust invoke_mapped path).
+        expect(client.state).toBe("Established");
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "rejects an ordinary knowledge/relation get response outside the shared scalar domains (qc1 F-003)",
+    async () => {
+      // why: the ordinary knowledge/relation success gate used to check the
+      // primitive shape only, so `schema_version: 2^53`, a revision above the
+      // inclusive `2^53` ceiling, and an offsetless `created_at` surfaced
+      // `spokeOk`. The shared wire scalar domains must reject before `spokeOk`
+      // (Rust typed decode parity).
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const entry = {
+        schema_version: 1,
+        entry_id: "kb_tw_mira",
+        entry_type: "character",
+        canonical_name: "Mira Vale",
+        status: "confirmed",
+        body: {},
+        extensions: {},
+      };
+      const relation = {
+        schema_version: 1,
+        relation_id: "rel_boundary",
+        relation_type: "related_to",
+        from_id: "kb_from",
+        to_id: "kb_to",
+        extensions: {},
+      };
+      const malformed: Record<string, unknown> = {
+        kb_schema_version_over: { ...entry, schema_version: 2 ** 53 },
+        kb_revision_over: { ...entry, revision: 2 ** 53 + 2 },
+        kb_created_at_naive: {
+          ...entry,
+          created_at: "2026-07-23T09:00:00",
+        },
+        rel_revision_over: { ...relation, revision: 2 ** 53 + 2 },
+        rel_updated_at_naive: {
+          ...relation,
+          updated_at: "2026-07-23 09:00:00Z",
+        },
+      };
+      const { client, host } = await dial(hostAdapter, {
+        hostResponseOverride: (request) => {
+          // why: the fixture routes on the get request's id member.
+          const requestPayload = request.payload as {
+            entry_id?: string;
+            relation_id?: string;
+          };
+          const requestedId =
+            requestPayload.entry_id ?? requestPayload.relation_id ?? "";
+          return {
+            session_id: request.session_id,
+            sequence: request.sequence,
+            request_id: request.request_id,
+            payload: malformed[requestedId] ?? entry,
+            extensions: {},
+          };
+        },
+      });
+      try {
+        for (const requestedId of Object.keys(malformed)) {
+          const isRelation = requestedId.startsWith("rel_");
+          const result = isRelation
+            ? await client.getRelation(requestedId)
+            : await client.getKnowledgeEntry(requestedId);
+          expect(result, requestedId).toEqual({
+            ok: false,
+            code: SpokeRejectCode.INTERNAL_ERROR,
+            message: expect.stringContaining("payload decode failed"),
+            details: { kind: "transport" },
+          });
+        }
+        // note: the same session still serves a valid payload.
+        const valid = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(valid.ok).toBe(true);
         expect(client.state).toBe("Established");
       } finally {
         client.close();

@@ -96,6 +96,26 @@ jobs:
         # the typecheck and compile halves of the local `verify-codegen` script.
         run: pnpm run test:codegen
 
+      - name: Setup Rust
+        # typify renders the tokens main.rs normalizes, so a dependency bump can
+        # break the generator without touching any checked-in source.
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install workspace dependencies
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Rebuild the committed generated tree
+        if: steps.assert.outputs.ok == 'true' && needs.changes.outputs.code == 'true'
+        run: |
+          pnpm run codegen
+          if [[ -n "$(git status --porcelain -- crates/spoke-schemas/src/generated packages/spoke-schemas/src/generated)" ]]; then
+            echo 'generated tree is stale; run `pnpm run codegen` and commit the result' >&2
+            git status --porcelain -- crates/spoke-schemas/src/generated packages/spoke-schemas/src/generated >&2
+            exit 1
+          fi
+
   typescript:
     needs: changes
     name: typescript

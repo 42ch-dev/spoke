@@ -855,6 +855,7 @@ pub struct GrantSummary {
     pub grant_id: GrantId,
     #[doc = "Opaque correlation label — never credentials or tokens."]
     pub principal_ref: PrincipalRef,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub shared_access: ::std::option::Option<bool>,
@@ -872,6 +873,7 @@ impl GrantSummary {
 pub struct Header {
     pub bundle_format_version: ::std::num::NonZeroU64,
     #[doc = "RFC 3339 UTC datetime string."]
+    #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
     pub created_at: ::chrono::DateTime<::chrono::offset::Utc>,
     pub digest: Digest,
     pub export_id: ExportId,
@@ -880,6 +882,7 @@ pub struct Header {
     pub extensions: ::std::option::Option<Shared0>,
     pub memory_protocol_version: ::std::num::NonZeroU64,
     #[doc = "Wire schema version (integer >= 1)."]
+    #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
     pub schema_version: ::std::num::NonZeroU64,
     pub source: Source,
     pub space_id: SpaceId,
@@ -1059,6 +1062,7 @@ impl<'de> ::serde::Deserialize<'de> for ImportId {
 pub struct ImportRef {
     pub import_id: ImportId,
     pub source_record_id: SourceRecordId,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub source_revision: ::std::num::NonZeroU64,
 }
 impl ImportRef {
@@ -1447,6 +1451,7 @@ pub struct ProfileDocument {
     #[doc = "Open vocabulary of authored content kinds. Core (documented, not enforced): personality, preferences (§4.2)."]
     pub profile_kind: ProfileDocumentProfileKind,
     #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub schema_version: Shared1,
     pub space_id: ProfileDocumentSpaceId,
@@ -1896,6 +1901,7 @@ pub struct Reflection {
     #[doc = "Provider-assigned."]
     pub reflection_id: ReflectionReflectionId,
     #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub schema_version: Shared1,
     #[doc = "Pinned placement selection used for generation."]
@@ -2422,7 +2428,7 @@ impl
 }
 #[doc = "Wire schema version (integer >= 1)."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(transparent)]
+#[serde(try_from = "u64", into = "::std::num::NonZeroU64")]
 pub struct Shared1(pub ::std::num::NonZeroU64);
 impl ::std::ops::Deref for Shared1 {
     type Target = ::std::num::NonZeroU64;
@@ -2448,7 +2454,7 @@ impl ::std::fmt::Display for Shared1 {
 impl ::std::str::FromStr for Shared1 {
     type Err = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
-        Ok(Self(value.parse()?))
+        Ok(Self(crate::integers::parse_schema_version(value)?))
     }
 }
 #[doc = "Typed reference kind. `world` identifies the designated narrated-world authority and is invalid as the holder of Belief, epistemic or Perception records. Memory.subject_id is not implicitly a holder; a Memory cognition holder explicitly uses `memory_subject` when intended."]
@@ -3726,6 +3732,7 @@ pub struct Shared3 {
     #[doc = "Provider-assigned."]
     pub record_id: RecordId,
     #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub schema_version: Shared1,
     #[doc = "Write placement. Changed only by memory.records.promote."]
@@ -4254,6 +4261,7 @@ pub struct Shared4 {
     pub provenance: Shared6,
     #[doc = "Provider-assigned."]
     pub record_id: RecordId,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub schema_version: Shared1,
     #[doc = "Placement retained for audit; unchanged by deletion."]
@@ -5555,6 +5563,7 @@ pub struct Shared60 {
     pub proposed: Proposed,
     pub provenance: Shared58,
     #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub schema_version: Shared1,
     pub space_id: SpaceId,
@@ -5586,6 +5595,7 @@ pub struct Shared61 {
     pub proposed: ::std::option::Option<ConsumedProposed>,
     pub provenance: Shared58,
     #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub schema_version: Shared1,
     pub space_id: SpaceId,
@@ -5612,6 +5622,7 @@ pub struct Shared62 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<Shared62Kind>,
     #[doc = "Per-object optimistic-concurrency counter (MEM-R007). Bumped by any fence/unfence/archive transition."]
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub schema_version: Shared1,
     pub space_id: Shared62SpaceId,
@@ -5921,6 +5932,7 @@ pub struct Shared64 {
     #[doc = "Open vocabulary of authored content kinds. Core (documented, not enforced): personality, preferences (§4.2)."]
     pub profile_kind: Shared64ProfileKind,
     #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub schema_version: Shared1,
     pub space_id: Shared64SpaceId,
@@ -6150,6 +6162,7 @@ pub struct Shared65 {
     #[doc = "Provider-assigned."]
     pub reflection_id: Shared65ReflectionId,
     #[doc = "Per-object optimistic-concurrency counter (MEM-R007)."]
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub schema_version: Shared1,
     #[doc = "Pinned placement selection used for generation."]
@@ -6608,6 +6621,7 @@ pub struct Shared68 {
     pub grant_id: GrantId,
     #[doc = "Opaque correlation label — never credentials or tokens."]
     pub principal_ref: PrincipalRef,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub shared_access: ::std::option::Option<bool>,
@@ -7212,6 +7226,7 @@ pub struct Subject {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<SubjectKind>,
     #[doc = "Per-object optimistic-concurrency counter (MEM-R007). Bumped by any fence/unfence/archive transition."]
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub schema_version: Shared1,
     pub space_id: SubjectSpaceId,
@@ -16351,4 +16366,15 @@ where
     T: ::serde::Deserialize<'de>,
 {
     ::std::result::Result::Ok(::std::option::Option::Some(T::deserialize(deserializer)?))
+}
+impl ::std::convert::TryFrom<u64> for Shared1 {
+    type Error = ::std::num::ParseIntError;
+    fn try_from(value: u64) -> ::std::result::Result<Self, Self::Error> {
+        if value > crate::integers::SCHEMA_VERSION_MAX {
+            return ::std::result::Result::Err(crate::integers::out_of_domain());
+        }
+        let inner =
+            ::std::num::NonZeroU64::new(value).ok_or_else(crate::integers::out_of_domain)?;
+        ::std::result::Result::Ok(Self(inner))
+    }
 }

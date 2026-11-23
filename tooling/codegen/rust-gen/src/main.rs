@@ -289,9 +289,17 @@ fn rewrite_strict_timestamps(rust: &str) -> Result<String, String> {
         let at = out
             .find(&impl_head)
             .ok_or_else(|| format!("{rule}: no FromStr impl for {name}"))?;
-        let body_at = out[at..]
-            .find(CHRONO_PARSE_BODY)
+        // The parse body must belong to this impl: an unbounded search from the
+        // head could consume a later newtype's body and leave this one relaxed.
+        let brace = out[at..]
+            .find('{')
             .map(|rel| at + rel)
+            .ok_or_else(|| format!("{rule}: no FromStr body for {name}"))?;
+        let close = matching_brace(&out, brace)
+            .ok_or_else(|| format!("{rule}: unbalanced FromStr impl for {name}"))?;
+        let body_at = out[brace..close]
+            .find(CHRONO_PARSE_BODY)
+            .map(|rel| brace + rel)
             .ok_or_else(|| format!("{rule}: unexpected FromStr body for {name}"))?;
         out.replace_range(
             body_at..body_at + CHRONO_PARSE_BODY.len(),
@@ -308,6 +316,444 @@ fn rewrite_strict_timestamps(rust: &str) -> Result<String, String> {
         ));
     }
     eprintln!("{rule}s: {} newtype(s)", names.len());
+    Ok(out)
+}
+
+// Bounded wire scalars (spoke-data-model §Shared wire scalars). typify maps
+// every `SchemaVersion` inlined into an object to a bare `NonZeroU64`, and the
+// revision family to `u64`/`NonZeroU64`; the shared newtype is typed
+// `NonZeroU64`. The ceiling is enforced with a field-level decoder so those
+// public types stay unchanged.
+const WIRE_NONZERO_U64: &str = ":: std :: num :: NonZeroU64";
+const WIRE_OPTION_NONZERO_U64: &str = ":: std :: option :: Option < :: std :: num :: NonZeroU64 >";
+const WIRE_U64: &str = "u64";
+const WIRE_OPTION_U64: &str = ":: std :: option :: Option < u64 >";
+const WIRE_DATETIME: &str = ":: chrono :: DateTime < :: chrono :: offset :: Utc >";
+const WIRE_OPTION_DATETIME: &str =
+    ":: std :: option :: Option < :: chrono :: DateTime < :: chrono :: offset :: Utc > >";
+
+const REVISION_FIELDS: [&str; 7] = [
+    "revision",
+    "keep",
+    "deleted",
+    "floor_revision",
+    "source_revision",
+    "expected_base_revision",
+    "expected_revision",
+];
+
+/// `Judgment` is the one member narrowed below the revision ceiling.
+const JUDGMENT_OWNERS: [&str; 2] = ["JudgmentRef", "JudgmentEvidenceRef"];
+
+/// True for a shared NonZeroU64 newtype that carries `schema_version`; its own
+/// gated decoder already enforces the ceiling.
+fn is_version_newtype(type_text: &str) -> bool {
+    type_text == "SchemaVersion"
+        || (type_text.starts_with("Shared")
+            && type_text
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_'))
+}
+
+fn bounded_field_path(owner: &str, name: &str, type_text: &str) -> Option<&'static str> {
+    let judgment = JUDGMENT_OWNERS.contains(&owner);
+    match (name, type_text) {
+        ("revision", WIRE_NONZERO_U64) if judgment => {
+            Some("crate::integers::deserialize_judgment_revision")
+        }
+        ("revision", WIRE_OPTION_NONZERO_U64) if judgment => {
+            Some("crate::integers::deserialize_optional_judgment_revision")
+        }
+        ("schema_version", WIRE_NONZERO_U64) => {
+            Some("crate::integers::deserialize_schema_version")
+        }
+        (name, WIRE_NONZERO_U64) if REVISION_FIELDS.contains(&name) => {
+            Some("crate::integers::deserialize_positive_revision")
+        }
+        (name, WIRE_OPTION_NONZERO_U64) if REVISION_FIELDS.contains(&name) => {
+            Some("crate::integers::deserialize_optional_positive_revision")
+        }
+        (name, WIRE_U64) if REVISION_FIELDS.contains(&name) => {
+            Some("crate::integers::deserialize_revision")
+        }
+        (name, WIRE_OPTION_U64) if REVISION_FIELDS.contains(&name) => {
+            Some("crate::integers::deserialize_optional_revision")
+        }
+        (_, WIRE_DATETIME) => Some("crate::timestamp::deserialize_strict"),
+        (_, WIRE_OPTION_DATETIME) => Some("crate::timestamp::deserialize_optional_strict"),
+        _ => None,
+    }
+}
+
+/// The type expression starting at `text`, ending at the first depth-zero
+/// `,`, `}` or `;`.
+fn leading_type(text: &str) -> &str {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'<' => depth += 1,
+            b'>' => depth = depth.saturating_sub(1),
+            b',' | b'}' | b';' if depth == 0 => break,
+            _ => {}
+        }
+        i += 1;
+    }
+    text[..i].trim_end()
+}
+
+/// Body range of the braced `struct`/`enum` declaration introduced by
+/// `keyword` at `at`, plus its name. `None` for tuple/newtype forms.
+fn braced_type_body(rust: &str, at: usize, keyword: &str) -> Option<(String, usize, usize)> {
+    let name_at = at + keyword.len();
+    let name_len = newtype_name_len(&rust[name_at..]);
+    if name_len == 0 {
+        return None;
+    }
+    let name = rust[name_at..name_at + name_len].to_string();
+    let open = skip_ws(rust.as_bytes(), name_at + name_len);
+    if rust.as_bytes().get(open) != Some(&b'{') {
+        return None;
+    }
+    let close = matching_brace(rust, open)?;
+    Some((name, open + 1, close))
+}
+
+/// Body range of `keyword`'s module, if present.
+fn module_body_range(rust: &str, keyword: &str) -> Option<(usize, usize)> {
+    let at = rust.find(keyword)?;
+    let open = rust[at..].find('{').map(|rel| at + rel)?;
+    let close = matching_brace(rust, open)?;
+    Some((open, close))
+}
+
+/// Next `{` at or after `from`, before `limit`, skipping string literals.
+fn next_brace(rust: &str, from: usize, limit: usize) -> Option<usize> {
+    let bytes = rust.as_bytes();
+    let mut i = from;
+    while i < limit {
+        match bytes[i] {
+            b'"' => i = skip_string(bytes, i),
+            b'{' => return Some(i),
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// Every wire-field scope: each struct body plus each brace-delimited variant
+/// body inside an enum. Builder structs, impls and function signatures are not
+/// scopes, so their `value : Type` forms cannot be read as wire fields.
+fn wire_field_scopes(rust: &str) -> Vec<(String, usize, usize)> {
+    let builder = module_body_range(rust, "pub mod builder");
+    let mut scopes = Vec::new();
+
+    let mut search = 0usize;
+    while let Some(rel) = rust[search..].find("pub struct ") {
+        let at = search + rel;
+        match braced_type_body(rust, at, "pub struct ") {
+            Some((name, start, end)) => {
+                let in_builder =
+                    builder.is_some_and(|(open, close)| start > open && start < close);
+                if !in_builder {
+                    scopes.push((name, start, end));
+                }
+                search = end;
+            }
+            None => search = at + "pub struct ".len(),
+        }
+    }
+
+    let mut search = 0usize;
+    while let Some(rel) = rust[search..].find("pub enum ") {
+        let at = search + rel;
+        match braced_type_body(rust, at, "pub enum ") {
+            Some((name, start, end)) => {
+                let mut inner = start;
+                while let Some(open) = next_brace(rust, inner, end) {
+                    let Some(close) = matching_brace(rust, open) else {
+                        break;
+                    };
+                    scopes.push((name.clone(), open + 1, close));
+                    inner = close + 1;
+                }
+                search = end;
+            }
+            None => search = at + "pub enum ".len(),
+        }
+    }
+
+    scopes.sort_by_key(|(_, start, _)| *start);
+    scopes
+}
+
+/// Field name, its offset in `chunk`, and the declared type of the first
+/// depth-zero `name : Type` in `chunk`.
+fn chunk_field(chunk: &str) -> Option<(&str, usize, &str)> {
+    let bytes = chunk.as_bytes();
+    let mut depth = 0usize;
+    let mut i = 0usize;
+    while i + 3 <= bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                i = skip_string(bytes, i);
+                continue;
+            }
+            b'<' | b'(' | b'[' | b'{' => depth += 1,
+            b'>' | b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            b' ' if depth == 0 && bytes[i + 1] == b':' && bytes[i + 2] == b' ' => {
+                let mut name_end = i;
+                while name_end > 0 && bytes[name_end - 1] == b' ' {
+                    name_end -= 1;
+                }
+                let mut name_start = name_end;
+                while name_start > 0
+                    && (bytes[name_start - 1].is_ascii_alphanumeric()
+                        || bytes[name_start - 1] == b'_')
+                {
+                    name_start -= 1;
+                }
+                if name_start == name_end {
+                    return None;
+                }
+                return Some((
+                    &chunk[name_start..name_end],
+                    name_start,
+                    leading_type(&chunk[i + 3..]),
+                ));
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Annotate one field chunk. `None` when the chunk holds no gated field.
+fn annotate_wire_chunk(owner: &str, chunk: &str) -> Result<Option<String>, String> {
+    let rule = "bounded wire field";
+    let Some((name, name_start, type_text)) = chunk_field(chunk) else {
+        return Ok(None);
+    };
+    let Some(path) = bounded_field_path(owner, name, type_text) else {
+        if name == "schema_version" {
+            if !is_version_newtype(type_text) {
+                return Err(format!(
+                    "{rule}: unexpected type for {owner}::{name}: {type_text}"
+                ));
+            }
+        } else if REVISION_FIELDS.contains(&name) {
+            return Err(format!(
+                "{rule}: unexpected type for {owner}::{name}: {type_text}"
+            ));
+        } else if type_text.contains("DateTime") {
+            return Err(format!(
+                "{rule}: unrecognized timestamp type for {owner}::{name}: {type_text}"
+            ));
+        }
+        return Ok(None);
+    };
+    let bytes = chunk.as_bytes();
+    // typify already emits `deserialize_with = "::std::option::Option::deserialize"`
+    // on some nullable members; the bounded decoder replaces that path rather
+    // than adding a second serde attribute.
+    const DESERIALIZE_WITH: &str = "deserialize_with = \"";
+    if let Some(at) = chunk.find(DESERIALIZE_WITH) {
+        let value_start = at + DESERIALIZE_WITH.len();
+        let value_end = chunk[value_start..]
+            .find('"')
+            .map(|rel| value_start + rel)
+            .ok_or_else(|| format!("{rule}: unterminated deserialize_with for {owner}::{name}"))?;
+        let mut out = String::with_capacity(chunk.len() + path.len());
+        out.push_str(&chunk[..value_start]);
+        out.push_str(path);
+        out.push_str(&chunk[value_end..]);
+        return Ok(Some(out));
+    }
+    let mut insert = name_start;
+    while insert > 0 && bytes[insert - 1] == b' ' {
+        insert -= 1;
+    }
+    if insert >= 3 && &chunk[insert - 3..insert] == "pub" {
+        let boundary = insert == 3 || matches!(bytes[insert - 4], b' ' | b'{' | b',' | b']');
+        if boundary {
+            insert -= 3;
+            while insert > 0 && bytes[insert - 1] == b' ' {
+                insert -= 1;
+            }
+        }
+    }
+    // `deserialize_with` removes serde's implicit `None` for an absent optional
+    // member; keep the original absent-to-`None` behavior explicit. A required
+    // nullable member (typify already emitted its own `deserialize_with`) must
+    // stay required, so `default` is only added where absence was accepted.
+    let needs_default = type_text.starts_with(":: std :: option :: Option <")
+        && !attrs_have_serde_default(&chunk[..name_start]);
+    let attr = if needs_default {
+        format!("# [serde (default , deserialize_with = \"{path}\")] ")
+    } else {
+        format!("# [serde (deserialize_with = \"{path}\")] ")
+    };
+    let mut out = String::with_capacity(chunk.len() + attr.len());
+    out.push_str(&chunk[..insert]);
+    out.push_str(&attr);
+    out.push_str(&chunk[insert..]);
+    Ok(Some(out))
+}
+
+fn annotate_wire_scope(owner: &str, body: &str) -> Result<(String, usize), String> {
+    let mut out = String::with_capacity(body.len() + 64);
+    let mut count = 0usize;
+    for (index, chunk) in field_chunks(body).into_iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        match annotate_wire_chunk(owner, chunk)? {
+            Some(annotated) => {
+                out.push_str(&annotated);
+                count += 1;
+            }
+            None => out.push_str(chunk),
+        }
+    }
+    Ok((out, count))
+}
+
+/// Add `serde(deserialize_with = …)` to every bounded wire field, leaving the
+/// public field types untouched.
+fn enforce_bounded_wire_fields(rust: &str) -> Result<String, String> {
+    let scopes = wire_field_scopes(rust);
+    let mut out = rust.to_string();
+    let mut expected = 0usize;
+    for (owner, start, end) in scopes.iter().rev() {
+        if start >= end {
+            continue;
+        }
+        let (body, count) = annotate_wire_scope(owner, &rust[*start..*end])?;
+        out.replace_range(*start..*end, &body);
+        expected += count;
+    }
+    if expected == 0 {
+        return Ok(rust.to_string());
+    }
+    // Prove every planned decoder landed: a shifted scope would leave a
+    // bounded field decoding through the relaxed path.
+    let written = out.matches("deserialize_with = \"crate::").count();
+    if written != expected {
+        return Err(format!(
+            "bounded wire field: wrote {written} decoder(s) for {expected} field(s)"
+        ));
+    }
+    eprintln!("bounded wire fields: {expected}");
+    Ok(out)
+}
+
+const VERSION_NEWTYPE_TAIL: &str = " (pub :: std :: num :: NonZeroU64) ;";
+const VERSION_NEWTYPE_ATTR_GATED: &str =
+    "# [serde (try_from = \"u64\" , into = \"::std::num::NonZeroU64\")] pub struct ";
+const SCHEMA_VERSION_PARSE_BODY: &str =
+    "{ Ok (Self (crate :: integers :: parse_schema_version (value) ?)) }";
+
+/// Names of the transparent `NonZeroU64` newtypes typify emits for a shared
+/// `SchemaVersion` definition (the definition module uses `SchemaVersion`, every
+/// inlined copy is named `SharedN`).
+fn version_newtype_names(rust: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut search = 0usize;
+    while let Some(rel) = rust[search..].find(TRANSPARENT_ATTR) {
+        let at = search + rel + TRANSPARENT_ATTR.len();
+        let name_len = newtype_name_len(&rust[at..]);
+        let name = &rust[at..at + name_len];
+        if !name.is_empty() && rust[at + name_len..].starts_with(VERSION_NEWTYPE_TAIL) {
+            names.push(name.to_string());
+        }
+        search = at + name_len.max(1);
+    }
+    names
+}
+
+/// Field names in `rust` whose declared type is exactly `name`.
+fn scoped_field_uses(rust: &str, name: &str) -> BTreeSet<String> {
+    let mut uses = BTreeSet::new();
+    for (_, start, end) in wire_field_scopes(rust) {
+        for chunk in field_chunks(&rust[start..end]) {
+            if let Some((field, _, type_text)) = chunk_field(chunk) {
+                if type_text == name {
+                    uses.insert(field.to_string());
+                }
+            }
+        }
+    }
+    uses
+}
+
+/// Gate one shared version newtype: serde decode converts through
+/// `TryFrom<u64>` and `FromStr` through the bounded parser, so both entry
+/// points refuse `2^53` while the public inner type stays `NonZeroU64`.
+fn gate_version_newtype(rust: &str, name: &str) -> Result<String, String> {
+    let rule = "schema-version ceiling";
+    let transparent = format!("{TRANSPARENT_ATTR}{name}{VERSION_NEWTYPE_TAIL}");
+    if !rust.contains(&transparent) {
+        return Err(format!("{rule}: no NonZeroU64 newtype {name}"));
+    }
+    let gated = format!("{VERSION_NEWTYPE_ATTR_GATED}{name}{VERSION_NEWTYPE_TAIL}");
+    let mut out = rust.replacen(&transparent, &gated, 1);
+
+    let impl_head = format!("impl :: std :: str :: FromStr for {name} {{");
+    let at = out
+        .find(&impl_head)
+        .ok_or_else(|| format!("{rule}: no FromStr impl for {name}"))?;
+    let brace = out[at..]
+        .find('{')
+        .map(|rel| at + rel)
+        .ok_or_else(|| format!("{rule}: no FromStr body for {name}"))?;
+    let close = matching_brace(&out, brace)
+        .ok_or_else(|| format!("{rule}: unbalanced FromStr impl for {name}"))?;
+    let body_at = out[brace..close]
+        .find(CHRONO_PARSE_BODY)
+        .map(|rel| brace + rel)
+        .ok_or_else(|| format!("{rule}: unexpected FromStr body for {name}"))?;
+    out.replace_range(
+        body_at..body_at + CHRONO_PARSE_BODY.len(),
+        SCHEMA_VERSION_PARSE_BODY,
+    );
+    out.push_str(&format!(
+        " impl :: std :: convert :: TryFrom < u64 > for {name} {{ type Error = :: std :: num :: ParseIntError ; fn try_from (value : u64) -> :: std :: result :: Result < Self , Self :: Error > {{ if value > crate :: integers :: SCHEMA_VERSION_MAX {{ return :: std :: result :: Result :: Err (crate :: integers :: out_of_domain ()) ; }} let inner = :: std :: num :: NonZeroU64 :: new (value) . ok_or_else (crate :: integers :: out_of_domain) ? ; :: std :: result :: Result :: Ok (Self (inner)) }} }}"
+    ));
+    Ok(out)
+}
+
+/// Gate every shared version newtype. A newtype that also carries a
+/// non-`schema_version` wire field cannot be bounded by one ceiling, so
+/// generation fails rather than leaving the version side relaxed.
+fn gate_version_newtypes(rust: &str) -> Result<String, String> {
+    let names = version_newtype_names(rust);
+    let mut out = rust.to_string();
+    let mut gated = 0usize;
+    for name in names {
+        let uses = scoped_field_uses(&out, &name);
+        if uses.is_empty() {
+            if name == "SchemaVersion" {
+                out = gate_version_newtype(&out, &name)?;
+                gated += 1;
+            }
+            continue;
+        }
+        if uses.iter().any(|field| field != "schema_version") {
+            if uses.contains("schema_version") {
+                return Err(format!(
+                    "schema-version ceiling: {name} carries schema_version and {uses:?}"
+                ));
+            }
+            continue;
+        }
+        out = gate_version_newtype(&out, &name)?;
+        gated += 1;
+    }
+    if gated > 0 {
+        eprintln!("schema-version ceilings: {gated} newtype(s)");
+    }
     Ok(out)
 }
 
@@ -1717,6 +2163,20 @@ fn generate_schema_rust(
     } else {
         rust
     };
+    // Stored timestamps are already `StoredTimestamp` newtypes by this point, so
+    // the direct-field scan only sees the fields that keep `DateTime<Utc>`.
+    let rust = enforce_bounded_wire_fields(&rust).map_err(|err| {
+        format!(
+            "bounded wire field rewrite failed for {}: {err}",
+            schema_path.display()
+        )
+    })?;
+    let rust = gate_version_newtypes(&rust).map_err(|err| {
+        format!(
+            "schema-version rewrite failed for {}: {err}",
+            schema_path.display()
+        )
+    })?;
     // Every inlined Content clone keeps absent/`[]`/non-empty distinct,
     // whatever module it was inlined into.
     let rust = normalize_content_cognition_arrays(&rust).map_err(|err| {
@@ -1845,12 +2305,22 @@ fn main() {
     // A typify token change would silently relax every Timestamp newtype; the
     // common module always carries one, so fail generation instead.
     let common_module = out_root.join("common/common.rs");
-    let strict_timestamp = fs::read_to_string(&common_module)
-        .map(|text| text.contains("crate :: timestamp :: parse_strict (value)"))
-        .unwrap_or(false);
+    let common_source = fs::read_to_string(&common_module).unwrap_or_default();
+    let strict_timestamp = common_source.contains("crate :: timestamp :: parse_strict (value)");
     if !strict_timestamp {
         eprintln!(
             "error: no strict Timestamp rewrite in {}",
+            common_module.display()
+        );
+        process::exit(1);
+    }
+    // Same for the shared SchemaVersion newtype: the ceiling must hold on both
+    // the serde and the string-parse entry points.
+    let gated_version = common_source.contains("crate :: integers :: parse_schema_version (value)")
+        && common_source.contains("try_from = \"u64\" , into = \"::std::num::NonZeroU64\"");
+    if !gated_version {
+        eprintln!(
+            "error: no bounded SchemaVersion rewrite in {}",
             common_module.display()
         );
         process::exit(1);
@@ -2397,6 +2867,126 @@ mod tests {
         assert!(
             !output.contains("# [serde (transparent)]"),
             "a DateTime newtype kept its transparent attribute: {output}"
+        );
+    }
+
+    fn bounded_module() -> String {
+        [
+            "# [serde (deny_unknown_fields)] pub struct Relation { # [doc = \"Wire schema version (integer >= 1).\"] pub schema_version : :: std :: num :: NonZeroU64 , # [serde (skip_serializing_if = \"::std::option::Option::is_none\")] pub revision : :: std :: option :: Option < u64 > , # [serde (skip_serializing_if = \"::std::option::Option::is_none\")] pub created_at : :: std :: option :: Option < :: chrono :: DateTime < :: chrono :: offset :: Utc > > , }",
+            "pub struct JudgmentRef { # [serde (skip_serializing_if = \"::std::option::Option::is_none\")] pub revision : :: std :: option :: Option < :: std :: num :: NonZeroU64 > , }",
+            "pub enum Wrapped { Item { recorded_at : :: chrono :: DateTime < :: chrono :: offset :: Utc > , } }",
+        ]
+        .join(" ")
+    }
+
+    #[test]
+    fn bounded_fields_get_strict_decoders_without_type_flips() {
+        let source = bounded_module();
+        let output = enforce_bounded_wire_fields(&source).expect("annotates");
+        for path in [
+            "crate::integers::deserialize_schema_version",
+            "crate::integers::deserialize_optional_revision",
+            "crate::timestamp::deserialize_optional_strict",
+            "crate::integers::deserialize_optional_judgment_revision",
+            "crate::timestamp::deserialize_strict",
+        ] {
+            assert_eq!(output.matches(path).count(), 1, "missing {path}: {output}");
+        }
+        for kept in [
+            "pub schema_version : :: std :: num :: NonZeroU64 ,",
+            "pub revision : :: std :: option :: Option < u64 > ,",
+            "recorded_at : :: chrono :: DateTime < :: chrono :: offset :: Utc > ,",
+        ] {
+            assert!(output.contains(kept), "type changed for {kept}: {output}");
+        }
+    }
+
+    #[test]
+    fn an_unrecognized_bounded_type_fails_loudly() {
+        let source =
+            "pub struct JudgmentEvidenceRef { pub revision : :: std :: num :: NonZeroU32 , }";
+        let error = enforce_bounded_wire_fields(source)
+            .expect_err("unknown bounded type must fail generation");
+        assert!(
+            error.contains("JudgmentEvidenceRef::revision"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn an_unrecognized_timestamp_type_fails_loudly() {
+        let source = "pub struct X { pub opened_at : :: std :: option :: Option < :: std :: boxed :: Box < :: chrono :: DateTime < :: chrono :: offset :: Utc > > > , }";
+        let error = enforce_bounded_wire_fields(source)
+            .expect_err("unrecognized timestamp shape must fail generation");
+        assert!(error.contains("opened_at"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn fromstr_body_search_does_not_cross_into_another_impl() {
+        let broken = datetime_newtype("Timestamp").replace(CHRONO_PARSE_BODY, "");
+        let source = format!("{broken}{}", datetime_newtype("Shared0"));
+        let error = rewrite_strict_timestamps(&source)
+            .expect_err("a body from a later impl must not satisfy the missing one");
+        assert!(
+            error.contains("unexpected FromStr body for Timestamp"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn schema_version_newtype_gates_decode_and_parse() {
+        let source = "# [serde (transparent)] pub struct SchemaVersion (pub :: std :: num :: NonZeroU64) ; impl :: std :: str :: FromStr for SchemaVersion { type Err = < :: std :: num :: NonZeroU64 as :: std :: str :: FromStr > :: Err ; fn from_str (value : & str) -> :: std :: result :: Result < Self , Self :: Err > { Ok (Self (value . parse () ?)) } }";
+        let output = gate_version_newtypes(source).expect("gates");
+        assert!(output.contains(
+            "# [serde (try_from = \"u64\" , into = \"::std::num::NonZeroU64\")] pub struct SchemaVersion"
+        ));
+        assert!(output.contains("crate :: integers :: parse_schema_version (value)"));
+        assert!(output.contains("TryFrom < u64 > for SchemaVersion"));
+        assert!(
+            !output.contains("# [serde (transparent)] pub struct SchemaVersion"),
+            "the transparent attribute must be replaced: {output}"
+        );
+    }
+
+    #[test]
+    fn a_missing_schema_version_parse_body_fails_loudly() {
+        let source = "# [serde (transparent)] pub struct SchemaVersion (pub :: std :: num :: NonZeroU64) ; impl :: std :: str :: FromStr for SchemaVersion { type Err = < :: std :: num :: NonZeroU64 as :: std :: str :: FromStr > :: Err ; fn from_str (value : & str) -> :: std :: result :: Result < Self , Self :: Err > { Ok (Self (9)) } }";
+        let error = gate_version_newtypes(source).expect_err("missing body must fail generation");
+        assert!(
+            error.contains("unexpected FromStr body for SchemaVersion"),
+            "unexpected error: {error}"
+        );
+    }
+
+    fn shared_version_newtype(name: &str) -> String {
+        format!("{}{}", TRANSPARENT_ATTR, format!("{name} (pub :: std :: num :: NonZeroU64) ; impl :: std :: str :: FromStr for {name} {{ type Err = < :: std :: num :: NonZeroU64 as :: std :: str :: FromStr > :: Err ; fn from_str (value : & str) -> :: std :: result :: Result < Self , Self :: Err > {{ Ok (Self (value . parse () ?)) }} }}"))
+    }
+
+    #[test]
+    fn inlined_version_copies_are_gated_too() {
+        let source = format!(
+            "{} pub struct Entry {{ pub schema_version : Shared1 , }}",
+            shared_version_newtype("Shared1")
+        );
+        let output = gate_version_newtypes(&source).expect("gates the inlined copy");
+        assert!(output.contains(
+            "# [serde (try_from = \"u64\" , into = \"::std::num::NonZeroU64\")] pub struct Shared1"
+        ));
+        assert!(output.contains("impl :: std :: str :: FromStr for Shared1 { type Err = < :: std :: num :: NonZeroU64 as :: std :: str :: FromStr > :: Err ; fn from_str (value : & str) -> :: std :: result :: Result < Self , Self :: Err > { Ok (Self (crate :: integers :: parse_schema_version (value) ?)) } }"));
+        assert!(output.contains("TryFrom < u64 > for Shared1"));
+    }
+
+    #[test]
+    fn a_version_copy_carrying_another_field_fails_loudly() {
+        let source = format!(
+            "{} pub struct Entry {{ pub schema_version : Shared1 , pub revision : Shared1 , }}",
+            shared_version_newtype("Shared1")
+        );
+        let error = gate_version_newtypes(&source)
+            .expect_err("one ceiling cannot cover both fields");
+        assert!(
+            error.contains("Shared1 carries schema_version"),
+            "unexpected error: {error}"
         );
     }
 }

@@ -87,6 +87,7 @@
         "revision": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 9007199254740992,
           "description": "Per-object optimistic-concurrency counter (MEM-R007)."
         },
         "extensions": {
@@ -159,6 +160,7 @@
         "revision": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 9007199254740992,
           "description": "Per-object optimistic-concurrency counter (MEM-R007)."
         },
         "extensions": {

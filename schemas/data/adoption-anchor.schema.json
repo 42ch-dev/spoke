@@ -27,7 +27,9 @@
     },
     "source_revision": {
       "type": "integer",
+      "format": "uint64",
       "minimum": 0,
+      "maximum": 9007199254740992,
       "description": "Revision of the resolved terminal source."
     },
     "extensions": {

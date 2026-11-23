@@ -35,6 +35,7 @@
         "null"
       ],
       "minimum": 1,
+      "maximum": 9007199254740992,
       "description": "null = create-only."
     },
     "document": {

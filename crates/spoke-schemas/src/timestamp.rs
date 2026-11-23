@@ -7,6 +7,8 @@
 //! `T` (`chrono`'s parser accepts `full-date " " full-time` for readability).
 
 use chrono::{DateTime, ParseError, Utc};
+use serde::de::{Deserializer, Error as DeError, Visitor};
+use std::fmt;
 
 /// Parse one RFC 3339 `date-time` with an explicit offset (`Z` or `±hh:mm`).
 pub fn parse_strict(value: &str) -> Result<DateTime<Utc>, ParseError> {
@@ -18,6 +20,63 @@ pub fn parse_strict(value: &str) -> Result<DateTime<Utc>, ParseError> {
         return Err(DateTime::parse_from_rfc3339("").unwrap_err());
     }
     DateTime::parse_from_rfc3339(value).map(|parsed| parsed.with_timezone(&Utc))
+}
+
+struct StrictVisitor;
+
+impl Visitor<'_> for StrictVisitor {
+    type Value = DateTime<Utc>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an RFC 3339 date-time with an explicit offset")
+    }
+
+    fn visit_str<E: DeError>(self, value: &str) -> Result<Self::Value, E> {
+        parse_strict(value).map_err(E::custom)
+    }
+}
+
+struct OptionalStrictVisitor;
+
+impl<'de> Visitor<'de> for OptionalStrictVisitor {
+    type Value = Option<DateTime<Utc>>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an RFC 3339 date-time with an explicit offset, or null")
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E> {
+        Ok(None)
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(None)
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_strict(deserializer).map(Some)
+    }
+}
+
+/// Strict decode for a generated direct `DateTime<Utc>` wire field.
+pub fn deserialize_strict<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserializer.deserialize_str(StrictVisitor)
+}
+
+/// Strict decode for a generated `Option<DateTime<Utc>>` wire field.
+pub fn deserialize_optional_strict<'de, D>(
+    deserializer: D,
+) -> Result<Option<DateTime<Utc>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserializer.deserialize_option(OptionalStrictVisitor)
 }
 
 fn grammar_ok(bytes: &[u8]) -> bool {

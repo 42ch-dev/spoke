@@ -90,7 +90,8 @@
         },
         "revision": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 9007199254740992
         },
         "tombstone": {
           "type": "object",
@@ -301,7 +302,8 @@
             },
             "source_revision": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 9007199254740992
             }
           },
           "additionalProperties": false,
@@ -321,6 +323,7 @@
         "revision": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 9007199254740992,
           "description": "Per-object optimistic-concurrency counter (MEM-R007)."
         },
         "extensions": {

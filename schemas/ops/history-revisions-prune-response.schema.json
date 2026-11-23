@@ -13,7 +13,9 @@
       "properties": {
         "deleted": {
           "type": "integer",
+          "format": "uint64",
           "minimum": 0,
+          "maximum": 9007199254740992,
           "description": "Number of checkpoints deleted by this call."
         },
         "floor_revision": {
@@ -21,7 +23,9 @@
             "integer",
             "null"
           ],
+          "format": "uint64",
           "minimum": 0,
+          "maximum": 9007199254740992,
           "description": "Newest deleted checkpoint revision + 1 when at least one checkpoint was deleted; null on a no-op. The current retained floor for subsequent replay."
         },
         "extensions": {

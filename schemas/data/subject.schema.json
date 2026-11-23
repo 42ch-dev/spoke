@@ -62,6 +62,7 @@
     "revision": {
       "type": "integer",
       "minimum": 1,
+      "maximum": 9007199254740992,
       "description": "Per-object optimistic-concurrency counter (MEM-R007). Bumped by any fence/unfence/archive transition."
     },
     "extensions": {

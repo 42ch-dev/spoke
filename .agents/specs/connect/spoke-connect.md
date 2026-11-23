@@ -457,6 +457,20 @@ Steps 3–5 MUST be serialized per session — they read and mutate the same inb
 
 All deny paths produce no handler side effect; the sequence and envelope-auth denies additionally leave session state unadvanced.
 
+### Revision integers
+
+Every revision-typed integer that crosses a connect session is an exact integer in the closed interval `[0, 2^53]` (`0` … `9007199254740992`), the domain [`spoke-data-model.md`](../protocol/spoke-data-model.md) §Shared wire scalars defines. `2^53` is valid; `2^53 + 1`, every larger value, negatives and non-integers are refused on both stacks. A member's own schema may narrow the interval (`minimum: 1`); it can never widen it. A nullable member carries the interval whenever it is present.
+
+| Member | Payload |
+|--------|---------|
+| `revision` | `KnowledgeEntry` / `Relation` entities and the `RevisionSnapshot` of `history.revisions.get`; the `history.revisions.get` request |
+| `deleted`, `floor_revision` | `HistoryPruneResult` of `history.revisions.prune` |
+| `keep` | `HistoryRevisionsPruneRequest` |
+| `expected_base_revision` | The conditional `port.knowledge.put` / `port.relation.put` payload |
+| `source_revision` | The `knowledge.adopt` request and `AdoptionAnchor` |
+
+`sequence` is not a revision integer: it keeps its own `2⁵³−1` bound (§[ConnectInvokeRequest](#connectinvokerequest--remote-op-call)).
+
 ### Ops-family registration
 
 A new or modified ops family that is intended to be remotely invokable over connect MUST:
@@ -811,6 +825,7 @@ The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenti
 - The hello signature is RFC 8785 JCS + Ed25519 over a role-aware field set: 4 fields for the initiator, 5 for the responder. A responder hello MUST carry `peer_nonce` equal to the initiator's nonce; an initiator rejects a responder hello without it (fail-closed dial binding).
 - A `(peer_id, nonce)` pair is accepted at most once per process, and the nonce of a rejected hello MUST NOT be recorded (retry-safe).
 - Outbound sequence counters are per session and per direction, start at `initial_sequence = 0`, and MUST NOT wrap — the session closes at 2⁵³−1.
+- Revision integers (`revision`, `deleted`, `floor_revision`, `keep`, `expected_base_revision`, `source_revision`) MUST be exact integers in `[0, 2^53]`; `sequence` keeps its own `2⁵³−1` bound.
 - No op handler runs unless the op's required capability is in `negotiated_capabilities`; every deny path answers the existing wire code and leaves no handler side effect. Sequence and envelope-auth denies leave session state unadvanced; capability denials occur after the inbound counter advances.
 - protocol_version 2 requires `signature` on `ConnectSession`, `ConnectInvokeRequest` and both `ConnectInvokeResponse` branches; mixed-version or unknown `protocol_version` fails closed with no compat shim and no silent downgrade.
 
@@ -834,3 +849,4 @@ The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenti
 - Any `protocol_version` bump, envelope-auth algorithm id or signed-field-set change → update §Envelope authentication, §Signature canonicalization, §Nonce / replay protection and the version-strategy table together, and keep mixed-version behavior fail-closed.
 - A session-core rule changes (ordering, nonce store, state machine, dispatch gate ordering) → update §Ordering semantics / §Session-core state machine / §Op dispatch gate and land the matching Rust plus TypeScript parity tests against the shared golden vectors.
 - A transport framing or identity-binding rule changes → update §Transport framing / §Identity binding and the corresponding `crates/spoke-connect` and `packages/spoke-connect-ts` code paths together.
+- A revision-integer bound changes → update §Revision integers and §Shared wire scalars in [`spoke-data-model.md`](../protocol/spoke-data-model.md) together, with the matching TypeScript and Rust boundary tests.

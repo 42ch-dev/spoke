@@ -3532,6 +3532,45 @@ mod tests {
         }
     }
 
+    /// C-03 — an integral-float `schema_version` names the same wire number
+    /// the typed decoder and TypeScript read, so the raw scan admits it and
+    /// the generated visitor decodes the parsed integer; the `2^53` endpoint
+    /// is outside the SchemaVersion domain in either spelling.
+    #[test]
+    fn relation_put_reads_schema_version_by_its_parsed_value() {
+        let mut relation = minimal_relation();
+        relation["schema_version"] = json!(1.0);
+        let call = decode_relation_put(json!({
+            "relation": relation,
+            "expected_base_revision": Value::Null,
+        }));
+        let SpokeResult::Ok(PortCall::PutRelation(decoded, _)) = call else {
+            panic!("schema_version 1.0 must decode to the parsed 1")
+        };
+        assert_eq!(decoded.schema_version.get(), 1);
+
+        for refused in [
+            json!(9_007_199_254_740_992_u64),
+            json!(9_007_199_254_740_992.0),
+        ] {
+            let mut relation = minimal_relation();
+            relation["schema_version"] = refused.clone();
+            assert!(
+                matches!(
+                    decode_relation_put(json!({
+                        "relation": relation,
+                        "expected_base_revision": Value::Null,
+                    })),
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::InvalidInput,
+                        ..
+                    })
+                ),
+                "schema_version={refused} must refuse"
+            );
+        }
+    }
+
     /// Every declared nested member is non-nullable: an explicit `null`
     /// inside `body`, `source_anchor`, `source_anchor.span` or
     /// `body.attributes[]` is malformed `INVALID_INPUT`, never the

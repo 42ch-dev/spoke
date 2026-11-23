@@ -14,10 +14,13 @@
 //! Canonicalization is [`crate::core::jcs::canonical_bytes`], which
 //! re-spells an integer `±2^53` carried by a revision-typed member as its
 //! equal `f64`: `2^53` is a revision endpoint both stacks admit and the
-//! TypeScript canonicalizer emits that number's spelling. Every other
+//! TypeScript canonicalizer emits that number's spelling. The re-spelling
+//! follows the owning wire paths of the op payload shape (and the adoption
+//! refusal path), never member names — an open product bag like
+//! `Relation.metadata` keeps its own members unchanged. Every other
 //! integer keeps its token, so an integer JavaScript cannot represent
 //! (`2^53 + 1`) still refuses instead of rounding, and so does the `2^53`
-//! endpoint outside the revision vocabulary (no contract domain).
+//! endpoint outside an owning path (no contract domain).
 //!
 //! Signed-object rules (locked):
 //! - `extensions` and the `signature` field are excluded from every signed
@@ -1660,12 +1663,13 @@ mod tests {
         );
     }
 
-    /// The endpoint re-spelling is limited to revision-typed members: a
-    /// nested revision member canonicalizes as the TypeScript number
-    /// spelling, while any other member at `±2^53` has no contract domain
-    /// and refuses at the signed boundary (qc2 signed-boundary finding).
+    /// The endpoint re-spelling follows the owning wire paths, not member
+    /// spellings: a nested revision member canonicalizes as the TypeScript
+    /// number spelling, an open product bag keeps every member it owns, and
+    /// an ordinary non-revision member at `±2^53` refuses at the signed
+    /// boundary (qc2 signed-boundary / C-02).
     #[test]
-    fn signed_object_respells_only_revision_members() {
+    fn signed_object_respells_only_owning_revision_paths() {
         let mut input = request_input(None);
         input.op = "port.knowledge.put".to_string();
         input.payload = serde_json::json!({
@@ -1685,6 +1689,51 @@ mod tests {
             "the nested revision endpoint hashes as its equal f64: {jcs}"
         );
 
+        // `Relation.metadata` is an open product bag: `metadata.revision`
+        // and `metadata.counter` are the same kind of value (not revision
+        // members), so both refuse — the key's spelling cannot change the
+        // verdict — while `relation.revision` at the same endpoint signs.
+        let mut relation_input = request_input(None);
+        relation_input.op = "port.relation.put".to_string();
+        relation_input.payload = serde_json::json!({
+            "relation": {
+                "revision": 9_007_199_254_740_992_u64,
+                "metadata": { "counter": 1 },
+            },
+            "expected_base_revision": null,
+        });
+        let relation =
+            authenticate_invoke_request(&emitter_seed(), &relation_input, Default::default())
+                .expect("relation.revision owns the endpoint");
+        let relation_wire = wire_of(&relation);
+        verify_invoke_request_auth(&emitter_pubkey(), &relation_wire, SESSION_ID)
+            .expect("the relation endpoint verifies");
+        let signed_object = invoke_request_signed_object(&relation_wire).expect("signed object");
+        let bytes = crate::core::jcs::canonical_bytes(&signed_object).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"revision\":9007199254740992"),
+            "relation.revision owns the endpoint: {jcs}"
+        );
+
+        for opaque_member in ["revision", "counter"] {
+            let mut input = request_input(None);
+            input.op = "port.relation.put".to_string();
+            input.payload = serde_json::json!({
+                "relation": {
+                    "revision": 1,
+                    "metadata": { opaque_member: 9_007_199_254_740_992_u64 },
+                },
+                "expected_base_revision": null,
+            });
+            let error = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+                .expect_err("a product metadata member has no endpoint domain");
+            assert!(
+                matches!(error, CoreError::Jcs(_)),
+                "metadata.{opaque_member} refuses identically: {error:?}"
+            );
+        }
+
         let mut input = request_input(None);
         input.op = "port.finding.put".to_string();
         input.payload = serde_json::json!({ "note": 9_007_199_254_740_992_u64 });
@@ -1694,5 +1743,97 @@ mod tests {
             matches!(error, CoreError::Jcs(_)),
             "the signed boundary refuses a non-revision endpoint: {error:?}"
         );
+    }
+
+    /// C-01 — the adoption refusal carries `details.adopted_revision` at the
+    /// `2^53` endpoint in both owning branches: the transport error envelope
+    /// (`error.details`) and the served error branch the adoption response
+    /// carries inside `payload`. Both sign and verify over the same bytes.
+    #[test]
+    fn response_signs_adoption_refusal_revisions_at_the_endpoint() {
+        const ENDPOINT: u64 = 9_007_199_254_740_992;
+
+        let mut details = serde_json::Map::new();
+        details.insert("adopted_revision".into(), serde_json::json!(ENDPOINT));
+        let envelope = ErrorEnvelope {
+            code: "REVISION_CONFLICT".to_string(),
+            details,
+            extensions: Default::default(),
+            message: "destination already anchors the source".to_string(),
+        };
+
+        let transport_error = authenticate_invoke_response(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Error {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                error: envelope,
+            },
+            Default::default(),
+        )
+        .expect("an adoption refusal at the endpoint signs");
+        let wire = wire_of(&transport_error);
+        verify_invoke_response_auth(&emitter_pubkey(), &wire, SESSION_ID)
+            .expect("the error branch verifies");
+        let bytes = crate::core::jcs::canonical_bytes(&wire).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"adopted_revision\":9007199254740992"),
+            "the refusal endpoint hashes as its equal f64: {jcs}"
+        );
+
+        let served_error = authenticate_invoke_response(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({
+                    "error": {
+                        "code": "REVISION_CONFLICT",
+                        "message": "destination already anchors the source",
+                        "details": { "adopted_revision": ENDPOINT },
+                        "extensions": {},
+                    },
+                    "extensions": {},
+                }),
+            },
+            Default::default(),
+        )
+        .expect("the served error branch signs");
+        let wire = wire_of(&served_error);
+        verify_invoke_response_auth(&emitter_pubkey(), &wire, SESSION_ID)
+            .expect("the served error branch verifies");
+        let bytes = crate::core::jcs::canonical_bytes(&wire).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"adopted_revision\":9007199254740992"),
+            "the served refusal endpoint hashes as its equal f64: {jcs}"
+        );
+
+        // The next integer has no canonical signed identity in either branch.
+        let mut details = serde_json::Map::new();
+        details.insert(
+            "adopted_revision".into(),
+            serde_json::json!(ENDPOINT + 1),
+        );
+        let error = authenticate_invoke_response(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Error {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                error: ErrorEnvelope {
+                    code: "REVISION_CONFLICT".to_string(),
+                    details,
+                    extensions: Default::default(),
+                    message: "destination already anchors the source".to_string(),
+                },
+            },
+            Default::default(),
+        )
+        .expect_err("2^53 + 1 has no canonical signed identity");
+        assert!(matches!(error, CoreError::Jcs(_)), "{error:?}");
     }
 }

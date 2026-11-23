@@ -38,7 +38,7 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 use crate::core::jcs::{
-    respell_endpoint, respell_endpoints, EXACT_INTEGER_BOUND as ADOPT_EXACT_INTEGER_BOUND,
+    respell_endpoint, respell_paths, EXACT_INTEGER_BOUND as ADOPT_EXACT_INTEGER_BOUND,
 };
 use spoke_operations::{
     jcs_sha256_hex, spoke_ok, spoke_reject, AdoptionPort, BaselinePorts, ComputablePort,
@@ -662,10 +662,10 @@ const REVISION_MEMBERS: [&str; 6] = [
 /// contract §`HistoryPort`: the runtime never rounds an unrepresentable
 /// integer).
 ///
-/// The `2^53` endpoint is admitted only for the top-level
+/// `2^53` endpoint is admitted only for the top-level
 /// [`REVISION_MEMBERS`]: it is an exact IEEE-754 integer the TypeScript
 /// `canonicalize` reference emits as `9007199254740992` (contract C5),
-/// so the digest hashes it via [`respell_endpoints`]. Every other
+/// so the digest hashes it via [`respell_paths`]. Every other
 /// numeric member keeps the pre-widening treatment, so a product-owned
 /// `Scope.extensions` value at `2^53` is still refused.
 ///
@@ -1039,7 +1039,7 @@ impl RemoteHistoryService for HistoryPortService {
                     history_input_details(op),
                 );
             }
-            match jcs_sha256_hex(&respell_endpoints(payload.clone())) {
+            match jcs_sha256_hex(&respell_paths(payload.clone(), &[&["keep"]])) {
                 SpokeResult::Ok(digest) => Some(digest),
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             }
@@ -1504,9 +1504,7 @@ pub(crate) fn schema_versions_in_domain(value: &Value) -> bool {
     match value {
         Value::Object(members) => members.iter().all(|(key, member)| {
             if key == "schema_version" {
-                member
-                    .as_u64()
-                    .is_some_and(|version| (1..=MAX_SCHEMA_VERSION).contains(&version))
+                schema_version_in_domain(member)
             } else if matches!(
                 key.as_str(),
                 "extensions" | "modules" | "state" | "computable" | "metadata"
@@ -1519,6 +1517,22 @@ pub(crate) fn schema_versions_in_domain(value: &Value) -> bool {
         Value::Array(items) => items.iter().all(schema_versions_in_domain),
         _ => true,
     }
+}
+
+/// One wire number against the SchemaVersion domain, read by its parsed
+/// value: an integral float spelling names the same wire number JavaScript
+/// reads (`1.0` ≡ `1`, and `9007199254740992.0` ≡ `2^53` is out of domain)
+/// while an exact integer token keeps its own value.
+fn schema_version_in_domain(value: &Value) -> bool {
+    let Some(number) = value.as_number() else {
+        return false;
+    };
+    if let Some(version) = number.as_u64() {
+        return (1..=MAX_SCHEMA_VERSION).contains(&version);
+    }
+    number.as_f64().is_some_and(|version| {
+        version.fract() == 0.0 && version >= 1.0 && version <= MAX_SCHEMA_VERSION as f64
+    })
 }
 
 /// Provider-fault guard for a Reject receipt's revision-typed detail
@@ -2579,6 +2593,14 @@ mod history_tests {
         assert!(!schema_versions_in_domain(&json!({
             "entry": {"adoption_anchor": {"schema_version": 9_007_199_254_740_992u64}}
         })));
+        // Integral-float spellings name the same wire number JavaScript
+        // reads: `1.0` is the parsed `1`, and `2^53` in either spelling is
+        // outside the SchemaVersion domain (C-03).
+        assert!(schema_versions_in_domain(&json!({"schema_version": 1.0})));
+        assert!(!schema_versions_in_domain(
+            &json!({"schema_version": 9_007_199_254_740_992.0})
+        ));
+        assert!(!schema_versions_in_domain(&json!({"schema_version": 1.5})));
         assert!(schema_versions_in_domain(
             &json!({"findings": [{"schema_version": 2}]})
         ));
@@ -2734,8 +2756,9 @@ mod history_tests {
     #[tokio::test]
     async fn prune_keep_at_exact_integer_endpoint_reaches_port() {
         assert_eq!(
-            serde_jcs::to_string(&respell_endpoints(
-                json!({ "keep": 9_007_199_254_740_992u64 })
+            serde_jcs::to_string(&respell_paths(
+                json!({ "keep": 9_007_199_254_740_992u64 }),
+                &[&["keep"]],
             ))
             .expect("canonical string"),
             "{\"keep\":9007199254740992}"

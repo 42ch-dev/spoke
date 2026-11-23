@@ -1318,6 +1318,10 @@ describe("served result failure branch + extension validation (E3 / qc3 F-021/F-
       DEDUP_ADMISSION,
       { dedupStore: new InMemoryHistoryDedupStore() },
     );
+  // A complete destination `KnowledgeEntry` — isolates the rule under
+  // test from entry-completeness refusals (qc3 F-027).
+  const validEntry = () =>
+    (adoptedResponse() as unknown as { entry: Record<string, unknown> }).entry;
 
   it("a failure branch with a supplied extensions member serves verbatim (E3 + E2)", async () => {
     const service = serveWith({
@@ -1345,7 +1349,7 @@ describe("served result failure branch + extension validation (E3 / qc3 F-021/F-
 
   it("a malformed response extensions member refuses INTERNAL_ERROR on both branches (qc3 F-023)", async () => {
     for (const branch of [
-      { outcome: "adopted", entry: { entry_id: "ke_dst" } },
+      { outcome: "adopted", entry: validEntry() },
       {
         error: {
           code: "REVISION_CONFLICT",
@@ -1460,6 +1464,112 @@ describe("served result failure branch + extension validation (E3 / qc3 F-021/F-
       if (!served && !result.ok) {
         expect(result.code).toBe("INTERNAL_ERROR");
       }
+    }
+  });
+
+  it("refuses an unknown top-level member on either branch (qc1 F-020/F-029)", async () => {
+    for (const bad of [
+      { outcome: "adopted", entry: validEntry(), surprise: true },
+      {
+        error: { code: "REVISION_CONFLICT", message: "conflict", extensions: {} },
+        surprise: true,
+      },
+    ]) {
+      const service = serveWith(bad);
+      const result = await service.invoke(
+        "peer_a",
+        "knowledge.adopt",
+        localPayload(),
+      );
+      expect(result.ok, JSON.stringify(bad)).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("INTERNAL_ERROR");
+      }
+    }
+  });
+
+  it("serves a schema-valid failure as-is and its dedup replay verbatim (qc1 F-019 dispute pin)", async () => {
+    let calls = 0;
+    const failure = {
+      error: {
+        code: "REVISION_CONFLICT",
+        message: "conflict",
+        details: { adopted_revision: 7 },
+        extensions: { product: { v: 1 } },
+      },
+      extensions: { transport: { trace: "t-1" } },
+    };
+    const service = new AdoptionPortService(
+      {
+        adoptKnowledgeEntry: async () => {
+          calls += 1;
+          return spokeOk(failure as KnowledgeAdoptResponse);
+        },
+      },
+      DEDUP_ADMISSION,
+      { dedupStore: new InMemoryHistoryDedupStore() },
+    );
+    const first = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("k-f019"),
+    );
+    expect(first.ok).toBe(true);
+    if (first.ok) {
+      expect(first.value).toEqual(failure);
+    }
+    const replay = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("k-f019"),
+    );
+    expect(replay).toEqual(first);
+    expect(calls).toBe(1);
+  });
+
+  it("replays a success with extensions verbatim from the dedup record (dedup-replay extensions pin)", async () => {
+    let calls = 0;
+    const service = new AdoptionPortService(
+      {
+        adoptKnowledgeEntry: async () => {
+          calls += 1;
+          return spokeOk({
+            outcome: "adopted",
+            entry: validEntry(),
+            extensions: { product: { v: 1 } },
+          } as unknown as KnowledgeAdoptResponse);
+        },
+      },
+      DEDUP_ADMISSION,
+      { dedupStore: new InMemoryHistoryDedupStore() },
+    );
+    const first = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("k-e2-replay"),
+    );
+    const replay = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      adoptPayload("k-e2-replay"),
+    );
+    expect(first.ok).toBe(true);
+    expect(replay.ok).toBe(true);
+    expect(calls).toBe(1);
+    if (first.ok) {
+      expect(first.value).toMatchObject({
+        outcome: "adopted",
+        extensions: { product: { v: 1 } },
+      });
+    }
+    if (replay.ok && first.ok) {
+      // Contract §Repeat and idempotency: the repeat normalizes the wire
+      // `outcome` to `already_present` and preserves every other member,
+      // `extensions` included.
+      expect(replay.value).toEqual({
+        ...(first.value as Record<string, unknown>),
+        outcome: "already_present",
+      });
     }
   });
 });

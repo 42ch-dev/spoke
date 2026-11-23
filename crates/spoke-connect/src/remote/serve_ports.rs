@@ -1364,17 +1364,26 @@ fn revision_in_domain(value: &Value) -> bool {
 }
 
 /// Served-side adopt-response validation (spoke-knowledge-adoption
-/// contract §`KnowledgeAdoptResponse`): the emitted success value is the
-/// success branch `{outcome, entry}` — `outcome` is `"adopted"` or
-/// `"already_present"` and `entry` is the destination `KnowledgeEntry`
-/// with every required wire member, not merely a well-formed anchor.
-/// `destination_entry_id` binds the served `entry.entry_id` when the
-/// request supplied one; an absent selector defaults to the entry's own
-/// id (`entry.id` supplies it), so no equality check applies then. A
-/// `Variant1` error branch or any other shape is a transport decode
+/// contract §`KnowledgeAdoptResponse`): two branches travel as a served
+/// `Ok`.
+/// - Success (`OneOf0`): `{outcome, entry, extensions?}` — `outcome` is
+///   `"adopted"` or `"already_present"` and `entry` is the destination
+///   `KnowledgeEntry` with every required wire member, not merely a
+///   well-formed anchor. `destination_entry_id` binds the served
+///   `entry.entry_id` when the request supplied one; an absent selector
+///   defaults to the entry's own id (`entry.id` supplies it), so no
+///   equality check applies then.
+/// - Failure (`OneOf1`, contract E3): `{error, extensions?}` — a
+///   provider error envelope emitted verbatim, never converted into a
+///   transport reject.
+///
+/// Any shape outside the two closed branches is a transport decode
 /// reject, never `Ok` (parity with TS `validServedAdoptResult` — the
 /// port's expected refusals travel as `SpokeResult`, not the envelope's
-/// error variant).
+/// error variant). The typed `KnowledgeAdoptResponse` decode already
+/// enforces the closed top-level member sets and the `ErrorEnvelope`
+/// shape (`deny_unknown_fields`); the checks here are the
+/// defense-in-depth layer for the revision domain and entry completeness.
 fn valid_served_adopt_result(
     response: KnowledgeAdoptResponse,
     destination_entry_id: Option<&str>,
@@ -2975,22 +2984,29 @@ mod history_tests {
         );
     }
 
-    /// qc1 F-019/F-020, qc2 QC2-19, qc3 F-024 — parity pin for the TS
-    /// `validServedAdoptResult` envelope rules: the typed
+    /// qc1 F-019/F-020/F-029, qc2 QC2-19, qc3 F-024 — parity pin for the
+    /// TS `validServedAdoptResult` envelope rules: the typed
     /// `KnowledgeAdoptResponse` decode is the Rust trust boundary, so a
-    /// mixed envelope (`entry`/`outcome` alongside `error`), a
-    /// non-object `details`, an unknown member inside `error`, and a
-    /// missing required `extensions` all refuse before the served
-    /// validator runs. TS mirrors each rule on the raw provider object
-    /// (a JS provider can hand it any shape).
+    /// mixed envelope (`entry`/`outcome` alongside `error`), an unknown
+    /// TOP-LEVEL member on either branch, a non-object `details`, an
+    /// unknown member inside `error`, and a missing required `extensions`
+    /// all refuse before the served validator runs. TS mirrors each rule
+    /// on the raw provider object (a JS provider can hand it any shape).
     #[test]
-    fn adopt_response_typed_decode_refuses_malformed_failure_envelopes() {
+    fn adopt_response_typed_decode_refuses_malformed_envelopes() {
         let entry = served_entry(2, 1);
         for bad in [
             json!({
                 "outcome": "adopted",
                 "entry": entry,
                 "error": { "code": "REVISION_CONFLICT", "message": "x", "extensions": {} },
+            }),
+            // unknown TOP-LEVEL member on the success branch
+            json!({ "outcome": "adopted", "entry": entry, "surprise": true }),
+            // unknown TOP-LEVEL member on the failure branch
+            json!({
+                "error": { "code": "REVISION_CONFLICT", "message": "x", "extensions": {} },
+                "surprise": true,
             }),
             json!({
                 "error": {
@@ -3015,6 +3031,75 @@ mod history_tests {
                 "typed decode must refuse {bad}"
             );
         }
+    }
+
+    /// Dispute pin (qc1 F-013 residual) — an out-of-domain provider
+    /// revision refuses `INTERNAL_ERROR` in EVERY revision slot, and the
+    /// normalizing rewrite never runs before the bound: `2^53 + 2`
+    /// (f64-exact at this magnitude) is never rounded down into the
+    /// domain. The third slot rides a provider refusal receipt
+    /// (`details.adopted_revision`), proving the ordinary
+    /// refusal/failure path validates its revision member too.
+    #[tokio::test]
+    async fn out_of_domain_provider_revision_refuses_in_every_slot() {
+        struct FixedPort(Value);
+        #[async_trait]
+        impl AdoptionPort for FixedPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                spoke_ok(serde_json::from_value(self.0.clone()).expect("response decodes"))
+            }
+        }
+        let admission = || admission(scope("spc_local"), principal("prn_peer-a"));
+        let payload = || {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload
+        };
+        let serve = |response: Value| async move {
+            AdoptionPortService::new(Arc::new(FixedPort(response)), admission())
+                .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload())
+                .await
+        };
+        let assert_refused = |result: SpokeResult<Value>, slot: &str| {
+            let SpokeResult::Reject(reject) = result else {
+                panic!("{slot} outside [0, 2^53] must refuse: {result:?}")
+            };
+            assert_eq!(reject.code, SpokeRejectCode::InternalError, "{slot}");
+            assert!(
+                reject.message.contains("outside [0, 2^53]"),
+                "{slot}: {reject:?}"
+            );
+        };
+
+        // 2^53 + 2 — f64-exact, one step beyond the inclusive endpoint.
+        const OUT: u64 = 9007199254740994;
+
+        assert_refused(
+            serve(json!({ "outcome": "adopted", "entry": served_entry(1, OUT) })).await,
+            "entry.revision",
+        );
+        assert_refused(
+            serve(json!({ "outcome": "adopted", "entry": served_entry(OUT, 1) })).await,
+            "adoption_anchor.source_revision",
+        );
+        assert_refused(
+            serve(json!({
+                "error": {
+                    "code": "REVISION_CONFLICT",
+                    "message": "conflict",
+                    "details": { "adopted_revision": OUT },
+                    "extensions": {},
+                },
+            }))
+            .await,
+            "error.details.adopted_revision",
+        );
     }
 
     /// F-007 fixture: a lookup/record-only dedup store whose every

@@ -1070,18 +1070,41 @@ const ERROR_ENVELOPE_MEMBERS: Record<string, true> = {
   extensions: true,
 };
 
+/** Closed top-level member set of the success branch
+ * (`KnowledgeAdoptResponse` `OneOf0`): `extensions` is optional; any
+ * other member is malformed (Rust: the untagged `deny_unknown_fields`
+ * decode refuses it — qc1 F-020/F-029). */
+const SUCCESS_BRANCH_MEMBERS: Record<string, true> = {
+  outcome: true,
+  entry: true,
+  extensions: true,
+};
+
+/** Closed top-level member set of the failure branch (`OneOf1`):
+ * `{error, extensions?}` and nothing else (qc1 F-029). */
+const FAILURE_BRANCH_MEMBERS: Record<string, true> = {
+  error: true,
+  extensions: true,
+};
+
 /**
- * note: served-side adopt-response validation — the emitted success value
- * is the `KnowledgeAdoptResponse` success branch `{ outcome, entry }`:
- * `outcome` is `"adopted"` or `"already_present"` and `entry` is the
- * destination `KnowledgeEntry` — a success entry ALWAYS carries
- * `adoption_anchor` (contract §KnowledgeAdoptRequest and response: "a
- * provider result whose entry lacks the anchor is malformed and is
- * answered as a transport/serving refusal rather than Ok"). Anything
- * else is a transport decode reject, never `Ok`. The emitted entry is
- * re-materialized through a JSON round-trip so the dedup record and the
- * replayed outcome can never observe a later provider-side mutation of
- * the provider's own object.
+ * note: served-side adopt-response validation. Two branches travel as a
+ * served `Ok`:
+ * - success (`OneOf0`): `{outcome, entry, extensions?}` — `outcome` is
+ *   `"adopted"` or `"already_present"`, `entry` is the destination
+ *   `KnowledgeEntry`, and a success entry ALWAYS carries
+ *   `adoption_anchor` (contract §KnowledgeAdoptRequest and response: "a
+ *   provider result whose entry lacks the anchor is malformed and is
+ *   answered as a transport/serving refusal rather than Ok");
+ * - failure (`OneOf1`, contract E3): `{error, extensions?}` — a provider
+ *   error envelope emitted verbatim, never converted into a transport
+ *   reject.
+ *
+ * A shape outside the two closed branches is a transport decode reject
+ * (`INTERNAL_ERROR`), never `Ok`. The emitted object is re-materialized
+ * through a JSON round-trip so the dedup record and the replayed outcome
+ * can never observe a later provider-side mutation of the provider's own
+ * object.
  */
 function validServedAdoptResult(
   value: unknown,
@@ -1109,6 +1132,20 @@ function validServedAdoptResult(
       return spokeReject(
         SpokeRejectCode.INTERNAL_ERROR,
         "adoption provider returned a mixed error envelope",
+        { kind: "transport" },
+      );
+    }
+    // The failure branch is a closed shape `{error, extensions?}`: an
+    // unknown top-level member is malformed (Rust parity — qc1
+    // F-020/F-029).
+    if (
+      Object.keys(value).some(
+        (member) => FAILURE_BRANCH_MEMBERS[member] !== true,
+      )
+    ) {
+      return spokeReject(
+        SpokeRejectCode.INTERNAL_ERROR,
+        "adoption provider returned an unknown top-level member on the error branch",
         { kind: "transport" },
       );
     }
@@ -1174,6 +1211,20 @@ function validServedAdoptResult(
     return spokeOk(JSON.parse(JSON.stringify(emitted)) as unknown);
   }
 
+  // The success branch is a closed shape `{outcome, entry, extensions?}`:
+  // an unknown top-level member is malformed — parity with the typed
+  // Rust untagged `deny_unknown_fields` decode (qc1 F-020/F-029).
+  if (
+    Object.keys(value).some(
+      (member) => SUCCESS_BRANCH_MEMBERS[member] !== true,
+    )
+  ) {
+    return spokeReject(
+      SpokeRejectCode.INTERNAL_ERROR,
+      "adoption provider returned an unknown top-level member on the success branch",
+      { kind: "transport" },
+    );
+  }
   if ("extensions" in value && !isValidExtensionMap(value.extensions)) {
     return spokeReject(
       SpokeRejectCode.INTERNAL_ERROR,

@@ -522,9 +522,33 @@ fn decode_knowledge_call<'a>(
             // parses to one f64, so an in-domain revision member
             // (`9007199254740993` or `3.0`) normalizes to the f64-rounded
             // `u64` before decode — mirroring
-            // `adopt_request_from_payload`'s `float as u64` rewrite.
-            let mut normalized_payload = payload.clone();
-            {
+            // `adopt_request_from_payload`'s `float as u64` rewrite. The
+            // copy is made only when a member's spelling actually differs
+            // from the f64-observed `u64` (qc3 F-025): an ordinary
+            // integer payload decodes from the borrowed value.
+            let entry_members = payload.get("entry").and_then(Value::as_object);
+            let needs_rewrite = |revision: Option<&Value>| {
+                revision
+                    .and_then(Value::as_number)
+                    .and_then(|number| number.as_f64().map(|float| (number, float)))
+                    .is_some_and(|(number, float)| {
+                        float.fract() == 0.0
+                            && float >= 0.0
+                            && float <= ADOPT_EXACT_INTEGER_BOUND as f64
+                            && number.as_u64() != Some(float as u64)
+                    })
+            };
+            let rewrite_needed = needs_rewrite(entry_members.and_then(|e| e.get("revision")))
+                || needs_rewrite(
+                    entry_members
+                        .and_then(|e| e.get("adoption_anchor"))
+                        .and_then(Value::as_object)
+                        .and_then(|anchor| anchor.get("source_revision")),
+                )
+                || needs_rewrite(payload.get("expected_base_revision"));
+            let mut normalized_payload;
+            let decode_payload = if rewrite_needed {
+                normalized_payload = payload.clone();
                 let normalize_revision = |member: Option<&mut Value>| {
                     if let Some(Value::Number(number)) = member {
                         if let Some(float) = number.as_f64() {
@@ -550,14 +574,16 @@ fn decode_knowledge_call<'a>(
                     );
                 }
                 normalize_revision(normalized_payload.get_mut("expected_base_revision"));
-            }
-            let entry =
-                match payload_field::<KnowledgeEntry>(&normalized_payload, "entry", op) {
-                    SpokeResult::Ok(value) => value,
-                    SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
-                };
+                &normalized_payload
+            } else {
+                payload
+            };
+            let entry = match payload_field::<KnowledgeEntry>(decode_payload, "entry", op) {
+                SpokeResult::Ok(value) => value,
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            };
             let expected = match payload_field::<Option<u64>>(
-                &normalized_payload,
+                decode_payload,
                 "expected_base_revision",
                 op,
             ) {

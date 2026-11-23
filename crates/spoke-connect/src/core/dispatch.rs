@@ -59,6 +59,11 @@ pub const CAPABILITY_SPOKE_HISTORY: &str = "spoke-history";
 /// `spoke-judgment` row, and `tools.<ns>.<tool_id>` ops carrying `Judgment`
 /// payload are gated on their exact op string, not on this flag.
 pub const CAPABILITY_SPOKE_JUDGMENT: &str = "spoke-judgment";
+/// Optional capability: required by `knowledge.adopt` (spoke-knowledge-
+/// adoption contract §Connect operation and capability gate). The op also
+/// requires the mandatory co-capability `spoke-knowledge` — a host
+/// declaring `spoke-knowledge-adoption` also declares `spoke-knowledge`.
+pub const CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION: &str = "spoke-knowledge-adoption";
 
 /// Ops whose registered request carries a `Scope` and therefore the
 /// `Scope.cognition` selection slot (`common.schema.json` → `Scope`,
@@ -178,6 +183,11 @@ pub fn required_capability(op: &str) -> Option<&str> {
         "history.revisions.get" | "history.revisions.prune" => {
             Some(CAPABILITY_SPOKE_HISTORY)
         }
+        // Adoption family (spoke-knowledge-adoption contract §Connect
+        // operation): one row — the mandatory co-capability
+        // `spoke-knowledge` is asserted by `dispatch_allowed`, never by
+        // this single-row return.
+        "knowledge.adopt" => Some(CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION),
         "memory.exports.create"
         | "memory.exports.get"
         | "memory.imports.stage"
@@ -196,14 +206,41 @@ pub fn capability_satisfies(negotiated: &[String], required: &str) -> bool {
     negotiated.iter().any(|c| c == required)
 }
 
+/// Whether `op` falls under a core-reserved prefix with no registered
+/// row. `knowledge.*` is a reserved-product prefix owned by this core
+/// decision (spoke-knowledge-adoption contract §Connect operation):
+/// `knowledge.adopt` is its single registered operation — an op that
+/// starts with `knowledge.` and has no core-table row is an unknown
+/// reserved name, refused `op_unsupported` by every dispatch surface
+/// BEFORE the product custom-map (`ConnectConfig.op_capability_requirements`
+/// and equivalents) is consulted. Custom mappings apply only outside
+/// reserved families.
+#[must_use]
+pub fn reserved_prefix_op(op: &str) -> bool {
+    required_capability(op).is_none() && op.starts_with("knowledge.")
+}
+
 /// Whether `op` may be dispatched in a session with `negotiated_capabilities`.
 ///
 /// Fails closed: an unknown `op` has no core-table requirement and is not
 /// authorized by this gate (hosts answer `op_unsupported`).
 #[must_use]
 pub fn dispatch_allowed(op: &str, negotiated_capabilities: &[String]) -> bool {
-    required_capability(op)
-        .is_some_and(|required| capability_satisfies(negotiated_capabilities, required))
+    let Some(required) = required_capability(op) else {
+        return false;
+    };
+    if !capability_satisfies(negotiated_capabilities, required) {
+        return false;
+    }
+    // Compound gate (spoke-knowledge-adoption contract): `knowledge.adopt`
+    // additionally requires the mandatory co-capability `spoke-knowledge`
+    // — neither flag alone satisfies the gate.
+    if required == CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION
+        && !capability_satisfies(negotiated_capabilities, CAPABILITY_SPOKE_KNOWLEDGE)
+    {
+        return false;
+    }
+    true
 }
 
 /// Whether a capability-token grant (validated `claims.capabilities`)
@@ -226,6 +263,21 @@ mod tests {
 
     fn caps(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// `knowledge.*` is a core-reserved prefix: the one registered op is
+    /// not reserved-unknown, every unregistered name is — regardless of
+    /// any product custom-map row — and names outside the prefix are
+    /// never classified reserved (F-011: the distinction lives in core,
+    /// not in each consumer).
+    #[test]
+    fn knowledge_prefix_reservation_is_core_owned() {
+        assert!(!reserved_prefix_op("knowledge.adopt"));
+        assert!(reserved_prefix_op("knowledge.archive"));
+        assert!(reserved_prefix_op("knowledge."));
+        assert!(!reserved_prefix_op("memory.archive.purge"));
+        assert!(!reserved_prefix_op("knowledgeless"));
+        assert!(!reserved_prefix_op("port.knowledge.get"));
     }
 
     #[test]

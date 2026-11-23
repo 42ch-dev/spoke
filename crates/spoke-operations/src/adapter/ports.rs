@@ -12,7 +12,8 @@ use crate::history::HistoryPruneResult;
 use serde_json::Value;
 use spoke_schemas::{
     ComputeRequest, ComputeResponse, ExtractRequest, Finding, HostCapabilityManifest,
-    KnowledgeEntry, MemoryCandidatesDismissRequest, MemoryCandidatesDismissResponse,
+    KnowledgeAdoptRequest, KnowledgeAdoptResponse, KnowledgeEntry, MemoryCandidatesDismissRequest,
+    MemoryCandidatesDismissResponse,
     MemoryCandidatesGetRequest, MemoryCandidatesGetResponse, MemoryCandidatesListRequest,
     MemoryCandidatesListResponse, MemoryCandidatesReviewRequest, MemoryCandidatesReviewResponse,
     MemoryCaptureRequest, MemoryCaptureResponse, MemoryDescribeRequest, MemoryDescribeResponse,
@@ -651,6 +652,61 @@ where
     T: HistoryPort,
 {
     fn as_history(&self) -> Option<&dyn HistoryPort> {
+        Some(self)
+    }
+}
+
+/// Optional `spoke-knowledge-adoption` family — the injected product
+/// boundary for adopting a shared `KnowledgeEntry` into a destination
+/// scope (spoke-knowledge-adoption contract §Standalone `AdoptionPort`).
+///
+/// Standalone like [`HistoryPort`]: `AdoptionPort` is NOT part of
+/// [`BaselinePorts`] / [`FullPorts`] or the adapter aliases and neither
+/// port inherits the other — `spoke-baseline` does not implicitly provide
+/// adoption. The library contains no adoption engine; providers own
+/// source visibility (a missing, out-of-scope, or owner-private source
+/// answers one generic `NOT_FOUND`), retirement-chain resolution (≤32
+/// edges; cycle / ambiguous / deleted terminal answers `SOURCE_RETIRED`
+/// with `details.retirement_chain`), the copy rules, create-only OCC, the
+/// anchor repeat rules (`already_present` at the same source revision,
+/// `REVISION_CONFLICT` with `details.adopted_revision` at a different
+/// one), and the destination write's atomicity.
+///
+/// `principal` is the authenticated admission context (MEM-R003: never
+/// payload-asserted) and `scope` is required — the admitted scope covers
+/// source visibility and destination authorization; the wire request
+/// carries scope ids, never payload-asserted identity. The connect
+/// idempotency envelope is a connect-layer concern — `idempotency_key`
+/// is deliberately not a port argument.
+#[async_trait]
+pub trait AdoptionPort: Send + Sync {
+    /// `knowledge.adopt` — adopt a shared `KnowledgeEntry` into the
+    /// destination scope, writing `adoption_anchor` with the resolved
+    /// terminal source scope/id/revision. Mutating op.
+    async fn adopt_knowledge_entry(
+        &self,
+        principal: &Principal,
+        scope: &Scope,
+        request: &KnowledgeAdoptRequest,
+    ) -> SpokeResult<KnowledgeAdoptResponse>;
+}
+
+/// Availability probe for the standalone `spoke-knowledge-adoption`
+/// family, mirroring [`HistoryPorts`]: types that implement
+/// [`AdoptionPort`] get the blanket `Some(self)` probe, while dynamically
+/// assembled boundaries MAY implement this trait with the default `None`
+/// (parity with TS `requirePortMethod`).
+pub trait AdoptionPorts {
+    fn as_adoption(&self) -> Option<&dyn AdoptionPort> {
+        None
+    }
+}
+
+impl<T> AdoptionPorts for T
+where
+    T: AdoptionPort,
+{
+    fn as_adoption(&self) -> Option<&dyn AdoptionPort> {
         Some(self)
     }
 }

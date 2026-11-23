@@ -127,6 +127,7 @@ function scopedStoreFace(
   storeCalls: string[] = [],
   storeGate?: Promise<void>,
   storeRejectOn?: "put" | "get",
+  storeGateOn?: "put" | "get",
 ): RemoteKnowledgeFace {
   const entries = new Map<string, Map<string, KnowledgeEntry>>();
   const bucket = (scopeId: string): Map<string, KnowledgeEntry> => {
@@ -144,7 +145,7 @@ function scopedStoreFace(
         if (storeRejectOn === "get") {
           throw new Error("store get exploded");
         }
-        if (storeGate !== undefined) {
+        if (storeGate !== undefined && (storeGateOn ?? "put") === "get") {
           await storeGate;
         }
         const found = bucket(scope.scope_id).get(entryId);
@@ -157,7 +158,7 @@ function scopedStoreFace(
         if (storeRejectOn === "put") {
           throw new Error("store put exploded");
         }
-        if (storeGate !== undefined) {
+        if (storeGate !== undefined && (storeGateOn ?? "put") === "put") {
           await storeGate;
         }
         const store = bucket(scope.scope_id);
@@ -214,6 +215,7 @@ async function dialKnowledgeOnlyHost(options: {
   storeGate?: Promise<void>;
   storeRejectOn?: "put" | "get";
   invokeTimeoutMs?: number;
+  storeGateOn?: "put" | "get";
 }): Promise<DialedKnowledgeHost> {
   const hostSeed = seed(0xa0);
   const hostPubkey = getPublicKeyEd25519(hostSeed);
@@ -233,6 +235,7 @@ async function dialKnowledgeOnlyHost(options: {
         options.storeCalls,
         options.storeGate,
         options.storeRejectOn,
+        options.storeGateOn,
       ),
     ),
     invokeTimeoutMs: options.invokeTimeoutMs,
@@ -284,6 +287,33 @@ describe("knowledge-only responder", () => {
       }
 
       // note: core op denial is covered by the raw-wire probe below.
+    } finally {
+      close();
+    }
+  });
+  it("a decimal SourceSpan is schema-valid: the put succeeds (F-019)", async () => {
+    // note: `SourceSpan.start`/`end` are plain numbers on the wire
+    // (Rust `f64`), not integers — the put decode must admit decimal
+    // span members.
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(SCOPE_A),
+      clientSeed: seed(0x10),
+      clientCapabilities: ["spoke-knowledge"],
+    });
+    try {
+      const spanned = {
+        ...entry("kb_span"),
+        source_anchor: {
+          schema_version: 1,
+          source_id: "src_1",
+          span: { start: 1.5, end: 4.25 },
+          extensions: {},
+        },
+      } as KnowledgeEntry;
+      const put = await client.putKnowledgeEntry(spanned, null);
+      expect(put.ok).toBe(true);
+      const got = await client.getKnowledgeEntry("kb_span");
+      expect(got.ok).toBe(true);
     } finally {
       close();
     }
@@ -593,7 +623,7 @@ describe("knowledge-only responder", () => {
         expect(put.details?.retry_class).toBe("uncertain");
         expect(put.message).toContain("outcome is unknown");
       }
-      expect(storeCalls).toEqual(["put"]);
+      expect(storeCalls).toEqual(["get", "put"]);
     } finally {
       close();
     }
@@ -618,7 +648,7 @@ describe("knowledge-only responder", () => {
         expect(put.message).not.toContain("exploded");
         expect(put.message).toContain("outcome is unknown");
       }
-      expect(storeCalls).toEqual(["put"]);
+      expect(storeCalls).toEqual(["get", "put"]);
     } finally {
       close();
     }
@@ -657,6 +687,7 @@ describe("knowledge-only responder", () => {
       clientCapabilities: ["spoke-knowledge"],
       storeCalls,
       storeGate,
+      storeGateOn: "get",
       invokeTimeoutMs: 60,
     });
     try {
@@ -1056,7 +1087,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(valid.error).toBeUndefined();
       expect(admissionCalls).toHaveLength(1);
-      expect(storeCalls).toEqual(["put"]);
+      expect(storeCalls).toEqual(["get", "put"]);
 
       // note: Rust's `Option<u64>` decodes a missing member as None — a put
       // without `expected_base_revision` is a create, and the store sees `null`
@@ -1071,7 +1102,136 @@ describe("knowledge dispatch pre-validation and refusals", () => {
         { entry: entry("kb_put_no_revision") },
       );
       expect(missingRevision.error).toBeUndefined();
-      expect(storeCalls).toEqual(["put", "put"]);
+      expect(storeCalls).toEqual(["get", "put", "get", "put"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("a malformed nested entry member answers INVALID_INPUT before the OCC read — zero store calls (QC2-15)", async () => {
+    const admissionCalls: string[] = [];
+    const storeCalls: string[] = [];
+    const face = scopedStoreFace((peerId) => {
+      admissionCalls.push(peerId);
+      return spokeOk(SCOPE_A);
+    }, storeCalls);
+    const { clientEnd, sessionId, close } = await dialRawKnowledgeHost(
+      knowledgeOnlyServePorts(face),
+    );
+    try {
+      // note: `body.tags: 5` fails the full wire-shape decode (Rust typed
+      // decode parity) — the refusal is INVALID_INPUT, never a
+      // stored-state OCC answer, even on an occupied slot.
+      const malformed = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        0,
+        "put-malformed-tags",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_mal"), body: { tags: 5 } },
+          expected_base_revision: null,
+        },
+      );
+      expect(malformed.error?.code).toBe("INVALID_INPUT");
+      expect(storeCalls).toHaveLength(0);
+
+      // An undeclared entry member is the same decode refusal (serde
+      // `deny_unknown_fields` parity).
+      const extra = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        1,
+        "put-extra-member",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_ext"), product_field: 1 },
+          expected_base_revision: null,
+        },
+      );
+      expect(extra.error?.code).toBe("INVALID_INPUT");
+
+      // A malformed `adoption_anchor` fails decode before the OCC fence
+      // — the anchor gate never sees it.
+      const badAnchor = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        2,
+        "put-bad-anchor",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_anchor"), adoption_anchor: { bogus: true } },
+          expected_base_revision: null,
+        },
+      );
+      expect(badAnchor.error?.code).toBe("INVALID_INPUT");
+      expect(storeCalls).toHaveLength(0);
+      // An explicit `adoption_anchor: null` is the same INVALID_INPUT —
+      // a null anchor is malformed input, never an absent one (F-016:
+      // Rust's `Option` decode must not collapse it either).
+      const nullAnchor = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        3,
+        "put-null-anchor",
+        "port.knowledge.put",
+        {
+          entry: { ...entry("kb_null_anchor"), adoption_anchor: null },
+          expected_base_revision: null,
+        },
+      );
+      expect(nullAnchor.error?.code).toBe("INVALID_INPUT");
+      expect(storeCalls).toHaveLength(0);
+
+      // A top-level `destination_entry_id: null` is malformed input
+      // under the scoped-put precedence rule — refused regardless of
+      // stored state (contract D1 / F-016).
+      const nullSelector = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        4,
+        "put-null-selector",
+        "port.knowledge.put",
+        {
+          entry: entry("kb_null_sel"),
+          expected_base_revision: null,
+          destination_entry_id: null,
+        },
+      );
+      expect(nullSelector.error?.code).toBe("INVALID_INPUT");
+      expect(storeCalls).toHaveLength(0);
+
+      // An anchor at the inclusive `2^53` endpoint is schema-valid
+      // provenance (C5 / F-013): the deep validator must pass it through
+      // to the OCC/store path, not refuse it upfront.
+      const endpointAnchor = await rawInvoke(
+        clientEnd,
+        seed(0x10),
+        sessionId,
+        5,
+        "put-endpoint-anchor",
+        "port.knowledge.put",
+        {
+          entry: {
+            ...entry("kb_endpoint"),
+            adoption_anchor: {
+              schema_version: 1,
+              source_scope_id: "spc_src",
+              source_entry_id: "ke_src",
+              source_revision: 9007199254740992,
+              extensions: {},
+            },
+          },
+          expected_base_revision: null,
+        },
+      );
+      expect(endpointAnchor.error).toBeUndefined();
+      expect(storeCalls).toEqual(["get", "put"]);
     } finally {
       close();
     }

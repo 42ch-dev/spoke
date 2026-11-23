@@ -21,9 +21,7 @@
 
 #[path = "common/loopback_oracle.rs"]
 mod loopback_oracle;
-use loopback_oracle::{
-    connect_manifest, pubkey_client, seed_client, seed_host, sign_envelope,
-};
+use loopback_oracle::{connect_manifest, pubkey_client, seed_client, seed_host, sign_envelope};
 
 #[path = "support/memory_host.rs"]
 mod memory_host;
@@ -48,40 +46,40 @@ use spoke_connect::remote::{
     MemoryPortService, RemoteAdapter, RemoteAdapterOptions, RemoteIdentity, RemoteKnowledgeFace,
     RemoteMemoryService, RemoteServePorts, RemoteServePortsComposite, Transport,
 };
-use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
+use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
     cognition_record_matches_filter, jcs_sha256_hex, validate_cognition_record, BaselinePorts,
     FindingPort, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, MemoryPort,
-    RelationPort, RuleQueryPort, ScopeQueryPort, ScopedKnowledgePort, SpokeReject,
-    SpokeRejectCode, SpokeResult,
+    RelationPort, RuleQueryPort, ScopeQueryPort, ScopedKnowledgePort, SpokeReject, SpokeRejectCode,
+    SpokeResult,
 };
 use spoke_schemas::connect::{ConnectHello, ConnectSession};
 use spoke_schemas::{
-    HostCapabilityManifest, MemoryCandidatesDismissRequest, MemoryCandidatesDismissResponse,
-    MemoryCandidatesGetRequest, MemoryCandidatesGetResponse, MemoryCandidatesListRequest,
-    MemoryCandidatesListResponse, MemoryCandidatesReviewRequest, MemoryCandidatesReviewResponse,
-    MemoryCaptureRequest, MemoryCaptureResponse, MemoryDescribeRequest, MemoryDescribeResponse,
-    MemoryExportsCreateRequest, MemoryExportsCreateResponse, MemoryExportsGetRequest,
-    MemoryExportsGetResponse, MemoryGrantsGrantRequest, MemoryGrantsGrantResponse,
-    MemoryGrantsListRequest, MemoryGrantsListResponse, MemoryGrantsRevokeRequest,
-    MemoryGrantsRevokeResponse, MemoryImportsActivateRequest, MemoryImportsActivateResponse,
-    MemoryImportsDiscardRequest, MemoryImportsDiscardResponse, MemoryImportsStageRequest,
-    MemoryImportsStageResponse, MemoryProfileGetRequest, MemoryProfileGetResponse,
-    MemoryProfileUpdateRequest, MemoryProfileUpdateResponse, MemoryRecallRequest,
-    MemoryRecallResponse, MemoryReceiptsGetRequest, MemoryReceiptsGetResponse,
-    MemoryRecordsCreateRequest, MemoryRecordsCreateResponse, MemoryRecordsDeleteRequest,
-    MemoryRecordsDeleteResponse, MemoryRecordsGetRequest, MemoryRecordsGetResponse,
-    MemoryRecordsListRequest, MemoryRecordsListResponse, MemoryRecordsPromoteRequest,
-    MemoryRecordsPromoteResponse, MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse,
-    MemoryReflectionsGenerateRequest, MemoryReflectionsGenerateResponse,
-    MemoryReflectionsListRequest, MemoryReflectionsListResponse, MemoryReflectionsStateRequest,
-    MemoryReflectionsStateResponse, MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
-    MemorySpacesListRequest, MemorySpacesListResponse, MemorySpacesUnfreezeRequest,
-    MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
-    MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
-    MemorySubjectsGetResponse, Principal,
-    Finding, KnowledgeEntry, Relation, Rule, Scope, TimelineEvent,
+    Finding, HostCapabilityManifest, KnowledgeEntry, MemoryCandidatesDismissRequest,
+    MemoryCandidatesDismissResponse, MemoryCandidatesGetRequest, MemoryCandidatesGetResponse,
+    MemoryCandidatesListRequest, MemoryCandidatesListResponse, MemoryCandidatesReviewRequest,
+    MemoryCandidatesReviewResponse, MemoryCaptureRequest, MemoryCaptureResponse,
+    MemoryDescribeRequest, MemoryDescribeResponse, MemoryExportsCreateRequest,
+    MemoryExportsCreateResponse, MemoryExportsGetRequest, MemoryExportsGetResponse,
+    MemoryGrantsGrantRequest, MemoryGrantsGrantResponse, MemoryGrantsListRequest,
+    MemoryGrantsListResponse, MemoryGrantsRevokeRequest, MemoryGrantsRevokeResponse,
+    MemoryImportsActivateRequest, MemoryImportsActivateResponse, MemoryImportsDiscardRequest,
+    MemoryImportsDiscardResponse, MemoryImportsStageRequest, MemoryImportsStageResponse,
+    MemoryProfileGetRequest, MemoryProfileGetResponse, MemoryProfileUpdateRequest,
+    MemoryProfileUpdateResponse, MemoryRecallRequest, MemoryRecallResponse,
+    MemoryReceiptsGetRequest, MemoryReceiptsGetResponse, MemoryRecordsCreateRequest,
+    MemoryRecordsCreateResponse, MemoryRecordsDeleteRequest, MemoryRecordsDeleteResponse,
+    MemoryRecordsGetRequest, MemoryRecordsGetResponse, MemoryRecordsListRequest,
+    MemoryRecordsListResponse, MemoryRecordsPromoteRequest, MemoryRecordsPromoteResponse,
+    MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse, MemoryReflectionsGenerateRequest,
+    MemoryReflectionsGenerateResponse, MemoryReflectionsListRequest, MemoryReflectionsListResponse,
+    MemoryReflectionsStateRequest, MemoryReflectionsStateResponse, MemorySpacesFreezeRequest,
+    MemorySpacesFreezeResponse, MemorySpacesListRequest, MemorySpacesListResponse,
+    MemorySpacesUnfreezeRequest, MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest,
+    MemorySubjectsEnsureResponse, MemorySubjectsFenceRequest, MemorySubjectsFenceResponse,
+    MemorySubjectsGetRequest, MemorySubjectsGetResponse, Principal, Relation, Rule, Scope,
+    TimelineEvent,
 };
 
 const OTHER_SPACE: &str = "spc_other";
@@ -249,7 +247,10 @@ async fn start_host_with_budget(
 }
 
 /// Dial the typed client over the loopback pair.
-async fn dial(pair: LoopbackTransportPair, manifest: &HostCapabilityManifest) -> Arc<RemoteAdapter> {
+async fn dial(
+    pair: LoopbackTransportPair,
+    manifest: &HostCapabilityManifest,
+) -> Arc<RemoteAdapter> {
     let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
     let _: Arc<dyn Transport> = Arc::new(pair.client.clone());
     connect_remote_adapter(RemoteAdapterOptions {
@@ -503,10 +504,7 @@ async fn memory_loopback_round_trips_capture_review_and_recall_through_the_typed
                     &candidate_id,
                     "review-cand-1",
                     &[
-                        (
-                            "fact",
-                            "The gate key is hidden under the third barrel.",
-                        ),
+                        ("fact", "The gate key is hidden under the third barrel."),
                         ("event", "Mira revealed the key location to Bo."),
                     ],
                 )),
@@ -648,14 +646,23 @@ async fn memory_loopback_enforces_grants_idempotency_and_selection_isolation() {
             .capture(&principal, typed_capture(request.clone()))
             .await,
     );
-    let replay = expect_ok(client.capture(&principal, typed_capture(request.clone())).await);
+    let replay = expect_ok(
+        client
+            .capture(&principal, typed_capture(request.clone()))
+            .await,
+    );
     assert_eq!(
         wire(&replay)["receipt_id"],
         wire(&first)["receipt_id"],
         "same key + same payload replays the original receipt"
     );
     assert_eq!(
-        host.store.state.lock().expect("state lock").candidates.len(),
+        host.store
+            .state
+            .lock()
+            .expect("state lock")
+            .candidates
+            .len(),
         1,
         "replay must not double-apply"
     );
@@ -727,7 +734,10 @@ async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay(
     let host = Arc::new(MemoryHost {
         store: Arc::new(Store::default()),
     });
-    let principal_id = format!("prn_{}", derive_peer_id_from_ed25519_pubkey(&pubkey_client()));
+    let principal_id = format!(
+        "prn_{}",
+        derive_peer_id_from_ed25519_pubkey(&pubkey_client())
+    );
     host.store.add_grant(
         &principal_id,
         SPACE,
@@ -789,7 +799,10 @@ async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay(
     );
     {
         let state = host.store.state.lock().expect("state lock");
-        assert!(!state.candidates[0].consumed, "denied review consumes nothing");
+        assert!(
+            !state.candidates[0].consumed,
+            "denied review consumes nothing"
+        );
         assert_eq!(state.records.len(), 0, "denied review writes no record");
         assert_eq!(
             state.receipts.len(),
@@ -849,7 +862,10 @@ async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay(
     assert_eq!(receipt["space_id"], SPACE, "{receipt}");
     {
         let state = host.store.state.lock().expect("state lock");
-        assert!(state.candidates[0].consumed, "the addressed review consumes");
+        assert!(
+            state.candidates[0].consumed,
+            "the addressed review consumes"
+        );
         assert_eq!(state.records.len(), 1);
         assert_eq!(state.records[0].space_id, SPACE);
     }
@@ -912,7 +928,10 @@ async fn memory_loopback_enforces_shared_placement_coverage() {
     let host = Arc::new(MemoryHost {
         store: Arc::new(Store::default()),
     });
-    let principal_id = format!("prn_{}", derive_peer_id_from_ed25519_pubkey(&pubkey_client()));
+    let principal_id = format!(
+        "prn_{}",
+        derive_peer_id_from_ed25519_pubkey(&pubkey_client())
+    );
     // Restricted grant: non-empty context coverage, no shared access.
     host.store.add_grant(
         &principal_id,
@@ -1074,8 +1093,16 @@ async fn memory_loopback_denies_unnegotiated_unserved_and_unknown_memory_ops() {
     );
     {
         let state = host.store.state.lock().expect("state lock");
-        assert_eq!(state.candidates.len(), 0, "a capability deny admits no candidate");
-        assert_eq!(state.receipts.len(), 0, "a capability deny issues no receipt");
+        assert_eq!(
+            state.candidates.len(),
+            0,
+            "a capability deny admits no candidate"
+        );
+        assert_eq!(
+            state.receipts.len(),
+            0,
+            "a capability deny issues no receipt"
+        );
         assert_eq!(state.records.len(), 0, "a capability deny writes no record");
     }
     responder.close();
@@ -1122,7 +1149,8 @@ async fn memory_loopback_denies_unnegotiated_unserved_and_unknown_memory_ops() {
     // (c) Unknown `memory.*` op: no dispatch row, fail-closed `op_unsupported`.
     // The typed client cannot express an unknown op, so this rides the raw
     // wire (the client above moved the transport).
-    let (responder, pair) = start_host(Some(memory_face(&granted_host())), &MEMORY_CAPABILITIES).await;
+    let (responder, pair) =
+        start_host(Some(memory_face(&granted_host())), &MEMORY_CAPABILITIES).await;
     let raw_manifest = memory_manifest("test-client", &MEMORY_CAPABILITIES);
     let session_id = handshake(&pair.client, &raw_manifest).await;
     let unknown = raw_invoke(
@@ -1150,7 +1178,10 @@ async fn memory_loopback_denies_unnegotiated_unserved_and_unknown_memory_ops() {
         json!({}),
     )
     .await;
-    assert_eq!(non_memory["error"]["code"], "op_unsupported", "{non_memory}");
+    assert_eq!(
+        non_memory["error"]["code"], "op_unsupported",
+        "{non_memory}"
+    );
     assert!(
         non_memory["error"].get("details").is_none(),
         "a non-memory deny carries no memory retry metadata: {non_memory}"
@@ -1216,7 +1247,10 @@ async fn memory_loopback_golden_vectors_round_trip_through_the_client_adapter() 
         .as_array()
         .expect("fixture carries vectors")
         .clone();
-    assert!(vectors.len() >= 8, "the shared vector set is representative");
+    assert!(
+        vectors.len() >= 8,
+        "the shared vector set is representative"
+    );
 
     let host = Arc::new(VectorHost {
         vectors: Arc::new(vectors.clone()),
@@ -1229,10 +1263,14 @@ async fn memory_loopback_golden_vectors_round_trip_through_the_client_adapter() 
         let op = vector["op"].as_str().expect("vector op");
         let response = match op {
             "memory.describe" => wire(&expect_ok(
-                client.describe(&principal, req::<MemoryDescribeRequest>(vector)).await,
+                client
+                    .describe(&principal, req::<MemoryDescribeRequest>(vector))
+                    .await,
             )),
             "memory.capture" => wire(&expect_ok(
-                client.capture(&principal, req::<MemoryCaptureRequest>(vector)).await,
+                client
+                    .capture(&principal, req::<MemoryCaptureRequest>(vector))
+                    .await,
             )),
             "memory.candidates.review" => wire(&expect_ok(
                 client
@@ -1240,7 +1278,9 @@ async fn memory_loopback_golden_vectors_round_trip_through_the_client_adapter() 
                     .await,
             )),
             "memory.recall" => wire(&expect_ok(
-                client.recall(&principal, req::<MemoryRecallRequest>(vector)).await,
+                client
+                    .recall(&principal, req::<MemoryRecallRequest>(vector))
+                    .await,
             )),
             "memory.profile.update" => wire(&expect_ok(
                 client
@@ -1278,7 +1318,6 @@ async fn memory_loopback_golden_vectors_round_trip_through_the_client_adapter() 
     responder.close();
     client.close();
 }
-
 
 #[test]
 fn memory_port_service_classifies_a_malformed_payload_as_terminal() {
@@ -1847,8 +1886,8 @@ async fn sqlite_cognition_lifecycle_leaves_knowledge_entries_unchanged() {
 
     // Cross-store oracle: the belief is attributed to the seeded ToyWorld
     // knowledge entry, so any Memory-driven KE synchronization is observable.
-    let scope: Scope = serde_json::from_value(json!({ "scope_id": "no-ke-boundary" }))
-        .expect("valid Scope");
+    let scope: Scope =
+        serde_json::from_value(json!({ "scope_id": "no-ke-boundary" })).expect("valid Scope");
     let expected = knowledge_entry_state(&client, &scope).await;
     let baseline = expected.as_array().expect("KE snapshot array");
     assert!(
@@ -1876,8 +1915,7 @@ async fn sqlite_cognition_lifecycle_leaves_knowledge_entries_unchanged() {
         .iter()
         .find(|vector| vector["id"] == "lifecycle-admission-cognition-valid")
         .expect("valid cognition lifecycle vector present");
-    let holder =
-        json!({ "kind": "knowledge_entry", "namespace": "toy_world", "id": "kb_tw_mira" });
+    let holder = json!({ "kind": "knowledge_entry", "namespace": "toy_world", "id": "kb_tw_mira" });
     let mut content = admission_vector["content"].clone();
     content["cognition"][0]["holder"] = holder.clone();
     content["cognition"][0]["assessor"] = holder.clone();
@@ -2182,10 +2220,7 @@ impl CognitionKeSource {
         })
     }
 
-    fn matching_entries(
-        &self,
-        keep: impl Fn(&Value) -> bool,
-    ) -> SpokeResult<Vec<KnowledgeEntry>> {
+    fn matching_entries(&self, keep: impl Fn(&Value) -> bool) -> SpokeResult<Vec<KnowledgeEntry>> {
         let mut selected = Vec::new();
         let mut ids = Vec::new();
         for entry in &self.entries {
@@ -2481,11 +2516,13 @@ async fn cognition_shared_vectors_answer_on_the_public_responder_session() {
         .await;
         let session_id = handshake(
             &pair.client,
-            &cognition_manifest("cognition-vector-client", &capability_refs(&client_capabilities)),
+            &cognition_manifest(
+                "cognition-vector-client",
+                &capability_refs(&client_capabilities),
+            ),
         )
         .await;
-        let response =
-            raw_invoke(&pair.client, &session_id, 0, case_id, op, payload.clone()).await;
+        let response = raw_invoke(&pair.client, &session_id, 0, case_id, op, payload.clone()).await;
 
         let scope_reads = source.scope_reads.load(Ordering::SeqCst);
         let memory_invokes = memory.invokes.load(Ordering::SeqCst);
@@ -2601,8 +2638,10 @@ async fn cognition_shared_success_vectors_decode_on_the_real_client() {
             &capability_refs(&host_capabilities),
         )
         .await;
-        let client_manifest =
-            cognition_manifest("cognition-vector-client", &capability_refs(&client_capabilities));
+        let client_manifest = cognition_manifest(
+            "cognition-vector-client",
+            &capability_refs(&client_capabilities),
+        );
 
         let typed_scope_request = if op == COGNITION_SCOPE_OP {
             typed_scope(payload)
@@ -2648,21 +2687,14 @@ async fn cognition_shared_success_vectors_decode_on_the_real_client() {
             // client performs.
             raw_only_ids.push(case_id.to_owned());
             let session_id = handshake(&pair.client, &client_manifest).await;
-            let response = raw_invoke(
-                &pair.client,
-                &session_id,
-                0,
-                case_id,
-                op,
-                payload.clone(),
-            )
-            .await;
+            let response =
+                raw_invoke(&pair.client, &session_id, 0, case_id, op, payload.clone()).await;
             let served = response
                 .get("payload")
                 .unwrap_or_else(|| panic!("{case_id}: expected a served payload, got {response}"));
             if op == COGNITION_SCOPE_OP {
-                let decoded: Vec<KnowledgeEntry> = serde_json::from_value(served.clone())
-                    .expect("the served entry page decodes");
+                let decoded: Vec<KnowledgeEntry> =
+                    serde_json::from_value(served.clone()).expect("the served entry page decodes");
                 assert_eq!(
                     decoded
                         .iter()
@@ -2682,10 +2714,7 @@ async fn cognition_shared_success_vectors_decode_on_the_real_client() {
                         next_cursor,
                         ..
                     } => {
-                        assert!(
-                            records.is_empty(),
-                            "{case_id}: decoded records {records:?}"
-                        );
+                        assert!(records.is_empty(), "{case_id}: decoded records {records:?}");
                         assert_eq!(total_authorized, 0, "{case_id}: decoded count");
                         assert!(
                             next_cursor.is_none(),
@@ -2932,7 +2961,10 @@ async fn sqlite_content_cognition_empty_stays_present_across_review_and_reads() 
 
     let override_candidate = candidate_id(&expect_ok(
         typed
-            .capture(&principal, capture("presence-cap-override", &candidate_content))
+            .capture(
+                &principal,
+                capture("presence-cap-override", &candidate_content),
+            )
             .await,
     ));
     let absent_candidate = candidate_id(&expect_ok(
@@ -2942,7 +2974,10 @@ async fn sqlite_content_cognition_empty_stays_present_across_review_and_reads() 
     ));
     let fragment_candidate = candidate_id(&expect_ok(
         typed
-            .capture(&principal, capture("presence-cap-fragment", &absent_content))
+            .capture(
+                &principal,
+                capture("presence-cap-fragment", &absent_content),
+            )
             .await,
     ));
 
@@ -2986,10 +3021,12 @@ async fn sqlite_content_cognition_empty_stays_present_across_review_and_reads() 
             .clone()
     };
     assert_eq!(
-        find_candidate(&override_candidate)["proposed"]["content"], candidate_content
+        find_candidate(&override_candidate)["proposed"]["content"],
+        candidate_content
     );
     assert_eq!(
-        find_candidate(&absent_candidate)["proposed"]["content"], absent_content,
+        find_candidate(&absent_candidate)["proposed"]["content"],
+        absent_content,
         "candidates.list keeps an absent Content without a cognition member: {candidates}"
     );
 
@@ -3029,11 +3066,13 @@ async fn sqlite_content_cognition_empty_stays_present_across_review_and_reads() 
             .clone()
     };
     assert_eq!(
-        find_raw_candidate(&override_candidate)["proposed"]["content"], candidate_content,
+        find_raw_candidate(&override_candidate)["proposed"]["content"],
+        candidate_content,
         "raw candidates.list keeps the candidate Content verbatim: {raw_candidates}"
     );
     assert_eq!(
-        find_raw_candidate(&absent_candidate)["proposed"]["content"], absent_content,
+        find_raw_candidate(&absent_candidate)["proposed"]["content"],
+        absent_content,
         "raw candidates.list keeps an absent Content without a cognition member: {raw_candidates}"
     );
 
@@ -3174,15 +3213,18 @@ async fn sqlite_content_cognition_empty_stays_present_across_review_and_reads() 
             .clone()
     };
     assert_eq!(
-        find_record(&listed, &override_record)["content"], override_content,
+        find_record(&listed, &override_record)["content"],
+        override_content,
         "records.list returns the override Content verbatim: {listed}"
     );
     assert_eq!(
-        find_record(&listed, &fragment_record)["content"], fragment_content,
+        find_record(&listed, &fragment_record)["content"],
+        fragment_content,
         "records.list returns the fragment Content verbatim: {listed}"
     );
     assert_eq!(
-        find_record(&listed, &absent_record)["content"], absent_content,
+        find_record(&listed, &absent_record)["content"],
+        absent_content,
         "records.list keeps an absent Content without a cognition member: {listed}"
     );
 
@@ -3201,15 +3243,18 @@ async fn sqlite_content_cognition_empty_stays_present_across_review_and_reads() 
             .await,
     ));
     assert_eq!(
-        find_record(&recalled, &override_record)["content"], override_content,
+        find_record(&recalled, &override_record)["content"],
+        override_content,
         "recall returns the override Content verbatim: {recalled}"
     );
     assert_eq!(
-        find_record(&recalled, &fragment_record)["content"], fragment_content,
+        find_record(&recalled, &fragment_record)["content"],
+        fragment_content,
         "recall returns the fragment Content verbatim: {recalled}"
     );
     assert_eq!(
-        find_record(&recalled, &absent_record)["content"], absent_content,
+        find_record(&recalled, &absent_record)["content"],
+        absent_content,
         "recall keeps an absent Content without a cognition member: {recalled}"
     );
 
@@ -3272,15 +3317,18 @@ async fn sqlite_content_cognition_empty_stays_present_across_review_and_reads() 
     .await;
     sequence += 1;
     assert_eq!(
-        find_record(&raw_records["payload"], &override_record)["content"], override_content,
+        find_record(&raw_records["payload"], &override_record)["content"],
+        override_content,
         "raw records.list carries the override Content verbatim: {raw_records}"
     );
     assert_eq!(
-        find_record(&raw_records["payload"], &fragment_record)["content"], fragment_content,
+        find_record(&raw_records["payload"], &fragment_record)["content"],
+        fragment_content,
         "raw records.list carries the fragment Content verbatim: {raw_records}"
     );
     assert_eq!(
-        find_record(&raw_records["payload"], &absent_record)["content"], absent_content,
+        find_record(&raw_records["payload"], &absent_record)["content"],
+        absent_content,
         "raw records.list keeps an absent Content without a cognition member: {raw_records}"
     );
     let raw_recall = raw_invoke(
@@ -3298,15 +3346,18 @@ async fn sqlite_content_cognition_empty_stays_present_across_review_and_reads() 
     )
     .await;
     assert_eq!(
-        find_record(&raw_recall["payload"], &override_record)["content"], override_content,
+        find_record(&raw_recall["payload"], &override_record)["content"],
+        override_content,
         "raw recall payload carries the override Content verbatim: {raw_recall}"
     );
     assert_eq!(
-        find_record(&raw_recall["payload"], &fragment_record)["content"], fragment_content,
+        find_record(&raw_recall["payload"], &fragment_record)["content"],
+        fragment_content,
         "raw recall payload carries the fragment Content verbatim: {raw_recall}"
     );
     assert_eq!(
-        find_record(&raw_recall["payload"], &absent_record)["content"], absent_content,
+        find_record(&raw_recall["payload"], &absent_record)["content"],
+        absent_content,
         "raw recall payload keeps an absent Content without a cognition member: {raw_recall}"
     );
 
@@ -3494,16 +3545,14 @@ async fn cognition_query_vectors_answer_on_the_conformant_memory_session() {
     assert_eq!(json!(continued_ids), json!(["rec_cog_full"]));
 
     // A changed filter invalidates both cursor identities.
-    for request in [
-        json!({
-            "space_id": SPACE,
-            "subject_id": SUBJECT,
-            "selection": { "mode": "shared_only" },
-            "cognition_filter": other_filter.clone(),
-            "budget": { "max_items": 2 },
-            "cursor": recall_cursor,
-        }),
-    ] {
+    for request in [json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "selection": { "mode": "shared_only" },
+        "cognition_filter": other_filter.clone(),
+        "budget": { "max_items": 2 },
+        "cursor": recall_cursor,
+    })] {
         let reject = expect_reject(
             client
                 .recall(

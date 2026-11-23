@@ -16,6 +16,8 @@ export type { HistoryRevisionsGetRequest } from './history-revisions-get-request
 export type { HistoryRevisionsGetResponse } from './history-revisions-get-response';
 export type { HistoryRevisionsPruneRequest } from './history-revisions-prune-request';
 export type { HistoryRevisionsPruneResponse } from './history-revisions-prune-response';
+export type { KnowledgeAdoptRequest } from './knowledge-adopt-request';
+export type { KnowledgeAdoptResponse } from './knowledge-adopt-response';
 export type { MemoryCandidatesDismissRequest } from './memory-candidates-dismiss-request';
 export type { MemoryCandidatesDismissResponse } from './memory-candidates-dismiss-response';
 export type { MemoryCandidatesGetRequest } from './memory-candidates-get-request';

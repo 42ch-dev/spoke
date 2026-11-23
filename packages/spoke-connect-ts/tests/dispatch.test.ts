@@ -11,6 +11,7 @@ import {
   cognitionRequirementField,
   dispatchAllowed,
   requiredCapability,
+  reservedPrefixOp,
   tokenAuthorizesOp,
 } from "../src/core/dispatch.js";
 
@@ -212,5 +213,38 @@ describe("history family", () => {
       ).toBe("scope.cognition");
       expect(cognitionRequirementField(op, { scope: { scope_id: "s" } })).toBeUndefined();
     }
+  });
+});
+
+// why: `knowledge.*` is a core-reserved product prefix (spoke-knowledge-
+// adoption contract §Connect operation): `knowledge.adopt` is its single
+// registered op and every other `knowledge.*` name is a reserved unknown —
+// refused `op_unsupported` by every dispatch surface BEFORE a product
+// custom map is consulted (QC2-16 / F-018; parity twin of the Rust
+// `reserved_prefix_op` test block).
+describe("reserved-prefix classification", () => {
+  it("only unregistered knowledge.* names are reserved", () => {
+    expect(reservedPrefixOp("knowledge.adopt")).toBe(false);
+    expect(reservedPrefixOp("knowledge.archive")).toBe(true);
+    expect(reservedPrefixOp("knowledge.")).toBe(true);
+    // Other prefixes are not reserved — their unregistered names keep the
+    // ordinary product-map path.
+    expect(reservedPrefixOp("memory.archive.purge")).toBe(false);
+    expect(reservedPrefixOp("knowledgeless")).toBe(false);
+    expect(reservedPrefixOp("port.knowledge.get")).toBe(false);
+  });
+
+  it("the registered row still carries its capability requirement", () => {
+    expect(requiredCapability("knowledge.adopt")).toBe(
+      "spoke-knowledge-adoption",
+    );
+    expect(requiredCapability("knowledge.archive")).toBeUndefined();
+    expect(
+      dispatchAllowed("knowledge.archive", [
+        CAPABILITY_SPOKE_BASELINE,
+        "spoke-knowledge",
+        "spoke-knowledge-adoption",
+      ]),
+    ).toBe(false);
   });
 });

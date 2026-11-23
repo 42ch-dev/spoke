@@ -1,0 +1,193 @@
+{
+  "id": "private-source",
+  "title": "Admission and owner-private absence — one generic NOT_FOUND for every invisible source",
+  "protocol_refs": [
+    "§Admission and owner-private absence",
+    "§Refusal vocabulary"
+  ],
+  "cases": [
+    {
+      "id": "owner-private-mismatched-viewpoint",
+      "invariant": "§Admission and owner-private absence",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "an owner-private source whose owner is not the admitted viewpoint answers the same generic NOT_FOUND as a missing entry, and repeated calls produce the same absence",
+      "input": {
+        "admitted_viewpoint": "vp_caller",
+        "sources": [
+          {
+            "entry_id": "ke_private",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_private",
+              "entry_type": "note",
+              "canonical_name": "private-note",
+              "status": "confirmed",
+              "revision": 4,
+              "body": {},
+              "owner": "vp_other",
+              "disclosure": "owner-private",
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_private",
+        "source_revision": 4,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "private-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "NOT_FOUND",
+        "absent_details": ["source_entry_id", "entry_id", "adopted_revision", "retirement_chain"],
+        "provider_calls": 1
+      },
+      "then": [
+        {
+          "op": "knowledge.adopt",
+          "request": {
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_private",
+            "source_revision": 4,
+            "destination_scope_id": "spc_local",
+            "idempotency_key": "private-1",
+            "extensions": {}
+          },
+          "expect": {
+            "error_code": "NOT_FOUND",
+            "absent_details": ["source_entry_id", "entry_id", "adopted_revision", "retirement_chain"],
+            "provider_calls": 1
+          }
+        },
+        {
+          "op": "knowledge.adopt",
+          "request": {
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_private",
+            "source_revision": 4,
+            "destination_scope_id": "spc_local",
+            "idempotency_key": "private-2",
+            "extensions": {}
+          },
+          "expect": {
+            "error_code": "NOT_FOUND",
+            "provider_calls": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "missing-source-generic-absence",
+      "invariant": "§Admission and owner-private absence",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a source that does not exist answers the identical generic NOT_FOUND — the private-source refusal is indistinguishable",
+      "input": {
+        "admitted_viewpoint": "vp_caller",
+        "sources": []
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_missing",
+        "source_revision": 4,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "missing-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "NOT_FOUND",
+        "absent_details": ["source_entry_id", "entry_id", "adopted_revision", "retirement_chain"],
+        "provider_calls": 1
+      }
+    },
+    {
+      "id": "source-outside-admitted-scope",
+      "invariant": "§Admission and owner-private absence",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a source scope the caller is not admitted to answers the same generic NOT_FOUND",
+      "input": {
+        "admitted_viewpoint": "vp_caller",
+        "admitted_scopes": ["spc_local"],
+        "sources": [
+          {
+            "entry_id": "ke_elsewhere",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_elsewhere",
+              "entry_type": "note",
+              "canonical_name": "elsewhere",
+              "status": "confirmed",
+              "revision": 1,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_elsewhere",
+        "source_revision": 1,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "outscope-1",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "NOT_FOUND",
+        "absent_details": ["source_entry_id", "entry_id"],
+        "provider_calls": 1
+      }
+    },
+    {
+      "id": "owner-private-visible-to-owner",
+      "invariant": "§Admission and owner-private absence",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "an owner-private source whose owner equals the admitted viewpoint is visible and adopts normally — the rule discriminates on the viewpoint, never on the payload",
+      "input": {
+        "admitted_viewpoint": "vp_owner",
+        "sources": [
+          {
+            "entry_id": "ke_mine",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_mine",
+              "entry_type": "note",
+              "canonical_name": "my-note",
+              "status": "confirmed",
+              "revision": 2,
+              "body": {},
+              "owner": "vp_owner",
+              "disclosure": "owner-private",
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_mine",
+        "source_revision": 2,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "mine-1",
+        "extensions": {}
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          { "path": "outcome", "equals": "adopted" },
+          { "path": "entry.adoption_anchor.source_entry_id", "equals": "ke_mine" }
+        ],
+        "provider_calls": 1
+      }
+    }
+  ]
+}

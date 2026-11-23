@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/knowledge-adopt-request.schema.json",
+  "title": "KnowledgeAdoptRequest",
+  "description": "Adopt a shared KnowledgeEntry into a destination scope (spoke-knowledge-adoption). Requires the negotiated spoke-knowledge-adoption and mandatory co-capability spoke-knowledge; without them the connect gate answers op_unsupported / capability_missing. A merged source resolves through its retirement chain to the terminal live source (at most 32 edges); cycle, ambiguous, deleted-terminal, or over-limit resolution answers SOURCE_RETIRED with details.retirement_chain. A missing, out-of-scope, or non-disclosable owner-private source answers generic NOT_FOUND. Mutating op: idempotency_key is required; dedup namespace (effective_scope, requester_principal_id, op, idempotency_key); same-key different-digest answers IDEMPOTENCY_CONFLICT.",
+  "type": "object",
+  "required": [
+    "source_scope_id",
+    "source_entry_id",
+    "source_revision",
+    "destination_scope_id",
+    "idempotency_key"
+  ],
+  "properties": {
+    "source_scope_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Requested source scope. Retirement resolution can change the terminal scope/id recorded by the anchor."
+    },
+    "source_entry_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Requested source entry."
+    },
+    "source_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Requested source revision."
+    },
+    "destination_scope_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Destination scope admitted by the host."
+    },
+    "destination_entry_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional destination id. When absent, the resolved terminal source_entry_id is the default; for a live source this equals the requested id."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Connect retry key, 1-128 Unicode code points inclusive; unique within the dedup namespace (effective_scope, requester_principal_id, op, idempotency_key). Length is not counted in UTF-16 code units or UTF-8 bytes.",
+      "title": "IdempotencyKey"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Product-namespace request extensions."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "source_scope_id": "spc_shared_canon",
+      "source_entry_id": "ke_mira_harbor",
+      "source_revision": 3,
+      "destination_scope_id": "spc_local_default",
+      "idempotency_key": "adopt-2026-11-23T10:00Z"
+    }
+  ]
+}

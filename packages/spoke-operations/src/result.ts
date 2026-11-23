@@ -68,6 +68,11 @@ export const SpokeRejectCode = {
   HISTORY_ENTITY_UNSUPPORTED: "HISTORY_ENTITY_UNSUPPORTED",
   /** note: The requested revision is at or above the floor but cannot be reconstructed — an implementation-declared retention gap (details.retention_reason). */
   HISTORY_NOT_RETAINED: "HISTORY_NOT_RETAINED",
+  // note: Adoption-family vocabulary (spoke-knowledge-adoption contract §Refusal vocabulary).
+  /** note: A normal put attempted to change or remove an existing destination adoption_anchor (details.entry_id). */
+  ADOPTION_ANCHOR_IMMUTABLE: "ADOPTION_ANCHOR_IMMUTABLE",
+  /** note: Retirement-chain resolution hit a cycle, ambiguity, deleted terminal, or the 32-edge limit (details.retirement_chain). */
+  SOURCE_RETIRED: "SOURCE_RETIRED",
 } as const;
 
 export type SpokeRejectCode =

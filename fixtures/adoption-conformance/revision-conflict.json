@@ -1,0 +1,139 @@
+{
+  "id": "revision-conflict",
+  "title": "Source-revision conflicts — REVISION_CONFLICT with adopted_revision, unrelated occupant create-only refusal",
+  "protocol_refs": [
+    "§Repeat and idempotency",
+    "§Copy rules and create-only OCC",
+    "§Refusal vocabulary"
+  ],
+  "cases": [
+    {
+      "id": "repeat-at-different-source-revision",
+      "invariant": "§Repeat and idempotency",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a repeated adoption at a different source_revision refuses REVISION_CONFLICT with details.adopted_revision naming the anchor's revision, and the copy is never refreshed",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_shared_a",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_shared_a",
+              "entry_type": "note",
+              "canonical_name": "shared-a",
+              "status": "confirmed",
+              "revision": 7,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "setup": [
+        {
+          "op": "knowledge.adopt",
+          "request": {
+            "source_scope_id": "spc_shared",
+            "source_entry_id": "ke_shared_a",
+            "source_revision": 5,
+            "destination_scope_id": "spc_local",
+            "idempotency_key": "rev-conflict-1",
+            "extensions": {}
+          }
+        }
+      ],
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_shared_a",
+        "source_revision": 7,
+        "destination_scope_id": "spc_local",
+        "idempotency_key": "rev-conflict-2",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "REVISION_CONFLICT",
+        "details": { "adopted_revision": 5 },
+        "provider_calls": 2
+      },
+      "then": [
+        {
+          "op": "port.knowledge.get",
+          "request": { "entry_id": "ke_shared_a" },
+          "expect": {
+            "success": true,
+            "state": [
+              { "path": "adoption_anchor.source_revision", "equals": 5 }
+            ]
+          }
+        }
+      ],
+      "requires": [
+        "the fixture provider seeds the source at its newest revision; adoption pins the requested source_revision into the anchor and the repeat classifies by the stored anchor"
+      ]
+    },
+    {
+      "id": "unrelated-occupant-create-only-refusal",
+      "invariant": "§Copy rules and create-only OCC",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a destination slot already written by an unrelated entry retains the existing create-only put refusal — no adopted_revision, no overwrite",
+      "input": {
+        "sources": [
+          {
+            "entry_id": "ke_shared_b",
+            "entry": {
+              "schema_version": 1,
+              "entry_id": "ke_shared_b",
+              "entry_type": "note",
+              "canonical_name": "shared-b",
+              "status": "confirmed",
+              "revision": 2,
+              "body": {},
+              "extensions": {}
+            }
+          }
+        ],
+        "destinations": [
+          {
+            "schema_version": 1,
+            "entry_id": "ke_occupied",
+            "entry_type": "note",
+            "canonical_name": "occupant",
+            "status": "confirmed",
+            "revision": 1,
+            "body": {},
+            "extensions": {}
+          }
+        ]
+      },
+      "op": "knowledge.adopt",
+      "request": {
+        "source_scope_id": "spc_shared",
+        "source_entry_id": "ke_shared_b",
+        "source_revision": 2,
+        "destination_scope_id": "spc_local",
+        "destination_entry_id": "ke_occupied",
+        "idempotency_key": "occupant-key",
+        "extensions": {}
+      },
+      "expect": {
+        "error_code": "REVISION_CONFLICT",
+        "absent_details": ["adopted_revision"],
+        "provider_calls": 1
+      },
+      "then": [
+        {
+          "op": "port.knowledge.get",
+          "request": { "entry_id": "ke_occupied" },
+          "expect": {
+            "success": true,
+            "state": [{ "path": "canonical_name", "equals": "occupant" }],
+            "absent": ["adoption_anchor"]
+          }
+        }
+      ]
+    }
+  ]
+}

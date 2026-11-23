@@ -159,6 +159,17 @@ export {
 } from "./history.js";
 
 export {
+  ADOPTION_LEGACY_EXTENSIONS_NAMESPACE,
+  RETIREMENT_CHAIN_MAX_EDGES,
+  assertAdoptionAnchorPreserved,
+  resolveRetirementChain,
+  type RetirementChainEntry,
+  type RetirementLoadEntry,
+  type RetirementSuccessorsOf,
+  type RetirementTerminal,
+} from "./adoption.js";
+
+export {
   SpokeRejectCode,
   spokeOk,
   spokeReject,
@@ -195,6 +206,8 @@ export type {
   MemoryPorts,
   HistoryPort,
   HistoryPorts,
+  AdoptionPort,
+  AdoptionPorts,
 } from "./adapter/ports.js";
 
 export {

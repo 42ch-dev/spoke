@@ -29,7 +29,10 @@ import type {
   CheckRequest,
   ConnectInvokeRequest,
   HostCapabilityManifest,
+  KnowledgeAdoptRequest,
   KnowledgeEntry,
+  Principal,
+  Scope,
   UpsertRequest,
 } from "@42ch/spoke-schemas";
 import {
@@ -1177,6 +1180,243 @@ describe("RemoteAdapter loopback interop", () => {
       } finally {
         client.close();
         host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "refuses a mixed knowledge.adopt payload (success members + error) as INTERNAL_ERROR kind transport (qc1 F-032)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      // why: the client's adopt gate must mirror the typed Rust untagged
+      // decode, which refuses a payload carrying BOTH branch shapes — the
+      // success-shape check alone would let it through (it only requires
+      // `outcome`/`entry`). Both hellos must negotiate the adoption family
+      // so the op reaches the payload gate (the override skips dispatch).
+      const adoptionCapabilities: [string, ...string[]] = [
+        "spoke-baseline",
+        "spoke-knowledge",
+        "spoke-knowledge-adoption",
+      ];
+      const { client, host } = await dial(hostAdapter, {
+        clientManifest: {
+          ...clientManifest(),
+          capabilities: adoptionCapabilities,
+        },
+        hostManifest: {
+          ...schemaConformantManifest(),
+          capabilities: adoptionCapabilities,
+        },
+        hostResponseOverride: (request) => ({
+          session_id: request.session_id,
+          sequence: request.sequence,
+          request_id: request.request_id,
+          payload: {
+            outcome: "adopted",
+            entry: { entry_id: "ke_mixed" },
+            error: {
+              code: "REVISION_CONFLICT",
+              message: "conflict",
+              extensions: {},
+            },
+          },
+          extensions: {},
+        }),
+      });
+      try {
+        const principal: Principal = {
+          principal_id: "prn_client",
+          extensions: {},
+        };
+        const scope: Scope = { scope_id: "spc_dst", extensions: {} };
+        const request: KnowledgeAdoptRequest = {
+          source_scope_id: "spc_src",
+          source_entry_id: "ke_src",
+          source_revision: 1,
+          destination_scope_id: "spc_dst",
+          idempotency_key: "k-mixed",
+          extensions: {},
+        };
+        const result = await client.adoptKnowledgeEntry(
+          principal,
+          scope,
+          request,
+        );
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("payload decode failed"),
+          details: { kind: "transport" },
+        });
+        expect(client.state).toBe("Established");
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "validates the knowledge.adopt success branch against the published schema (entry completeness, outcome vocabulary, closed members, extensions) (qc1 F-033)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      // why: the shallow success shape only requires `entry` to be an
+      // object; the typed Rust `OneOfEntry` decode requires every
+      // `KnowledgeEntry` member plus `adoption_anchor`, so the client gate
+      // must deep-validate the entry or it surfaces `spokeOk` for a payload
+      // Rust refuses.
+      const adoptionCapabilities: [string, ...string[]] = [
+        "spoke-baseline",
+        "spoke-knowledge",
+        "spoke-knowledge-adoption",
+      ];
+      const dialWithPayload = (payload: unknown) =>
+        dial(hostAdapter, {
+          clientManifest: {
+            ...clientManifest(),
+            capabilities: adoptionCapabilities,
+          },
+          hostManifest: {
+            ...schemaConformantManifest(),
+            capabilities: adoptionCapabilities,
+          },
+          hostResponseOverride: (request) => ({
+            session_id: request.session_id,
+            sequence: request.sequence,
+            request_id: request.request_id,
+            payload,
+            extensions: {},
+          }),
+        });
+      const principal: Principal = {
+        principal_id: "prn_client",
+        extensions: {},
+      };
+      const scope: Scope = { scope_id: "spc_dst", extensions: {} };
+      const request: KnowledgeAdoptRequest = {
+        source_scope_id: "spc_src",
+        source_entry_id: "ke_src",
+        source_revision: 1,
+        destination_scope_id: "spc_dst",
+        idempotency_key: "k-f033",
+        extensions: {},
+      };
+      const anchoredEntry: KnowledgeEntry = {
+        ...freshEntry("ke_dst", "dst"),
+        adoption_anchor: {
+          schema_version: 1,
+          source_scope_id: "spc_src",
+          source_entry_id: "ke_src",
+          source_revision: 1,
+          extensions: {},
+        },
+      };
+
+      // (a) entry without `adoption_anchor` → INTERNAL_ERROR transport.
+      const unanchored = await dialWithPayload({
+        outcome: "adopted",
+        entry: freshEntry("ke_dst", "dst"),
+      });
+      try {
+        const result = await unanchored.client.adoptKnowledgeEntry(
+          principal,
+          scope,
+          request,
+        );
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("payload decode failed"),
+          details: { kind: "transport" },
+        });
+      } finally {
+        unanchored.client.close();
+        unanchored.host.close();
+      }
+
+      // (b) a complete anchored entry serves verbatim.
+      const valid = await dialWithPayload({
+        outcome: "adopted",
+        entry: anchoredEntry,
+      });
+      try {
+        const result = await valid.client.adoptKnowledgeEntry(
+          principal,
+          scope,
+          request,
+        );
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toEqual({
+            outcome: "adopted",
+            entry: anchoredEntry,
+          });
+        }
+      } finally {
+        valid.client.close();
+        valid.host.close();
+      }
+
+      // (c) schema-level success rules — closed outcome vocabulary, closed
+      // top-level member set, ExtensionMap extensions — each refused
+      // (qc1 round-15; the typed Rust decode enforces the same rules).
+      const refuse = async (payload: unknown, label: string) => {
+        const dialed = await dialWithPayload(payload);
+        try {
+          const result = await dialed.client.adoptKnowledgeEntry(
+            principal,
+            scope,
+            request,
+          );
+          expect(result, label).toEqual({
+            ok: false,
+            code: SpokeRejectCode.INTERNAL_ERROR,
+            message: expect.stringContaining("payload decode failed"),
+            details: { kind: "transport" },
+          });
+        } finally {
+          dialed.client.close();
+          dialed.host.close();
+        }
+      };
+      await refuse(
+        { outcome: "unexpected", entry: anchoredEntry },
+        "outcome outside the closed vocabulary",
+      );
+      await refuse(
+        { outcome: "adopted", entry: anchoredEntry, surprise: true },
+        "unknown top-level member",
+      );
+      await refuse(
+        { outcome: "adopted", entry: anchoredEntry, extensions: [] },
+        "extensions is not an ExtensionMap",
+      );
+
+      // (d) a valid `extensions` member serves verbatim.
+      const extended = await dialWithPayload({
+        outcome: "already_present",
+        entry: anchoredEntry,
+        extensions: { product: { v: 1 } },
+      });
+      try {
+        const result = await extended.client.adoptKnowledgeEntry(
+          principal,
+          scope,
+          request,
+        );
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toEqual({
+            outcome: "already_present",
+            entry: anchoredEntry,
+            extensions: { product: { v: 1 } },
+          });
+        }
+      } finally {
+        extended.client.close();
+        extended.host.close();
       }
     },
     15000,

@@ -9,9 +9,9 @@ pub use orchestrate::{
     orchestrate_upsert, CheckRunInput,
 };
 pub use ports::{
-    BaselineAdapter, BaselinePorts, ComputableAdapter, ComputablePort, ComputablePorts,
-    FindingPort, ForkAdapter, ForkPorts, ForkTimelineQueryPort, FullAdapter, FullPorts,
-    HistoryPort, HistoryPorts, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort,
+    AdoptionPort, AdoptionPorts, BaselineAdapter, BaselinePorts, ComputableAdapter, ComputablePort,
+    ComputablePorts, FindingPort, ForkAdapter, ForkPorts, ForkTimelineQueryPort, FullAdapter,
+    FullPorts, HistoryPort, HistoryPorts, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort,
     MemoryPort, MemoryPorts, RelationPort, RuleQueryPort, ScopeQueryPort, ScopedKnowledgePort,
 };
 

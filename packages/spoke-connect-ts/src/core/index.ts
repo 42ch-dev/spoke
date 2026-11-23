@@ -35,6 +35,7 @@ export {
   CAPABILITY_SPOKE_COGNITION,
   CAPABILITY_SPOKE_HISTORY,
   CAPABILITY_SPOKE_JUDGMENT,
+  CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION,
   CAPABILITY_SPOKE_MEMORY,
   CAPABILITY_SPOKE_MEMORY_REFLECTION,
   CAPABILITY_SPOKE_MEMORY_TRANSFER,
@@ -42,6 +43,7 @@ export {
   cognitionRequirementPresent,
   dispatchAllowed,
   requiredCapability,
+  reservedPrefixOp,
   tokenAuthorizesOp,
   WIRE_INVALID_INPUT,
 } from "./dispatch.js";

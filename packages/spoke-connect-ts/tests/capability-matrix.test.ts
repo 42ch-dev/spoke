@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
 
-import { capabilitySatisfies, requiredCapability } from "../src/core/dispatch.js";
+import { capabilitySatisfies, requiredCapability, reservedPrefixOp } from "../src/core/dispatch.js";
 import { selectPeerForOp, type SelectablePeer } from "../src/remote/multi-peer-router.js";
 import { PORT_OP_CAPABILITY_REQUIREMENTS, portDispatchAllowed } from "../src/remote/responder.js";
 
@@ -108,5 +108,88 @@ describe("shared capability matrix", () => {
         ).toBe(false);
       }
     }
+  });
+});
+
+describe("reserved-prefix terminal dispatch (QC2-16)", () => {
+  it("a reserved knowledge.* unknown is terminal before the product map", () => {
+    // note: the shipped product map is constant, so a conflicting row is
+    // pinned by the guard's contract: `reservedPrefixOp` is the SAME
+    // predicate the gate runs before its product-map fallback — a
+    // reserved unknown denies even when a map row + negotiated capability
+    // would otherwise admit it.
+    for (const op of ["knowledge.archive", "knowledge.", "knowledge.migrate"]) {
+      expect(reservedPrefixOp(op), `${op}: reserved unknown`).toBe(true);
+      expect(
+        portDispatchAllowed(op, [
+          "spoke-baseline",
+          "spoke-knowledge",
+          "spoke-knowledge-adoption",
+        ]),
+        `${op}: serve gate must refuse before the product map`,
+      ).toBe(false);
+    }
+    expect(reservedPrefixOp("knowledge.adopt")).toBe(false);
+  });
+
+  it("a conflicting product-map row never advances a reserved unknown (F-011)", () => {
+    // note: the conflicting row IS the distinguishing case: removing the
+    // production gate's reserved short-circuit would let this map admit
+    // the op — the shipped-map-only checks above cannot tell old from new.
+    const conflictingMap = {
+      "knowledge.made_up": "spoke-knowledge",
+    } as const;
+    expect(
+      portDispatchAllowed(
+        "knowledge.made_up",
+        ["spoke-baseline", "spoke-knowledge"],
+        conflictingMap,
+      ),
+      "a custom-map row must never authorize a reserved knowledge.* unknown",
+    ).toBe(false);
+    // And a non-reserved name still resolves through the same injected map —
+    // the denial above is the prefix rule, not a broken map lookup.
+    expect(
+      portDispatchAllowed(
+        "port.knowledge.get",
+        ["spoke-knowledge"],
+        { "port.knowledge.get": "spoke-knowledge" },
+      ),
+      "an injected map must still serve non-reserved ops",
+    ).toBe(true);
+  });
+
+  it("a product-map row for the registered knowledge.adopt never bypasses the dual-capability gate (F-020)", () => {
+    // note: the shipped map grants knowledge.adopt nothing — an injected
+    // row claiming `spoke-baseline` (or even `spoke-knowledge`) must not
+    // substitute for the op's OWN dual requirement
+    // (`spoke-knowledge-adoption` AND `spoke-knowledge`).
+    const conflictingMap = {
+      "knowledge.adopt": "spoke-baseline",
+    } as const;
+    for (const negotiated of [
+      ["spoke-baseline"],
+      ["spoke-knowledge"],
+      ["spoke-knowledge-adoption"],
+      ["spoke-baseline", "spoke-knowledge"],
+    ] as const) {
+      expect(
+        portDispatchAllowed("knowledge.adopt", negotiated, conflictingMap),
+        `negotiated=${negotiated}: map row must never short-circuit the core requirement`,
+      ).toBe(false);
+    }
+    // The legitimate pair still serves — through the op's own core
+    // requirement, not through the injected row.
+    expect(
+      portDispatchAllowed(
+        "knowledge.adopt",
+        ["spoke-knowledge-adoption", "spoke-knowledge"],
+        conflictingMap,
+      ),
+    ).toBe(true);
+    // And the same gate holds with the shipped map (param default).
+    expect(
+      portDispatchAllowed("knowledge.adopt", ["spoke-baseline"]),
+    ).toBe(false);
   });
 });

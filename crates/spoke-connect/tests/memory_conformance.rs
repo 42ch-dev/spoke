@@ -131,7 +131,10 @@ fn admission(principal_id: &str) -> MemoryAdmission {
     })
 }
 
-fn memory_face(provider: Arc<SqliteMemoryProvider>, principal_id: &str) -> Arc<dyn RemoteMemoryService> {
+fn memory_face(
+    provider: Arc<SqliteMemoryProvider>,
+    principal_id: &str,
+) -> Arc<dyn RemoteMemoryService> {
     let port: Arc<dyn MemoryPort + Send + Sync> = provider;
     Arc::new(MemoryPortService::new(port, admission(principal_id)))
 }
@@ -658,7 +661,10 @@ async fn seed(provider: &SqliteMemoryProvider) {
         },
     }))
     .expect("valid reflections.state request");
-    let state = match provider.get_reflection_state(&operator, state_request).await {
+    let state = match provider
+        .get_reflection_state(&operator, state_request)
+        .await
+    {
         SpokeResult::Ok(response) => serde_json::to_value(response).expect("state response"),
         SpokeResult::Reject(reject) => panic!("seed reflections.state: {reject:?}"),
     };
@@ -675,7 +681,13 @@ fn seed_loopback(store: &Store) {
         "prn_tw_host_primary",
         SPACE,
         Some(MIRA),
-        &["capture", "review", "records_read", "records_write", "recall"],
+        &[
+            "capture",
+            "review",
+            "records_read",
+            "records_write",
+            "recall",
+        ],
         &[GATE],
         true,
     );
@@ -684,7 +696,13 @@ fn seed_loopback(store: &Store) {
         "prn_tw_peer_reader",
         SPACE,
         Some(MIRA),
-        &["capture", "review", "records_read", "records_write", "recall"],
+        &[
+            "capture",
+            "review",
+            "records_read",
+            "records_write",
+            "recall",
+        ],
         &[GATE],
         false,
     );
@@ -737,15 +755,20 @@ fn seed_loopback(store: &Store) {
             Some(context) => json!({ "visibility": "context", "context_id": context }),
             None => json!({ "visibility": "shared" }),
         };
-        store.state.lock().expect("state lock").records.push(StoredRecord {
-            space_id: SPACE.to_string(),
-            subject_id: MIRA.to_string(),
-            record_id: record_id.to_string(),
-            kind: kind.to_string(),
-            text: text.to_string(),
-            scope,
-            captured_by: "prn_tw_host_primary".to_string(),
-        });
+        store
+            .state
+            .lock()
+            .expect("state lock")
+            .records
+            .push(StoredRecord {
+                space_id: SPACE.to_string(),
+                subject_id: MIRA.to_string(),
+                record_id: record_id.to_string(),
+                kind: kind.to_string(),
+                text: text.to_string(),
+                scope,
+                captured_by: "prn_tw_host_primary".to_string(),
+            });
     }
 }
 
@@ -938,26 +961,41 @@ fn corpus_interpreter_runs_against_both_memory_providers() {
         let host_provider = Arc::new(SqliteMemoryProvider::in_memory());
         seed(&operator_provider).await;
         seed(&host_provider).await;
-        let (mut operator, operator_responder) =
-            wire_over(memory_face(Arc::clone(&operator_provider), "prn_tw_cli_operator")).await;
-        let (mut host, host_responder) =
-            wire_over(memory_face(Arc::clone(&host_provider), "prn_tw_host_primary")).await;
+        let (mut operator, operator_responder) = wire_over(memory_face(
+            Arc::clone(&operator_provider),
+            "prn_tw_cli_operator",
+        ))
+        .await;
+        let (mut host, host_responder) = wire_over(memory_face(
+            Arc::clone(&host_provider),
+            "prn_tw_host_primary",
+        ))
+        .await;
         operator.provider = Provider::Sqlite(operator_provider);
         host.provider = Provider::Sqlite(host_provider);
-        let scenario = load_scenarios().into_iter()
+        let scenario = load_scenarios()
+            .into_iter()
             .find(|scenario| scenario.id == "candidate-consumption")
             .expect("candidate consumption scenario");
-        let operator_case = scenario.cases.iter()
+        let operator_case = scenario
+            .cases
+            .iter()
             .find(|case| case["id"] == "consumption-is-atomic-on-conflict")
             .expect("atomic conflict case");
-        let host_case = scenario.cases.iter()
+        let host_case = scenario
+            .cases
+            .iter()
             .find(|case| case["id"] == "review-inherits-capture-scope")
             .expect("capture scope case");
         let (operator_outcome, host_outcome) = tokio::join!(
             run_case(&mut operator, None, &scenario.id, operator_case),
             run_case(&mut host, None, &scenario.id, host_case),
         );
-        assert_eq!(operator_outcome, Outcome::Pass, "operator's Bo conflict case");
+        assert_eq!(
+            operator_outcome,
+            Outcome::Pass,
+            "operator's Bo conflict case"
+        );
         assert_eq!(host_outcome, Outcome::Pass, "host's Mira capture case");
         operator_responder.close();
         host_responder.close();
@@ -973,15 +1011,25 @@ fn corpus_interpreter_runs_against_both_memory_providers() {
         .iter()
         .filter(|(_, _, outcome)| *outcome == Outcome::Pass)
         .count();
-    assert_eq!(sqlite_passed, 44, "the SQLite reference column passes 44/44");
+    assert_eq!(
+        sqlite_passed, 44,
+        "the SQLite reference column passes 44/44"
+    );
     let sqlite_failed = sqlite
         .rows
         .iter()
         .filter(|(_, _, outcome)| matches!(outcome, Outcome::Fail(_)))
         .count();
-    assert_eq!(sqlite_failed, 0, "cooperative-class policy violations fail their case");
+    assert_eq!(
+        sqlite_failed, 0,
+        "cooperative-class policy violations fail their case"
+    );
 
-    assert_eq!(loopback.rows.len(), 44, "the loopback column runs every wire case to a terminal outcome");
+    assert_eq!(
+        loopback.rows.len(),
+        44,
+        "the loopback column runs every wire case to a terminal outcome"
+    );
     let loopback_failed = loopback
         .rows
         .iter()
@@ -1148,7 +1196,8 @@ fn cognition_lifecycle_shared_vectors_sqlite_leg() {
                         other => panic!("{id}: unknown disposition {other:?}"),
                     };
                     assert_eq!(
-                        receipt["result"]["classified"], json!(expected),
+                        receipt["result"]["classified"],
+                        json!(expected),
                         "{id}: cognition counts as content for classification"
                     );
                 }
@@ -1313,7 +1362,15 @@ async fn run_case(
         }
     };
     if let Some(directive) = case.get("verify_export") {
-        match verify_export_fetches(wire, wire.provider.kind(), &directive, &responses, &op_request, &op_response).await
+        match verify_export_fetches(
+            wire,
+            wire.provider.kind(),
+            &directive,
+            &responses,
+            &op_request,
+            &op_response,
+        )
+        .await
         {
             Ok(verified) => op_response["payload"]["verified"] = verified,
             Err(failure) => {
@@ -1434,7 +1491,10 @@ async fn stage_from_asset(
             object.remove("adopt_grants");
         }
         let response = wire.invoke("memory.imports.stage", request.clone()).await;
-        if let Some(error) = response["payload"].get("error").or_else(|| response.get("error")) {
+        if let Some(error) = response["payload"]
+            .get("error")
+            .or_else(|| response.get("error"))
+        {
             return Err(format!("stage chunk {ordinal}: {error}"));
         }
         if replay_chunk == Some(ordinal) {
@@ -1476,7 +1536,8 @@ async fn verify_export_fetches(
         .ok_or("verify_export: receipt result.export_id unreadable")?;
     let chunk_count = lookup("result.chunk_count")
         .and_then(|value| value.as_u64())
-        .ok_or("verify_export: receipt result.chunk_count unreadable")? as usize;
+        .ok_or("verify_export: receipt result.chunk_count unreadable")?
+        as usize;
     let advertised = lookup("result.bundle_digest")
         .and_then(|value| value.as_str().map(str::to_string))
         .ok_or("verify_export: receipt result.bundle_digest unreadable")?;
@@ -1492,7 +1553,10 @@ async fn verify_export_fetches(
                 }),
             )
             .await;
-        if let Some(error) = response["payload"].get("error").or_else(|| response.get("error")) {
+        if let Some(error) = response["payload"]
+            .get("error")
+            .or_else(|| response.get("error"))
+        {
             return Err(format!("fetch chunk {ordinal}: {error}"));
         }
         chunks.push(response["payload"]["chunk"].clone());
@@ -1601,16 +1665,16 @@ async fn check_policy_directives(
         if let Some(filter) = reflection.get("filter").filter(|value| !value.is_null()) {
             request["filter"] = filter.clone();
         }
-        let state = wire
-            .invoke("memory.reflections.state", request)
-            .await;
+        let state = wire.invoke("memory.reflections.state", request).await;
         let recomputed = state["payload"]["state_digest"].clone();
         let pinned = reflection["basis"]["state_digest"].clone();
         if recomputed != pinned {
             let inconclusive = directive["inconclusive_on_mismatch"].as_bool() == Some(true);
             return Some(verdict(
                 inconclusive,
-                format!("{case_id}: pinned basis mismatch: recomputed {recomputed}, pinned {pinned}"),
+                format!(
+                    "{case_id}: pinned basis mismatch: recomputed {recomputed}, pinned {pinned}"
+                ),
             ));
         }
     }
@@ -1698,12 +1762,7 @@ struct ScriptedMemoryService {
 
 #[async_trait::async_trait]
 impl RemoteMemoryService for ScriptedMemoryService {
-    async fn invoke(
-        &self,
-        _peer_id: &str,
-        op: &str,
-        payload: Value,
-    ) -> SpokeResult<Value> {
+    async fn invoke(&self, _peer_id: &str, op: &str, payload: Value) -> SpokeResult<Value> {
         SpokeResult::Ok((self.respond)(op, &payload))
     }
 }
@@ -2158,7 +2217,9 @@ fn check_expect(
             .get(from)
             .and_then(|value| walk(&value["payload"], from_path));
         let Some(original) = original else {
-            return failed(format!("unchanged {path}: {from}.{from_path} does not exist"));
+            return failed(format!(
+                "unchanged {path}: {from}.{from_path} does not exist"
+            ));
         };
         let Some(actual) = walk(body, path) else {
             return failed(format!("unchanged {path}: does not exist in the response"));

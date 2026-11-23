@@ -39,9 +39,10 @@ pub use capability_token::{
 pub use correlate::{check_response_correlation, Correlation};
 pub use dispatch::{
     capability_satisfies, cognition_requirement_field, cognition_requirement_present,
-    dispatch_allowed, required_capability, token_authorizes_op, CAPABILITY_KE_EXTRACTION,
-    CAPABILITY_KE_OWNERSHIP, CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE,
-    CAPABILITY_SPOKE_COGNITION, CAPABILITY_SPOKE_JUDGMENT, CAPABILITY_SPOKE_KNOWLEDGE,
+    dispatch_allowed, required_capability, reserved_prefix_op, token_authorizes_op,
+    CAPABILITY_KE_EXTRACTION, CAPABILITY_KE_OWNERSHIP, CAPABILITY_L2_COMPUTABLE,
+    CAPABILITY_SPOKE_BASELINE, CAPABILITY_SPOKE_COGNITION, CAPABILITY_SPOKE_HISTORY,
+    CAPABILITY_SPOKE_JUDGMENT, CAPABILITY_SPOKE_KNOWLEDGE, CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION,
     CAPABILITY_SPOKE_MEMORY, CAPABILITY_SPOKE_MEMORY_REFLECTION, CAPABILITY_SPOKE_MEMORY_TRANSFER,
 };
 pub use error::{CoreError, CoreInvokeError};

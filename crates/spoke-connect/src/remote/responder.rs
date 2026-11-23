@@ -68,8 +68,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
-    from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
-    BaselinePorts, SpokeReject, SpokeRejectCode, SpokeResult,
+    assert_adoption_anchor_preserved, from_error_envelope, parse_tool_capability_id, spoke_ok,
+    spoke_reject, to_error_envelope, BaselinePorts, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ConnectInvokeResponse;
@@ -82,20 +82,19 @@ use spoke_schemas::{
 use crate::cognition::{unsupported_cognition_requirement, WIRE_INVALID_INPUT};
 use crate::core::{
     authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
-    check_response_correlation, cognition_requirement_present,
-    derive_peer_id_from_ed25519_pubkey, is_allowlisted, required_capability,
-    sign_hello_ed25519, verify_hello_ed25519, verify_invoke_request_auth, verify_invoke_response_auth,
-    Correlation, EnvelopeAuthError, InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput,
-    NonceStore, OutboundSequence, SessionSignInput, CAPABILITY_KE_OWNERSHIP,
-    CAPABILITY_SPOKE_COGNITION,
+    check_response_correlation, cognition_requirement_present, derive_peer_id_from_ed25519_pubkey,
+    is_allowlisted, required_capability, sign_hello_ed25519, verify_hello_ed25519,
+    verify_invoke_request_auth, verify_invoke_response_auth, Correlation, EnvelopeAuthError,
+    InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput, NonceStore, OutboundSequence,
+    SessionSignInput, CAPABILITY_KE_OWNERSHIP, CAPABILITY_SPOKE_COGNITION,
 };
 use crate::hello::generate_nonce;
 use crate::remote::remote_adapter::{
     connect_manifest, internal_error, is_connect_invoke_request, map_error_envelope,
-    wire_response_correlation, RemoteError as ResponderError, RemoteErrorKind as ResponderErrorKind,
-    RemoteIdentity, ToolHandler,
+    wire_response_correlation, RemoteError as ResponderError,
+    RemoteErrorKind as ResponderErrorKind, RemoteIdentity, ToolHandler,
 };
-use crate::remote::serve_ports::RemoteServePorts;
+use crate::remote::serve_ports::{exact_revision_u64, RemoteServePorts};
 use crate::remote::transport::Transport;
 use crate::remote::{
     baseline_scope_shape, port_dispatch_allowed, requires_ownership_capability,
@@ -335,12 +334,247 @@ fn decode_knowledge_call<'a>(
             ),
         },
         "port.knowledge.put" => {
-            let entry = match payload_field::<KnowledgeEntry>(payload, "entry", op) {
+            // Scoped-put wire-wide precedence (contract D1 / qc3 F-016):
+            // request validation answers `INVALID_INPUT` first —
+            // regardless of the stored state. An explicit-null
+            // `destination_entry_id` is malformed, and the typed
+            // `Option` decoder would collapse a present-null member to
+            // `None`, so both null checks run on the RAW payload before
+            // decode (TS parity: `validateKnowledgeOpPayload` /
+            // `isValidKnowledgeEntryDeep`).
+            if payload
+                .get("destination_entry_id")
+                .is_some_and(Value::is_null)
+            {
+                return spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    "invalid port.knowledge.put payload: destination_entry_id must be a string or absent, not null",
+                    None,
+                );
+            }
+            if let Some(members) = payload.get("entry").and_then(Value::as_object) {
+                // Every schema-optional member whose declared kind is not
+                // nullable: a present `null` is malformed, not absent —
+                // the `Option` decode must not collapse it (TS parity:
+                // `matchesOptionalFields` / `isValidKnowledgeEntryDeep`).
+                // (`modules` is an `Option<ModuleMap>` too.)
+                const NULLABLE_OPT_NONE: &[&str] = &[
+                    "source_anchor",
+                    "adoption_anchor",
+                    "revision",
+                    "created_at",
+                    "updated_at",
+                    "modules",
+                    "owner",
+                    "disclosure",
+                ];
+                if let Some(null_member) = NULLABLE_OPT_NONE
+                    .iter()
+                    .find(|name| members.get(**name).is_some_and(Value::is_null))
+                {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        format!("invalid port.knowledge.put payload: entry.{null_member} must not be null"),
+                        None,
+                    );
+                }
+                // F-018 residual: the same `Option`-null collapse hides
+                // inside the nested declared objects — every declared
+                // member of `body` / `source_anchor` / `source_anchor.span`
+                // / `body.attributes[]` is non-nullable on the wire, so an
+                // explicit null anywhere under them is malformed (none of
+                // their members carries a nullable type; extension bags
+                // nested inside keep opaque `null` values legal).
+                for (parent, keys) in [
+                    ("body", &["summary", "tags", "attributes", "state", "computable"][..]),
+                    (
+                        "source_anchor",
+                        &[
+                            "schema_version",
+                            "source_id",
+                            "span",
+                            "label",
+                            "mime_type",
+                            "extensions",
+                        ][..],
+                    ),
+                    (
+                        "adoption_anchor",
+                        &[
+                            "schema_version",
+                            "source_scope_id",
+                            "source_entry_id",
+                            "source_revision",
+                            "extensions",
+                        ][..],
+                    ),
+                ] {
+                    if let Some(nested) = members.get(parent).and_then(Value::as_object) {
+                        if let Some(null_member) = keys
+                            .iter()
+                            .find(|name| nested.get(**name).is_some_and(Value::is_null))
+                        {
+                            return spoke_reject(
+                                SpokeRejectCode::InvalidInput,
+                                format!("invalid port.knowledge.put payload: entry.{parent}.{null_member} must not be null"),
+                                None,
+                            );
+                        }
+                    }
+                }
+                if let Some(span) = members
+                    .get("source_anchor")
+                    .and_then(Value::as_object)
+                    .and_then(|anchor| anchor.get("span"))
+                    .and_then(Value::as_object)
+                {
+                    if let Some(null_member) = ["start", "end"]
+                        .iter()
+                        .find(|name| span.get(**name).is_some_and(Value::is_null))
+                    {
+                        return spoke_reject(
+                            SpokeRejectCode::InvalidInput,
+                            format!("invalid port.knowledge.put payload: entry.source_anchor.span.{null_member} must not be null"),
+                            None,
+                        );
+                    }
+                }
+                if let Some(attributes) = members
+                    .get("body")
+                    .and_then(Value::as_object)
+                    .and_then(|body| body.get("attributes"))
+                    .and_then(Value::as_array)
+                {
+                    for attribute in attributes {
+                        if let Some(attribute) = attribute.as_object() {
+                            if let Some(null_member) =
+                                ["trait_type", "value", "display_type", "max_value"]
+                                    .iter()
+                                    .find(|name| {
+                                        attribute.get(**name).is_some_and(Value::is_null)
+                                    })
+                            {
+                                return spoke_reject(
+                                    SpokeRejectCode::InvalidInput,
+                                    format!("invalid port.knowledge.put payload: entry.body.attributes[].{null_member} must not be null"),
+                                    None,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Contract E1 — revision-typed members live in the
+            // interoperable integer domain `[0, 2^53]` on the wire: the
+            // typed `u64` decoders would accept beyond that, so the
+            // bound runs on the RAW payload (TS parity:
+            // `isAdoptExactNonNegativeInteger` inside
+            // `isValidKnowledgeEntryDeep` / `validateKnowledgeOpPayload`).
+            const ADOPT_EXACT_INTEGER_BOUND: u64 = 1 << 53;
+            fn adopt_domain(value: Option<&Value>) -> bool {
+                match value {
+                    None => true,
+                    Some(Value::Null) => true,
+                    Some(Value::Number(number)) => number.as_f64().is_some_and(|float| {
+                        // The bound is evaluated on the f64 VALUE — the
+                        // same number JavaScript observes — so an integer
+                        // spelling between u64 and its f64 rounding
+                        // (`9007199254740993` ≡ `9007199254740992.0`)
+                        // admits or refuses identically on both stacks.
+                        float.fract() == 0.0
+                            && float >= 0.0
+                            && float <= ADOPT_EXACT_INTEGER_BOUND as f64
+                    }),
+                    Some(_) => false,
+                }
+            }
+            if let Some(members) = payload.get("entry").and_then(Value::as_object) {
+                if !adopt_domain(members.get("revision")) {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        "invalid port.knowledge.put payload: entry.revision must be an integer within [0, 2^53]",
+                        None,
+                    );
+                }
+                if !adopt_domain(
+                    members
+                        .get("adoption_anchor")
+                        .and_then(Value::as_object)
+                        .and_then(|anchor| anchor.get("source_revision")),
+                ) {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        "invalid port.knowledge.put payload: entry.adoption_anchor.source_revision must be an integer within [0, 2^53]",
+                        None,
+                    );
+                }
+            }
+            if !adopt_domain(payload.get("expected_base_revision")) {
+                return spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    "invalid port.knowledge.put payload: expected_base_revision must be an integer within [0, 2^53] or null",
+                    None,
+                );
+            }
+            // qc3 F-006 residual — the typed `u64` decoders must see the
+            // SAME integer identity JavaScript observes: every number
+            // parses to one f64, so an in-domain revision member
+            // (`9007199254740993` or `3.0`) normalizes to the f64-rounded
+            // `u64` before decode — mirroring
+            // `adopt_request_from_payload`'s `float as u64` rewrite. The
+            // copy is made only when a member's spelling actually differs
+            // from the f64-observed `u64` (qc3 F-025): an ordinary
+            // integer payload decodes from the borrowed value.
+            let entry_members = payload.get("entry").and_then(Value::as_object);
+            let needs_rewrite = |revision: Option<&Value>| {
+                revision.and_then(exact_revision_u64).is_some_and(|rounded| {
+                    revision.and_then(Value::as_u64) != Some(rounded)
+                })
+            };
+            let rewrite_needed = needs_rewrite(entry_members.and_then(|e| e.get("revision")))
+                || needs_rewrite(
+                    entry_members
+                        .and_then(|e| e.get("adoption_anchor"))
+                        .and_then(Value::as_object)
+                        .and_then(|anchor| anchor.get("source_revision")),
+                )
+                || needs_rewrite(payload.get("expected_base_revision"));
+            let mut normalized_payload;
+            let decode_payload = if rewrite_needed {
+                normalized_payload = payload.clone();
+                let normalize_revision = |member: Option<&mut Value>| {
+                    let Some(member) = member else { return };
+                    if let Some(rounded) = exact_revision_u64(member) {
+                        *member = json!(rounded);
+                    }
+                };
+                if let Some(members) = normalized_payload
+                    .get_mut("entry")
+                    .and_then(Value::as_object_mut)
+                {
+                    normalize_revision(members.get_mut("revision"));
+                    normalize_revision(
+                        members
+                            .get_mut("adoption_anchor")
+                            .and_then(Value::as_object_mut)
+                            .and_then(|anchor| anchor.get_mut("source_revision")),
+                    );
+                }
+                normalize_revision(normalized_payload.get_mut("expected_base_revision"));
+                &normalized_payload
+            } else {
+                payload
+            };
+            let entry = match payload_field::<KnowledgeEntry>(decode_payload, "entry", op) {
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
-            let expected = match payload_field::<Option<u64>>(payload, "expected_base_revision", op)
-            {
+            let expected = match payload_field::<Option<u64>>(
+                decode_payload,
+                "expected_base_revision",
+                op,
+            ) {
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
@@ -409,7 +643,9 @@ fn effective_scope(requested: &Scope, admitted: &Scope) -> Option<Scope> {
         // The request narrows the admitted set: any value outside it would
         // widen the query, so only a subset is served (as the request's set).
         (Some(admitted), Some(requested))
-            if !requested.iter().all(|entry_type| admitted.contains(entry_type)) =>
+            if !requested
+                .iter()
+                .all(|entry_type| admitted.contains(entry_type)) =>
         {
             return None;
         }
@@ -458,11 +694,91 @@ async fn call_knowledge_op(
                 .get_scoped_knowledge_entry(admitted, &entry_id)
                 .await,
         ),
-        KnowledgeCall::PutKnowledgeEntry(entry, expected) => map_result(
-            face.store
-                .put_scoped_knowledge_entry(admitted, entry, expected)
-                .await,
-        ),
+        KnowledgeCall::PutKnowledgeEntry(entry, expected_base_revision) => {
+            // The scoped put path serving `port.knowledge.put` owns the
+            // same anchor-immutability obligation as the upsert/promote
+            // orchestrations (spoke-knowledge-adoption contract §Anchor
+            // immutability): a stored `adoption_anchor` is preserved
+            // byte-identically or the write refuses
+            // `ADOPTION_ANCHOR_IMMUTABLE` with `details.entry_id` —
+            // before the put, never after.
+            let stored = match face
+                .store
+                .get_scoped_knowledge_entry(admitted, &entry.entry_id)
+                .await
+            {
+                SpokeResult::Ok(stored) => Some(stored),
+                // A missing destination is a create — no anchor to
+                // preserve. `KNOWLEDGE_ENTRY_NOT_FOUND` is the scoped
+                // store's established entry-specific absence code; a
+                // generic `NOT_FOUND` means the same.
+                SpokeResult::Reject(reject)
+                    if matches!(
+                        reject.code,
+                        SpokeRejectCode::NotFound | SpokeRejectCode::KnowledgeEntryNotFound
+                    ) =>
+                {
+                    None
+                }
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            };
+            // Caller OCC: the wire-supplied `expected_base_revision` is
+            // the CAS fence, evaluated against the SAME pre-read
+            // snapshot the anchor check inspects. `None` is create-only
+            // — it refuses an occupied slot; `Some(base)` must equal the
+            // stored revision — a stale base or an update on an absent
+            // entry refuses before any write. The refusal shapes mirror
+            // the baseline `put_knowledge_entry` OCC vocabulary.
+            match (expected_base_revision, stored.as_ref()) {
+                (None, Some(_)) => {
+                    let mut details = Map::new();
+                    details.insert("entry_id".into(), Value::String(entry.entry_id.clone()));
+                    return spoke_reject(
+                        SpokeRejectCode::RevisionConflict,
+                        format!("Entry already exists: {}", entry.entry_id),
+                        Some(details),
+                    );
+                }
+                (Some(expected), existing) => {
+                    let current = existing.and_then(|stored| stored.revision).unwrap_or(0);
+                    let absent = existing.is_none();
+                    if absent || current != expected {
+                        let mut details = Map::new();
+                        details.insert("entry_id".into(), Value::String(entry.entry_id.clone()));
+                        details.insert("expectedBaseRevision".into(), json!(expected));
+                        if !absent {
+                            details.insert("storeRevision".into(), json!(current));
+                        }
+                        return spoke_reject(
+                            SpokeRejectCode::StoredRevisionStale,
+                            if absent {
+                                format!("KnowledgeEntry not found for update: {}", entry.entry_id)
+                            } else {
+                                format!(
+                                    "Store revision {current} does not match expected base {expected}"
+                                )
+                            },
+                            Some(details),
+                        );
+                    }
+                }
+                (None, None) => {}
+            }
+            if let SpokeResult::Reject(reject) =
+                assert_adoption_anchor_preserved(&entry, stored.as_ref())
+            {
+                return SpokeResult::Reject(reject);
+            }
+            // §Anchor immutability's CAS binding: the write carries the
+            // caller base, which now equals the inspected snapshot —
+            // a verified `Some` is the stored revision itself and a
+            // `None` fence stays a create-only CAS against absence.
+            map_result(
+                face.store
+                    .put_scoped_knowledge_entry(admitted, entry, expected_base_revision)
+                    .await,
+            )
+        }
         KnowledgeCall::ListKnowledgeEntries(_) => {
             let scope = list_scope.expect("a list call carries its effective scope");
             map_result(face.store.list_scoped_knowledge_entries(scope).await)
@@ -673,6 +989,44 @@ fn history_panic_uncertain_reject() -> SpokeReject {
     }
 }
 
+/// §14.2/§14.3, adoption face: the serve budget expired AFTER the
+/// adoption service was invoked, so the transport has no evidence that
+/// nothing committed — an adoption may have written its destination copy.
+/// The response says the outcome is unknown instead of claiming a clean
+/// failure; provider work is neither cancelled nor rolled back by this
+/// end, and the settled adoption is still recorded by the service dedup
+/// so a same-key replay recovers it (same rule as `history.*`).
+fn adoption_uncertain_reject(budget: Duration) -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("timeout".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: format!(
+            "adoption serve wait exceeded the local budget of {}ms; the outcome is unknown — replay the same idempotency key",
+            budget.as_millis()
+        ),
+        details: Some(details),
+    }
+}
+
+/// §14.2/§14.3: the detached adoption invoke panicked (or otherwise
+/// dropped its result channel) AFTER invocation, so the transport has no
+/// evidence that nothing committed — a clean `INTERNAL_ERROR` would
+/// assert no-effect. The response says the outcome is unknown instead
+/// (same containment as the memory/history panic paths).
+fn adoption_panic_uncertain_reject() -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("panic".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: "adoption service failed after invocation; the outcome is unknown — replay the same idempotency key"
+            .to_string(),
+        details: Some(details),
+    }
+}
+
 /// A parked reverse invoke: correlation material + the waiter channel + the
 /// timeout task (mirror of the adapter's `PendingInvoke`).
 struct PendingReverseInvoke {
@@ -779,7 +1133,9 @@ impl ConnectResponder {
             peer_keys: options.peer_keys,
             ports: options.ports,
             invoke_timeout: Duration::from_millis(
-                options.invoke_timeout_ms.unwrap_or(DEFAULT_INVOKE_TIMEOUT_MS),
+                options
+                    .invoke_timeout_ms
+                    .unwrap_or(DEFAULT_INVOKE_TIMEOUT_MS),
             ),
             nonce_store: Mutex::new(NonceStore::new()),
             state: Mutex::new(ConnectResponderState::Disconnected),
@@ -1004,10 +1360,8 @@ impl ConnectResponder {
             serde_json::from_value(serde_json::to_value(&wire).expect("hello host serializes"))
                 .map_err(|error| format!("dialer hello host decode failed: {error}"))?
         };
-        let negotiated: Vec<String> = negotiated_capabilities(
-            &self.manifest.capabilities,
-            &remote_manifest.capabilities,
-        );
+        let negotiated: Vec<String> =
+            negotiated_capabilities(&self.manifest.capabilities, &remote_manifest.capabilities);
 
         *self.session.lock().expect("session lock") = Some(ResponderSession {
             session_id: format!("{SESSION_ID_PREFIX}{derived_client_peer_id}"),
@@ -1031,7 +1385,10 @@ impl ConnectResponder {
         )
         .map_err(|error| format!("responder hello sign failed: {error}"))?;
         let bytes = serde_json::to_vec(&hello).map_err(|error| error.to_string())?;
-        self.transport.send(&bytes).await.map_err(|error| error.to_string())?;
+        self.transport
+            .send(&bytes)
+            .await
+            .map_err(|error| error.to_string())?;
         // The session snapshot is signed with the responder identity
         // (`spoke-connect-session-jcs-v1`) — the dialer verifies it against
         // this responder's hello public key. The wire snapshot requires ≥1
@@ -1057,7 +1414,10 @@ impl ConnectResponder {
         )
         .map_err(|error| error.to_string())?;
         let bytes = serde_json::to_vec(&snapshot).map_err(|error| error.to_string())?;
-        self.transport.send(&bytes).await.map_err(|error| error.to_string())?;
+        self.transport
+            .send(&bytes)
+            .await
+            .map_err(|error| error.to_string())?;
         Ok(())
     }
 
@@ -1327,12 +1687,15 @@ impl ConnectResponder {
         // against `negotiated_capabilities` (never a raw requirements-map
         // composition, which would deny the self-describing tools family).
         if !self.gate_allows(op, &negotiated) {
-            // A `memory.*` or `history.*` op with a core-table row is a
-            // capability gap: the gate evaluates negotiated capabilities
-            // only, so a known op that was not negotiated answers
-            // `capability_missing` (protocol §4.1 / spoke-history contract).
-            // An op with no row at all stays `op_unsupported`.
-            let core_gated_deny = op.starts_with("memory.") || op.starts_with("history.");
+            // A `memory.*`, `history.*` or `knowledge.*` op with a
+            // core-table row is a capability gap: the gate evaluates
+            // negotiated capabilities only, so a known op that was not
+            // negotiated answers `capability_missing` (protocol §4.1 /
+            // spoke-history / spoke-knowledge-adoption contracts). An op
+            // with no row at all stays `op_unsupported`.
+            let core_gated_deny = op.starts_with("memory.")
+                || op.starts_with("history.")
+                || op.starts_with("knowledge.");
             let code = if core_gated_deny && required_capability(op).is_some() {
                 "capability_missing"
             } else {
@@ -1373,7 +1736,20 @@ impl ConnectResponder {
                 .get_mut("payload")
                 .map(Value::take)
                 .unwrap_or_else(|| json!({}));
-            self.dispatch_history_invoke(doc, payload, &negotiated).await?;
+            self.dispatch_history_invoke(doc, payload, &negotiated)
+                .await?;
+            return Ok(());
+        }
+        // `knowledge.*` ops are served by the optional injected
+        // `RemoteAdoptionService` face (spoke-knowledge-adoption
+        // contract): the same gate → probe → serve/deny order as
+        // `history.*`.
+        if op.starts_with("knowledge.") {
+            let payload = doc
+                .get_mut("payload")
+                .map(Value::take)
+                .unwrap_or_else(|| json!({}));
+            self.dispatch_adoption_invoke(doc, payload).await?;
             return Ok(());
         }
         // `extract` is a core op served by an optional injected service
@@ -1489,8 +1865,10 @@ impl ConnectResponder {
             }
             SpokeResult::Reject(reject) => {
                 let error: spoke_schemas::connect::connect_invoke_response::ErrorEnvelope =
-                    serde_json::from_value(serde_json::to_value(to_error_envelope(&reject))
-                        .expect("ops error envelope serializes"))
+                    serde_json::from_value(
+                        serde_json::to_value(to_error_envelope(&reject))
+                            .expect("ops error envelope serializes"),
+                    )
                     .expect("field-identical error envelope converts");
                 let signed = authenticate_invoke_response(
                     &secret,
@@ -1535,11 +1913,7 @@ impl ConnectResponder {
         // and a ports face without the `extract` service are the same
         // documented dispatch-deny branch — the host declared the capability
         // without providing the service.
-        let Some(service) = self
-            .ports
-            .as_ref()
-            .and_then(|ports| ports.as_extract())
-        else {
+        let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_extract()) else {
             self.send_reverse_error_envelope(
                 doc,
                 "op_unsupported",
@@ -1609,7 +1983,9 @@ impl ConnectResponder {
         if let ExtractResponse::Variant1 { error, .. } = &response {
             let reject = serde_json::to_value(error)
                 .ok()
-                .and_then(|value| serde_json::from_value::<spoke_schemas::ErrorEnvelope>(value).ok())
+                .and_then(|value| {
+                    serde_json::from_value::<spoke_schemas::ErrorEnvelope>(value).ok()
+                })
                 .map_or_else(
                     || SpokeReject {
                         code: SpokeRejectCode::InternalError,
@@ -1916,6 +2292,146 @@ impl ConnectResponder {
         Ok(())
     }
 
+    /// Serve a `knowledge.*` invoke through the injected
+    /// [`RemoteAdoptionService`](crate::remote::RemoteAdoptionService)
+    /// face (spoke-knowledge-adoption contract §Connect operation). The
+    /// static capability gate already passed in
+    /// [`ConnectResponder::try_dispatch_invoke`] — `knowledge.adopt`
+    /// requires `spoke-knowledge-adoption` AND `spoke-knowledge`, and a
+    /// known adoption op that was not negotiated never reaches here
+    /// (`capability_missing`). The serving order mirrors the `history.*`
+    /// branch: `as_adoption` probe → bounded service invoke → response
+    /// envelope. The service owns the closed request decode, peer
+    /// admission, effective-scope resolution and idempotency dedup; an
+    /// absent face is the documented dispatch-deny branch (the host
+    /// declared `spoke-knowledge-adoption` without providing the
+    /// service). The request carries scope ids, never a declared `Scope`
+    /// — there is no cognition selection slot, so no cognition gate.
+    ///
+    /// The serve bound matches the `history.*` ops: a zero budget answers
+    /// the plain timeout without invoking the service at all, while
+    /// expiry AFTER invocation means the admitted mutation may have
+    /// committed — that is `OUTCOME_UNCERTAIN`/`uncertain`, recoverable
+    /// through the service's recorded-outcome dedup, never a clean
+    /// internal error or a silent re-execution. The service task keeps
+    /// running past the deadline so a settling adoption still records its
+    /// outcome.
+    async fn dispatch_adoption_invoke(
+        &self,
+        doc: &Value,
+        payload: Value,
+    ) -> Result<(), ResponderError> {
+        let Some(op) = doc.get("op").and_then(Value::as_str) else {
+            // Defensive: the dispatch gate routes only string ops here — a
+            // non-string op means a caller bypassed it. Fail closed instead
+            // of silently swallowing the invoke.
+            self.send_reverse_error_envelope(
+                doc,
+                SpokeRejectCode::InvalidInput.as_str(),
+                "invalid adoption invoke: op must be a string",
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_adoption()) else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no adoption service configured for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // The admitted principal/scope derive from the authenticated
+        // session peer, never from the payload (MEM-R003; contract
+        // §Admission and owner-private absence).
+        let Some(peer_id) = self.remote_peer_id() else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no authenticated peer for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // Same serve bound as `history.*`: a zero budget rejects before the
+        // service is invoked. A non-zero budget that expires AFTER
+        // invocation means the mutation may have committed: that is
+        // `OUTCOME_UNCERTAIN`, not a clean internal error. The admitted
+        // invoke is detached from the response deadline (spawned): expiry
+        // answers the budget, it never cancels the provider task, and the
+        // dedup store still records the settled outcome for a same-key
+        // replay to recover.
+        let zero_budget = self.invoke_timeout.is_zero();
+        let bounded = if zero_budget {
+            None
+        } else {
+            let service = Arc::clone(&service);
+            let peer_id = peer_id.clone();
+            let op = op.to_string();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let _ = tx.send(service.invoke(&peer_id, &op, payload).await);
+            });
+            match tokio::time::timeout(self.invoke_timeout, rx).await {
+                Ok(Ok(result)) => Some(result),
+                // The detached task sends exactly once before dropping the
+                // sender; a receive failure means it panicked AFTER
+                // admission, so — like a budget expiry — the transport
+                // cannot assert no-effect: answer uncertain, never a clean
+                // internal error.
+                Ok(Err(_)) => Some(SpokeResult::Reject(adoption_panic_uncertain_reject())),
+                Err(_) => None,
+            }
+        };
+        if self.state() == ConnectResponderState::Closed {
+            return Ok(());
+        }
+        let Some(result) = bounded else {
+            let reject = if zero_budget {
+                serve_timeout_reject(self.invoke_timeout)
+            } else {
+                adoption_uncertain_reject(self.invoke_timeout)
+            };
+            self.send_reverse_error_envelope(
+                doc,
+                reject.code.as_str(),
+                &reject.message,
+                reject.details.as_ref(),
+            )
+            .await?;
+            return Ok(());
+        };
+        match result {
+            SpokeResult::Ok(value) => self.send_ok_response(doc, value).await?,
+            SpokeResult::Reject(mut reject) => {
+                // qc1 F-031 — the responder never trusts an arbitrary
+                // `RemoteAdoptionService` implementation: a Reject
+                // receipt's revision-typed detail gets the same
+                // `[0, 2^53]` guard as the served branches, so an
+                // out-of-domain `details.adopted_revision` answers a
+                // provider-fault `INTERNAL_ERROR` instead of travelling
+                // on the wire.
+                if let Some(fault) =
+                    crate::remote::serve_ports::normalize_adopt_reject_details(&mut reject)
+                {
+                    reject = fault;
+                }
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
     /// Payload-dependent cognition gate shared by the two cognition-carrying
     /// serving branches (`port.*` and `memory.*`), parallel to the F2
     /// ownership conjunct (consumer contract §2.1/§2.2).
@@ -2171,9 +2687,7 @@ impl ConnectResponder {
             }
         };
         if requires_ownership_capability(op, payload)
-            && !negotiated
-                .iter()
-                .any(|cap| cap == CAPABILITY_KE_OWNERSHIP)
+            && !negotiated.iter().any(|cap| cap == CAPABILITY_KE_OWNERSHIP)
         {
             // The frozen deny matrix fixes the ownership conjunct to
             // `op_unsupported` (spoke-connect §Op dispatch gate), unlike the
@@ -2391,13 +2905,12 @@ impl ConnectResponder {
                 session_id: session_id.to_owned(),
                 sequence,
                 request_id: request_id.to_owned(),
-                error: serde_json::from_value(Value::Object(error))
-                    .map_err(|error| {
-                        ResponderError::new(
-                            ResponderErrorKind::Transport,
-                            format!("error envelope build failed: {error}"),
-                        )
-                    })?,
+                error: serde_json::from_value(Value::Object(error)).map_err(|error| {
+                    ResponderError::new(
+                        ResponderErrorKind::Transport,
+                        format!("error envelope build failed: {error}"),
+                    )
+                })?,
             },
             HashMap::new(),
         )
@@ -2414,11 +2927,7 @@ impl ConnectResponder {
     }
 
     /// Sign + send a success-branch response (raw port value, D4 shape).
-    async fn send_ok_response(
-        &self,
-        doc: &Value,
-        payload: Value,
-    ) -> Result<(), ResponderError> {
+    async fn send_ok_response(&self, doc: &Value, payload: Value) -> Result<(), ResponderError> {
         let Some(session_id) = doc.get("session_id").and_then(Value::as_str) else {
             return Ok(());
         };
@@ -2428,7 +2937,11 @@ impl ConnectResponder {
         let Some(request_id) = doc.get("request_id").and_then(Value::as_str) else {
             return Ok(());
         };
-        let payload = if payload.is_null() { json!({}) } else { payload };
+        let payload = if payload.is_null() {
+            json!({})
+        } else {
+            payload
+        };
         let signed = authenticate_invoke_response(
             &self.local_secret,
             &InvokeResponseSignInput::Success {
@@ -2578,8 +3091,9 @@ impl ConnectResponder {
             };
             session.session_id.clone()
         };
-        let request_id = generate_request_id()
-            .map_err(|error| ResponderError::new(ResponderErrorKind::Transport, error.to_string()))?;
+        let request_id = generate_request_id().map_err(|error| {
+            ResponderError::new(ResponderErrorKind::Transport, error.to_string())
+        })?;
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let timeout_task = {
             let pending = Arc::clone(&self.pending);
@@ -2689,7 +3203,12 @@ impl ConnectResponder {
         // allocated outbound sequence never hit the wire — close the session
         // and settle with the error the waiter already observed (the
         // timeout/close message is queued on the channel).
-        if !self.pending.lock().expect("pending lock").contains_key(&request_id) {
+        if !self
+            .pending
+            .lock()
+            .expect("pending lock")
+            .contains_key(&request_id)
+        {
             self.close_session(
                 "deferred invoke skipped (settled while queued) — outbound sequence never transmitted",
             );
@@ -2826,6 +3345,135 @@ pub async fn connect_responder(options: ConnectResponderOptions) -> Arc<ConnectR
 
 #[cfg(test)]
 mod tests {
+
+    // ── Scoped-put null-shape checks (F-016/F-018) ─────────────────────
+
+    fn minimal_put_entry() -> Value {
+        json!({
+            "schema_version": 1,
+            "entry_id": "ke_x",
+            "entry_type": "note",
+            "canonical_name": "x",
+            "status": "confirmed",
+            "revision": 1,
+            "body": {},
+            "extensions": {},
+        })
+    }
+
+    fn decode_put(entry: Value) -> SpokeResult<KnowledgeCall<'static>> {
+        decode_knowledge_call(
+            "port.knowledge.put",
+            &json!({ "entry": entry, "expected_base_revision": Value::Null }),
+            None,
+        )
+    }
+
+    /// qc3 F-026 — the put decode normalizes every f64-spelling revision
+    /// member to the identity JavaScript observes, on BOTH branches of the
+    /// conditional copy: an ordinary integer payload decodes from the
+    /// borrowed value, a `3.0` float spelling and a between-f64-integers
+    /// spelling take the rewrite branch. Both branches must produce the
+    /// same decoded call.
+    #[test]
+    fn scoped_put_normalizes_f64_revision_spellings() {
+        for (spelling, expected) in [
+            (json!(3), 3_u64),
+            (json!(3.0), 3_u64),
+            (json!(9007199254740992_u64), 9007199254740992_u64),
+            (json!(9007199254740993_u64), 9007199254740992_u64),
+        ] {
+            let mut entry = minimal_put_entry();
+            entry["revision"] = spelling.clone();
+            let payload = json!({
+                "entry": entry,
+                "expected_base_revision": spelling.clone(),
+            });
+            let call = decode_knowledge_call("port.knowledge.put", &payload, None);
+            let SpokeResult::Ok(KnowledgeCall::PutKnowledgeEntry(entry, base_revision)) = call
+            else {
+                panic!("revision={spelling} must decode")
+            };
+            assert_eq!(
+                entry.revision,
+                Some(expected),
+                "entry.revision={spelling} must decode to the f64-observed identity"
+            );
+            assert_eq!(
+                base_revision,
+                Some(expected),
+                "expected_base_revision={spelling} must decode to the f64-observed identity"
+            );
+        }
+    }
+
+    /// Every declared nested member is non-nullable: an explicit `null`
+    /// inside `body`, `source_anchor`, `source_anchor.span` or
+    /// `body.attributes[]` is malformed `INVALID_INPUT`, never the
+    /// absent-member collapse (qc1 F-018 / qc3 F-016 residual — TS parity:
+    /// `isValidKnowledgeEntryDeep` refuses them before the store).
+    #[test]
+    fn scoped_put_refuses_null_nested_entry_members() {
+        let mut entry = minimal_put_entry();
+        entry["body"]["summary"] = Value::Null;
+        assert!(matches!(
+            decode_put(entry),
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
+        ));
+
+        let mut entry = minimal_put_entry();
+        entry["source_anchor"] = json!({
+            "schema_version": 1,
+            "source_id": "src_1",
+            "span": Value::Null,
+            "extensions": {},
+        });
+        assert!(matches!(
+            decode_put(entry),
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
+        ));
+
+        let mut entry = minimal_put_entry();
+        entry["source_anchor"] = json!({
+            "schema_version": 1,
+            "source_id": "src_1",
+            "span": { "start": Value::Null, "end": 5 },
+            "extensions": {},
+        });
+        assert!(matches!(
+            decode_put(entry),
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
+        ));
+
+        let mut entry = minimal_put_entry();
+        entry["body"]["attributes"] = json!([{
+            "trait_type": "kind",
+            "value": "v",
+            "display_type": Value::Null,
+        }]);
+        assert!(matches!(
+            decode_put(entry),
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
+        ));
+
+        // Nested extension-bag `null` stays legal — `extensions` values
+        // are opaque, not declared members.
+        let mut entry = minimal_put_entry();
+        entry["extensions"]["ns"] = json!({ "k": Value::Null });
+        assert!(matches!(decode_put(entry), SpokeResult::Ok(_)));
+    }
     use super::*;
     use crate::remote::transport::loopback_transport_pair;
 
@@ -2881,7 +3529,9 @@ mod tests {
             }));
             let negotiated = negotiated_capabilities(&local, &remote);
             assert_eq!(
-                negotiated.iter().any(|cap| cap == CAPABILITY_SPOKE_COGNITION),
+                negotiated
+                    .iter()
+                    .any(|cap| cap == CAPABILITY_SPOKE_COGNITION),
                 case.get("negotiated_includes_cognition")
                     .and_then(Value::as_bool)
                     .expect("negotiated_includes_cognition"),
@@ -2907,11 +3557,13 @@ mod tests {
             ports: None,
             invoke_timeout_ms: None,
         });
-        let caps = |list: &[&str]| -> Vec<String> {
-            list.iter().map(|cap| (*cap).to_owned()).collect()
-        };
+        let caps =
+            |list: &[&str]| -> Vec<String> { list.iter().map(|cap| (*cap).to_owned()).collect() };
         for op in ["port.knowledge.get", "port.scope.list_knowledge_entries"] {
-            assert!(responder.gate_allows(op, &caps(&["spoke-knowledge"])), "{op}");
+            assert!(
+                responder.gate_allows(op, &caps(&["spoke-knowledge"])),
+                "{op}"
+            );
             assert!(
                 responder.gate_allows(op, &caps(&["spoke-baseline", "spoke-knowledge"])),
                 "{op}"
@@ -3045,5 +3697,276 @@ mod tests {
             "{response}"
         );
         responder.close();
+    }
+    // ── Scoped put: anchor pre-read regression (QC2-11 / F-012) + CAS
+    //    binding (contract §Anchor immutability) ─────────────────────────
+
+    /// Minimal scoped store: `get` answers the injected absence code or a
+    /// stored entry; `put` records the CAS base it was called with.
+    struct ScopedPutStore {
+        stored: Option<KnowledgeEntry>,
+        get_code: SpokeRejectCode,
+        cas_bases: Mutex<Vec<Option<u64>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl spoke_operations::ScopedKnowledgePort for ScopedPutStore {
+        async fn get_scoped_knowledge_entry(
+            &self,
+            _scope: &Scope,
+            _entry_id: &str,
+        ) -> SpokeResult<KnowledgeEntry> {
+            match &self.stored {
+                Some(entry) => spoke_ok(entry.clone()),
+                None => spoke_reject(self.get_code, "entry absent", None),
+            }
+        }
+
+        async fn put_scoped_knowledge_entry(
+            &self,
+            _scope: &Scope,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
+            self.cas_bases
+                .lock()
+                .expect("cas_bases")
+                .push(expected_base_revision);
+            spoke_ok(entry)
+        }
+
+        async fn list_scoped_knowledge_entries(
+            &self,
+            _scope: &Scope,
+        ) -> SpokeResult<Vec<KnowledgeEntry>> {
+            spoke_ok(Vec::new())
+        }
+    }
+
+    fn put_face(store: Arc<ScopedPutStore>) -> crate::remote::RemoteKnowledgeFace {
+        crate::remote::RemoteKnowledgeFace {
+            store,
+            admission: Arc::new(|_peer| {
+                spoke_reject(SpokeRejectCode::InternalError, "unused", None)
+            }),
+        }
+    }
+
+    fn put_entry(entry_id: &str, anchor: Option<Value>) -> KnowledgeEntry {
+        let mut entry = json!({
+            "schema_version": 1,
+            "entry_id": entry_id,
+            "canonical_name": "fixture",
+            "entry_type": "note",
+            "status": "active",
+            "body": {},
+            "extensions": {},
+        });
+        if let Some(anchor) = anchor {
+            entry["adoption_anchor"] = anchor;
+        }
+        serde_json::from_value(entry).expect("valid KnowledgeEntry")
+    }
+
+    fn put_anchor() -> Value {
+        json!({
+            "schema_version": 1,
+            "source_scope_id": "src-scope",
+            "source_entry_id": "src-entry",
+            "source_revision": 3,
+            "extensions": {},
+        })
+    }
+
+    fn put_scope() -> Scope {
+        serde_json::from_value(json!({"scope_id": "s1", "extensions": {}})).expect("valid Scope")
+    }
+
+    /// QC2-11 / qc1 F-012 regression: a scoped `get` answering
+    /// `KNOWLEDGE_ENTRY_NOT_FOUND` is an absent destination — a
+    /// create-only put (caller base `None`) proceeds as a create, not a
+    /// refusal. A non-null caller base on an absent entry is an update
+    /// on a missing entry and refuses `STORED_REVISION_STALE` before
+    /// any write (QC2-12/F-014: the wire fence is never substituted).
+    #[tokio::test]
+    async fn scoped_put_creates_when_the_store_answers_entry_not_found() {
+        let store = Arc::new(ScopedPutStore {
+            stored: None,
+            get_code: SpokeRejectCode::KnowledgeEntryNotFound,
+            cas_bases: Mutex::new(Vec::new()),
+        });
+        let face = put_face(store.clone());
+        let result = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(put_entry("new-entry", None), None),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        let SpokeResult::Ok(entry) = result else {
+            panic!("expected create success, got {result:?}")
+        };
+        assert_eq!(entry["entry_id"], "new-entry");
+        assert_eq!(
+            *store.cas_bases.lock().expect("cas_bases"),
+            vec![None],
+            "a create carries no CAS base"
+        );
+
+        // An update fence on an absent entry refuses before any write.
+        let stale = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(put_entry("absent-entry", None), Some(7)),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(
+            matches!(
+                stale,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::StoredRevisionStale,
+                    ..
+                })
+            ),
+            "an update base on an absent entry refuses: {stale:?}"
+        );
+        assert_eq!(
+            store.cas_bases.lock().expect("cas_bases").len(),
+            1,
+            "the stale-base refusal happened before the write"
+        );
+    }
+
+    /// Caller OCC + §Anchor immutability CAS binding: the write's
+    /// compare-and-swap base is the wire-supplied
+    /// `expected_base_revision`, accepted only when it equals the stored
+    /// snapshot the anchor check inspected — a stale base refuses
+    /// `STORED_REVISION_STALE`, a create-only `None` on an occupied slot
+    /// refuses `REVISION_CONFLICT`, and a matched base writes (QC2-12 /
+    /// qc3 F-014).
+    #[tokio::test]
+    async fn scoped_put_honours_the_caller_occ_fence() {
+        let mut stored_entry = put_entry("anchored-entry", Some(put_anchor()));
+        stored_entry.revision = Some(5);
+        let store = Arc::new(ScopedPutStore {
+            stored: Some(stored_entry),
+            get_code: SpokeRejectCode::KnowledgeEntryNotFound,
+            cas_bases: Mutex::new(Vec::new()),
+        });
+        let face = put_face(store.clone());
+        // Anchor preserved byte-identically + a stale wire base: the put
+        // refuses before any store write.
+        let stale = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(
+                put_entry("anchored-entry", Some(put_anchor())),
+                Some(2),
+            ),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(
+            matches!(
+                stale,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::StoredRevisionStale,
+                    ..
+                })
+            ),
+            "a stale caller base refuses even when the anchor is unchanged: {stale:?}"
+        );
+        assert!(
+            store.cas_bases.lock().expect("cas_bases").is_empty(),
+            "the stale-base refusal happened before the write"
+        );
+
+        // A create-only request cannot replace the occupied slot.
+        let create = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", Some(put_anchor())), None),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(
+            matches!(
+                create,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::RevisionConflict,
+                    ..
+                })
+            ),
+            "a create-only put on an occupied slot refuses: {create:?}"
+        );
+
+        // D1 refusal precedence (qc2 QC2-14 / qc3 F-016): the SAME
+        // occupied-create request whose candidate would REMOVE the stored
+        // anchor still refuses the create-only `REVISION_CONFLICT` — the
+        // caller OCC fence evaluates before the anchor-immutability
+        // check on the same snapshot, matching the TS responder.
+        let create_removing_anchor = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", None), None),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(
+            matches!(
+                create_removing_anchor,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::RevisionConflict,
+                    ..
+                })
+            ),
+            "the create-only refusal precedes the anchor refusal: {create_removing_anchor:?}"
+        );
+        assert!(
+            store.cas_bases.lock().expect("cas_bases").is_empty(),
+            "neither overlapping refusal reached a write"
+        );
+
+        // The matched base writes — the CAS base IS the caller fence,
+        // equal to the inspected revision.
+        let result = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(
+                put_entry("anchored-entry", Some(put_anchor())),
+                Some(5),
+            ),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
+        assert_eq!(
+            *store.cas_bases.lock().expect("cas_bases"),
+            vec![Some(5)],
+            "the CAS base is the caller fence, verified against the checked revision"
+        );
+
+        // Mutate-then-put still refuses ADOPTION_ANCHOR_IMMUTABLE before
+        // any store write.
+        let mutated = call_knowledge_op(
+            KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", None), Some(5)),
+            &face,
+            &put_scope(),
+            None,
+        )
+        .await;
+        assert!(matches!(
+            mutated,
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::AdoptionAnchorImmutable,
+                ..
+            })
+        ));
+        assert_eq!(
+            store.cas_bases.lock().expect("cas_bases").len(),
+            1,
+            "the immutable-anchor refusal happened before the write"
+        );
     }
 }

@@ -36,7 +36,7 @@ import {
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import { isAllowlisted } from "../../src/core/allowlist.js";
-import { capabilitySatisfies, requiredCapability } from "../../src/core/dispatch.js";
+import { capabilitySatisfies, requiredCapability, reservedPrefixOp } from "../../src/core/dispatch.js";
 import {
   authenticateInvokeResponse,
   authenticateSession,
@@ -317,9 +317,14 @@ type GateResult =
       stats.authSeen = true;
     }
 
-    // note: dispatch gate — product map first, then the core table; unknown
-    // ops and missing capabilities answer `op_unsupported`.
-    const required = requirements[doc.op] ?? requiredCapability(doc.op);
+    // note: dispatch gate — a reserved `knowledge.*` name with no core
+    // row is terminal `op_unsupported` BEFORE the product map (QC2-16 /
+    // F-018): a conflicting custom row can never authorize it. Then the
+    // product map, then the core table; unknown ops and missing
+    // capabilities answer `op_unsupported`.
+    const required = reservedPrefixOp(doc.op)
+      ? undefined
+      : requirements[doc.op] ?? requiredCapability(doc.op);
     if (
       required === undefined ||
       !capabilitySatisfies(current.negotiated_capabilities, required)

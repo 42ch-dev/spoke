@@ -30,21 +30,21 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
-    jcs_sha256_hex, spoke_ok, spoke_reject, BaselinePorts, ComputablePort,
+    jcs_sha256_hex, spoke_ok, spoke_reject, AdoptionPort, BaselinePorts, ComputablePort,
     ForkTimelineQueryPort, HistoryPort, HistoryPruneResult, MemoryPort, ScopedKnowledgePort,
     SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::data::revision_snapshot::RevisionSnapshotSnapshot;
 use spoke_schemas::{
-    ExtractRequest, ExtractResponse, HistoryRevisionsGetRequest,
-    HistoryRevisionsPruneRequest, Principal, RevisionSnapshot, Scope,
+    ExtractRequest, ExtractResponse, HistoryRevisionsGetRequest, HistoryRevisionsPruneRequest,
+    KnowledgeAdoptRequest, KnowledgeAdoptResponse, Principal, RevisionSnapshot, Scope,
 };
 
 /// Connect-owned service face for the core `extract` op: the serving host
@@ -161,7 +161,9 @@ impl RemoteMemoryService for MemoryPortService {
             "memory.grants.list" => {
                 serve(payload, |request| port.list_grants(&principal, request)).await
             }
-            "memory.grants.grant" => serve(payload, |request| port.grant(&principal, request)).await,
+            "memory.grants.grant" => {
+                serve(payload, |request| port.grant(&principal, request)).await
+            }
             "memory.grants.revoke" => {
                 serve(payload, |request| port.revoke_grant(&principal, request)).await
             }
@@ -173,10 +175,16 @@ impl RemoteMemoryService for MemoryPortService {
                 serve(payload, |request| port.get_candidate(&principal, request)).await
             }
             "memory.candidates.dismiss" => {
-                serve(payload, |request| port.dismiss_candidate(&principal, request)).await
+                serve(payload, |request| {
+                    port.dismiss_candidate(&principal, request)
+                })
+                .await
             }
             "memory.candidates.review" => {
-                serve(payload, |request| port.review_candidate(&principal, request)).await
+                serve(payload, |request| {
+                    port.review_candidate(&principal, request)
+                })
+                .await
             }
             "memory.records.create" => {
                 serve(payload, |request| port.create_record(&principal, request)).await
@@ -204,13 +212,22 @@ impl RemoteMemoryService for MemoryPortService {
                 serve(payload, |request| port.update_profile(&principal, request)).await
             }
             "memory.reflections.state" => {
-                serve(payload, |request| port.get_reflection_state(&principal, request)).await
+                serve(payload, |request| {
+                    port.get_reflection_state(&principal, request)
+                })
+                .await
             }
             "memory.reflections.list" => {
-                serve(payload, |request| port.list_reflections(&principal, request)).await
+                serve(payload, |request| {
+                    port.list_reflections(&principal, request)
+                })
+                .await
             }
             "memory.reflections.generate" => {
-                serve(payload, |request| port.generate_reflection(&principal, request)).await
+                serve(payload, |request| {
+                    port.generate_reflection(&principal, request)
+                })
+                .await
             }
             "memory.receipts.get" => {
                 serve(payload, |request| port.get_receipt(&principal, request)).await
@@ -257,8 +274,7 @@ impl RemoteMemoryService for MemoryPortService {
 /// payload (MEM-R003; spoke-history contract §Authorization). The responder
 /// calls it inside the local serve-wait budget: a host resolver MUST return
 /// within that budget on its own (same bound as [`KnowledgeAdmission`]).
-pub type HistoryAdmission =
-    Arc<dyn Fn(&str) -> SpokeResult<(Principal, Scope)> + Send + Sync>;
+pub type HistoryAdmission = Arc<dyn Fn(&str) -> SpokeResult<(Principal, Scope)> + Send + Sync>;
 
 /// `history.revisions.get` wire op.
 pub const HISTORY_OP_GET: &str = "history.revisions.get";
@@ -322,10 +338,51 @@ pub enum HistoryDedupLookup {
 /// namespace MUST stay stable across reconnects, which the in-memory
 /// default cannot promise — durable `HistoryDedupStore` implementations
 /// own that guarantee.
+///
+/// The store also owns same-key single-flight (spoke-knowledge-adoption
+/// contract §Repeat and idempotency): [`HistoryDedupStore::claim_key`]
+/// returns the per-key execution lock the service holds across
+/// lookup → port call → record, so one store shared by multiple
+/// services still yields at most one provider invocation per retry
+/// identity while unrelated keys proceed concurrently. Durable stores
+/// implement the same contract with atomic probe-and-record or keyed
+/// single-flight of their own.
 #[async_trait]
 pub trait HistoryDedupStore: Send + Sync {
     /// Resolve one dedup key (see [`HistoryDedupLookup`]).
     async fn lookup(&self, key: &str) -> HistoryDedupLookup;
+
+    /// Acquire the per-key execution lock covering the
+    /// lookup → provider call → `record` sequence: same-key callers
+    /// serialize on the returned guard, unrelated keys never block.
+    /// Cross-process atomicity is a store-implementation obligation.
+    ///
+    /// The default is a process-wide keyed single-flight on the
+    /// four-member retry identity: a store that predates the
+    /// single-flight rule keeps compiling and still cannot
+    /// double-invoke within the process — a `lookup`/`record`-only
+    /// store serves one dedup space per store, and the shared default
+    /// serializes the same key across every such store (F-015). A
+    /// durable store MUST override with its own atomic
+    /// probe-and-record or keyed single-flight (contract §Repeat and
+    /// idempotency).
+    async fn claim_key(&self, key: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        static IN_FLIGHT: LazyLock<Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>> =
+            LazyLock::new(|| Mutex::new(HashMap::new()));
+        let lock = {
+            let mut map = IN_FLIGHT.lock().expect("dedup claim lock");
+            map.retain(|_, weak| weak.strong_count() > 0);
+            match map.get(key).and_then(Weak::upgrade) {
+                Some(lock) => lock,
+                None => {
+                    let lock = Arc::new(tokio::sync::Mutex::new(()));
+                    map.insert(key.to_owned(), Arc::downgrade(&lock));
+                    lock
+                }
+            }
+        };
+        lock.lock_owned().await
+    }
 
     /// Persist the digest and settled outcome for one executed key.
     async fn record(&self, key: &str, record: HistoryDedupRecord);
@@ -352,6 +409,11 @@ struct InMemoryDedupState {
     /// Live records, FIFO by insertion order.
     records: HashMap<String, HistoryDedupRecord>,
     order: VecDeque<String>,
+    /// Per-key single-flight locks — the store-interface ownership
+    /// point: every service sharing this store serializes on the same
+    /// lock for a key, while unrelated keys hold independent locks.
+    /// Weak entries drop once no caller holds the lock.
+    in_flight: HashMap<String, Weak<tokio::sync::Mutex<()>>>,
     /// Evicted keys — permanent for the lifetime of the store (contract
     /// §9.1): never evicted, so a replayed evicted key never returns
     /// `Unseen`.
@@ -394,6 +456,24 @@ impl HistoryDedupStore for InMemoryHistoryDedupStore {
             return HistoryDedupLookup::Evicted;
         }
         HistoryDedupLookup::Unseen
+    }
+
+    async fn claim_key(&self, key: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let mut state = self.state.lock().expect("dedup lock");
+            state.in_flight.retain(|_, weak| weak.strong_count() > 0);
+            match state.in_flight.get(key).and_then(Weak::upgrade) {
+                Some(lock) => lock,
+                None => {
+                    let lock = Arc::new(tokio::sync::Mutex::new(()));
+                    state
+                        .in_flight
+                        .insert(key.to_owned(), Arc::downgrade(&lock));
+                    lock
+                }
+            }
+        };
+        lock.lock_owned().await
     }
 
     async fn record(&self, key: &str, record: HistoryDedupRecord) {
@@ -469,47 +549,39 @@ fn decode_history_scope(op: &str, scope: Option<Value>) -> SpokeResult<Option<Sc
 /// shared `Scope` decodes once from the owned subtree), then the typed
 /// request decodes from the remaining object and its selector strings
 /// move into the call — no full-payload or selector clones.
-fn decode_history_call(
-    op: &str,
-    payload: Value,
-    scope: Option<Value>,
-) -> SpokeResult<HistoryCall> {
+fn decode_history_call(op: &str, payload: Value, scope: Option<Value>) -> SpokeResult<HistoryCall> {
     let scope = match decode_history_scope(op, scope) {
         SpokeResult::Ok(scope) => scope,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
     match op {
-        HISTORY_OP_GET => {
-            match serde_json::from_value::<HistoryRevisionsGetRequest>(payload) {
-                Ok(request) => spoke_ok(HistoryCall::Get {
-                    scope,
-                    entity_kind: request.entity_kind.into(),
-                    entity_id: request.entity_id.into(),
-                    revision: request.revision,
-                }),
-                Err(error) => spoke_reject(
-                    SpokeRejectCode::InvalidInput,
-                    format!("invalid {op} payload: {error}"),
-                    None,
-                ),
-            }
-        }
-        HISTORY_OP_PRUNE => {
-            match serde_json::from_value::<HistoryRevisionsPruneRequest>(payload) {
-                Ok(request) => spoke_ok(HistoryCall::Prune {
-                    scope,
-                    entity_kind: request.entity_kind.into(),
-                    entity_id: request.entity_id.into(),
-                    keep: request.keep,
-                    idempotency_key: request.idempotency_key.into(),
-                }),
-                Err(error) => spoke_reject(
-                    SpokeRejectCode::InvalidInput,
-                    format!("invalid {op} payload: {error}"),
-                    None,
-                ),
-            }
-        }
+        HISTORY_OP_GET => match serde_json::from_value::<HistoryRevisionsGetRequest>(payload) {
+            Ok(request) => spoke_ok(HistoryCall::Get {
+                scope,
+                entity_kind: request.entity_kind.into(),
+                entity_id: request.entity_id.into(),
+                revision: request.revision,
+            }),
+            Err(error) => spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("invalid {op} payload: {error}"),
+                None,
+            ),
+        },
+        HISTORY_OP_PRUNE => match serde_json::from_value::<HistoryRevisionsPruneRequest>(payload) {
+            Ok(request) => spoke_ok(HistoryCall::Prune {
+                scope,
+                entity_kind: request.entity_kind.into(),
+                entity_id: request.entity_id.into(),
+                keep: request.keep,
+                idempotency_key: request.idempotency_key.into(),
+            }),
+            Err(error) => spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("invalid {op} payload: {error}"),
+                None,
+            ),
+        },
         _ => SpokeResult::Reject(SpokeReject {
             code: SpokeRejectCode::CapabilityPortMissing,
             message: format!("unimplemented history op {op}"),
@@ -536,6 +608,12 @@ fn scope_wire_equal(requested: &Scope, admitted: &Scope) -> bool {
 /// identity is preserved.
 const JCS_EXACT_INTEGER_MAX: u64 = 9_007_199_254_740_991;
 
+/// One more than the largest u64 — the TypeScript predicate's upper
+/// bound. A number at or beyond it is a float on both stacks and passes;
+/// an integral value strictly inside the u64 range but beyond
+/// [`JCS_EXACT_INTEGER_MAX`] is refused identically.
+const U64_RANGE_BOUND: f64 = 18_446_744_073_709_551_616.0; // 2^64
+
 /// Every integer member of `value` is inside the JCS exact-integer
 /// range. The prune dedup digest is SHA-256 over the RFC 8785 encoding
 /// of the whole request payload; an integer beyond 2^53 − 1 would
@@ -544,6 +622,12 @@ const JCS_EXACT_INTEGER_MAX: u64 = 9_007_199_254_740_991;
 /// The serving boundary refuses such payloads with `INVALID_INPUT`
 /// instead of rounding (spoke-history contract §`HistoryPort`: the
 /// runtime never rounds an unrepresentable integer).
+///
+/// Integral floats follow the VALUE-based TypeScript rule, not the Rust
+/// token's representation (F-013): `1e16` decodes as an integral f64
+/// here and as an unsafe integral `number` there — the same wire
+/// payload must take the same refusal. Non-integral floats and
+/// out-of-u64 integral floats carry no integer identity to lose.
 fn payload_integers_jcs_exact(value: &Value) -> bool {
     match value {
         Value::Number(number) => {
@@ -554,14 +638,107 @@ fn payload_integers_jcs_exact(value: &Value) -> bool {
                     .expect("integer number");
                 magnitude <= JCS_EXACT_INTEGER_MAX
             } else {
-                // A non-integral f64 member carries no integer identity
-                // to lose in canonicalization.
-                true
+                let Some(float) = number.as_f64() else {
+                    return true;
+                };
+                if float.fract() != 0.0 {
+                    return true;
+                }
+                let magnitude = float.abs();
+                magnitude <= JCS_EXACT_INTEGER_MAX as f64 || magnitude >= U64_RANGE_BOUND
             }
         }
         Value::Array(items) => items.iter().all(payload_integers_jcs_exact),
         Value::Object(members) => members.values().all(payload_integers_jcs_exact),
         _ => true,
+    }
+}
+
+/// Largest integer exactly representable as an f64 — the inclusive
+/// canonicalization bound C5 states (`[0, 2^53]`, no exponent). The
+/// history digest predicate above deliberately stops one below it: a
+/// `u64` between 2^53−1 and 2^53 has no exact integer identity once it
+/// passes through `serde_jcs`'s f64 formatting, so history refuses it;
+/// adoption admits by parsed VALUE (the JavaScript rule below).
+const ADOPT_EXACT_INTEGER_BOUND: u64 = 1 << 53;
+
+/// Every number member of `value` validates identically after parse on
+/// both adoption stacks (contract Wire-wide rules, canonical numeric
+/// spelling): JavaScript parses every number token to one f64, so the
+/// predicate is value-based — an integral value is admissible exactly
+/// when its magnitude is within the inclusive exact-integer bound
+/// `[−2^53, 2^53]` or beyond the f64-representable integer range
+/// (`[−2^64, 2^64]`'s endpoints included, where JS still parses an
+/// integral f64). The Rust `u64`/`f64` token distinction must not split
+/// one wire payload (qc1 F-013 / qc3 F-006: the identical
+/// `18446744073709551615` spelling must not refuse where JavaScript
+/// admits it), and the `2^53` endpoint canonicalizes without an
+/// exponent on both stacks (C5).
+///
+/// Deliberately separate from [`payload_integers_jcs_exact`]: history's
+/// digest-integrity rule (never round an unrepresentable integer) stays
+/// untouched — this predicate is adoption-only.
+fn adopt_payload_integers_exact(value: &Value) -> bool {
+    match value {
+        Value::Number(number) => {
+            let Some(float) = number.as_f64() else {
+                return true;
+            };
+            if float.fract() != 0.0 {
+                return true;
+            }
+            let magnitude = float.abs();
+            magnitude <= ADOPT_EXACT_INTEGER_BOUND as f64 || magnitude >= U64_RANGE_BOUND
+        }
+        Value::Array(items) => items.iter().all(adopt_payload_integers_exact),
+        Value::Object(members) => members.values().all(adopt_payload_integers_exact),
+        _ => true,
+    }
+}
+
+/// The typed `knowledge.adopt` request decode. `source_revision` goes
+/// through the raw wire number, not only the generated `u64` binding
+/// (qc3 F-006): an integral-float spelling (`1.0`) names the same wire
+/// number and decodes to the same revision, a revision beyond the
+/// exact-integer bound refuses `INVALID_INPUT` like the TypeScript
+/// `Number.isSafeInteger` decode, and a non-integer or negative value
+/// refuses the same way. Every other member decodes through the
+/// generated binding (its newtypes enforce the non-empty strings, the
+/// 1–128 code-point `idempotency_key`, the `ExtensionMap` key pattern
+/// and object values, and unknown members deny).
+fn adopt_request_from_payload(op: &str, payload: &Value) -> SpokeResult<KnowledgeAdoptRequest> {
+    let invalid = |detail: String| SpokeReject {
+        code: SpokeRejectCode::InvalidInput,
+        message: format!("invalid {op} payload: {detail}"),
+        details: None,
+    };
+    let mut normalized = payload.clone();
+    let Some(revision) = normalized.get_mut("source_revision") else {
+        return SpokeResult::Reject(invalid("missing source_revision".into()));
+    };
+    let Value::Number(number) = revision else {
+        return SpokeResult::Reject(invalid(
+            "source_revision must be a non-negative integer".into(),
+        ));
+    };
+    let Some(float) = number.as_f64() else {
+        return SpokeResult::Reject(invalid(
+            "source_revision must be a non-negative integer".into(),
+        ));
+    };
+    if !float.is_finite()
+        || float.fract() != 0.0
+        || float < 0.0
+        || float > ADOPT_EXACT_INTEGER_BOUND as f64
+    {
+        return SpokeResult::Reject(invalid(
+            "source_revision must be a non-negative integer within the exact-integer range".into(),
+        ));
+    }
+    *revision = json!(float as u64);
+    match serde_json::from_value(normalized) {
+        Ok(request) => SpokeResult::Ok(request),
+        Err(error) => SpokeResult::Reject(invalid(error.to_string())),
     }
 }
 
@@ -571,11 +748,7 @@ fn payload_integers_jcs_exact(value: &Value) -> bool {
 fn history_transport_reject<T>(detail: impl Into<String>) -> SpokeResult<T> {
     let mut details = Map::new();
     details.insert("kind".into(), Value::String("transport".into()));
-    spoke_reject(
-        SpokeRejectCode::InternalError,
-        detail.into(),
-        Some(details),
-    )
+    spoke_reject(SpokeRejectCode::InternalError, detail.into(), Some(details))
 }
 
 /// Shared `history.revisions.get` snapshot validation (contract §Connect
@@ -616,9 +789,7 @@ pub(crate) fn validate_history_snapshot(
     }
     let (nested_id, nested_revision) = match &snapshot.snapshot {
         RevisionSnapshotSnapshot::KnowledgeEntry {
-            entry_id,
-            revision,
-            ..
+            entry_id, revision, ..
         } => (entry_id.as_str(), *revision),
         RevisionSnapshotSnapshot::Relation {
             relation_id,
@@ -734,11 +905,10 @@ fn valid_served_prune_result(result: HistoryPruneResult) -> SpokeResult<Value> {
 pub struct HistoryPortService {
     port: Arc<dyn HistoryPort + Send + Sync>,
     admission: HistoryAdmission,
+    /// Owns same-key single-flight via [`HistoryDedupStore::claim_key`]:
+    /// two concurrent same-key prunes cannot both observe `Unseen` and
+    /// double-execute, while unrelated keys proceed concurrently.
     dedup: Arc<dyn HistoryDedupStore>,
-    /// Serializes the dedup lookup → port call → record sequence so two
-    /// concurrent same-key prunes cannot both observe `Unseen` and
-    /// double-execute.
-    dedup_lock: tokio::sync::Mutex<()>,
 }
 
 impl HistoryPortService {
@@ -750,7 +920,6 @@ impl HistoryPortService {
             port,
             admission,
             dedup: Arc::new(InMemoryHistoryDedupStore::new()),
-            dedup_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -867,8 +1036,7 @@ impl RemoteHistoryService for HistoryPortService {
             } => {
                 // §9.1: the digest over the whole request payload was
                 // computed before the `scope` member moved out.
-                let payload_digest =
-                    payload_digest.expect("prune computes the payload digest");
+                let payload_digest = payload_digest.expect("prune computes the payload digest");
                 let scope_digest = match jcs_sha256_hex(
                     &serde_json::to_value(&effective_scope).unwrap_or_else(|_| json!({})),
                 ) {
@@ -879,9 +1047,12 @@ impl RemoteHistoryService for HistoryPortService {
                     "{scope_digest}|{}|{op}|{idempotency_key}",
                     principal.principal_id.as_str()
                 );
-                // One lock covers lookup → port → record: concurrent
-                // same-key prunes cannot both see `Unseen`.
-                let _dedup_guard = self.dedup_lock.lock().await;
+                // The store-interface keyed lock covers
+                // lookup → port → record: concurrent same-key prunes
+                // cannot both see `Unseen` — including across services
+                // sharing this store — while unrelated keys proceed
+                // concurrently.
+                let _dedup_guard = self.dedup.claim_key(&dedup_key).await;
                 match self.dedup.lookup(&dedup_key).await {
                     HistoryDedupLookup::Evicted => {
                         return spoke_reject(
@@ -934,10 +1105,500 @@ impl RemoteHistoryService for HistoryPortService {
     }
 }
 
+// ── `spoke-knowledge-adoption` serving face (spoke-knowledge-adoption
+//    contract §Connect operation) ──────────────────────────────────────
+//
+// `RemoteAdoptionService` is the invoke seam the responder calls for the
+// `knowledge.*` reserved-product ops; `AdoptionPortService` adapts a
+// provider `AdoptionPort` to it, mirroring `RemoteHistoryService` /
+// `HistoryPortService`. The service owns the concerns the contract keeps
+// OUT of `AdoptionPort`: peer admission (`AdoptionAdmission` maps the
+// authenticated `peer_id` to the `Principal` and admitted `Scope`), and
+// the connect idempotency envelope (the recorded-outcome model keyed
+// `(effective_scope, requester_principal_id, op, idempotency_key)`, digest
+// over RFC 8785 canonical JSON of the complete request payload).
+
+/// `knowledge.adopt` wire op.
+pub const KNOWLEDGE_OP_ADOPT: &str = "knowledge.adopt";
+
+/// Admission context for the adoption face: maps the authenticated
+/// connect peer to the `Principal` and the `Scope` the provider admits —
+/// the same `(Principal, Scope)` shape as [`HistoryAdmission`]. Neither
+/// comes from the payload (MEM-R003; contract §Admission and
+/// owner-private absence).
+pub type AdoptionAdmission = HistoryAdmission;
+
+/// Connect-owned service face for the `spoke-knowledge-adoption` family
+/// (`knowledge.*`, spoke-knowledge-adoption contract §Connect operation):
+/// the serving host owns the provider — the
+/// [`spoke_operations::AdoptionPort`] implementation — the admission
+/// context that turns the authenticated peer into a `Principal` +
+/// admitted `Scope` (never payload-asserted), the mapping of the op onto
+/// its typed port call, and the idempotency dedup store.
+///
+/// One callable serves the family (same no-wrapper rule as `memory.*` /
+/// `history.*`): `payload` is the op's request object and the returned
+/// value is its response object — `{outcome, entry}` for adopt.
+#[async_trait]
+pub trait RemoteAdoptionService: Send + Sync {
+    /// Serve one `knowledge.*` op for the authenticated `peer_id`.
+    async fn invoke(
+        &self,
+        peer_id: &str,
+        op: &str,
+        payload: serde_json::Value,
+    ) -> SpokeResult<serde_json::Value>;
+}
+
+/// `RemoteAdoptionService` over a provider [`AdoptionPort`]: the
+/// `knowledge.adopt` op maps onto its typed port call, so a host attaches
+/// an existing provider with
+/// `RemoteServePortsComposite::new(..).with_adoption(Arc::new(AdoptionPortService::new(port, admission)))`
+/// — mirroring [`HistoryPortService`]. The dedup key is the RFC 8785
+/// canonical JSON serialization of the ordered retry-identity tuple
+/// `(op, effective_scope, requester_principal_id, idempotency_key)` —
+/// member boundaries stay structural, never delimiter-joined (contract
+/// §Repeat and idempotency: the contract key names that tuple followed
+/// by `payload_digest`; the digest is recorded on the dedup record and
+/// compared on replay, so a same-identity different-digest replay still
+/// answers `IDEMPOTENCY_CONFLICT`). A same-identity same-digest replay
+/// returns the recorded outcome with `outcome` normalized to
+/// `already_present` — the existing copy, no second write.
+///
+/// The dedup store reuses the `HistoryDedupStore` seam — the
+/// recorded-outcome shape and bounded in-memory default are identical;
+/// host-injectable for durable persistence. The store also owns same-key
+/// single-flight through [`HistoryDedupStore::claim_key`].
+pub struct AdoptionPortService {
+    port: Arc<dyn AdoptionPort + Send + Sync>,
+    admission: AdoptionAdmission,
+    dedup: Arc<dyn HistoryDedupStore>,
+}
+
+impl AdoptionPortService {
+    /// Attach a provider port + admission with the bounded in-memory
+    /// dedup default.
+    #[must_use]
+    pub fn new(port: Arc<dyn AdoptionPort + Send + Sync>, admission: AdoptionAdmission) -> Self {
+        Self {
+            port,
+            admission,
+            dedup: Arc::new(InMemoryHistoryDedupStore::new()),
+        }
+    }
+
+    /// Inject a durable dedup store (entries MUST outlive a Connect
+    /// session and the principal-bound namespace MUST stay stable across
+    /// reconnects — the in-memory default cannot promise that).
+    #[must_use]
+    pub fn with_dedup_store(mut self, dedup: Arc<dyn HistoryDedupStore>) -> Self {
+        self.dedup = dedup;
+        self
+    }
+}
+
+#[async_trait]
+impl RemoteAdoptionService for AdoptionPortService {
+    async fn invoke(
+        &self,
+        peer_id: &str,
+        op: &str,
+        payload: serde_json::Value,
+    ) -> SpokeResult<serde_json::Value> {
+        if op != KNOWLEDGE_OP_ADOPT {
+            return SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::CapabilityPortMissing,
+                message: format!("unimplemented adoption op {op}"),
+                details: None,
+            });
+        }
+        // The digest covers the WHOLE request object under RFC 8785 —
+        // refuse any member outside the adoption exact-integer rule
+        // before hashing (see `adopt_payload_integers_exact`; history
+        // keeps its own stricter digest rule).
+        if !adopt_payload_integers_exact(&payload) {
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("invalid {op} payload: integer member outside the exact-integer range"),
+                None,
+            );
+        }
+        let payload_digest = match jcs_sha256_hex(&payload) {
+            SpokeResult::Ok(digest) => digest,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        // Decode at the boundary first: a malformed payload keeps its
+        // `INVALID_INPUT` without paying an admission lookup (contract:
+        // validation and decode complete before admission). An explicit
+        // `destination_entry_id: null` is malformed — the selector is a
+        // string or absent — but the generated `Option` field decodes
+        // null as absent, so the null check runs on the raw payload.
+        let explicit_null_selector = payload
+            .get("destination_entry_id")
+            .is_some_and(Value::is_null);
+        if explicit_null_selector {
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("invalid {op} payload: destination_entry_id must be a string or absent, not null"),
+                None,
+            );
+        }
+        let request = match adopt_request_from_payload(op, &payload) {
+            SpokeResult::Ok(request) => request,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        let (principal, effective_scope) = match (self.admission)(peer_id) {
+            SpokeResult::Ok(admitted) => admitted,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        // Destination admission (contract Wire-wide rules): the
+        // destination `scope_id` is authorized against the admitted
+        // context BEFORE any source-chain work — an out-of-scope
+        // destination refuses `NOT_AUTHORIZED` without touching the
+        // source (qc1 F-016 / qc2 QC2-08 / qc3 F-017).
+        if request.destination_scope_id.as_str() != effective_scope.scope_id.as_str() {
+            return spoke_reject(
+                SpokeRejectCode::NotAuthorized,
+                "adoption destination scope is outside the admitted context",
+                None,
+            );
+        }
+        let scope_value = serde_json::to_value(&effective_scope).unwrap_or_else(|_| json!({}));
+        // The dedup key IS the canonical serialization — never a
+        // delimiter-joined string (contract §Repeat and idempotency).
+        let dedup_key = match serde_jcs::to_string(&json!([
+            op,
+            scope_value,
+            principal.principal_id.as_str(),
+            request.idempotency_key.as_str()
+        ])) {
+            Ok(key) => key,
+            Err(error) => {
+                return spoke_reject(
+                    SpokeRejectCode::InternalError,
+                    format!("adoption dedup key canonicalization failed: {error}"),
+                    None,
+                )
+            }
+        };
+        // The store-interface keyed lock covers lookup → port → record:
+        // concurrent same-identity adoptions cannot both see `Unseen` —
+        // including across services sharing this store.
+        let _dedup_guard = self.dedup.claim_key(&dedup_key).await;
+        match self.dedup.lookup(&dedup_key).await {
+            HistoryDedupLookup::Evicted => {
+                return spoke_reject(
+                    SpokeRejectCode::ReceiptExpired,
+                    "adoption idempotency record was evicted; the recorded outcome is no longer available and the adoption is not re-executed",
+                    None,
+                );
+            }
+            HistoryDedupLookup::Recorded(record) => {
+                if record.payload_digest != payload_digest {
+                    return spoke_reject(
+                        SpokeRejectCode::IdempotencyConflict,
+                        "idempotency_key replayed with a different payload digest",
+                        None,
+                    );
+                }
+                // Same-key same-digest replay: the recorded outcome with
+                // `outcome` normalized to `already_present` — the
+                // existing copy, no second write, no re-evaluated
+                // preconditions (contract §Repeat and idempotency).
+                return adoption_replay(record.outcome);
+            }
+            HistoryDedupLookup::Unseen => {}
+        }
+        let outcome = match self
+            .port
+            .adopt_knowledge_entry(&principal, &effective_scope, &request)
+            .await
+        {
+            SpokeResult::Ok(response) => valid_served_adopt_result(
+                response,
+                request.destination_entry_id.as_deref().map(String::as_str),
+            ),
+            SpokeResult::Reject(mut reject) => {
+                // qc1 F-031 — a provider Reject receipt's revision-typed
+                // detail gets the same domain guard as the served
+                // branches: an out-of-domain `details.adopted_revision`
+                // settles as a provider fault instead of reaching the
+                // wire.
+                if let Some(fault) = normalize_adopt_reject_details(&mut reject) {
+                    reject = fault;
+                }
+                SpokeResult::Reject(reject)
+            }
+        };
+        // The settled outcome is recorded — success or reject — so a
+        // same-key replay never re-executes the adoption.
+        self.dedup
+            .record(
+                &dedup_key,
+                HistoryDedupRecord {
+                    payload_digest,
+                    outcome: outcome.clone(),
+                },
+            )
+            .await;
+        outcome
+    }
+}
+
+/// Same-key same-digest replay for `knowledge.adopt` (contract §Repeat and
+/// idempotency): returns the existing copy with `outcome:
+/// "already_present"` — the recorded success value carries the
+/// destination entry; only its outcome word changes. A recorded reject or
+/// a non-object success replays verbatim.
+fn adoption_replay(outcome: SpokeResult<Value>) -> SpokeResult<Value> {
+    match outcome {
+        SpokeResult::Ok(Value::Object(mut response)) => {
+            if response.contains_key("outcome") {
+                response.insert("outcome".into(), Value::String("already_present".into()));
+            }
+            spoke_ok(Value::Object(response))
+        }
+        other => other,
+    }
+}
+
+/// The f64-observed exact-integer value of a revision member: `Some(u64)`
+/// when the member is an in-domain integer spelling, `None` otherwise.
+/// One rule shared by the served bounds, the put-payload rewrite and the
+/// reject guard (qc3 F-025/F-026).
+pub(crate) fn exact_revision_u64(value: &Value) -> Option<u64> {
+    let float = value.as_f64()?;
+    (float.fract() == 0.0 && float >= 0.0 && float <= ADOPT_EXACT_INTEGER_BOUND as f64)
+        .then_some(float as u64)
+}
+
+/// Provider-fault guard for a Reject receipt's revision-typed detail
+/// (qc1 F-031): `details.adopted_revision` obeys the same `[0, 2^53]`
+/// f64-observed domain as every other revision member, so an out-of-domain
+/// value settles as a provider-fault `INTERNAL_ERROR` (transport kind)
+/// instead of travelling on the wire; an in-domain integer spelling
+/// normalizes to the identity JavaScript reads. `Some(fault)` means the
+/// receipt is malformed; `None` means it was conformant (normalized in
+/// place when a rewrite applied).
+pub(crate) fn normalize_adopt_reject_details(reject: &mut SpokeReject) -> Option<SpokeReject> {
+    let details = reject.details.as_mut()?;
+    let adopted_revision = details.get_mut("adopted_revision")?;
+    if !revision_in_domain(adopted_revision) {
+        let mut fault_details = Map::new();
+        fault_details.insert("kind".into(), Value::String("transport".into()));
+        return Some(SpokeReject {
+            code: SpokeRejectCode::InternalError,
+            message:
+                "adoption provider returned an error details.adopted_revision outside [0, 2^53]"
+                    .into(),
+            details: Some(fault_details),
+        });
+    }
+    if let Some(rounded) = exact_revision_u64(adopted_revision) {
+        *adopted_revision = json!(rounded);
+    }
+    None
+}
+
+/// Revision-domain rule shared by the served-bound checks: the bound is
+/// evaluated on the f64 VALUE — the same number JavaScript observes —
+/// not the wire token, so an integer spelling between `u64` and its f64
+/// rounding (`9007199254740993` ≡ `9007199254740992.0`) admits or
+/// refuses identically on both stacks (contract E1 / qc3 F-006).
+fn revision_in_domain(value: &Value) -> bool {
+    exact_revision_u64(value).is_some()
+}
+
+/// Served-side adopt-response validation (spoke-knowledge-adoption
+/// contract §`KnowledgeAdoptResponse`): two branches travel as a served
+/// `Ok`.
+/// - Success (`OneOf0`): `{outcome, entry, extensions?}` — `outcome` is
+///   `"adopted"` or `"already_present"` and `entry` is the destination
+///   `KnowledgeEntry` with every required wire member, not merely a
+///   well-formed anchor. `destination_entry_id` binds the served
+///   `entry.entry_id` when the request supplied one; an absent selector
+///   defaults to the entry's own id (`entry.id` supplies it), so no
+///   equality check applies then.
+/// - Failure (`OneOf1`, contract E3): `{error, extensions?}` — a
+///   provider error envelope emitted verbatim, never converted into a
+///   transport reject.
+///
+/// Any shape outside the two closed branches is a transport decode
+/// reject, never `Ok` (parity with TS `validServedAdoptResult` — the
+/// port's expected refusals travel as `SpokeResult`, not the envelope's
+/// error variant). The typed `KnowledgeAdoptResponse` decode already
+/// enforces the closed top-level member sets and the `ErrorEnvelope`
+/// shape (`deny_unknown_fields`); the checks here are the
+/// defense-in-depth layer for the revision domain and entry completeness.
+fn valid_served_adopt_result(
+    response: KnowledgeAdoptResponse,
+    destination_entry_id: Option<&str>,
+) -> SpokeResult<Value> {
+    let value = match serde_json::to_value(response) {
+        Ok(value) => value,
+        Err(error) => {
+            return spoke_reject(
+                SpokeRejectCode::InternalError,
+                format!("adoption response serialize failed: {error}"),
+                None,
+            )
+        }
+    };
+    let Some(object) = value.as_object() else {
+        return history_transport_reject("adoption provider returned a non-object response");
+    };
+    // Failure branch (`OneOf1 {error, extensions}` - contract E3): a
+    // provider error envelope with an optional `extensions` member is
+    // emitted verbatim. Supplied `extensions` members are
+    // presence-faithful (E2), and their `ExtensionMap` well-formedness
+    // is already enforced by the typed `Shared2` decode - a provider
+    // cannot construct a key outside `^[a-z][a-z0-9_-]*$`.
+    if let Some(error) = object.get("error") {
+        let error_ok = error.is_object()
+            && serde_json::from_value::<spoke_schemas::common::ErrorEnvelope>(error.clone())
+                .is_ok();
+        if !error_ok {
+            return history_transport_reject(
+                "adoption provider returned a malformed error envelope",
+            );
+        }
+        // qc3 F-021 residual - a revision-typed member inside the
+        // failure `details` (`details.adopted_revision`, contract
+        // §Refusal vocabulary) lives in the same `[0, 2^53]`
+        // f64-observed domain as every other revision member:
+        // out-of-domain refuses, an in-domain integer spelling
+        // normalizes to the identity JavaScript reads.
+        // (`details.retirement_chain` is an array of source-entry-id
+        // strings - it carries no revision member.)
+        let mut emitted = value.clone();
+        if let Some(adopted_revision) = emitted
+            .get_mut("error")
+            .and_then(Value::as_object_mut)
+            .and_then(|error| error.get_mut("details"))
+            .and_then(Value::as_object_mut)
+            .and_then(|details| details.get_mut("adopted_revision"))
+        {
+            if !revision_in_domain(adopted_revision) {
+                return history_transport_reject(
+                    "adoption provider returned an error details.adopted_revision outside [0, 2^53]",
+                );
+            }
+            if let Some(rounded) = exact_revision_u64(adopted_revision) {
+                *adopted_revision = json!(rounded);
+            }
+        }
+        return spoke_ok(emitted);
+    }
+    let outcome = object
+        .get("outcome")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let outcome_ok = outcome
+        .as_deref()
+        .is_some_and(|outcome| outcome == "adopted" || outcome == "already_present");
+    if !outcome_ok {
+        return history_transport_reject(
+            "adoption provider returned a missing or invalid outcome member",
+        );
+    }
+    let Some(entry) = object.get("entry").filter(|entry| entry.is_object()) else {
+        return history_transport_reject(
+            "adoption provider returned a missing or malformed entry member",
+        );
+    };
+    // A success entry always carries `adoption_anchor`, and it must
+    // satisfy the `AdoptionAnchor` schema — presence alone is malformed
+    // (contract §`KnowledgeAdoptResponse`): a provider result whose entry
+    // lacks a well-formed anchor is a serving refusal, never `Ok`.
+    let anchor_ok = entry.get("adoption_anchor").is_some_and(|anchor| {
+        serde_json::from_value::<spoke_schemas::data::AdoptionAnchor>(anchor.clone()).is_ok()
+    });
+    if !anchor_ok {
+        return history_transport_reject(
+            "adoption provider returned an entry without a well-formed adoption_anchor member",
+        );
+    }
+    // A valid anchor does not make an invalid entry a valid adoption
+    // success (QC2-03): the emitted entry decodes as a full
+    // `KnowledgeEntry` — every required wire member must be present and
+    // well-formed.
+    let Ok(decoded_entry) =
+        serde_json::from_value::<spoke_schemas::data::KnowledgeEntry>(entry.clone())
+    else {
+        return history_transport_reject(
+            "adoption provider returned an entry that is not a valid KnowledgeEntry",
+        );
+    };
+    // Contract E1 — revision-typed members live in the interoperable
+    // integer domain `[0, 2^53]` on the wire; the bound runs on the RAW
+    // provider value (f64-observed) BEFORE any normalization to `u64`,
+    // so an out-of-domain revision refuses instead of being rounded into
+    // the domain (qc1 F-013).
+    let entry_revision_ok = entry.get("revision").is_none_or(revision_in_domain);
+    if !entry_revision_ok {
+        return history_transport_reject(
+            "adoption provider returned an entry with revision outside [0, 2^53]",
+        );
+    }
+    let anchor_revision_ok = entry
+        .get("adoption_anchor")
+        .and_then(Value::as_object)
+        .and_then(|anchor| anchor.get("source_revision"))
+        .is_some_and(revision_in_domain);
+    if !anchor_revision_ok {
+        return history_transport_reject(
+            "adoption provider returned an anchor with source_revision outside [0, 2^53]",
+        );
+    }
+    if let Some(destination_entry_id) = destination_entry_id {
+        if decoded_entry.entry_id != destination_entry_id {
+            return history_transport_reject(
+                "adoption provider returned an entry whose entry_id does not match the requested destination_entry_id",
+            );
+        }
+    }
+    // qc3 F-006 residual — JavaScript parses every number to one f64,
+    // so the emitted revision members normalize to the SAME integer
+    // identity a JS reader observes (`9007199254740993` serves as the
+    // exact `9007199254740992.0`, float spellings decode like integer
+    // ones): rewrite the in-domain members to the f64-rounded `u64`
+    // before emit, mirroring `adopt_request_from_payload`'s
+    // `float as u64` rewrite.
+    let mut entry = entry.clone();
+    {
+        let normalize = |member: Option<&mut Value>| {
+            let Some(member) = member else { return };
+            if let Some(rounded) = exact_revision_u64(member) {
+                *member = json!(rounded);
+            }
+        };
+        normalize(entry.get_mut("revision"));
+        normalize(
+            entry
+                .get_mut("adoption_anchor")
+                .and_then(Value::as_object_mut)
+                .and_then(|anchor| anchor.get_mut("source_revision")),
+        );
+    }
+    // The emitted success carries `{outcome, entry}` plus a
+    // producer-supplied `extensions` member verbatim (contract E2:
+    // absent ≡ present-empty, but a supplied member is never dropped).
+    let mut response = serde_json::Map::new();
+    response.insert("outcome".into(), Value::String(outcome.expect("validated above")));
+    response.insert("entry".into(), entry);
+    if let Some(extensions) = object.get("extensions") {
+        response.insert("extensions".into(), extensions.clone());
+    }
+    spoke_ok(Value::Object(response))
+}
+
 /// Decode the op's request object, call the provider once, re-encode its
 /// response object. The decode is the trust boundary: an invalid payload is
 /// `INVALID_INPUT` before the provider runs (same rule as `extract`).
-async fn serve<Req, Resp, Fut>(payload: serde_json::Value, call: impl FnOnce(Req) -> Fut) -> SpokeResult<Value>
+async fn serve<Req, Resp, Fut>(
+    payload: serde_json::Value,
+    call: impl FnOnce(Req) -> Fut,
+) -> SpokeResult<Value>
 where
     Req: DeserializeOwned,
     Resp: Serialize,
@@ -1027,6 +1688,19 @@ pub trait RemoteServePorts: Send + Sync {
     fn as_history(&self) -> Option<Arc<dyn RemoteHistoryService>> {
         None
     }
+
+    /// Optional `spoke-knowledge-adoption` service face (adopt a shared
+    /// `KnowledgeEntry` into a destination scope), when provided. Absent
+    /// means the host declared `spoke-knowledge-adoption` without
+    /// providing the service — the responder answers the dispatch-deny
+    /// branch.
+    ///
+    /// Owned (not borrowed) like [`RemoteServePorts::as_memory`]: the
+    /// adopt op mutates, so the responder detaches the admitted invoke
+    /// from its response deadline and the spawned task must own the face.
+    fn as_adoption(&self) -> Option<Arc<dyn RemoteAdoptionService>> {
+        None
+    }
 }
 
 /// Blanket impl: a provider carrying the baseline six + both optional faces
@@ -1054,8 +1728,8 @@ where
 /// Composite responder ports face: each family is optional and independent.
 /// Baseline-only and mixed hosts compose via [`RemoteServePortsComposite::new`]
 /// without manual trait impls; a knowledge-only host composes with
-/// [`RemoteServePortsComposite::knowledge_only`]; extraction, memory and
-/// knowledge are added with the consuming builders.
+/// [`RemoteServePortsComposite::knowledge_only`]; extraction, memory,
+/// history and adoption are added with the consuming builders.
 pub struct RemoteServePortsComposite {
     baseline: Option<Arc<dyn BaselinePorts + Send + Sync>>,
     knowledge: Option<Arc<RemoteKnowledgeFace>>,
@@ -1064,6 +1738,7 @@ pub struct RemoteServePortsComposite {
     extract: Option<Arc<dyn RemoteExtractService>>,
     memory: Option<Arc<dyn RemoteMemoryService>>,
     history: Option<Arc<dyn RemoteHistoryService>>,
+    adoption: Option<Arc<dyn RemoteAdoptionService>>,
 }
 
 impl RemoteServePortsComposite {
@@ -1096,6 +1771,7 @@ impl RemoteServePortsComposite {
             extract: None,
             memory: None,
             history: None,
+            adoption: None,
         }
     }
 
@@ -1136,6 +1812,14 @@ impl RemoteServePortsComposite {
         self.history = Some(history);
         self
     }
+
+    /// Attach the optional `spoke-knowledge-adoption` service face
+    /// (consuming builder).
+    #[must_use]
+    pub fn with_adoption(mut self, adoption: Arc<dyn RemoteAdoptionService>) -> Self {
+        self.adoption = Some(adoption);
+        self
+    }
 }
 
 impl RemoteServePorts for RemoteServePortsComposite {
@@ -1173,6 +1857,10 @@ impl RemoteServePorts for RemoteServePortsComposite {
 
     fn as_history(&self) -> Option<Arc<dyn RemoteHistoryService>> {
         self.history.clone()
+    }
+
+    fn as_adoption(&self) -> Option<Arc<dyn RemoteAdoptionService>> {
+        self.adoption.clone()
     }
 }
 
@@ -1256,8 +1944,10 @@ mod history_tests {
             self.get_calls.fetch_add(1, AtomicOrdering::SeqCst);
             *self.last_principal.lock().expect("lock") = Some(principal.clone());
             *self.last_scope.lock().expect("lock") = Some(scope.clone());
-            serde_json::from_value(snapshot_json(entity_id, revision))
-                .map_or_else(|e| spoke_reject(SpokeRejectCode::InternalError, e.to_string(), None), spoke_ok)
+            serde_json::from_value(snapshot_json(entity_id, revision)).map_or_else(
+                |e| spoke_reject(SpokeRejectCode::InternalError, e.to_string(), None),
+                spoke_ok,
+            )
         }
 
         async fn prune_history(
@@ -1294,10 +1984,8 @@ mod history_tests {
     #[tokio::test]
     async fn get_passes_principal_and_admitted_scope_to_port() {
         let port = Arc::new(StubHistoryPort::new());
-        let service = HistoryPortService::new(
-            port.clone(),
-            admission(scope("s1"), principal("peer-p")),
-        );
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
         let result = service
             .invoke(
                 "peer-a",
@@ -1317,11 +2005,22 @@ mod history_tests {
         assert_eq!(value["snapshot"]["entity_id"], "e1");
         assert_eq!(value["snapshot"]["revision"], 7);
         assert_eq!(
-            port.last_principal.lock().expect("lock").as_ref().unwrap().principal_id.as_str(),
+            port.last_principal
+                .lock()
+                .expect("lock")
+                .as_ref()
+                .unwrap()
+                .principal_id
+                .as_str(),
             "peer-p"
         );
         assert_eq!(
-            port.last_scope.lock().expect("lock").as_ref().unwrap().scope_id,
+            port.last_scope
+                .lock()
+                .expect("lock")
+                .as_ref()
+                .unwrap()
+                .scope_id,
             "s1"
         );
     }
@@ -1329,10 +2028,8 @@ mod history_tests {
     #[tokio::test]
     async fn scope_mismatch_denies_without_port_call() {
         let port = Arc::new(StubHistoryPort::new());
-        let service = HistoryPortService::new(
-            port.clone(),
-            admission(scope("s1"), principal("peer-p")),
-        );
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
         let get = service
             .invoke(
                 "peer-a",
@@ -1347,18 +2044,28 @@ mod history_tests {
             .await;
         assert!(matches!(
             get,
-            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::NotFound, .. })
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::NotFound,
+                ..
+            })
         ));
         let prune = service
             .invoke(
                 "peer-a",
                 HISTORY_OP_PRUNE,
-                prune_payload("k1", 2, Some(&json!({"scope_id": "other", "extensions": {}}))),
+                prune_payload(
+                    "k1",
+                    2,
+                    Some(&json!({"scope_id": "other", "extensions": {}})),
+                ),
             )
             .await;
         assert!(matches!(
             prune,
-            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::NotAuthorized, .. })
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::NotAuthorized,
+                ..
+            })
         ));
         assert_eq!(port.get_calls.load(AtomicOrdering::SeqCst), 0);
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
@@ -1367,12 +2074,12 @@ mod history_tests {
     #[tokio::test]
     async fn prune_replays_same_key_without_reexecuting() {
         let port = Arc::new(StubHistoryPort::new());
-        let service = HistoryPortService::new(
-            port.clone(),
-            admission(scope("s1"), principal("peer-p")),
-        );
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
         let payload = prune_payload("replay-key", 2, None);
-        let first = service.invoke("peer-a", HISTORY_OP_PRUNE, payload.clone()).await;
+        let first = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, payload.clone())
+            .await;
         let second = service.invoke("peer-a", HISTORY_OP_PRUNE, payload).await;
         assert!(matches!(first, SpokeResult::Ok(_)));
         // The recorded outcome replays verbatim — no second port call.
@@ -1383,10 +2090,8 @@ mod history_tests {
     #[tokio::test]
     async fn prune_same_key_different_digest_conflicts() {
         let port = Arc::new(StubHistoryPort::new());
-        let service = HistoryPortService::new(
-            port.clone(),
-            admission(scope("s1"), principal("peer-p")),
-        );
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
         let first = service
             .invoke("peer-a", HISTORY_OP_PRUNE, prune_payload("k1", 2, None))
             .await;
@@ -1396,7 +2101,10 @@ mod history_tests {
             .await;
         assert!(matches!(
             conflict,
-            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::IdempotencyConflict, .. })
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::IdempotencyConflict,
+                ..
+            })
         ));
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
     }
@@ -1406,11 +2114,9 @@ mod history_tests {
         let port = Arc::new(StubHistoryPort::new());
         // Capacity 1: the second prune's record evicts the first's; its
         // replay must answer RECEIPT_EXPIRED rather than re-execute.
-        let service = HistoryPortService::new(
-            port.clone(),
-            admission(scope("s1"), principal("peer-p")),
-        )
-        .with_dedup_store(Arc::new(InMemoryHistoryDedupStore::with_capacity(1)));
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")))
+                .with_dedup_store(Arc::new(InMemoryHistoryDedupStore::with_capacity(1)));
         let first = service
             .invoke("peer-a", HISTORY_OP_PRUNE, prune_payload("k1", 2, None))
             .await;
@@ -1424,7 +2130,10 @@ mod history_tests {
             .await;
         assert!(matches!(
             replay,
-            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::ReceiptExpired, .. })
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::ReceiptExpired,
+                ..
+            })
         ));
         // The evicted outcome never re-executes; the live key replays.
         let live = service
@@ -1437,16 +2146,20 @@ mod history_tests {
     #[tokio::test]
     async fn missing_idempotency_key_is_invalid_input() {
         let port = Arc::new(StubHistoryPort::new());
-        let service = HistoryPortService::new(
-            port.clone(),
-            admission(scope("s1"), principal("peer-p")),
-        );
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
         let mut payload = prune_payload("k1", 2, None);
-        payload.as_object_mut().expect("object").remove("idempotency_key");
+        payload
+            .as_object_mut()
+            .expect("object")
+            .remove("idempotency_key");
         let result = service.invoke("peer-a", HISTORY_OP_PRUNE, payload).await;
         assert!(matches!(
             result,
-            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::InvalidInput, .. })
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
         ));
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
     }
@@ -1498,7 +2211,10 @@ mod history_tests {
             .await;
         assert!(matches!(
             result,
-            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::InternalError, .. })
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InternalError,
+                ..
+            })
         ));
     }
 
@@ -1609,13 +2325,19 @@ mod history_tests {
         // member, and re-encode: the generated `Option<u64>` field
         // tolerates absence, so only the validator can refuse it.
         let mut doc = snapshot_json("e1", 7);
-        doc["snapshot"].as_object_mut().expect("entity").remove("revision");
+        doc["snapshot"]
+            .as_object_mut()
+            .expect("entity")
+            .remove("revision");
         let snapshot: RevisionSnapshot =
             serde_json::from_value(doc).expect("absent nested revision still decodes");
         let result = valid_served_snapshot(snapshot, "knowledge_entry", "e1", 7);
         assert!(matches!(
             result,
-            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::InternalError, .. })
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InternalError,
+                ..
+            })
         ));
     }
 
@@ -1626,10 +2348,8 @@ mod history_tests {
     #[tokio::test]
     async fn prune_payload_out_of_range_integer_is_invalid_input() {
         let port = Arc::new(StubHistoryPort::new());
-        let service = HistoryPortService::new(
-            port.clone(),
-            admission(scope("s1"), principal("peer-p")),
-        );
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
         let result = service
             .invoke(
                 "peer-a",
@@ -1639,7 +2359,10 @@ mod history_tests {
             .await;
         assert!(matches!(
             result,
-            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::InvalidInput, .. })
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
         ));
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
     }
@@ -1674,10 +2397,7 @@ mod history_tests {
             }
         }
         let port: Arc<dyn HistoryPort + Send + Sync> = Arc::new(RejectingPort);
-        let service = HistoryPortService::new(
-            port,
-            admission(scope("s1"), principal("peer-p")),
-        );
+        let service = HistoryPortService::new(port, admission(scope("s1"), principal("peer-p")));
         let payload = prune_payload("reject-key", 2, None);
         let first = service
             .invoke("peer-a", HISTORY_OP_PRUNE, payload.clone())
@@ -1685,9 +2405,1150 @@ mod history_tests {
         let second = service.invoke("peer-a", HISTORY_OP_PRUNE, payload).await;
         assert!(matches!(
             first,
-            SpokeResult::Reject(SpokeReject { code: SpokeRejectCode::NotFound, .. })
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::NotFound,
+                ..
+            })
         ));
         // The recorded reject replays verbatim.
         assert_eq!(first, second);
+    }
+
+    // ── `spoke-knowledge-adoption` serving-face tests ──────────────────
+
+    /// Provider stub for request-validation tests: valid `invoke` calls
+    /// never reach the port (validation answers first), so the port
+    /// panics if it does.
+    struct PanicAdoptionPort;
+
+    #[async_trait]
+    impl AdoptionPort for PanicAdoptionPort {
+        async fn adopt_knowledge_entry(
+            &self,
+            _principal: &Principal,
+            _scope: &Scope,
+            _request: &KnowledgeAdoptRequest,
+        ) -> SpokeResult<KnowledgeAdoptResponse> {
+            panic!("a malformed request must refuse before the port runs")
+        }
+    }
+
+    /// A dedup store implementing only `lookup`/`record` — the
+    /// pre-single-flight surface — keeps compiling unchanged now that
+    /// `claim_key` carries a default no-claim implementation.
+    struct LookupOnlyDedupStore;
+
+    #[async_trait]
+    impl HistoryDedupStore for LookupOnlyDedupStore {
+        async fn lookup(&self, _key: &str) -> HistoryDedupLookup {
+            HistoryDedupLookup::Unseen
+        }
+
+        async fn record(&self, _key: &str, _record: HistoryDedupRecord) {}
+    }
+
+    fn adopt_payload(extensions: Option<Value>) -> Value {
+        let mut payload = json!({
+            "source_scope_id": "src-scope",
+            "source_entry_id": "src-entry",
+            "source_revision": 3,
+            "destination_scope_id": "dst-scope",
+            "idempotency_key": "key-1",
+        });
+        if let Some(extensions) = extensions {
+            payload["extensions"] = extensions;
+        }
+        payload
+    }
+
+    /// F-013 numeric parity: the predicate is value-based — `1e16`
+    /// (integral f64 inside the u64 range) refuses like the integer
+    /// literal `9007199254740993`, while `1e20`/`1e21` (integral floats
+    /// beyond the u64 range) and non-integral floats pass, matching the
+    /// TypeScript `payloadIntegersJcsExact`.
+    #[test]
+    fn integral_floats_follow_the_shared_exact_range() {
+        for refused in [
+            json!(9_007_199_254_740_993u64),
+            json!(1e16),
+            json!(9.1e15),
+            json!(-1e16),
+        ] {
+            assert!(
+                !payload_integers_jcs_exact(&refused),
+                "{refused} must be refused"
+            );
+        }
+        for accepted in [
+            json!(9_007_199_254_740_991u64),
+            json!(1e20),
+            json!(1e21),
+            json!(1.5),
+            json!(0.0),
+        ] {
+            assert!(
+                payload_integers_jcs_exact(&accepted),
+                "{accepted} must be accepted"
+            );
+        }
+    }
+
+    /// F-013 canonical spelling parity: integral floats the predicate
+    /// admits canonicalize without an exponent — the same bytes the
+    /// TypeScript `canonicalize` (JSON.stringify) emits.
+    #[test]
+    fn integral_floats_canonicalize_without_exponent() {
+        for (value, expected) in [
+            (json!(1e16), "10000000000000000"),
+            (json!(9.1e15), "9100000000000000"),
+            (json!(1e20), "100000000000000000000"),
+        ] {
+            assert_eq!(
+                serde_jcs::to_string(&value).expect("canonical string"),
+                expected
+            );
+        }
+    }
+
+    /// The shared `ExtensionMap` constraints bind at request validation:
+    /// a key outside `^[a-z][a-z0-9_-]*$` or a non-object value answers
+    /// `INVALID_INPUT` before admission or any provider call.
+    #[tokio::test]
+    async fn adopt_extensions_enforces_extension_map() {
+        let service = AdoptionPortService::new(
+            Arc::new(PanicAdoptionPort),
+            Arc::new(|_peer| spoke_reject(SpokeRejectCode::InternalError, "unused", None)),
+        )
+        .with_dedup_store(Arc::new(LookupOnlyDedupStore));
+        for extensions in [
+            json!({"Bad-Key": {}}),
+            json!({"ns": 5}),
+            json!({"ns": "scalar"}),
+            json!("scalar"),
+            json!([1]),
+            json!(5),
+        ] {
+            let result = service
+                .invoke(
+                    "peer-a",
+                    KNOWLEDGE_OP_ADOPT,
+                    adopt_payload(Some(extensions.clone())),
+                )
+                .await;
+            assert!(
+                matches!(
+                    result,
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::InvalidInput,
+                        ..
+                    })
+                ),
+                "extensions {extensions} must refuse INVALID_INPUT: {result:?}"
+            );
+        }
+    }
+
+    /// Adoption's numeric admission is value-based — the JavaScript rule:
+    /// every number token parses to one f64, so the Rust `u64`/`f64` token
+    /// split must not refuse a wire value JavaScript admits (qc1 F-013 /
+    /// qc3 F-006) and the exact-integer bound is inclusive of `2^53` (C5).
+    /// Deliberately unlike `payload_integers_jcs_exact`, whose stricter
+    /// history digest rule stays untouched.
+    #[test]
+    fn adopt_numeric_exactness_follows_the_javascript_value_rule() {
+        for refused in [
+            json!(9_007_199_254_740_995u64), // f64 2^53+2, integral, inside u64
+            json!(1e16),                     // integral, inside (2^53, 2^64)
+            json!(-1e16),
+            json!(9.1e15), // 9_100_000_000_000_000 — integral, just past 2^53
+        ] {
+            assert!(
+                !adopt_payload_integers_exact(&refused),
+                "{refused} must be refused"
+            );
+        }
+        for accepted in [
+            json!(18446744073709551615u64), // u64::MAX — f64 2^64, admitted like JS
+            json!(9007199254740993u64),     // f64 rounds to exactly 2^53 (inclusive)
+            json!(9_007_199_254_740_992.0), // the C5 endpoint, integral float
+            json!(1e20),                    // integral float beyond the f64 range
+            json!(1.5),
+            json!(0.0),
+        ] {
+            assert!(
+                adopt_payload_integers_exact(&accepted),
+                "{accepted} must be accepted"
+            );
+        }
+    }
+
+    /// The typed request decode sees the raw wire number for
+    /// `source_revision`: an integral-float spelling names the same wire
+    /// number as its integer spelling, and a revision beyond the exact
+    /// bound refuses `INVALID_INPUT` like the TypeScript decode.
+    fn decode_revision(revision: Value) -> SpokeResult<KnowledgeAdoptRequest> {
+        let payload = adopt_payload(None);
+        let mut payload = serde_json::to_value(&payload).expect("payload object");
+        payload["source_revision"] = revision;
+        adopt_request_from_payload("knowledge.adopt", &payload)
+    }
+
+    #[test]
+    fn adopt_request_decode_normalizes_integral_float_revisions() {
+        let decoded_revision = |revision: Value| match decode_revision(revision) {
+            SpokeResult::Ok(request) => Some(request.source_revision),
+            SpokeResult::Reject(_) => None,
+        };
+        assert_eq!(decoded_revision(json!(1.0)), Some(1));
+        assert_eq!(decoded_revision(json!(3)), Some(3));
+        assert_eq!(decoded_revision(json!(9007199254740992.0)), Some(1 << 53));
+        // JS parses this token to exactly 2^53 and admits it.
+        assert_eq!(decoded_revision(json!(9007199254740993u64)), Some(1 << 53));
+        for refused in [
+            json!(9007199254740995u64), // f64 2^53+2
+            json!(1.5),
+            json!(-1.0),
+            json!(-3),
+        ] {
+            assert!(
+                matches!(
+                    decode_revision(refused.clone()),
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::InvalidInput,
+                        ..
+                    })
+                ),
+                "{refused} must refuse INVALID_INPUT"
+            );
+        }
+    }
+
+    /// QC2-06 / B5 member presence (qc3 F-006): the typed serializer is
+    /// presence-sensitive — a present `extensions` member emits
+    /// byte-identically (an explicitly empty `{}` stays a present `{}`),
+    /// and an absent member stays absent, so the provider-visible
+    /// request matches the TypeScript `KnowledgeAdoptRequest` shape.
+    #[test]
+    fn typed_request_serialization_preserves_extension_presence() {
+        let SpokeResult::Ok(absent) = decode_revision(json!(3)) else {
+            panic!("a valid payload decodes");
+        };
+        assert!(
+            absent.extensions.is_none(),
+            "an absent extensions member decodes as absent, not an empty map"
+        );
+        let emitted = serde_json::to_value(&absent).expect("request serializes");
+        assert!(
+            emitted.get("extensions").is_none(),
+            "an absent member stays absent on the wire — never emitted as an empty map"
+        );
+        // The explicit `extensions: {}` member stays a present member
+        // through decode AND serialization (contract §Request
+        // `extensions` emission).
+        for (member, expected) in [(json!({}), json!({})), (json!({"ns": {}}), json!({"ns": {}}))] {
+            let payload = adopt_payload(Some(member));
+            let SpokeResult::Ok(request) =
+                adopt_request_from_payload("knowledge.adopt", &payload)
+            else {
+                panic!("a valid payload decodes");
+            };
+            assert_eq!(
+                request
+                    .extensions
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .expect("map serializes"),
+                Some(expected.clone()),
+                "a present member keeps its value through the typed decode"
+            );
+            let emitted = serde_json::to_value(&request).expect("request serializes");
+            assert_eq!(emitted.get("extensions"), Some(&expected));
+        }
+    }
+
+    /// Destination admission (contract Wire-wide rules): an out-of-scope
+    /// destination refuses `NOT_AUTHORIZED` before the provider runs —
+    /// even when the source is also unadmitted (or retired), so no
+    /// source-dependent refusal can escape first (qc1 F-016 / qc3 F-017).
+    #[tokio::test]
+    async fn destination_admission_refuses_not_authorized_before_source_access() {
+        struct NoCallPort;
+        #[async_trait]
+        impl AdoptionPort for NoCallPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                panic!("an out-of-scope destination must refuse before the provider")
+            }
+        }
+        // Admission admits only `spc_local` — the fixture destination.
+        let service = AdoptionPortService::new(
+            Arc::new(NoCallPort),
+            admission(scope("spc_local"), principal("prn_peer-a")),
+        );
+        for source_scope in ["spc_shared", "spc_other", "spc_local"] {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!(source_scope);
+            payload["destination_scope_id"] = json!("spc_elsewhere");
+            let result = service.invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload).await;
+            assert!(
+                matches!(
+                    result,
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::NotAuthorized,
+                        ..
+                    })
+                ),
+                "destination outside admission must refuse NOT_AUTHORIZED (source {source_scope}): {result:?}"
+            );
+        }
+    }
+
+    /// The numeric decode is wired into the serving path: an
+    /// integral-float `source_revision` spelling reaches the provider as
+    /// the same revision its integer spelling carries (qc3 F-006).
+    #[tokio::test]
+    async fn integral_float_source_revision_serves_end_to_end() {
+        struct RevisionCapturePort(Mutex<Vec<u64>>);
+        #[async_trait]
+        impl AdoptionPort for RevisionCapturePort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                self.0
+                    .lock()
+                    .expect("capture lock")
+                    .push(request.source_revision);
+                let response: KnowledgeAdoptResponse = serde_json::from_value(json!({
+                    "outcome": "adopted",
+                    "entry": {
+                        "schema_version": 1,
+                        "entry_id": "ke_dst",
+                        "entry_type": "note",
+                        "canonical_name": "copy",
+                        "status": "confirmed",
+                        "revision": 1,
+                        "body": {},
+                        "adoption_anchor": {
+                            "schema_version": 1,
+                            "source_scope_id": "spc_local",
+                            "source_entry_id": "ke_src",
+                            "source_revision": request.source_revision,
+                            "extensions": {},
+                        },
+                        "extensions": {},
+                    },
+                }))
+                .expect("response decodes");
+                spoke_ok(response)
+            }
+        }
+        let port = Arc::new(RevisionCapturePort(Mutex::new(Vec::new())));
+        let service = AdoptionPortService::new(
+            Arc::clone(&port) as Arc<dyn AdoptionPort + Send + Sync>,
+            admission(scope("spc_local"), principal("prn_peer-a")),
+        );
+        let mut payload = adopt_payload(None);
+        payload["source_scope_id"] = json!("spc_local");
+        payload["destination_scope_id"] = json!("spc_local");
+        payload["source_revision"] = json!(7.0);
+        let result = service.invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload).await;
+        assert!(
+            matches!(result, SpokeResult::Ok(_)),
+            "an integral-float revision serves: {result:?}"
+        );
+        assert_eq!(*port.0.lock().expect("capture lock"), vec![7]);
+    }
+
+    /// E1/E2 fixtures: a provider result factory with an overridable
+    /// anchor `source_revision`, `entry.revision` and response
+    /// `extensions`.
+    fn served_entry(anchor_revision: u64, entry_revision: u64) -> Value {
+        json!({
+            "schema_version": 1,
+            "entry_id": "ke_dst",
+            "entry_type": "note",
+            "canonical_name": "copy",
+            "status": "confirmed",
+            "revision": entry_revision,
+            "body": {},
+            "adoption_anchor": {
+                "schema_version": 1,
+                "source_scope_id": "spc_local",
+                "source_entry_id": "ke_src",
+                "source_revision": anchor_revision,
+                "extensions": {},
+            },
+            "extensions": {},
+        })
+    }
+
+    /// Contract E1 — revision-typed payload members live in the
+    /// interoperable integer domain `[0, 2^53]` on the wire: the served
+    /// adopt result refuses an anchor `source_revision` or
+    /// `entry.revision` beyond it (TS parity: the deep-check bound).
+    /// Contract E2 — a producer-supplied response `extensions` member
+    /// survives verbatim.
+    #[tokio::test]
+    async fn served_result_enforces_e1_revision_domain_and_preserves_extensions() {
+        struct ServedPort(Value, bool);
+        #[async_trait]
+        impl AdoptionPort for ServedPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                let mut response = json!({
+                    "outcome": "adopted",
+                    "entry": self.0.clone(),
+                });
+                if self.1 {
+                    response["extensions"] = json!({ "product": { "v": 1 } });
+                }
+                spoke_ok(
+                    serde_json::from_value(response).expect("response decodes"),
+                )
+            }
+        }
+        let admission = || admission(scope("spc_local"), principal("prn_peer-a"));
+        let payload = || {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload
+        };
+
+        // The inclusive endpoint admits on the served path; one step
+        // beyond it refuses.
+        for (anchor_revision, entry_revision, served_ok) in [
+            (9007199254740992_u64, 1_u64, true),
+            (9007199254740994_u64, 1_u64, false),
+            (1_u64, 9007199254740992_u64, true),
+            (1_u64, 9007199254740994_u64, false),
+        ] {
+            let service = AdoptionPortService::new(
+                Arc::new(ServedPort(served_entry(anchor_revision, entry_revision), false)),
+                admission(),
+            );
+            let result = service.invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload()).await;
+            assert_eq!(
+                matches!(result, SpokeResult::Ok(_)),
+                served_ok,
+                "anchor_revision={anchor_revision} entry_revision={entry_revision}: {result:?}"
+            );
+            // qc1 F-013 — an out-of-domain provider revision REFUSES; it
+            // is never normalized into the domain first. `2^53 + 2`
+            // (f64-exact at this magnitude) must not round down to a
+            // success.
+            if !served_ok {
+                let SpokeResult::Reject(reject) = &result else {
+                    unreachable!("asserted above");
+                };
+                assert_eq!(
+                    reject.code,
+                    SpokeRejectCode::InternalError,
+                    "out-of-domain revision must refuse INTERNAL_ERROR: {result:?}"
+                );
+                assert!(
+                    reject.message.contains("outside [0, 2^53]"),
+                    "refusal names the revision domain: {reject:?}"
+                );
+            }
+        }
+
+        // E2: a producer-supplied `extensions` member rides the served
+        // response verbatim — never dropped (absent ≡ present-empty, but
+        // present stays present).
+        for with_extensions in [true, false] {
+            let service = AdoptionPortService::new(
+                Arc::new(ServedPort(served_entry(3, 1), with_extensions)),
+                admission(),
+            );
+            let result = service.invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload()).await;
+            let SpokeResult::Ok(value) = result else {
+                panic!("a valid provider result must serve: {result:?}")
+            };
+            if with_extensions {
+                assert_eq!(
+                    value["extensions"],
+                    json!({ "product": { "v": 1 } }),
+                    "supplied extensions must survive verbatim: {value}"
+                );
+            } else {
+                assert!(
+                    value.get("extensions").is_none()
+                        || value["extensions"] == json!({}),
+                    "absent ≡ present-empty is conformant: {value}"
+                );
+            }
+        }
+    }
+
+    /// qc1 F-004 / qc3 F-021/F-023 — a supplied response `extensions`
+    /// member must satisfy the shared `ExtensionMap` rule on BOTH
+    /// outcome branches, and a producer refusal envelope
+    /// (`OneOf1 {error, extensions}`) serves verbatim.
+    #[tokio::test]
+    async fn served_result_validates_extensions_and_serves_the_failure_branch() {
+        struct FixedPort(Value);
+        #[async_trait]
+        impl AdoptionPort for FixedPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                spoke_ok(
+                    serde_json::from_value(self.0.clone()).expect("response decodes"),
+                )
+            }
+        }
+        let admission = || admission(scope("spc_local"), principal("prn_peer-a"));
+        let payload = || {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload
+        };
+        let serve = |response: Value| async move {
+            AdoptionPortService::new(Arc::new(FixedPort(response)), admission())
+                .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload())
+                .await
+        };
+
+        // A failure branch with a supplied `extensions` member serves
+        // verbatim (E3 + E2 parity with the success branch).
+        let refusal = serve(json!({
+            "error": {
+                "code": "REVISION_CONFLICT",
+                "message": "conflict",
+                "details": {},
+                "extensions": {},
+            },
+            "extensions": { "product": { "v": 1 } },
+        }))
+        .await;
+        let SpokeResult::Ok(value) = refusal else {
+            panic!("a valid failure branch must serve: {refusal:?}")
+        };
+        assert_eq!(value["extensions"], json!({ "product": { "v": 1 } }));
+        assert!(value.get("error").is_some());
+
+        // qc3 F-021 residual — a revision-typed member inside failure
+        // `details` obeys the same `[0, 2^53]` f64-observed domain:
+        // out-of-domain refuses `INTERNAL_ERROR`, an in-domain spelling
+        // normalizes to the identity JavaScript reads, and an ordinary
+        // detail rides verbatim.
+        let verbatim_details = serve(json!({
+            "error": {
+                "code": "REVISION_CONFLICT",
+                "message": "conflict",
+                "details": { "adopted_revision": 7 },
+                "extensions": { "product": { "v": 1 } },
+            },
+        }))
+        .await;
+        let SpokeResult::Ok(value) = verbatim_details else {
+            panic!("valid details must serve: {verbatim_details:?}")
+        };
+        assert_eq!(value["error"]["details"], json!({ "adopted_revision": 7 }));
+        assert_eq!(
+            value["error"]["extensions"],
+            json!({ "product": { "v": 1 } }),
+            "error-envelope extensions ride verbatim"
+        );
+
+        let normalized_details = serve(json!({
+            "error": {
+                "code": "REVISION_CONFLICT",
+                "message": "conflict",
+                "details": { "adopted_revision": 9007199254740993_u64 },
+                "extensions": {},
+            },
+        }))
+        .await;
+        let SpokeResult::Ok(value) = normalized_details else {
+            panic!("an in-domain details spelling must serve: {normalized_details:?}")
+        };
+        assert_eq!(
+            value["error"]["details"]["adopted_revision"],
+            json!(9007199254740992_u64),
+            "adopted_revision normalizes to the f64-observed identity"
+        );
+
+        let out_of_domain_details = serve(json!({
+            "error": {
+                "code": "REVISION_CONFLICT",
+                "message": "conflict",
+                "details": { "adopted_revision": 9007199254740994_u64 },
+                "extensions": {},
+            },
+        }))
+        .await;
+        let SpokeResult::Reject(reject) = out_of_domain_details else {
+            panic!("out-of-domain adopted_revision must refuse: {out_of_domain_details:?}")
+        };
+        assert_eq!(reject.code, SpokeRejectCode::InternalError);
+        assert!(reject.message.contains("adopted_revision outside [0, 2^53]"));
+
+        // qc3 F-006 residual: the emitted revision identity is the
+        // f64-observed value — `9007199254740993` serves as
+        // `9007199254740992`, the number JavaScript reads.
+        let normalized = serve(json!({
+            "outcome": "adopted",
+            "entry": served_entry(9007199254740993, 9007199254740993),
+        }))
+        .await;
+        let SpokeResult::Ok(value) = normalized else {
+            panic!("an in-domain spelling must serve: {normalized:?}")
+        };
+        assert_eq!(
+            value["entry"]["adoption_anchor"]["source_revision"],
+            json!(9007199254740992_u64),
+            "anchor revision normalizes to the f64-observed identity"
+        );
+        assert_eq!(
+            value["entry"]["revision"],
+            json!(9007199254740992_u64),
+            "entry revision normalizes to the f64-observed identity"
+        );
+    }
+
+    /// qc1 F-019/F-020/F-029, qc2 QC2-19, qc3 F-024 — parity pin for the
+    /// TS `validServedAdoptResult` envelope rules: the typed
+    /// `KnowledgeAdoptResponse` decode is the Rust trust boundary, so a
+    /// mixed envelope (`entry`/`outcome` alongside `error`), an unknown
+    /// TOP-LEVEL member on either branch, a non-object `details`, an
+    /// unknown member inside `error`, and a missing required `extensions`
+    /// all refuse before the served validator runs. TS mirrors each rule
+    /// on the raw provider object (a JS provider can hand it any shape).
+    #[test]
+    fn adopt_response_typed_decode_refuses_malformed_envelopes() {
+        let entry = served_entry(2, 1);
+        for bad in [
+            json!({
+                "outcome": "adopted",
+                "entry": entry,
+                "error": { "code": "REVISION_CONFLICT", "message": "x", "extensions": {} },
+            }),
+            // unknown TOP-LEVEL member on the success branch
+            json!({ "outcome": "adopted", "entry": entry, "surprise": true }),
+            // `outcome` outside the closed vocabulary
+            json!({ "outcome": "unexpected", "entry": entry }),
+            // success `extensions` must be an ExtensionMap
+            json!({ "outcome": "adopted", "entry": entry, "extensions": [] }),
+            // unknown TOP-LEVEL member on the failure branch
+            json!({
+                "error": { "code": "REVISION_CONFLICT", "message": "x", "extensions": {} },
+                "surprise": true,
+            }),
+            json!({
+                "error": {
+                    "code": "REVISION_CONFLICT",
+                    "message": "x",
+                    "details": 5,
+                    "extensions": {},
+                },
+            }),
+            json!({
+                "error": {
+                    "code": "REVISION_CONFLICT",
+                    "message": "x",
+                    "extensions": {},
+                    "surprise": true,
+                },
+            }),
+            json!({ "error": { "code": "REVISION_CONFLICT", "message": "x" } }),
+        ] {
+            assert!(
+                serde_json::from_value::<KnowledgeAdoptResponse>(bad.clone()).is_err(),
+                "typed decode must refuse {bad}"
+            );
+        }
+    }
+
+    /// Dispute pin (qc1 F-013 residual) — an out-of-domain provider
+    /// revision refuses `INTERNAL_ERROR` in EVERY revision slot, and the
+    /// normalizing rewrite never runs before the bound: `2^53 + 2`
+    /// (f64-exact at this magnitude) is never rounded down into the
+    /// domain. The third slot rides a provider refusal receipt
+    /// (`details.adopted_revision`), proving the ordinary
+    /// refusal/failure path validates its revision member too.
+    #[tokio::test]
+    async fn out_of_domain_provider_revision_refuses_in_every_slot() {
+        struct FixedPort(Value);
+        #[async_trait]
+        impl AdoptionPort for FixedPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                spoke_ok(serde_json::from_value(self.0.clone()).expect("response decodes"))
+            }
+        }
+        let admission = || admission(scope("spc_local"), principal("prn_peer-a"));
+        let payload = || {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload
+        };
+        let serve = |response: Value| async move {
+            AdoptionPortService::new(Arc::new(FixedPort(response)), admission())
+                .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload())
+                .await
+        };
+        let assert_refused = |result: SpokeResult<Value>, slot: &str| {
+            let SpokeResult::Reject(reject) = result else {
+                panic!("{slot} outside [0, 2^53] must refuse: {result:?}")
+            };
+            assert_eq!(reject.code, SpokeRejectCode::InternalError, "{slot}");
+            assert!(
+                reject.message.contains("outside [0, 2^53]"),
+                "{slot}: {reject:?}"
+            );
+        };
+
+        // 2^53 + 2 — f64-exact, one step beyond the inclusive endpoint.
+        const OUT: u64 = 9007199254740994;
+
+        assert_refused(
+            serve(json!({ "outcome": "adopted", "entry": served_entry(1, OUT) })).await,
+            "entry.revision",
+        );
+        assert_refused(
+            serve(json!({ "outcome": "adopted", "entry": served_entry(OUT, 1) })).await,
+            "adoption_anchor.source_revision",
+        );
+        assert_refused(
+            serve(json!({
+                "error": {
+                    "code": "REVISION_CONFLICT",
+                    "message": "conflict",
+                    "details": { "adopted_revision": OUT },
+                    "extensions": {},
+                },
+            }))
+            .await,
+            "error.details.adopted_revision",
+        );
+    }
+
+    /// qc2 QC2-21 (F-030) — the client decode path (`invoke_mapped`'s
+    /// success payload branch) accepts a served failure envelope as
+    /// `Variant1`: a wire-valid `{error, extensions?}` payload is a
+    /// successful port outcome, so the client returns it verbatim (TS
+    /// parity: `isAdoptFailurePayload` in the adapter's payload gate).
+    #[test]
+    fn served_failure_payload_decodes_on_the_client_path() {
+        let decoded = serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+            "error": {
+                "code": "REVISION_CONFLICT",
+                "message": "conflict",
+                "details": { "adopted_revision": 7 },
+                "extensions": { "product": { "v": 1 } },
+            },
+            "extensions": { "transport": { "trace": "t-1" } },
+        }))
+        .expect("a wire-valid failure envelope decodes as Variant1");
+        assert!(matches!(decoded, KnowledgeAdoptResponse::Variant1 { .. }));
+    }
+
+    /// qc1 F-033 — parity pin for the TS client gate (`isValidAdoptSuccessPayload`):
+    /// the typed `KnowledgeAdoptResponse` decode refuses a success entry
+    /// without `adoption_anchor`, so the shallow `{outcome, entry}` shape
+    /// alone is never a valid success payload.
+    #[test]
+    fn adopt_success_entry_requires_adoption_anchor() {
+        let mut unanchored = served_entry(2, 1);
+        unanchored
+            .as_object_mut()
+            .expect("entry is an object")
+            .remove("adoption_anchor");
+        assert!(
+            serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+                "outcome": "adopted",
+                "entry": unanchored,
+            }))
+            .is_err(),
+            "a success entry without adoption_anchor must not decode"
+        );
+        assert!(
+            serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+                "outcome": "adopted",
+                "entry": served_entry(2, 1),
+            }))
+            .is_ok(),
+            "a complete anchored entry decodes"
+        );
+    }
+
+    /// qc1 F-031 — a provider Reject receipt's `details.adopted_revision`
+    /// obeys the same `[0, 2^53]` f64-observed domain as the served
+    /// branches: an out-of-domain value settles as a provider-fault
+    /// `INTERNAL_ERROR`, an in-domain value serves (with the between-f64
+    /// spelling normalized to the identity JavaScript reads).
+    #[tokio::test]
+    async fn served_reject_receipt_enforces_the_details_revision_domain() {
+        struct RejectPort(SpokeReject);
+        #[async_trait]
+        impl AdoptionPort for RejectPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                SpokeResult::Reject(self.0.clone())
+            }
+        }
+        let admission = || admission(scope("spc_local"), principal("prn_peer-a"));
+        let payload = || {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload
+        };
+        let serve = |adopted_revision: Value| async move {
+            let mut details = Map::new();
+            details.insert("adopted_revision".into(), adopted_revision);
+            AdoptionPortService::new(
+                Arc::new(RejectPort(SpokeReject {
+                    code: SpokeRejectCode::RevisionConflict,
+                    message: "conflict".into(),
+                    details: Some(details),
+                })),
+                admission(),
+            )
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload())
+            .await
+        };
+
+        for (spelling, served_as, expected) in [
+            (json!(7), SpokeRejectCode::RevisionConflict, json!(7)),
+            (
+                json!(9007199254740992_u64),
+                SpokeRejectCode::RevisionConflict,
+                json!(9007199254740992_u64),
+            ),
+            (
+                json!(9007199254740993_u64),
+                SpokeRejectCode::RevisionConflict,
+                json!(9007199254740992_u64),
+            ),
+            (
+                json!(9007199254740994_u64),
+                SpokeRejectCode::InternalError,
+                // The provider fault names the domain; no receipt travels.
+                json!(null),
+            ),
+        ] {
+            let result = serve(spelling.clone()).await;
+            let SpokeResult::Reject(reject) = result else {
+                panic!("adopted_revision={spelling}: receipt must reject: {result:?}")
+            };
+            assert_eq!(reject.code, served_as, "adopted_revision={spelling}");
+            let details = reject.details.expect("details survive");
+            if served_as == SpokeRejectCode::InternalError {
+                assert_eq!(details.get("kind"), Some(&json!("transport")));
+                assert!(
+                    !details.contains_key("adopted_revision"),
+                    "a provider fault carries no receipt: {details:?}"
+                );
+            } else {
+                assert_eq!(
+                    details.get("adopted_revision"),
+                    Some(&expected),
+                    "adopted_revision={spelling}"
+                );
+            }
+        }
+    }
+
+    /// F-007 fixture: a lookup/record-only dedup store whose every
+    /// lookup reports `Unseen` — the pre-single-flight surface that
+    /// inherits the default `claim_key`. `lookups` records when the
+    /// dedup probe ran relative to provider invocations.
+    struct RecordingDedupStore {
+        lookups: Arc<AtomicU64>,
+    }
+
+    #[async_trait]
+    impl HistoryDedupStore for RecordingDedupStore {
+        async fn lookup(&self, _key: &str) -> HistoryDedupLookup {
+            self.lookups.fetch_add(1, AtomicOrdering::SeqCst);
+            HistoryDedupLookup::Unseen
+        }
+
+        async fn record(&self, _key: &str, _record: HistoryDedupRecord) {}
+    }
+
+    /// A valid `knowledge.adopt` provider success for the F-007
+    /// single-flight tests — a well-formed anchored entry per B6.
+    fn adopted_success() -> KnowledgeAdoptResponse {
+        serde_json::from_value(json!({
+            "outcome": "adopted",
+            "entry": {
+                "schema_version": 1,
+                "entry_id": "ke_dst",
+                "entry_type": "note",
+                "canonical_name": "copy",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "adoption_anchor": {
+                    "schema_version": 1,
+                    "source_scope_id": "dst-scope",
+                    "source_entry_id": "src-entry",
+                    "source_revision": 3,
+                    "extensions": {},
+                },
+                "extensions": {},
+            },
+        }))
+        .expect("response decodes")
+    }
+
+    /// F-007 default-claim exclusion: two services sharing ONE
+    /// lookup/record-only store serialize the same retry identity
+    /// across lookup → provider → record (the second call's dedup
+    /// probe cannot run while the first is in flight), while an
+    /// unrelated key proceeds concurrently (qc1 F-007).
+    #[tokio::test]
+    async fn default_claim_serializes_same_key_across_services() {
+        struct GatedPort {
+            calls: AtomicU64,
+            in_flight: AtomicU64,
+            max_in_flight: AtomicU64,
+            gate: tokio::sync::Notify,
+        }
+        #[async_trait]
+        impl AdoptionPort for GatedPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+                let depth = self.in_flight.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                self.max_in_flight.fetch_max(depth, AtomicOrdering::SeqCst);
+                self.gate.notified().await;
+                self.in_flight.fetch_sub(1, AtomicOrdering::SeqCst);
+                spoke_ok(adopted_success())
+            }
+        }
+        let lookups = Arc::new(AtomicU64::new(0));
+        let dedup: Arc<dyn HistoryDedupStore> = Arc::new(RecordingDedupStore {
+            lookups: Arc::clone(&lookups),
+        });
+        let port_a = Arc::new(GatedPort {
+            calls: AtomicU64::new(0),
+            in_flight: AtomicU64::new(0),
+            max_in_flight: AtomicU64::new(0),
+            gate: tokio::sync::Notify::new(),
+        });
+        let port_b = Arc::new(GatedPort {
+            calls: AtomicU64::new(0),
+            in_flight: AtomicU64::new(0),
+            max_in_flight: AtomicU64::new(0),
+            gate: tokio::sync::Notify::new(),
+        });
+        let service_a = Arc::new(
+            AdoptionPortService::new(
+                Arc::clone(&port_a) as Arc<dyn AdoptionPort + Send + Sync>,
+                admission(scope("dst-scope"), principal("prn_peer-a")),
+            )
+            .with_dedup_store(Arc::clone(&dedup)),
+        );
+        let service_b = Arc::new(
+            AdoptionPortService::new(
+                Arc::clone(&port_b) as Arc<dyn AdoptionPort + Send + Sync>,
+                admission(scope("dst-scope"), principal("prn_peer-a")),
+            )
+            .with_dedup_store(dedup),
+        );
+        // Service A serves the same retry identity twice; service B
+        // shares the store and must wait on A's claim. An unrelated key
+        // on B proceeds concurrently.
+        let first = tokio::spawn({
+            let service = Arc::clone(&service_a);
+            async move {
+                service
+                    .invoke("peer-a", KNOWLEDGE_OP_ADOPT, adopt_payload(None))
+                    .await
+            }
+        });
+        let second = tokio::spawn({
+            let service = Arc::clone(&service_b);
+            async move {
+                service
+                    .invoke("peer-a", KNOWLEDGE_OP_ADOPT, adopt_payload(None))
+                    .await
+            }
+        });
+        let mut payload_k2 = adopt_payload(None);
+        payload_k2["idempotency_key"] = json!("key-2");
+        let third = tokio::spawn({
+            let service = Arc::clone(&service_a);
+            async move {
+                service
+                    .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload_k2)
+                    .await
+            }
+        });
+        // Wait until the first same-key call and the unrelated call are
+        // inside their provider gates: the unrelated key reaches its
+        // port while the same-key replay is still claimed.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while port_a.calls.load(AtomicOrdering::SeqCst) < 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the first same-key call and the unrelated key reach the provider");
+        // The second same-key call waits on the default claim — its
+        // dedup lookup has not run (only the first and unrelated calls
+        // probed) and its provider never invoked.
+        assert_eq!(
+            lookups.load(AtomicOrdering::SeqCst),
+            2,
+            "the second same-key lookup is held behind the default claim"
+        );
+        assert_eq!(port_b.calls.load(AtomicOrdering::SeqCst), 0);
+        // Release A's held call; the unrelated call releases too; the
+        // claimed second call then serializes behind the released claim.
+        port_a.gate.notify_waiters();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while port_b.calls.load(AtomicOrdering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+                port_b.gate.notify_one();
+            }
+        })
+        .await
+        .expect("the claimed second call reaches its provider after release");
+        port_b.gate.notify_waiters();
+        let (first, second, third) = tokio::join!(first, second, third);
+        for (name, result) in [
+            ("first", first),
+            ("second", second),
+            ("third", third),
+        ] {
+            let result = result.expect("task completes");
+            assert!(
+                matches!(result, SpokeResult::Ok(_)),
+                "{name} must succeed: {result:?}"
+            );
+        }
+        // The same-key second call ran its provider AFTER the first
+        // released the claim — serialized, never overlapped.
+        assert_eq!(port_a.calls.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(port_b.calls.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(
+            port_a.max_in_flight.load(AtomicOrdering::SeqCst)
+                .max(port_b.max_in_flight.load(AtomicOrdering::SeqCst)),
+            2,
+            "only the unrelated key overlapped — same-key calls never share a window"
+        );
+    }
+
+    /// F-007 unsettled retry: a caller whose invoke is cancelled while
+    /// its provider call is in flight releases the default claim — the
+    /// next same-key call invokes the provider again (B3: an unsettled
+    /// invocation frees the retry identity).
+    #[tokio::test]
+    async fn default_claim_releases_on_an_unsettled_invocation() {
+        struct BlockingPort {
+            calls: AtomicU64,
+            gate: tokio::sync::Notify,
+        }
+        #[async_trait]
+        impl AdoptionPort for BlockingPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+                self.gate.notified().await;
+                spoke_ok(adopted_success())
+            }
+        }
+        let port = Arc::new(BlockingPort {
+            calls: AtomicU64::new(0),
+            gate: tokio::sync::Notify::new(),
+        });
+        let service = Arc::new(
+            AdoptionPortService::new(
+                Arc::clone(&port) as Arc<dyn AdoptionPort + Send + Sync>,
+                admission(scope("dst-scope"), principal("prn_peer-a")),
+            )
+            .with_dedup_store(Arc::new(RecordingDedupStore {
+                lookups: Arc::new(AtomicU64::new(0)),
+            })),
+        );
+        // A cancelled caller: the spawned invoke is aborted mid-provider
+        // — the unsettled outcome drops the claim guard.
+        let handle = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move {
+                service
+                    .invoke("peer-a", KNOWLEDGE_OP_ADOPT, adopt_payload(None))
+                    .await
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while port.calls.load(AtomicOrdering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the first provider call starts");
+        handle.abort();
+        let _ = handle.await;
+        // The retry identity is free again: a fresh same-key invoke
+        // claims it and reaches the provider — no stale-claim deadlock.
+        let retry = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move {
+                service
+                    .invoke("peer-a", KNOWLEDGE_OP_ADOPT, adopt_payload(None))
+                    .await
+            }
+        });
+        // Release each provider call as it arrives; the retry must
+        // reach the port for this loop to exit.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while port.calls.load(AtomicOrdering::SeqCst) < 2 {
+                if tokio::time::timeout(
+                    std::time::Duration::from_millis(50),
+                    port.gate.notified(),
+                )
+                .await
+                .is_err()
+                {
+                    port.gate.notify_one();
+                }
+            }
+        })
+        .await
+        .expect("the released claim must not deadlock the retry");
+        port.gate.notify_waiters();
+        let result = retry.await.expect("task completes");
+        assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
+        assert_eq!(port.calls.load(AtomicOrdering::SeqCst), 2);
     }
 }

@@ -100,6 +100,9 @@ Only **data-store** commits settled KnowledgeEntry state. Checker, assembler, an
 | `ke-ownership` | MUST appear when the host exchanges `KnowledgeEntry.owner` / `disclosure` or honors `Scope.viewpoint` semantics — see §Ownership governance (`ke-ownership` optional) |
 | `ke-extraction` | MUST appear when the host declares the optional `extract` operation: pairs the unchanged `input-source` role with the standalone `ExtractionPort` + `orchestrateExtract` family (not part of `BaselinePorts` / `FullPorts`). Candidates stay provisional; settled writes remain with `data-store`. Design contract: [`2026-09-17-ke-extraction.md`](../../adr/implemented/feature/2026-09-17-ke-extraction.md) |
 | `spoke-cognition` | MUST appear when the host serves closed cognition records, selection/projection or Memory cognition semantics on its advertised surface; exact served-surface conformance is in [`spoke-cognition-consumer-contract.md`](../cognition/spoke-cognition-consumer-contract.md) |
+| `spoke-history` | Optional declaration for a host serving revision snapshots and the history operation contract. Exact negotiated membership gates `history.revisions.get` and `history.revisions.prune`; neither `spoke-baseline` nor `spoke-knowledge` implies or replaces it |
+| `spoke-knowledge-adoption` | Optional declaration for a host serving `knowledge.adopt` and the `AdoptionAnchor` contract. Declaring it requires also declaring `spoke-knowledge`; both exact strings are mandatory for adoption negotiation and dispatch |
+| `spoke-judgment` | Optional conformance-only declaration for a host validating or producing the `Judgment` envelope and conforming to its pure-validation and canonical-comparison contract. It has no Connect dispatch row or operation of its own |
 
 #### Authority (optional)
 

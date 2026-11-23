@@ -10,7 +10,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 | 列 | 内容 |
 |----|------|
-| **数据线上（Data wire）** | 十一个数据对象：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、HostCapabilityManifest、Rule、TimelineEvent、CognitionRecord、MindState、ToolDescriptor（[`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)），共享定义在 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common)；可选 `spoke-memory` 族在同一编写规则下增加十三个记忆模型 |
+| **数据线上（Data wire）** | 十四个数据对象：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、HostCapabilityManifest、Rule、TimelineEvent、CognitionRecord、MindState、ToolDescriptor、RevisionSnapshot、AdoptionAnchor、Judgment（[`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)），共享定义在 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common)；可选 `spoke-memory` 族在同一编写规则下增加十三个记忆模型 |
 | **操作线上（Ops wire）** | 五个基线操作族 —— upsert、extract→promote、relate、check、assemble —— 以传输无关的请求/响应信封承载（[`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)），`l2-computable` 下另有可选 `project` / `compute`，`ke-extraction` 下另有可选 `extract`，以及 33 个操作的 `spoke-memory` 族 |
 | **操作库（Operations library）** | 在生成的线上类型之上的手写行为层：纯函数生命周期辅助、按能力切片的 adapter ports 与注入式编排（TypeScript `@42ch/spoke-operations`；Rust `spoke-operations`，锁步 SemVer） |
 
@@ -20,7 +20,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 ## Schema 清单与代码生成姿态
 
-线上清单为 **114 个已提交的 `*.schema.json`**：2 common + 24 data + 82 ops + 6 connect 信封。可选 `spoke-memory` 族贡献其中 79 个（13 个数据模型 + 33 组请求/响应配对）。基线集成方使用其中的 **21** 个 schema 文件（2 common + 9 data + 10 基线 ops）：九个基线数据 schema 包含 `ToolDescriptor`，而 `CognitionRecord` 与 `MindState` 是两个可选的非记忆数据文件。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 校验已提交的生成树：schema 数量、opaque JSON 类型契约、TypeScript typecheck 与 `cargo check --workspace`；schema 变更与重新生成输出落在同一提交。
+线上清单为 **123 个已提交的 `*.schema.json`**：2 common + 27 data + 88 ops + 6 connect 信封。可选 `spoke-memory` 族贡献其中 79 个（13 个数据模型 + 33 组请求/响应配对）。基线集成方使用其中的 **21** 个 schema 文件（2 common + 9 data + 10 基线 ops）：九个基线数据 schema 包含 `ToolDescriptor`，而 `CognitionRecord`、`MindState`、`RevisionSnapshot`、`AdoptionAnchor` 与 `Judgment` 是五个可选的非记忆数据文件。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 校验已提交的生成树：schema 数量、opaque JSON 类型契约、TypeScript typecheck 与 `cargo check --workspace`；schema 变更与重新生成输出落在同一提交。
 
 ## 扩展契约
 
@@ -47,12 +47,15 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 | `spoke-knowledge` | 三个 connect 知识 port 操作（`port.knowledge.get`、`port.knowledge.put`、`port.scope.list_knowledge_entries`），经独立 `ScopedKnowledgePort` 服务并带逐对等节点作用域准入。该标志必须在 `negotiated_capabilities` 中显式出现；`spoke-baseline` 只授权基线操作 |
 | `spoke-connect` | 可选交互信封族；讲该协议的主机在 `HostCapabilityManifest.capabilities` 中列出该标志 |
 | `spoke-memory` | 可选按主体记忆族：十三个模型与 33 个 `memory.*` 操作，外加独立 `MemoryPort`。两个可选的子标志 —— `spoke-memory-reflection`（3 个反思操作）与 `spoke-memory-transfer`（5 个导出/导入操作）—— 均要求 `spoke-memory`。见 [记忆参考](/zh/reference/memory) |
+| `spoke-history` | 可选修订历史族：`RevisionSnapshot` 外加 `history.revisions.get` / `history.revisions.prune` 操作。见 [历史参考](/zh/reference/history) |
+| `spoke-knowledge-adoption` | 可选采纳族：`AdoptionAnchor` 外加 `knowledge.adopt`；声明该标志还要求同时声明 `spoke-knowledge`。见 [知识采纳参考](/zh/reference/knowledge-adoption) |
+| `spoke-judgment` | 可选 `Judgment` 数据信封：纯验证与规范比较；该标志本身不声明任何操作。见 [判定参考](/zh/reference/judgment) |
 
 ## 认知协商与拒绝 {#cognition-negotiation-and-rejection}
 
 `spoke-cognition` 是单一能力标志。主机只有在实际提供的表面上实现全部强制规则后，才在 `HostCapabilityManifest.capabilities` 中列出它：仅提供 KnowledgeEntry 的主机实现认知模块、`modules.observation` 与 `Scope.cognition` 过滤/投影，无需记忆；同时提供 KnowledgeEntry 与记忆的主机还要满足记忆认知行（记录时点内容校验、过滤的 list/recall、反思依据、传输摘要、擦除）。manifest 字符串本身不是合规证据。
 
-协商复用既有的签名握手交集：仅当两端 manifest 都声明时，`negotiatedCapabilities(local, remote)` 才授予 `spoke-cognition`。基线操作仍要求 `spoke-baseline`；载荷相关的门禁只在被派发的请求携带其声明载体时加入认知要求（`check`、`assemble`、`port.scope.list_knowledge_entries`、`port.scope.list_timeline_events`、`port.fork.list_timeline_events` 上的 `scope.cognition`；`memory.recall`、`memory.records.list` 与三个 `memory.reflections.*` 读取上的 `cognition_filter`）。协商集合缺少该族时，需要它的请求走既有 `capability_missing` 分支且无处理器副作用。未携带可选认知字段的记录仍是普通的缺失数据，不产生错误。
+协商复用既有的签名握手交集：仅当两端 manifest 都声明时，`negotiatedCapabilities(local, remote)` 才授予 `spoke-cognition`。基线操作仍要求 `spoke-baseline`；载荷相关的门禁只在被派发的请求携带其声明载体时加入认知要求（`check`、`assemble`、`port.scope.list_knowledge_entries`、`port.scope.list_timeline_events`、`port.fork.list_timeline_events`、`history.revisions.get` 与 `history.revisions.prune` 上的 `scope.cognition`；`memory.recall`、`memory.records.list` 与三个 `memory.reflections.*` 读取上的 `cognition_filter`）。协商集合缺少该族时，需要它的请求走既有 `capability_missing` 分支且无处理器副作用。未携带可选认知字段的记录仍是普通的缺失数据，不产生错误。
 
 schema 解码后，未知谓词、已知但未实现的视图/维度/指标过滤，或在 KnowledgeEntry 载体上请求记录时点视图，都会通过既有错误信封拒绝整个请求：`code: "invalid_input"`、`message: "Unsupported cognition requirement"`、`details.reason: "unsupported_cognition_requirement"`，`details.field` 指出该要求的载体相对路径。响应中不做静默剥离、不忽略合取、不返回部分结果，也不回退到未过滤输出。
 

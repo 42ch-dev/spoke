@@ -211,6 +211,7 @@
       },
       "expect": {
         "error_code": "INVALID_INPUT",
+        "details": { "op": "history.revisions.prune" },
         "provider_calls": 0
       }
     }

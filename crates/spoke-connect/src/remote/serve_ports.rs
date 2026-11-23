@@ -517,6 +517,15 @@ enum HistoryCall {
     },
 }
 
+/// `INVALID_INPUT` details carried by every `history.*` boundary reject:
+/// the op under dispatch, so callers branch without parsing `message`
+/// (TypeScript `historyInputReject` parity).
+fn history_input_details(op: &str) -> Option<Map<String, Value>> {
+    let mut details = Map::new();
+    details.insert("op".into(), Value::from(op));
+    Some(details)
+}
+
 /// Decode the request's optional `scope` member as the shared `Scope`:
 /// absent is `None` (the admission supplies the effective scope), a
 /// present malformed member is `INVALID_INPUT`. Takes the owned member
@@ -531,7 +540,7 @@ fn decode_history_scope(op: &str, scope: Option<Value>) -> SpokeResult<Option<Sc
         Err(error) => spoke_reject(
             SpokeRejectCode::InvalidInput,
             format!("invalid {op} payload: {error}"),
-            None,
+            history_input_details(op),
         ),
     }
 }
@@ -565,7 +574,7 @@ fn decode_history_call(op: &str, payload: Value, scope: Option<Value>) -> SpokeR
             Err(error) => spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 format!("invalid {op} payload: {error}"),
-                None,
+                history_input_details(op),
             ),
         },
         HISTORY_OP_PRUNE => match serde_json::from_value::<HistoryRevisionsPruneRequest>(payload) {
@@ -579,7 +588,7 @@ fn decode_history_call(op: &str, payload: Value, scope: Option<Value>) -> SpokeR
             Err(error) => spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 format!("invalid {op} payload: {error}"),
-                None,
+                history_input_details(op),
             ),
         },
         _ => SpokeResult::Reject(SpokeReject {
@@ -951,7 +960,7 @@ impl RemoteHistoryService for HistoryPortService {
                 return spoke_reject(
                     SpokeRejectCode::InvalidInput,
                     format!("invalid {op} payload: integer member outside the exact-integer range"),
-                    None,
+                    history_input_details(op),
                 );
             }
             match jcs_sha256_hex(&payload) {
@@ -1417,7 +1426,7 @@ fn revision_in_domain(value: &Value) -> bool {
 ///   `KnowledgeEntry` with every required wire member, not merely a
 ///   well-formed anchor. `destination_entry_id` binds the served
 ///   `entry.entry_id` when the request supplied one; an absent selector
-///   defaults to the entry's own id (`entry.id` supplies it), so no
+///   defaults to the entry's own id (`entry.entry_id` supplies it), so no
 ///   equality check applies then.
 /// - Failure (`OneOf1`, contract E3): `{error, extensions?}` — a
 ///   provider error envelope emitted verbatim, never converted into a
@@ -2154,13 +2163,14 @@ mod history_tests {
             .expect("object")
             .remove("idempotency_key");
         let result = service.invoke("peer-a", HISTORY_OP_PRUNE, payload).await;
-        assert!(matches!(
-            result,
-            SpokeResult::Reject(SpokeReject {
-                code: SpokeRejectCode::InvalidInput,
-                ..
-            })
-        ));
+        let SpokeResult::Reject(reject) = result else {
+            panic!("expected INVALID_INPUT, got {result:?}");
+        };
+        assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+        assert_eq!(
+            reject.details.as_ref().and_then(|details| details.get("op")),
+            Some(&Value::from(HISTORY_OP_PRUNE))
+        );
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
     }
 

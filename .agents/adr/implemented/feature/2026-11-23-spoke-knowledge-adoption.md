@@ -36,7 +36,7 @@ Expose the operation as one reserved-product connect op, `knowledge.adopt` under
 - The connect dispatch gate admits `knowledge.adopt` only when `negotiated_capabilities` contains both `spoke-knowledge-adoption` and `spoke-knowledge`, answering `op_unsupported` / `capability_missing` before the handler with no side effects.
 - The refusal vocabulary behaves as specified: `ADOPTION_ANCHOR_IMMUTABLE` + `entry_id`, `SOURCE_RETIRED` + `retirement_chain`, `REVISION_CONFLICT` + `adopted_revision`, generic `NOT_FOUND`, `IDEMPOTENCY_CONFLICT` with no adoption-specific details.
 - Conformance vectors cover adoption, same-revision repeat, different-revision conflict, private-source absence, retirement-chain resolution, and anchor-immutability refusal across both languages.
-- `.agents/specs/memory/spoke-knowledge-adoption.md` states the anchor shape, port semantics, copy rules, governance reset, refusal vocabulary, connect gate, and atomicity as affirmative facts, consistent with this record.
+- `.agents/specs/protocol/spoke-knowledge-adoption.md` states the anchor shape, port semantics, copy rules, governance reset, refusal vocabulary, connect gate, and atomicity as affirmative facts, consistent with this record.
 
 ## Risks
 

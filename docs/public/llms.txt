@@ -39,6 +39,9 @@ If a page contradicts `schemas/`, the schema wins.
 - [Memory](https://spoke.42ch.dev/reference/memory): 33 `memory.*` ops, 13 data models, grants, receipts, digests.
 - [Ops wire](https://spoke.42ch.dev/reference/ops): Scope, upsert, promote, relate, check, assemble, project, compute, extract envelopes.
 - [Connect](https://spoke.42ch.dev/reference/connect): Six envelopes, identity, signatures, ordering, dispatch gate, RemoteAdapter and bindings.
+- [History](https://spoke.42ch.dev/reference/history): `spoke-history` exact-revision replay and checkpoint pruning.
+- [Knowledge adoption](https://spoke.42ch.dev/reference/knowledge-adoption): `spoke-knowledge-adoption` atomic write-once copy with an immutable adoption anchor.
+- [Judgment](https://spoke.42ch.dev/reference/judgment): `spoke-judgment` assessment envelope, pure validation and canonical comparison.
 
 ## How-to
 

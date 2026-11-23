@@ -653,14 +653,15 @@ const REVISION_MEMBERS: [&str; 6] = [
 
 /// Every integer member of `value` is inside the exact-integer range
 /// (`[−2^53, 2^53]` for a revision member, `[−2^53 + 1, 2^53 − 1]` for
-/// everything else). The prune dedup digest is SHA-256 over the RFC
+/// everything else). The adoption dedup digest is SHA-256 over the RFC
 /// 8785 encoding of the whole request payload; an integer beyond the
 /// member's range would collapse to the same canonical number as a
 /// distinct neighbor, so a different request could replay a recorded
 /// outcome under its own key. The serving boundary refuses such
 /// payloads with `INVALID_INPUT` instead of rounding (spoke-history
 /// contract §`HistoryPort`: the runtime never rounds an unrepresentable
-/// integer).
+/// integer). The history prune digest does not use this predicate: its
+/// walk owns `keep` alone and refuses every other endpoint directly.
 ///
 /// `2^53` endpoint is admitted only for the top-level
 /// [`REVISION_MEMBERS`]: it is an exact IEEE-754 integer the TypeScript
@@ -1027,20 +1028,22 @@ impl RemoteHistoryService for HistoryPortService {
         // (idempotency key included) — compute it before the scope member
         // moves out for decoding.
         let payload_digest = if op == HISTORY_OP_PRUNE {
-            // The digest covers the WHOLE request object under RFC 8785
-            // — refuse any member outside the exact-integer range before
-            // hashing (see `payload_integers_jcs_exact`), then hash the
-            // copy whose `±2^53` endpoint is the equal f64
-            // (`serde_jcs` stops one below it).
-            if !payload_integers_jcs_exact(&payload) {
-                return spoke_reject(
-                    SpokeRejectCode::InvalidInput,
-                    format!("invalid {op} payload: integer member outside the exact-integer range"),
-                    history_input_details(op),
-                );
-            }
-            let normalized = respell_paths(payload.clone(), &[&["keep"]])
-                .expect("the pre-check refuses every out-of-domain number");
+            // The digest covers the WHOLE request object under RFC 8785.
+            // Normalization owns only this op's revision member (`keep`):
+            // an endpoint elsewhere in the object — including the extra
+            // top-level `revision` spelling the shared six-member predicate
+            // widens — is not this digest's to re-spell, so the walk refuses
+            // it as a structured `INVALID_INPUT` instead of unwinding.
+            let normalized = match respell_paths(payload.clone(), &[&["keep"]]) {
+                Ok(normalized) => normalized,
+                Err(error) => {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        format!("invalid {op} payload: {error}"),
+                        history_input_details(op),
+                    )
+                }
+            };
             match jcs_sha256_hex(&normalized) {
                 SpokeResult::Ok(digest) => Some(digest),
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
@@ -2719,6 +2722,34 @@ mod history_tests {
                 ..
             })
         ));
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    /// E-01 / E-QC1-01 — the prune digest normalization follows the op's
+    /// `keep`-only ownership. An extra top-level `revision` with the float
+    /// endpoint spelling passes the shared six-member predicate, but it is
+    /// not this digest's to re-spell, so the service answers a structured
+    /// `INVALID_INPUT` instead of unwinding on a failed normalization.
+    #[tokio::test]
+    async fn prune_extra_endpoint_member_is_invalid_input_not_a_panic() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let mut payload = prune_payload("k-extra-endpoint", 2, None);
+        payload["revision"] = json!(9_007_199_254_740_992.0);
+        let result = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, payload)
+            .await;
+        assert!(
+            matches!(
+                result,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "the wrong-slot endpoint must reject: {result:?}"
+        );
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
     }
 

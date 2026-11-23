@@ -1369,6 +1369,99 @@ describe("served result failure branch + extension validation (E3 / qc3 F-021/F-
       }
     }
   });
+
+  it("a valid failure with details and both extension members serves verbatim (never INTERNAL_ERROR)", async () => {
+    const service = serveWith({
+      error: {
+        code: "REVISION_CONFLICT",
+        message: "conflict",
+        details: { adopted_revision: 7 },
+        extensions: { product: { v: 1 } },
+      },
+      extensions: { transport: { trace: "t-1" } },
+    });
+    const result = await service.invoke(
+      "peer_a",
+      "knowledge.adopt",
+      localPayload(),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toEqual({
+        error: {
+          code: "REVISION_CONFLICT",
+          message: "conflict",
+          details: { adopted_revision: 7 },
+          extensions: { product: { v: 1 } },
+        },
+        extensions: { transport: { trace: "t-1" } },
+      });
+    }
+  });
+
+  it("refuses the three malformed failure envelopes the typed Rust decode refuses (qc1 F-019/F-020, qc2 QC2-19, qc3 F-024)", async () => {
+    const validError = {
+      code: "REVISION_CONFLICT",
+      message: "conflict",
+      extensions: {},
+    };
+    for (const mixed of [
+      // (a) success members alongside `error`
+      { outcome: "adopted", entry: { entry_id: "ke_dst" }, error: validError },
+      { entry: { entry_id: "ke_dst" }, error: validError },
+      // (b) non-object `details`
+      { error: { ...validError, details: 5 } },
+      { error: { ...validError, details: null } },
+      // (c) unknown member inside `error`
+      { error: { ...validError, surprise: true } },
+      // the schema requires `error.extensions`
+      { error: { code: "REVISION_CONFLICT", message: "conflict" } },
+    ]) {
+      const service = serveWith(mixed);
+      const result = await service.invoke(
+        "peer_a",
+        "knowledge.adopt",
+        localPayload(),
+      );
+      expect(result.ok, JSON.stringify(mixed)).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("INTERNAL_ERROR");
+      }
+    }
+  });
+
+  it("enforces the [0, 2^53] domain on details.adopted_revision (qc3 F-021 residual)", async () => {
+    for (const [adoptedRevision, served] of [
+      [0, true],
+      [9007199254740992, true],
+      [9007199254740994, false],
+      [-1, false],
+      [1.5, false],
+    ] as const) {
+      const service = serveWith({
+        error: {
+          code: "REVISION_CONFLICT",
+          message: "conflict",
+          details: { adopted_revision: adoptedRevision },
+          extensions: {},
+        },
+      });
+      const result = await service.invoke(
+        "peer_a",
+        "knowledge.adopt",
+        localPayload(),
+      );
+      expect(result.ok, `adopted_revision=${adoptedRevision}`).toBe(served);
+      if (served && result.ok) {
+        expect(result.value).toMatchObject({
+          error: { details: { adopted_revision: adoptedRevision } },
+        });
+      }
+      if (!served && !result.ok) {
+        expect(result.code).toBe("INTERNAL_ERROR");
+      }
+    }
+  });
 });
 
 // ── Destination admission at the serving boundary (C7 / QC2-08) ────────

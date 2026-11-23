@@ -1352,6 +1352,17 @@ fn adoption_replay(outcome: SpokeResult<Value>) -> SpokeResult<Value> {
     }
 }
 
+/// Revision-domain rule shared by the served-bound checks: the bound is
+/// evaluated on the f64 VALUE — the same number JavaScript observes —
+/// not the wire token, so an integer spelling between `u64` and its f64
+/// rounding (`9007199254740993` ≡ `9007199254740992.0`) admits or
+/// refuses identically on both stacks (contract E1 / qc3 F-006).
+fn revision_in_domain(value: &Value) -> bool {
+    value.as_f64().is_some_and(|float| {
+        float.fract() == 0.0 && float >= 0.0 && float <= ADOPT_EXACT_INTEGER_BOUND as f64
+    })
+}
+
 /// Served-side adopt-response validation (spoke-knowledge-adoption
 /// contract §`KnowledgeAdoptResponse`): the emitted success value is the
 /// success branch `{outcome, entry}` — `outcome` is `"adopted"` or
@@ -1396,7 +1407,32 @@ fn valid_served_adopt_result(
                 "adoption provider returned a malformed error envelope",
             );
         }
-        return spoke_ok(value.clone());
+        // qc3 F-021 residual - a revision-typed member inside the
+        // failure `details` (`details.adopted_revision`, contract
+        // §Refusal vocabulary) lives in the same `[0, 2^53]`
+        // f64-observed domain as every other revision member:
+        // out-of-domain refuses, an in-domain integer spelling
+        // normalizes to the identity JavaScript reads.
+        // (`details.retirement_chain` is an array of source-entry-id
+        // strings - it carries no revision member.)
+        let mut emitted = value.clone();
+        if let Some(adopted_revision) = emitted
+            .get_mut("error")
+            .and_then(Value::as_object_mut)
+            .and_then(|error| error.get_mut("details"))
+            .and_then(Value::as_object_mut)
+            .and_then(|details| details.get_mut("adopted_revision"))
+        {
+            if !revision_in_domain(adopted_revision) {
+                return history_transport_reject(
+                    "adoption provider returned an error details.adopted_revision outside [0, 2^53]",
+                );
+            }
+            if let Some(float) = adopted_revision.as_f64() {
+                *adopted_revision = json!(float as u64);
+            }
+        }
+        return spoke_ok(emitted);
     }
     let outcome = object
         .get("outcome")
@@ -1439,16 +1475,11 @@ fn valid_served_adopt_result(
         );
     };
     // Contract E1 — revision-typed members live in the interoperable
-    // integer domain `[0, 2^53]` on the wire; the bound is evaluated on
-    // the f64 VALUE JavaScript observes, not the `u64` token — so
-    // `9007199254740993` admits identically on both stacks (qc3 F-006).
-    let entry_revision_ok = entry.get("revision").is_none_or(|revision| {
-        revision.as_f64().is_some_and(|float| {
-            float.fract() == 0.0
-                && float >= 0.0
-                && float <= ADOPT_EXACT_INTEGER_BOUND as f64
-        })
-    });
+    // integer domain `[0, 2^53]` on the wire; the bound runs on the RAW
+    // provider value (f64-observed) BEFORE any normalization to `u64`,
+    // so an out-of-domain revision refuses instead of being rounded into
+    // the domain (qc1 F-013).
+    let entry_revision_ok = entry.get("revision").is_none_or(revision_in_domain);
     if !entry_revision_ok {
         return history_transport_reject(
             "adoption provider returned an entry with revision outside [0, 2^53]",
@@ -1458,15 +1489,7 @@ fn valid_served_adopt_result(
         .get("adoption_anchor")
         .and_then(Value::as_object)
         .and_then(|anchor| anchor.get("source_revision"))
-        .is_some_and(|revision| {
-            // The bound is on the f64 VALUE — the same number
-            // JavaScript observes (E1 cross-stack parity).
-            revision.as_f64().is_some_and(|float| {
-                float.fract() == 0.0
-                    && float >= 0.0
-                    && float <= ADOPT_EXACT_INTEGER_BOUND as f64
-            })
-        });
+        .is_some_and(revision_in_domain);
     if !anchor_revision_ok {
         return history_transport_reject(
             "adoption provider returned an anchor with source_revision outside [0, 2^53]",
@@ -1488,7 +1511,7 @@ fn valid_served_adopt_result(
     // `float as u64` rewrite.
     let mut entry = entry.clone();
     {
-        let mut normalize = |member: Option<&mut Value>| {
+        let normalize = |member: Option<&mut Value>| {
             if let Some(Value::Number(number)) = member {
                 if let Some(float) = number.as_f64() {
                     if float.fract() == 0.0
@@ -2773,6 +2796,24 @@ mod history_tests {
                 served_ok,
                 "anchor_revision={anchor_revision} entry_revision={entry_revision}: {result:?}"
             );
+            // qc1 F-013 — an out-of-domain provider revision REFUSES; it
+            // is never normalized into the domain first. `2^53 + 2`
+            // (f64-exact at this magnitude) must not round down to a
+            // success.
+            if !served_ok {
+                let SpokeResult::Reject(reject) = &result else {
+                    unreachable!("asserted above");
+                };
+                assert_eq!(
+                    reject.code,
+                    SpokeRejectCode::InternalError,
+                    "out-of-domain revision must refuse INTERNAL_ERROR: {result:?}"
+                );
+                assert!(
+                    reject.message.contains("outside [0, 2^53]"),
+                    "refusal names the revision domain: {reject:?}"
+                );
+            }
         }
 
         // E2: a producer-supplied `extensions` member rides the served
@@ -2854,6 +2895,63 @@ mod history_tests {
         assert_eq!(value["extensions"], json!({ "product": { "v": 1 } }));
         assert!(value.get("error").is_some());
 
+        // qc3 F-021 residual — a revision-typed member inside failure
+        // `details` obeys the same `[0, 2^53]` f64-observed domain:
+        // out-of-domain refuses `INTERNAL_ERROR`, an in-domain spelling
+        // normalizes to the identity JavaScript reads, and an ordinary
+        // detail rides verbatim.
+        let verbatim_details = serve(json!({
+            "error": {
+                "code": "REVISION_CONFLICT",
+                "message": "conflict",
+                "details": { "adopted_revision": 7 },
+                "extensions": { "product": { "v": 1 } },
+            },
+        }))
+        .await;
+        let SpokeResult::Ok(value) = verbatim_details else {
+            panic!("valid details must serve: {verbatim_details:?}")
+        };
+        assert_eq!(value["error"]["details"], json!({ "adopted_revision": 7 }));
+        assert_eq!(
+            value["error"]["extensions"],
+            json!({ "product": { "v": 1 } }),
+            "error-envelope extensions ride verbatim"
+        );
+
+        let normalized_details = serve(json!({
+            "error": {
+                "code": "REVISION_CONFLICT",
+                "message": "conflict",
+                "details": { "adopted_revision": 9007199254740993_u64 },
+                "extensions": {},
+            },
+        }))
+        .await;
+        let SpokeResult::Ok(value) = normalized_details else {
+            panic!("an in-domain details spelling must serve: {normalized_details:?}")
+        };
+        assert_eq!(
+            value["error"]["details"]["adopted_revision"],
+            json!(9007199254740992_u64),
+            "adopted_revision normalizes to the f64-observed identity"
+        );
+
+        let out_of_domain_details = serve(json!({
+            "error": {
+                "code": "REVISION_CONFLICT",
+                "message": "conflict",
+                "details": { "adopted_revision": 9007199254740994_u64 },
+                "extensions": {},
+            },
+        }))
+        .await;
+        let SpokeResult::Reject(reject) = out_of_domain_details else {
+            panic!("out-of-domain adopted_revision must refuse: {out_of_domain_details:?}")
+        };
+        assert_eq!(reject.code, SpokeRejectCode::InternalError);
+        assert!(reject.message.contains("adopted_revision outside [0, 2^53]"));
+
         // qc3 F-006 residual: the emitted revision identity is the
         // f64-observed value — `9007199254740993` serves as
         // `9007199254740992`, the number JavaScript reads.
@@ -2875,6 +2973,48 @@ mod history_tests {
             json!(9007199254740992_u64),
             "entry revision normalizes to the f64-observed identity"
         );
+    }
+
+    /// qc1 F-019/F-020, qc2 QC2-19, qc3 F-024 — parity pin for the TS
+    /// `validServedAdoptResult` envelope rules: the typed
+    /// `KnowledgeAdoptResponse` decode is the Rust trust boundary, so a
+    /// mixed envelope (`entry`/`outcome` alongside `error`), a
+    /// non-object `details`, an unknown member inside `error`, and a
+    /// missing required `extensions` all refuse before the served
+    /// validator runs. TS mirrors each rule on the raw provider object
+    /// (a JS provider can hand it any shape).
+    #[test]
+    fn adopt_response_typed_decode_refuses_malformed_failure_envelopes() {
+        let entry = served_entry(2, 1);
+        for bad in [
+            json!({
+                "outcome": "adopted",
+                "entry": entry,
+                "error": { "code": "REVISION_CONFLICT", "message": "x", "extensions": {} },
+            }),
+            json!({
+                "error": {
+                    "code": "REVISION_CONFLICT",
+                    "message": "x",
+                    "details": 5,
+                    "extensions": {},
+                },
+            }),
+            json!({
+                "error": {
+                    "code": "REVISION_CONFLICT",
+                    "message": "x",
+                    "extensions": {},
+                    "surprise": true,
+                },
+            }),
+            json!({ "error": { "code": "REVISION_CONFLICT", "message": "x" } }),
+        ] {
+            assert!(
+                serde_json::from_value::<KnowledgeAdoptResponse>(bad.clone()).is_err(),
+                "typed decode must refuse {bad}"
+            );
+        }
     }
 
     /// F-007 fixture: a lookup/record-only dedup store whose every

@@ -525,7 +525,7 @@ fn decode_knowledge_call<'a>(
             // `adopt_request_from_payload`'s `float as u64` rewrite.
             let mut normalized_payload = payload.clone();
             {
-                let mut normalize_revision = |member: Option<&mut Value>| {
+                let normalize_revision = |member: Option<&mut Value>| {
                     if let Some(Value::Number(number)) = member {
                         if let Some(float) = number.as_f64() {
                             if float.fract() == 0.0

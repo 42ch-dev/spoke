@@ -35,6 +35,7 @@ import {
 
 import { isJsonObject, validateDeclaredScope } from "./responder.js";
 import {
+  isAdoptExactNonNegativeInteger,
   isValidExtensionMap,
   isValidKnowledgeEntryDeep,
   isValidRevisionSnapshot,
@@ -1059,6 +1060,16 @@ export class AdoptionPortService implements RemoteAdoptionService {
   }
 }
 
+/** `ErrorEnvelope` members (common/error-envelope.schema.json) — any
+ * other member inside a served `error` object is malformed, matching the
+ * typed Rust `deny_unknown_fields` decode. */
+const ERROR_ENVELOPE_MEMBERS: Record<string, true> = {
+  code: true,
+  message: true,
+  details: true,
+  extensions: true,
+};
+
 /**
  * note: served-side adopt-response validation — the emitted success value
  * is the `KnowledgeAdoptResponse` success branch `{ outcome, entry }`:
@@ -1087,8 +1098,20 @@ function validServedAdoptResult(
   // with an optional `extensions` member, emitted verbatim. A supplied
   // `extensions` on EITHER branch must satisfy `ExtensionMap` (namespace
   // pattern + object values) — the same rule request payloads enforce
-  // (qc1 F-004 / qc3 F-021/F-023).
+  // (qc1 F-004 / qc3 F-021/F-023). The envelope rules below mirror the
+  // typed Rust `ErrorEnvelope` decode exactly (qc1 F-019/F-020, qc2
+  // QC2-19, qc3 F-024).
   if ("error" in value) {
+    // Contract §`KnowledgeAdoptResponse`: `entry` OR `error` — never
+    // both. Any success member alongside `error` is a malformed mixed
+    // envelope.
+    if ("outcome" in value || "entry" in value) {
+      return spokeReject(
+        SpokeRejectCode.INTERNAL_ERROR,
+        "adoption provider returned a mixed error envelope",
+        { kind: "transport" },
+      );
+    }
     if (
       !isJsonObject(value.error) ||
       typeof value.error.code !== "string" ||
@@ -1100,6 +1123,42 @@ function validServedAdoptResult(
         "adoption provider returned a malformed error envelope",
         { kind: "transport" },
       );
+    }
+    // Unknown members inside `error` are malformed (parity with the
+    // typed `ErrorEnvelope` `deny_unknown_fields` decode).
+    if (
+      Object.keys(value.error).some(
+        (member) => ERROR_ENVELOPE_MEMBERS[member] !== true,
+      )
+    ) {
+      return spokeReject(
+        SpokeRejectCode.INTERNAL_ERROR,
+        "adoption provider returned a malformed error envelope",
+        { kind: "transport" },
+      );
+    }
+    // `details` is an optional map (contract §Refusal vocabulary). A
+    // revision-typed member inside it obeys the same `[0, 2^53]` domain
+    // as every other revision member — an out-of-domain value refuses
+    // (qc3 F-021 residual).
+    if ("details" in value.error) {
+      if (!isJsonObject(value.error.details)) {
+        return spokeReject(
+          SpokeRejectCode.INTERNAL_ERROR,
+          "adoption provider returned a malformed error envelope",
+          { kind: "transport" },
+        );
+      }
+      if (
+        "adopted_revision" in value.error.details &&
+        !isAdoptExactNonNegativeInteger(value.error.details.adopted_revision)
+      ) {
+        return spokeReject(
+          SpokeRejectCode.INTERNAL_ERROR,
+          "adoption provider returned an error details.adopted_revision outside [0, 2^53]",
+          { kind: "transport" },
+        );
+      }
     }
     if ("extensions" in value && !isValidExtensionMap(value.extensions)) {
       return spokeReject(

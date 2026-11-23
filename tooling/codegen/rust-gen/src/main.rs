@@ -200,13 +200,35 @@ impl ::std::convert::From<StoredTimestamp> for ::std::string::String {
 // transparent newtype, so the rewrite matches on the inner type instead of the
 // type name.
 const TRANSPARENT_ATTR: &str = "# [serde (transparent)] pub struct ";
-const DATETIME_NEWTYPE_TAIL: &str =
-    " (pub :: chrono :: DateTime < :: chrono :: offset :: Utc >) ;";
 const STRICT_TIMESTAMP_ATTR: &str =
     "# [serde (try_from = \"::std::string::String\" , into = \"::std::string::String\")] pub struct ";
 const CHRONO_PARSE_BODY: &str = "{ Ok (Self (value . parse () ?)) }";
 const STRICT_PARSE_BODY: &str = "{ Ok (Self (crate :: timestamp :: parse_strict (value) ?)) }";
-const DATETIME_INNER_TYPE: &str = ":: chrono :: DateTime";
+
+/// Whitespace-insensitive check for a transparent newtype whose inner type is
+/// a `chrono::DateTime<…>` path, with or without a leading `::`. The rewrite
+/// and the count share this predicate so a spelling variant cannot be counted
+/// but left unrewritten.
+fn is_datetime_newtype(tail: &str) -> bool {
+    let body = tail.split(';').next().unwrap_or_default();
+    let compact: String = body.chars().filter(|ch| !ch.is_whitespace()).collect();
+    let Some(inner) = compact
+        .strip_prefix('(')
+        .and_then(|inner| inner.strip_suffix(')'))
+    else {
+        return false;
+    };
+    let inner = inner.strip_prefix("pub").unwrap_or(inner);
+    let path = inner.strip_prefix("::").unwrap_or(inner);
+    path.strip_prefix("chrono::DateTime<")
+        .is_some_and(|suffix| suffix.ends_with('>'))
+}
+
+/// Byte length of the newtype name at the start of `rest`.
+fn newtype_name_len(rest: &str) -> usize {
+    rest.find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .unwrap_or(rest.len())
+}
 
 /// Independent count of emitted transparent newtypes whose declaration carries
 /// a `chrono::DateTime` inner type, regardless of the exact tail spelling the
@@ -218,7 +240,7 @@ fn count_datetime_newtypes(rust: &str) -> usize {
     while let Some(idx) = rest.find(TRANSPARENT_ATTR) {
         rest = &rest[idx + TRANSPARENT_ATTR.len()..];
         let Some(end) = rest.find(';') else { break };
-        if rest[..end].contains(DATETIME_INNER_TYPE) {
+        if is_datetime_newtype(&rest[newtype_name_len(rest)..end]) {
             count += 1;
         }
         rest = &rest[end + 1..];
@@ -239,12 +261,10 @@ fn rewrite_strict_timestamps(rust: &str) -> Result<String, String> {
     while let Some(idx) = rest.find(TRANSPARENT_ATTR) {
         out.push_str(&rest[..idx]);
         rest = &rest[idx + TRANSPARENT_ATTR.len()..];
-        let name_len = rest
-            .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
-            .unwrap_or(rest.len());
+        let name_len = newtype_name_len(rest);
         let name = &rest[..name_len];
         let tail = &rest[name_len..];
-        if !tail.starts_with(DATETIME_NEWTYPE_TAIL) {
+        if !is_datetime_newtype(tail) {
             // Some other transparent newtype keeps its generated attribute.
             out.push_str(TRANSPARENT_ATTR);
             continue;
@@ -2339,15 +2359,44 @@ mod tests {
     }
 
     #[test]
-    fn a_datetime_newtype_with_an_unexpected_spelling_fails_loudly() {
-        // note: the independent scan sees the `:: chrono :: DateTime` inner type
-        // even when the declaration tail no longer matches the rewrite.
-        let source = "# [serde (transparent)] pub struct Timestamp (:: chrono :: DateTime < :: chrono :: offset :: Utc >) ;";
-        let error = rewrite_strict_timestamps(source)
-            .expect_err("an unrewritten DateTime newtype must fail generation");
+    fn datetime_newtype_path_spellings_are_all_rewritten() {
+        // Mixed module: the standard `:: chrono :: DateTime` copy and a valid
+        // variant without the leading `::` (and looser spacing). Both must be
+        // counted and rewritten; the old exact-tail match left the variant
+        // behind while the count still agreed.
+        let variant = datetime_newtype("Shared0").replace(
+            "(pub :: chrono :: DateTime < :: chrono :: offset :: Utc >)",
+            "( pub chrono :: DateTime< :: chrono :: offset :: Utc > )",
+        );
+        let source = format!("{}{variant}", datetime_newtype("Timestamp"));
         assert!(
-            error.contains("matched 0 of 1 DateTime newtype(s)"),
-            "unexpected error: {error}"
+            !variant.contains("(pub :: chrono :: DateTime"),
+            "variant must not carry the old matched tail"
+        );
+        assert_eq!(count_datetime_newtypes(&source), 2);
+
+        let output = rewrite_strict_timestamps(&source).expect("rewrites both spellings");
+        assert_eq!(
+            output
+                .matches("try_from = \"::std::string::String\" , into = \"::std::string::String\"")
+                .count(),
+            2
+        );
+        assert_eq!(
+            output
+                .matches("crate :: timestamp :: parse_strict (value)")
+                .count(),
+            2
+        );
+        assert_eq!(
+            output
+                .matches("impl :: std :: convert :: From <")
+                .count(),
+            2
+        );
+        assert!(
+            !output.contains("# [serde (transparent)]"),
+            "a DateTime newtype kept its transparent attribute: {output}"
         );
     }
 }

@@ -1274,10 +1274,12 @@ describe("RemoteAdapter loopback interop", () => {
     "rejects an ordinary knowledge/relation get response outside the shared scalar domains (qc1 F-003)",
     async () => {
       // why: the ordinary knowledge/relation success gate used to check the
-      // primitive shape only, so `schema_version: 2^53`, a revision above the
-      // inclusive `2^53` ceiling, and an offsetless `created_at` surfaced
-      // `spokeOk`. The shared wire scalar domains must reject before `spokeOk`
-      // (Rust typed decode parity).
+      // primitive shape only, so `schema_version: 0`, a negative revision and
+      // an offsetless `created_at` surfaced `spokeOk`. The shared wire scalar
+      // domains must reject before `spokeOk` (Rust typed decode parity).
+      // note: out-of-domain integers cannot traverse the signed boundary at
+      // all (member-domain refusal, asserted below), so the wire cases here
+      // carry values that sign and still fail the client gate.
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
       const entry = {
         schema_version: 1,
@@ -1297,13 +1299,13 @@ describe("RemoteAdapter loopback interop", () => {
         extensions: {},
       };
       const malformed: Record<string, unknown> = {
-        kb_schema_version_over: { ...entry, schema_version: 2 ** 53 },
-        kb_revision_over: { ...entry, revision: 2 ** 53 + 2 },
+        kb_schema_version_zero: { ...entry, schema_version: 0 },
+        kb_revision_negative: { ...entry, revision: -1 },
         kb_created_at_naive: {
           ...entry,
           created_at: "2026-07-23T09:00:00",
         },
-        rel_revision_over: { ...relation, revision: 2 ** 53 + 2 },
+        rel_revision_negative: { ...relation, revision: -1 },
         rel_updated_at_naive: {
           ...relation,
           updated_at: "2026-07-23 09:00:00Z",
@@ -1464,6 +1466,42 @@ describe("RemoteAdapter loopback interop", () => {
       isValidSuccessPayload("port.finding.put", [
         { ...finding, extensions: { ns: { revision: "draft" } } },
       ]),
+    ).toBe(true);
+
+    // note: the export chunk is a schema-owned shape, not an opaque bag
+    // (qc1 R2-002) — the header scalars and every element run stay bounded.
+    const chunk = {
+      export_id: "exp_1",
+      chunk_ordinal: 1,
+      chunk_count: 2,
+      bundle_digest: "a".repeat(64),
+      chunk_digest: "b".repeat(64),
+      bytes: 2,
+    };
+    expect(isValidSuccessPayload("memory.exports.get", { chunk })).toBe(true);
+    expect(
+      isValidSuccessPayload("memory.exports.get", {
+        chunk: {
+          ...chunk,
+          chunk_ordinal: 0,
+          header: { schema_version: 2 ** 53 },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.exports.get", {
+        chunk: { ...chunk, chunk_ordinal: 0, header: { schema_version: 1 } },
+      }),
+    ).toBe(true);
+    expect(
+      isValidSuccessPayload("memory.exports.get", {
+        chunk: { ...chunk, records: [{ revision: 2 ** 53 + 2 }] },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.exports.get", {
+        chunk: { ...chunk, records: [{ revision: 2 ** 53 }] },
+      }),
     ).toBe(true);
   });
 

@@ -209,6 +209,82 @@ const MEMORY_REFLECTION_SCALARS = [
   { name: "revision", kind: "revision" },
 ] as const satisfies readonly Field[];
 
+/** note: wire scalars owned by `MemoryExportChunk.header`
+ * (memory-export-chunk.schema.json `Header`; `source` carries no wire
+ * scalar from the shared domains). */
+const MEMORY_EXPORT_HEADER_SCALARS = [
+  { name: "schema_version", kind: "schema_version" },
+  { name: "created_at", kind: "datetime" },
+  { name: "extensions", kind: "object", optional: true },
+] as const satisfies readonly Field[];
+
+/** note: wire scalars owned by `ReceiptSummary`
+ * (memory-export-bundle.schema.json). */
+const MEMORY_RECEIPT_SUMMARY_SCALARS = [
+  { name: "created_at", kind: "datetime" },
+] as const satisfies readonly Field[];
+
+/** note: wire scalars owned by `GrantSummary`
+ * (memory-export-bundle.schema.json). */
+const MEMORY_GRANT_SUMMARY_SCALARS = [
+  { name: "revision", kind: "revision" },
+] as const satisfies readonly Field[];
+
+/** note: required chunk envelope plus the header scalars and the element
+ * runs of `MemoryExportChunk` (memory-export-chunk.schema.json); the
+ * optional arrays are present on either variant, `header` only on ordinal 0. */
+const MEMORY_EXPORT_CHUNK_FIELDS = [
+  { name: "export_id", kind: "string" },
+  { name: "chunk_ordinal", kind: "number" },
+  { name: "chunk_count", kind: "number" },
+  { name: "bundle_digest", kind: "string" },
+  { name: "chunk_digest", kind: "string" },
+  { name: "bytes", kind: "number" },
+  {
+    name: "header",
+    kind: "object",
+    optional: true,
+    nested: MEMORY_EXPORT_HEADER_SCALARS,
+  },
+  { name: "subjects", kind: "array", optional: true, elements: SUBJECT_SCALARS },
+  {
+    name: "records",
+    kind: "array",
+    optional: true,
+    elements: MEMORY_RECORD_SCALARS,
+  },
+  {
+    name: "profiles",
+    kind: "array",
+    optional: true,
+    elements: MEMORY_PROFILE_SCALARS,
+  },
+  {
+    name: "reflections",
+    kind: "array",
+    optional: true,
+    elements: MEMORY_REFLECTION_SCALARS,
+  },
+  {
+    name: "candidates",
+    kind: "array",
+    optional: true,
+    elements: MEMORY_CANDIDATE_SCALARS,
+  },
+  {
+    name: "receipt_summaries",
+    kind: "array",
+    optional: true,
+    elements: MEMORY_RECEIPT_SUMMARY_SCALARS,
+  },
+  {
+    name: "grants",
+    kind: "array",
+    optional: true,
+    elements: MEMORY_GRANT_SUMMARY_SCALARS,
+  },
+] as const satisfies readonly Field[];
+
 const MEMORY_DESCRIBE_FIELDS = [
   { name: "memory_protocol_version", kind: "number" },
   { name: "capabilities", kind: "array" },
@@ -304,7 +380,13 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   },
   "memory.exports.get": {
     kind: "object",
-    fields: [{ name: "chunk", kind: "object" }],
+    fields: [
+      {
+        name: "chunk",
+        kind: "object",
+        nested: MEMORY_EXPORT_CHUNK_FIELDS,
+      },
+    ],
   },
   "memory.receipts.get": {
     kind: "object",

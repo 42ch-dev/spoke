@@ -236,7 +236,197 @@ function assertWireKeys(
   }
 }
 
+/**
+ * note: one root-relative wire path of a signed object (object keys; array
+ * elements are transparent). Mirrors `RevisionPath` in
+ * `crates/spoke-connect/src/core/jcs.rs`.
+ */
+type RevisionPath = readonly string[];
+
+/** note: inclusive revision endpoint (`2^53`) — the Rust `EXACT_INTEGER_BOUND`. */
+const EXACT_INTEGER_BOUND = 2 ** 53;
+
+/** note: the path state of a subtree no declared revision path reaches. */
+const NO_REVISION_PATHS: readonly RevisionPath[] = [];
+
+/**
+ * note: request paths that own a revision integer, per op — the Rust
+ * `REQUEST_REVISION_PATHS` tables (`.agents/specs/connect/spoke-connect.md`
+ * §Signature canonicalization). A member outside these paths is product
+ * data: its key spelling never assigns a revision domain.
+ */
+const REQUEST_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> = {
+  "history.revisions.get": [["payload", "revision"]],
+  "history.revisions.prune": [["payload", "keep"]],
+  "knowledge.adopt": [["payload", "source_revision"]],
+  "memory.candidates.dismiss": [["payload", "expected_revision"]],
+  "memory.candidates.review": [["payload", "expected_revision"]],
+  "memory.grants.revoke": [["payload", "expected_revision"]],
+  "memory.imports.stage": [
+    ["payload", "chunk", "candidates", "revision"],
+    ["payload", "chunk", "grants", "revision"],
+    ["payload", "chunk", "profiles", "revision"],
+    ["payload", "chunk", "records", "import_ref", "source_revision"],
+    ["payload", "chunk", "records", "revision"],
+    ["payload", "chunk", "reflections", "revision"],
+    ["payload", "chunk", "subjects", "revision"],
+  ],
+  "memory.profile.update": [["payload", "expected_revision"]],
+  "memory.records.delete": [["payload", "expected_revision"]],
+  "memory.records.promote": [["payload", "expected_revision"]],
+  "memory.records.update": [["payload", "expected_revision"]],
+  "memory.spaces.freeze": [["payload", "expected_revision"]],
+  "memory.spaces.unfreeze": [["payload", "expected_revision"]],
+  "memory.subjects.fence": [["payload", "expected_revision"]],
+  "port.knowledge.put": [
+    ["payload", "entry", "revision"],
+    ["payload", "entry", "adoption_anchor", "source_revision"],
+    ["payload", "expected_base_revision"],
+  ],
+  "port.relation.put": [
+    ["payload", "relation", "revision"],
+    ["payload", "expected_base_revision"],
+  ],
+  promote: [
+    ["payload", "candidate", "revision"],
+    ["payload", "candidate", "adoption_anchor", "source_revision"],
+  ],
+  relate: [["payload", "relation", "revision"]],
+  upsert: [
+    ["payload", "knowledge_entries", "revision"],
+    ["payload", "knowledge_entries", "adoption_anchor", "source_revision"],
+  ],
+};
+
+/**
+ * note: response paths that own a revision integer — the direction-wide
+ * union of the Rust `RESPONSE_REVISION_PATHS` table (a response envelope
+ * carries no op, so the union over the response schemas is the exact set),
+ * including the adoption refusal at both owning branches.
+ */
+const RESPONSE_REVISION_PATHS: readonly RevisionPath[] = [
+  ["error", "details", "adopted_revision"],
+  ["payload", "adoption_anchor", "source_revision"],
+  ["payload", "candidate", "revision"],
+  ["payload", "candidates", "adoption_anchor", "source_revision"],
+  ["payload", "candidates", "revision"],
+  ["payload", "chunk", "candidates", "revision"],
+  ["payload", "chunk", "grants", "revision"],
+  ["payload", "chunk", "profiles", "revision"],
+  ["payload", "chunk", "records", "import_ref", "source_revision"],
+  ["payload", "chunk", "records", "revision"],
+  ["payload", "chunk", "reflections", "revision"],
+  ["payload", "chunk", "subjects", "revision"],
+  ["payload", "deleted"],
+  ["payload", "entry", "adoption_anchor", "source_revision"],
+  ["payload", "entry", "revision"],
+  ["payload", "error", "details", "adopted_revision"],
+  ["payload", "floor_revision"],
+  ["payload", "grants", "revision"],
+  ["payload", "knowledge_entries", "adoption_anchor", "source_revision"],
+  ["payload", "knowledge_entries", "revision"],
+  ["payload", "knowledge_entry", "adoption_anchor", "source_revision"],
+  ["payload", "knowledge_entry", "revision"],
+  ["payload", "profiles", "revision"],
+  ["payload", "receipt", "result", "revision"],
+  ["payload", "record", "import_ref", "source_revision"],
+  ["payload", "record", "revision"],
+  ["payload", "records", "import_ref", "source_revision"],
+  ["payload", "records", "revision"],
+  ["payload", "reflections", "revision"],
+  ["payload", "relation", "revision"],
+  ["payload", "result", "revision"],
+  ["payload", "revision"],
+  ["payload", "snapshot", "revision"],
+  ["payload", "snapshot", "snapshot", "adoption_anchor", "source_revision"],
+  ["payload", "snapshot", "snapshot", "revision"],
+  ["payload", "spaces", "revision"],
+  ["payload", "subject", "revision"],
+];
+
+/** note: the owning revision paths of one signed object (Rust `revision_paths`). */
+function revisionPaths(
+  signedObject: Record<string, unknown>,
+): readonly RevisionPath[] {
+  if (typeof signedObject.op === "string") {
+    return REQUEST_REVISION_PATHS[signedObject.op] ?? [];
+  }
+  if ("payload" in signedObject || "error" in signedObject) {
+    return RESPONSE_REVISION_PATHS;
+  }
+  return [];
+}
+
+/**
+ * why: the signed-boundary member domain (Rust `core/jcs.rs` parity, qc2
+ * C-QC2-01): an integer past `2^53 - 1` is signable only at a declared
+ * revision path, and there only at the exact `±2^53` endpoint — every other
+ * value has no shared IEEE-754 identity with the peer, so signing refuses it
+ * instead of rounding it into the signed identity.
+ *
+ * The refusal mirrors the Rust integer-token range: `serde_json` keeps an
+ * integer token as `u64`/`i64` until that range overflows and only then falls
+ * back to `f64`, so `[2^53, 2^64)` and `[-2^63, -2^53]` are the values
+ * `serde_jcs` refuses; a wider `f64` keeps the shared spelling both stacks
+ * emit for it.
+ */
+function assertRevisionDomain(
+  value: unknown,
+  paths: readonly RevisionPath[],
+  depth = 0,
+  revision = false,
+): void {
+  if (
+    typeof value === "number" &&
+    (value >= EXACT_INTEGER_BOUND
+      ? value < 2 ** 64
+      : value <= -EXACT_INTEGER_BOUND && value >= -(2 ** 63))
+  ) {
+    if (!revision || Math.abs(value) !== EXACT_INTEGER_BOUND) {
+      throw new EnvelopeAuthError(
+        "envelope_auth_invalid",
+        `integer ${String(value)} is outside the revision member domain of the signed object`,
+      );
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    // note: an array element shares its array's path — positional indexes are
+    // not wire members, so the element never owns a revision slot itself.
+    for (const element of value) {
+      assertRevisionDomain(element, paths, depth, false);
+    }
+    return;
+  }
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  for (const [key, member] of Object.entries(value)) {
+    let terminal = false;
+    let continues = false;
+    for (const path of paths) {
+      if (path[depth] !== key) {
+        continue;
+      }
+      if (path.length === depth + 1) {
+        terminal = true;
+      } else {
+        continues = true;
+      }
+    }
+    // note: a declared path owns this key; every other member is product
+    // data whose integers still face the refusal, so the walk descends with
+    // no path state instead of skipping the subtree.
+    if (terminal || continues) {
+      assertRevisionDomain(member, paths, depth + 1, terminal);
+    } else {
+      assertRevisionDomain(member, NO_REVISION_PATHS, 0, false);
+    }
+  }
+}
+
 function jcsBytes(signedObject: Record<string, unknown>): Uint8Array {
+  assertRevisionDomain(signedObject, revisionPaths(signedObject));
   const jcs = canonicalize(signedObject);
   if (jcs === undefined) {
     throw new EnvelopeAuthError(

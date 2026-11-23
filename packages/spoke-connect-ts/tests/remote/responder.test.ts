@@ -547,8 +547,10 @@ describe("connectResponder port serving (D4 catalogue)", () => {
       // why: the baseline Relation dispatch used to cast
       // `expected_base_revision` straight to the provider; Rust refuses an
       // out-of-domain parse before constructing the call. The inclusive
-      // `2^53` endpoint must reach the provider, the next representable value
-      // (`2^53 + 2`) must refuse `INVALID_INPUT` with zero provider calls.
+      // `2^53` endpoint must reach the provider, an out-of-domain value
+      // (`1e20`, which still signs — the signed boundary refuses only the
+      // integer-token range) must refuse `INVALID_INPUT` with zero provider
+      // calls.
       const baseline = asBaselineOnly(ToyWorldAdapter.withCommittedFixtures());
       const bases: (number | null)[] = [];
       const ports: BaselinePorts = {
@@ -594,7 +596,7 @@ describe("connectResponder port serving (D4 catalogue)", () => {
           sequence: 1,
           request_id: "relation-put-over-ceiling",
           op: "port.relation.put",
-          payload: { relation, expected_base_revision: 2 ** 53 + 2 },
+          payload: { relation, expected_base_revision: 1e20 },
         });
         await clientEnd.send(encodeEnvelope(refused));
         const refusedResponse = decodeEnvelope(await clientEnd.recv()) as {
@@ -611,7 +613,7 @@ describe("connectResponder port serving (D4 catalogue)", () => {
           request_id: "relation-put-bad-revision",
           op: "port.relation.put",
           payload: {
-            relation: { ...relation, revision: 2 ** 53 + 2 },
+            relation: { ...relation, revision: 1e20 },
             expected_base_revision: 0,
           },
         });

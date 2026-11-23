@@ -28,12 +28,12 @@ vectors are also re-checked there for JCS byte parity.
 
 | File | Cases | Purpose |
 |------|-------|---------|
-| `canonical-snapshot.json` | 5 | Replay byte-identity: nested entity revision equals envelope revision, present-empty members survive, extensions round-trip, relation kind |
+| `canonical-snapshot.json` | 6 | Replay byte-identity: nested entity revision equals envelope revision, present-empty members survive, extensions round-trip, relation kind, stored timestamp spellings |
 | `prune-floor.json` | 7 | `{1,3,5}` + `keep=2` worked example, below-floor `HISTORY_TRUNCATED`, at-floor reconstruction, no-op prune (`keep ≥ count`), `keep=0` deleting every checkpoint and reporting a new floor |
 | `refusals.json` | 9 | Capability gate without a port call, absent face, `INVALID_INPUT` matrix, `HISTORY_ENTITY_UNSUPPORTED`, `HISTORY_NOT_RETAINED`, scope-mismatch refusals |
 | `dedup-replay.json` | 4 | §9.1 recorded-outcome replay, `IDEMPOTENCY_CONFLICT`, `RECEIPT_EXPIRED` after eviction, absent `idempotency_key` |
 
-Totals: 25 cases — 20 wire, 5 service.
+Totals: 26 cases — 21 wire, 5 service.
 
 ## Case envelope
 

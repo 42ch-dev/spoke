@@ -63,6 +63,23 @@ const PRESENCE_SENSITIVE_MAP_SCHEMAS: &[&str] = &[
     "ops/knowledge-adopt-request.schema.json",
 ];
 
+// History replay returns the stored entity byte-for-byte, so the nested
+// `created_at` / `updated_at` must keep their wire spelling. typify maps the
+// shared `Timestamp` definition to `chrono::DateTime<Utc>`, which re-spells on
+// both decode (offset normalized to `Z`) and encode (fractional seconds
+// trimmed to 0/3/6/9 digits). These modules' snapshot carriers type those
+// members as `StoredTimestamp` — a `String`-backed newtype that still
+// validates with chrono on decode (spoke-history §Stored timestamps).
+const STORED_TIMESTAMP_SCHEMAS: &[&str] = &[
+    "data/revision-snapshot.schema.json",
+    "ops/history-revisions-get-response.schema.json",
+];
+
+const STORED_TIMESTAMP_FIELDS: [&str; 2] = ["created_at", "updated_at"];
+const STORED_TIMESTAMP_OWNER: &str = "RevisionSnapshotSnapshot";
+const STORED_TIMESTAMP_OPTION: &str = " : :: std :: option :: Option <";
+const STORED_TIMESTAMP_TYPE: &str = " : :: std :: option :: Option < StoredTimestamp >";
+
 const EMPTY_VEC_ATTR: &str =
     "# [serde (default , skip_serializing_if = \"::std::vec::Vec::is_empty\")] pub ";
 const STRUCT_VEC_FIELD: &str = " : :: std :: vec :: Vec <";
@@ -139,6 +156,39 @@ where
     ::std::result::Result::Ok(::std::option::Option::Some(T::deserialize(
         deserializer,
     )?))
+}
+"#;
+
+const STORED_TIMESTAMP_IMPL: &str = r#"
+/// RFC 3339 timestamp that keeps its stored wire spelling. Decode accepts the
+/// same strings as `chrono::DateTime<Utc>` and encode returns the stored
+/// bytes, so a replayed snapshot matches what the provider stored
+/// (spoke-history §Stored timestamps).
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(try_from = "::std::string::String", into = "::std::string::String")]
+pub struct StoredTimestamp(::std::string::String);
+
+impl ::std::convert::TryFrom<&str> for StoredTimestamp {
+    type Error = ::chrono::ParseError;
+
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse::<::chrono::DateTime<::chrono::offset::Utc>>()?;
+        ::std::result::Result::Ok(Self(value.to_string()))
+    }
+}
+
+impl ::std::convert::TryFrom<::std::string::String> for StoredTimestamp {
+    type Error = ::chrono::ParseError;
+
+    fn try_from(value: ::std::string::String) -> ::std::result::Result<Self, Self::Error> {
+        <Self as ::std::convert::TryFrom<&str>>::try_from(value.as_str())
+    }
+}
+
+impl ::std::convert::From<StoredTimestamp> for ::std::string::String {
+    fn from(value: StoredTimestamp) -> Self {
+        value.0
+    }
 }
 "#;
 
@@ -1014,6 +1064,67 @@ fn normalize_presence_sensitive_maps(rust: &str) -> Result<String, String> {
     Ok(with_setters)
 }
 
+/// First stored-timestamp wire field in `text`: byte offset and field name.
+fn stored_timestamp_field(text: &str) -> Option<(usize, &'static str)> {
+    STORED_TIMESTAMP_FIELDS
+        .iter()
+        .filter_map(|name| {
+            let needle = format!("{name} : ");
+            text.match_indices(&needle)
+                .find(|(at, _)| {
+                    let at = *at;
+                    at == 0
+                        || !(text.as_bytes()[at - 1].is_ascii_alphanumeric()
+                            || text.as_bytes()[at - 1] == b'_')
+                })
+                .map(|(at, _)| (at, *name))
+        })
+        .min()
+}
+
+/// Stored-timestamp rewrite for [`STORED_TIMESTAMP_SCHEMAS`]: every
+/// `created_at` / `updated_at` field of `RevisionSnapshotSnapshot` becomes
+/// `Option<StoredTimestamp>` so a replay keeps its stored wire spelling.
+/// Fields owned by any other type fail generation; the newtype impl is
+/// appended once.
+fn normalize_stored_timestamps(rust: &str) -> Result<String, String> {
+    let rule = "stored timestamp";
+    if rust.contains("struct StoredTimestamp") {
+        return Err(format!("{rule}: StoredTimestamp already present"));
+    }
+    let mut out = String::with_capacity(rust.len() + STORED_TIMESTAMP_IMPL.len());
+    let mut rest = rust;
+    let mut fields = 0usize;
+    while let Some((idx, name)) = stored_timestamp_field(rest) {
+        out.push_str(&rest[..idx]);
+        let field = &rest[idx + name.len()..];
+        if !field.starts_with(STORED_TIMESTAMP_OPTION) {
+            return Err(format!("{rule}: field {name} is not an optional timestamp"));
+        }
+        let open = STORED_TIMESTAMP_OPTION.len() - 1;
+        let close = matching_angle(field, open)
+            .ok_or_else(|| format!("{rule}: unbalanced type for field {name}"))?;
+        let owner = enclosing_type(&out)
+            .ok_or_else(|| format!("{rule}: no enclosing type for field {name}"))?;
+        if owner != STORED_TIMESTAMP_OWNER {
+            return Err(format!(
+                "{rule}: field {owner}::{name} is outside {STORED_TIMESTAMP_OWNER}"
+            ));
+        }
+        out.push_str(name);
+        out.push_str(STORED_TIMESTAMP_TYPE);
+        rest = &field[close + 1..];
+        fields += 1;
+    }
+    out.push_str(rest);
+    if fields == 0 {
+        return Err(format!("{rule} normalization matched no fields"));
+    }
+    out.push_str(STORED_TIMESTAMP_IMPL);
+    eprintln!("{rule}s: {fields} field(s)");
+    Ok(out)
+}
+
 fn normalize_boxed_option_fields(rust: &str) -> Result<String, String> {
     let mut out = String::with_capacity(rust.len());
     let mut rest = rust;
@@ -1383,6 +1494,7 @@ fn generate_schema_rust(
     presence_sensitive: bool,
     presence_sensitive_map: bool,
     about_boxed: bool,
+    stored_timestamps: bool,
 ) -> Result<(), String> {
     let content = fs::read_to_string(schema_path)
         .map_err(|err| format!("failed to read {}: {err}", schema_path.display()))?;
@@ -1464,6 +1576,16 @@ fn generate_schema_rust(
         normalize_presence_sensitive_maps(&rust).map_err(|err| {
             format!(
                 "presence-sensitive map normalization failed for {}: {err}",
+                schema_path.display()
+            )
+        })?
+    } else {
+        rust
+    };
+    let rust = if stored_timestamps {
+        normalize_stored_timestamps(&rust).map_err(|err| {
+            format!(
+                "stored-timestamp normalization failed for {}: {err}",
                 schema_path.display()
             )
         })?
@@ -1552,6 +1674,7 @@ fn main() {
         let presence_sensitive_map =
             PRESENCE_SENSITIVE_MAP_SCHEMAS.contains(&rel_key.as_str());
         let about_boxed = ABOUT_BOXED_SCHEMAS.contains(&rel_key.as_str());
+        let stored_timestamps = STORED_TIMESTAMP_SCHEMAS.contains(&rel_key.as_str());
 
         match generate_schema_rust(
             schema_path,
@@ -1560,6 +1683,7 @@ fn main() {
             presence_sensitive,
             presence_sensitive_map,
             about_boxed,
+            stored_timestamps,
         ) {
             Ok(()) => {
                 generated_files.insert(out_path.clone());
@@ -2014,6 +2138,36 @@ mod tests {
             .expect_err("missing builder must fail generation");
         assert!(
             error.contains("builder coverage mismatch") && error.contains("Target::state"),
+            "unexpected error: {error}"
+        );
+    }
+
+    /// One snapshot carrier with an inline `DateTime<Utc>` field and a shared
+    /// `Timestamp` newtype field, both optional.
+    const STORED_TIMESTAMP_MODULE: &str = "pub enum RevisionSnapshotSnapshot { KnowledgeEntry { # [serde (skip_serializing_if = \"::std::option::Option::is_none\")] created_at : :: std :: option :: Option < :: chrono :: DateTime < :: chrono :: offset :: Utc > > , updated_at : :: std :: option :: Option < Shared3 > , } }";
+
+    #[test]
+    fn snapshot_timestamps_become_stored_timestamps() {
+        let output = normalize_stored_timestamps(STORED_TIMESTAMP_MODULE).expect("normalizes");
+        let fields = output
+            .matches(" : :: std :: option :: Option < StoredTimestamp >")
+            .count();
+        assert_eq!(fields, 2, "both timestamp fields rewritten: {output}");
+        assert!(output.contains("pub struct StoredTimestamp"));
+        assert!(
+            !output.contains(":: chrono :: DateTime < :: chrono :: offset :: Utc > > ,"),
+            "a date-time field was left behind: {output}"
+        );
+    }
+
+    #[test]
+    fn timestamp_fields_outside_the_snapshot_carrier_fail_loudly() {
+        let source =
+            "pub struct Revision { pub created_at : :: std :: option :: Option < Shared3 > , }";
+        let error = normalize_stored_timestamps(source)
+            .expect_err("non-snapshot owner must fail generation");
+        assert!(
+            error.contains("outside RevisionSnapshotSnapshot"),
             "unexpected error: {error}"
         );
     }

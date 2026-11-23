@@ -42,7 +42,7 @@ title: 历史参考
 | `snapshot` | `oneOf`：`KnowledgeEntry` \| `Relation` | 该实体在 `revision` 时的已存状态，已存字段原样保留 |
 | `extensions` | 共享 `ExtensionMap` | 产品 namespace 扩展；未知 namespace 与键原样往返 |
 
-`snapshot` 分支与 `entity_kind` 一致。知识条目携带其已存的 `body`、`modules`、`owner`、`disclosure`、`source_anchor`、`status` 与 `extensions`（存在时）；关系携带其既有的关系信封。两个提供方在同一修订返回同一快照时，在 RFC 8785 规范 JSON 下产生逐字节相同的结果。
+`snapshot` 分支与 `entity_kind` 一致。知识条目携带其已存的 `body`、`modules`、`owner`、`disclosure`、`source_anchor`、`status` 与 `extensions`（存在时）；关系携带其既有的关系信封。两个提供方在同一修订返回同一快照时，在 RFC 8785 规范 JSON 下产生逐字节相同的结果。已存的 `created_at` 与 `updated_at` 按存储时的线上字符串原样重放 —— 分隔符大小写、小数秒位数与偏移写法均不变。
 
 ### `HistoryPruneResult`
 

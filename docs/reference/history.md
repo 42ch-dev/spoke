@@ -42,7 +42,7 @@ A closed object with these required fields:
 | `snapshot` | `oneOf`: `KnowledgeEntry` \| `Relation` | The stored entity as it stood at `revision`, with its stored fields intact |
 | `extensions` | shared `ExtensionMap` | Product-namespace extensions; unknown namespaces and keys round-trip unchanged |
 
-The `snapshot` variant agrees with `entity_kind`. A knowledge entry carries its stored `body`, `modules`, `owner`, `disclosure`, `source_anchor`, `status`, and `extensions` when present; a relation carries its existing relation envelope. Two providers returning the same snapshot at the same revision produce identical bytes under RFC 8785 canonical JSON.
+The `snapshot` variant agrees with `entity_kind`. A knowledge entry carries its stored `body`, `modules`, `owner`, `disclosure`, `source_anchor`, `status`, and `extensions` when present; a relation carries its existing relation envelope. Two providers returning the same snapshot at the same revision produce identical bytes under RFC 8785 canonical JSON. Stored `created_at` and `updated_at` replay their stored wire strings verbatim — separator case, fractional-second digits, and offset spelling unchanged.
 
 ### `HistoryPruneResult`
 

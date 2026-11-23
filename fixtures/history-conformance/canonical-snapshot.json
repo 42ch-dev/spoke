@@ -183,6 +183,7 @@
                 "to_id": "ke_harbor_dawn",
                 "label": "anchored at",
                 "revision": 4,
+                "updated_at": "2026-07-23T06:15:00.000Z",
                 "extensions": {}
               },
               "extensions": {}
@@ -200,9 +201,60 @@
         "success": true,
         "state": [
           { "path": "snapshot.snapshot.relation_id", "equals": "rel_mira_harbor" },
-          { "path": "snapshot.snapshot.revision", "equals": 4 }
+          { "path": "snapshot.snapshot.revision", "equals": 4 },
+          { "path": "snapshot.snapshot.updated_at", "equals": "2026-07-23T06:15:00.000Z" }
         ],
         "canonical_equal": { "path": "snapshot", "from": "stored_snapshot" }
+      }
+    },
+    {
+      "id": "canonical-timestamp-spelling-verbatim",
+      "invariant": "§RevisionSnapshot",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "stored created_at/updated_at replay byte-for-byte: fractional-second spelling and a non-UTC offset survive",
+      "input": {
+        "entities": [
+          {
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_timestamps",
+            "checkpoints": [3],
+            "stored_snapshot": {
+              "schema_version": 1,
+              "entity_kind": "knowledge_entry",
+              "entity_id": "ke_timestamps",
+              "revision": 3,
+              "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_timestamps",
+                "entry_type": "note",
+                "canonical_name": "timestamp-fixture",
+                "status": "confirmed",
+                "revision": 3,
+                "created_at": "2026-06-30T15:59:59.000Z",
+                "updated_at": "2026-06-30T17:59:59+02:00",
+                "body": {},
+                "extensions": {}
+              },
+              "extensions": {}
+            }
+          }
+        ]
+      },
+      "op": "history.revisions.get",
+      "request": {
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_timestamps",
+        "revision": 3
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          { "path": "snapshot.snapshot.created_at", "equals": "2026-06-30T15:59:59.000Z" },
+          { "path": "snapshot.snapshot.updated_at", "equals": "2026-06-30T17:59:59+02:00" }
+        ],
+        "canonical_equal": { "path": "snapshot", "from": "stored_snapshot" },
+        "provider_calls": 1
       }
     },
     {

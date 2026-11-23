@@ -115,7 +115,11 @@ import {
   isConnectInvokeRequest,
   isConnectInvokeResponse,
 } from "./guards.js";
-import { isValidKnowledgeEntryDeep, isRevisionInteger } from "./payload.js";
+import {
+  isValidKnowledgeEntryDeep,
+  isValidSuccessPayload,
+  isRevisionInteger,
+} from "./payload.js";
 import type { RemoteAdoptionService, RemoteHistoryService } from "./serve_ports.js";
 import type { RemoteIdentity, ToolHandler } from "./remote-adapter.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
@@ -1050,17 +1054,33 @@ function dispatchPortOp(
     case "port.relation.get":
       return ports.getRelation(payload.relation_id as string);
     case "port.relation.put":
-      // note: nullable revision-typed CAS fence — validate the parsed value
-      // against the inclusive `[0, 2^53]` domain BEFORE the provider, as the
-      // knowledge put path and Rust do (qc1 F-004). An absent member decodes
-      // as `null` (create-only), never forwarded raw.
+      // note: Rust decodes the payload into a typed `RelationPutRequest` and
+      // refuses a missing `expected_base_revision` member; the TS path must
+      // not turn that absence into `null` (create-only), nor forward an
+      // unbounded `relation.revision` (qc2). Both checks run before the
+      // provider, mirroring the knowledge put path and Rust.
       {
+        const relation = payload.relation;
+        if (!isValidSuccessPayload("port.relation.put", relation)) {
+          return Promise.resolve(
+            spokeReject(
+              SpokeRejectCode.INVALID_INPUT,
+              "relation must be a well-formed Relation with a revision in [0, 2^53]",
+              { field: "relation" },
+            ),
+          );
+        }
+        if (!("expected_base_revision" in payload)) {
+          return Promise.resolve(
+            spokeReject(
+              SpokeRejectCode.INVALID_INPUT,
+              "expected_base_revision is required (nullable) on port.relation.put",
+              { field: "expected_base_revision" },
+            ),
+          );
+        }
         const expected = payload.expected_base_revision;
-        if (
-          expected !== undefined &&
-          expected !== null &&
-          !isRevisionInteger(expected)
-        ) {
+        if (expected !== null && !isRevisionInteger(expected)) {
           return Promise.resolve(
             spokeReject(
               SpokeRejectCode.INVALID_INPUT,
@@ -1070,8 +1090,8 @@ function dispatchPortOp(
           );
         }
         return ports.putRelation(
-          payload.relation as Relation,
-          (expected ?? null) as number | null,
+          relation as Relation,
+          expected as number | null,
         );
       }
     case "port.scope.list_timeline_events":

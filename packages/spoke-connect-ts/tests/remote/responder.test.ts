@@ -602,6 +602,41 @@ describe("connectResponder port serving (D4 catalogue)", () => {
         };
         expect(refusedResponse.error.code).toBe(SpokeRejectCode.INVALID_INPUT);
         expect(bases).toEqual([2 ** 53]);
+
+        // note: an unbounded nested `relation.revision` is refused before the
+        // provider (qc2); Rust's typed decode refuses the same value.
+        const badRevision = await signInvokeRequest(seedClient, {
+          session_id: sessionId,
+          sequence: 2,
+          request_id: "relation-put-bad-revision",
+          op: "port.relation.put",
+          payload: {
+            relation: { ...relation, revision: 2 ** 53 + 2 },
+            expected_base_revision: 0,
+          },
+        });
+        await clientEnd.send(encodeEnvelope(badRevision));
+        const badRevisionResponse = decodeEnvelope(await clientEnd.recv()) as {
+          error: { code: string };
+        };
+        expect(badRevisionResponse.error.code).toBe(SpokeRejectCode.INVALID_INPUT);
+        expect(bases).toEqual([2 ** 53]);
+
+        // note: Rust refuses a missing CAS member; absence must not become
+        // `null` (create-only) on the TS path (qc2).
+        const missingCas = await signInvokeRequest(seedClient, {
+          session_id: sessionId,
+          sequence: 3,
+          request_id: "relation-put-missing-cas",
+          op: "port.relation.put",
+          payload: { relation },
+        });
+        await clientEnd.send(encodeEnvelope(missingCas));
+        const missingCasResponse = decodeEnvelope(await clientEnd.recv()) as {
+          error: { code: string };
+        };
+        expect(missingCasResponse.error.code).toBe(SpokeRejectCode.INVALID_INPUT);
+        expect(bases).toEqual([2 ** 53]);
       } finally {
         responder.close();
       }

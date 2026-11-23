@@ -777,57 +777,67 @@ describe("RemoteAdapter loopback interop", () => {
 
       let capturedInitiatorNonce: string | undefined;
       let received = 0;
-      const scriptedTransport: Transport = {
-        send: async (bytes) => {
-          const doc: unknown = decodeJsonMessage(bytes);
-          if (
-            typeof doc === "object" &&
-            doc !== null &&
-            "nonce" in doc &&
-            typeof doc.nonce === "string"
-          ) {
-            capturedInitiatorNonce = doc.nonce;
-          }
-        },
-        recv: async () => {
-          received += 1;
-          if (received === 1) {
-            if (capturedInitiatorNonce === undefined) {
-              throw new Error("initiator hello was not observed");
+      // why: a non-string JSON value must also fail the dial — `RegExp.exec`
+      // coerces a one-element array to the timestamp string (qc1 F-005).
+      const openedAtCases: unknown[] = [
+        "2026-07-23T09:00:00",
+        ["2026-07-23T09:00:00Z"],
+      ];
+      for (const [index, openedAt] of openedAtCases.entries()) {
+        capturedInitiatorNonce = undefined;
+        received = 0;
+        const scriptedTransport: Transport = {
+          send: async (bytes) => {
+            const doc: unknown = decodeJsonMessage(bytes);
+            if (
+              typeof doc === "object" &&
+              doc !== null &&
+              "nonce" in doc &&
+              typeof doc.nonce === "string"
+            ) {
+              capturedInitiatorNonce = doc.nonce;
             }
-            const hello = await signHelloEd25519(
-              seedHost,
-              generateNonce(),
-              schemaConformantManifest(),
-              capturedInitiatorNonce,
-            );
-            return textEncoder.encode(encodeJsonMessage(hello));
-          }
-          if (received === 2) {
-            const session = await authenticateSession(seedHost, {
-              session_id: "sess-invalid-opened-at",
-              initiator_peer_id: peerIdClient,
-              responder_peer_id: peerIdHost,
-              opened_at: "2026-07-23T09:00:00",
-              negotiated_capabilities: ["spoke-baseline"],
-              initial_sequence: 0,
-            });
-            return textEncoder.encode(encodeJsonMessage(session));
-          }
-          throw new Error("scripted transport closed");
-        },
-        close: () => {},
-      };
+          },
+          recv: async () => {
+            received += 1;
+            if (received === 1) {
+              if (capturedInitiatorNonce === undefined) {
+                throw new Error("initiator hello was not observed");
+              }
+              const hello = await signHelloEd25519(
+                seedHost,
+                generateNonce(),
+                schemaConformantManifest(),
+                capturedInitiatorNonce,
+              );
+              return textEncoder.encode(encodeJsonMessage(hello));
+            }
+            if (received === 2) {
+              const session = await authenticateSession(seedHost, {
+                session_id: `sess-invalid-opened-at-${index}`,
+                initiator_peer_id: peerIdClient,
+                responder_peer_id: peerIdHost,
+                opened_at: openedAt as string,
+                negotiated_capabilities: ["spoke-baseline"],
+                initial_sequence: 0,
+              });
+              return textEncoder.encode(encodeJsonMessage(session));
+            }
+            throw new Error("scripted transport closed");
+          },
+          close: () => {},
+        };
 
-      await expect(
-        connectRemoteAdapter({
-          transport: scriptedTransport,
-          localIdentity: { seed: seedClient },
-          localManifest: clientManifest(),
-          remotePubkey: pubkeyHost,
-          allowlist: [peerIdHost],
-        }),
-      ).rejects.toThrow(/opened_at/);
+        await expect(
+          connectRemoteAdapter({
+            transport: scriptedTransport,
+            localIdentity: { seed: seedClient },
+            localManifest: clientManifest(),
+            remotePubkey: pubkeyHost,
+            allowlist: [peerIdHost],
+          }),
+        ).rejects.toThrow(/opened_at/);
+      }
     },
     15000,
   );
@@ -1341,6 +1351,121 @@ describe("RemoteAdapter loopback interop", () => {
     },
     15000,
   );
+
+  it("validates schema-owned wire scalars on the declared response shapes (qc1 F-003 / R1-001)", () => {
+    const receipt = {
+      schema_version: 1,
+      receipt_id: "rcpt_1",
+      op: "memory.capture",
+      space_id: "space_1",
+      requester_principal_id: "prn_1",
+      payload_digest: "sha256:00",
+      status: "committed",
+      created_at: "2026-07-23T09:00:00Z",
+      extensions: {},
+    };
+    // note: `completed_at` is a schema-owned Timestamp outside the history names.
+    expect(
+      isValidSuccessPayload("memory.receipts.get", {
+        receipt: { ...receipt, completed_at: "2026-07-23T09:00:00" },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.receipts.get", {
+        receipt: { ...receipt, completed_at: "2026-07-23T09:00:00+02:00" },
+      }),
+    ).toBe(true);
+
+    const grant = {
+      schema_version: 1,
+      grant_id: "grant_1",
+      space_id: "space_1",
+      principal_id: "prn_1",
+      capabilities: [],
+      context_ids: [],
+      created_at: "2026-07-23T09:00:00Z",
+      revision: 1,
+      extensions: {},
+    };
+    expect(
+      isValidSuccessPayload("memory.grants.list", {
+        grants: [{ ...grant, expires_at: "2026-07-23T09:00:00" }],
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.grants.list", {
+        grants: [{ ...grant, expires_at: "2026-07-23T09:00:00Z" }],
+      }),
+    ).toBe(true);
+
+    const candidate = {
+      schema_version: 1,
+      entry_id: "kb_candidate",
+      entry_type: "character",
+      canonical_name: "Candidate",
+      status: "provisional",
+      body: {},
+      extensions: {},
+    };
+    // note: the `extract` early return used to skip the scalar walk.
+    expect(
+      isValidSuccessPayload("extract", {
+        candidates: [{ ...candidate, revision: 2 ** 53 + 2 }],
+        run: { run_id: "run_1" },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("extract", {
+        candidates: [{ ...candidate, created_at: "2026-07-23T09:00:00" }],
+        run: { run_id: "run_1" },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("extract", {
+        candidates: [
+          { ...candidate, created_at: "2026-07-23T09:00:00Z", revision: 2 ** 53 },
+        ],
+        run: { run_id: "run_1" },
+      }),
+    ).toBe(true);
+
+    // note: a nested schema-owned revision (adoption anchor) is bounded on the
+    // ordinary knowledge response (qc3-04 at the wire gate).
+    expect(
+      isValidSuccessPayload("port.knowledge.put", {
+        ...candidate,
+        adoption_anchor: {
+          schema_version: 1,
+          source_scope_id: "scope_src",
+          source_entry_id: "kb_src",
+          source_revision: 2 ** 53 + 2,
+          extensions: {},
+        },
+      }),
+    ).toBe(false);
+
+    const finding = {
+      schema_version: 1,
+      finding_id: "fnd_1",
+      severity: "minor",
+      status: "open",
+      title: "Title",
+      description: "Description",
+      extensions: {},
+    };
+    // note: `text_position` is an open product object — a member named
+    // `revision` is product data, not a wire revision (qc1 R1-001).
+    expect(
+      isValidSuccessPayload("port.finding.put", [
+        { ...finding, text_position: { revision: "draft", schema_version: "x" } },
+      ]),
+    ).toBe(true);
+    expect(
+      isValidSuccessPayload("port.finding.put", [
+        { ...finding, extensions: { ns: { revision: "draft" } } },
+      ]),
+    ).toBe(true);
+  });
 
   it(
     "refuses a mixed knowledge.adopt payload (success members + error) as INTERNAL_ERROR kind transport (qc1 F-032)",

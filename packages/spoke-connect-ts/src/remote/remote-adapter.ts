@@ -1964,8 +1964,13 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       // the strict RFC 3339 grammar (mandatory offset) is the one contract
       // (spoke-connect contract §Session snapshot / spoke-data-model §Shared
       // wire scalars). The shape guard above checks presence only, so an
-      // offsetless spelling must fail the dial before a session exists.
-      if (!isStrictTimestamp(sessionDoc.opened_at)) {
+      // offsetless spelling — or a non-string JSON value, which
+      // `RegExp.exec` would coerce (a one-element array) — must fail the
+      // dial before a session exists.
+      if (
+        typeof sessionDoc.opened_at !== "string" ||
+        !isStrictTimestamp(sessionDoc.opened_at)
+      ) {
         throw new Error(
           `session snapshot opened_at must be a strict RFC 3339 timestamp with an explicit offset (got ${sessionDoc.opened_at})`,
         );

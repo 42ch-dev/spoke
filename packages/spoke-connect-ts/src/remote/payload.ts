@@ -30,6 +30,12 @@ type FieldKind =
 interface Field {
   name: string;
   kind: FieldKind;
+  /** note: absent members are permitted (optional in the schema). */
+  optional?: boolean;
+  /** note: wire-scalar members of this schema-owned nested object shape. */
+  nested?: readonly Field[];
+  /** note: wire-scalar members of each schema-owned array element. */
+  elements?: readonly Field[];
 }
 
 /** note: required-field shape of one ops/data wire type (schemas/data/*.schema.json). */
@@ -39,6 +45,17 @@ interface SuccessShape {
   fields: readonly Field[];
 }
 
+/** note: wire scalars owned by `SourceAnchor` (source-anchor.schema.json). */
+const SOURCE_ANCHOR_SCALARS = [
+  { name: "schema_version", kind: "schema_version" },
+] as const satisfies readonly Field[];
+
+/** note: wire scalars owned by `AdoptionAnchor` (adoption-anchor.schema.json). */
+const ADOPTION_ANCHOR_SCALARS = [
+  { name: "schema_version", kind: "schema_version" },
+  { name: "source_revision", kind: "revision" },
+] as const satisfies readonly Field[];
+
 const KNOWLEDGE_ENTRY_FIELDS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "entry_id", kind: "string" },
@@ -47,6 +64,14 @@ const KNOWLEDGE_ENTRY_FIELDS = [
   { name: "status", kind: "string" },
   { name: "body", kind: "object" },
   { name: "extensions", kind: "object" },
+  { name: "source_anchor", kind: "object", optional: true, nested: SOURCE_ANCHOR_SCALARS },
+  { name: "adoption_anchor", kind: "object", optional: true, nested: ADOPTION_ANCHOR_SCALARS },
+  { name: "revision", kind: "revision", optional: true },
+  { name: "created_at", kind: "datetime", optional: true },
+  { name: "updated_at", kind: "datetime", optional: true },
+  { name: "modules", kind: "object", optional: true },
+  { name: "owner", kind: "string", optional: true },
+  { name: "disclosure", kind: "string", optional: true },
 ] as const satisfies readonly Field[];
 
 const RELATION_FIELDS = [
@@ -56,6 +81,11 @@ const RELATION_FIELDS = [
   { name: "from_id", kind: "string" },
   { name: "to_id", kind: "string" },
   { name: "extensions", kind: "object" },
+  { name: "revision", kind: "revision", optional: true },
+  { name: "created_at", kind: "datetime", optional: true },
+  { name: "updated_at", kind: "datetime", optional: true },
+  { name: "label", kind: "string", optional: true },
+  { name: "metadata", kind: "object", optional: true },
 ] as const satisfies readonly Field[];
 
 const FINDING_FIELDS = [
@@ -66,6 +96,11 @@ const FINDING_FIELDS = [
   { name: "title", kind: "string" },
   { name: "description", kind: "string" },
   { name: "extensions", kind: "object" },
+  { name: "created_at", kind: "datetime", optional: true },
+  { name: "updated_at", kind: "datetime", optional: true },
+  { name: "source_anchor", kind: "object", optional: true, nested: SOURCE_ANCHOR_SCALARS },
+  // note: `text_position` is an open product object — never inspected by member name.
+  { name: "text_position", kind: "object", optional: true },
 ] as const satisfies readonly Field[];
 
 const RULE_FIELDS = [
@@ -74,6 +109,8 @@ const RULE_FIELDS = [
   { name: "canonical_name", kind: "string" },
   { name: "kind", kind: "string" },
   { name: "extensions", kind: "object" },
+  { name: "created_at", kind: "datetime", optional: true },
+  { name: "updated_at", kind: "datetime", optional: true },
 ] as const satisfies readonly Field[];
 
 const TIMELINE_EVENT_FIELDS = [
@@ -81,6 +118,8 @@ const TIMELINE_EVENT_FIELDS = [
   { name: "timeline_event_id", kind: "string" },
   { name: "canonical_name", kind: "string" },
   { name: "extensions", kind: "object" },
+  { name: "created_at", kind: "datetime", optional: true },
+  { name: "updated_at", kind: "datetime", optional: true },
 ] as const satisfies readonly Field[];
 
 const HOST_MANIFEST_FIELDS = [
@@ -104,7 +143,70 @@ const MEMORY_RECEIPT_FIELDS = [
   { name: "payload_digest", kind: "string" },
   { name: "status", kind: "string" },
   { name: "created_at", kind: "datetime" },
+  { name: "completed_at", kind: "datetime", optional: true },
   { name: "extensions", kind: "object" },
+] as const satisfies readonly Field[];
+
+/** note: wire scalars owned by the `memory.grants.list` grant shapes
+ * (memory-grant.schema.json `RestrictedGrant` / `UnrestrictedGrant`). */
+const MEMORY_GRANT_SCALARS = [
+  { name: "schema_version", kind: "schema_version" },
+  { name: "created_at", kind: "datetime" },
+  { name: "expires_at", kind: "datetime" },
+  { name: "revoked_at", kind: "datetime" },
+  { name: "revision", kind: "revision" },
+] as const satisfies readonly Field[];
+
+/** note: wire scalars owned by `memory-candidate.schema.json`. */
+const MEMORY_CANDIDATE_SCALARS = [
+  { name: "schema_version", kind: "schema_version" },
+  { name: "occurred_at", kind: "datetime" },
+  { name: "created_at", kind: "datetime" },
+  { name: "expires_at", kind: "datetime" },
+  { name: "revision", kind: "revision" },
+] as const satisfies readonly Field[];
+
+/** note: wire scalars owned by `retained-record.schema.json` (+ nested provenance). */
+const MEMORY_RECORD_SCALARS = [
+  { name: "schema_version", kind: "schema_version" },
+  { name: "occurred_at", kind: "datetime" },
+  { name: "created_at", kind: "datetime" },
+  { name: "updated_at", kind: "datetime" },
+  { name: "revision", kind: "revision" },
+  {
+    name: "provenance",
+    kind: "object",
+    nested: [{ name: "captured_at", kind: "datetime" }],
+  },
+] as const satisfies readonly Field[];
+
+/** note: wire scalars owned by `memory-space.schema.json`. */
+const MEMORY_SPACE_SCALARS = [
+  { name: "schema_version", kind: "schema_version" },
+  { name: "created_at", kind: "datetime" },
+  { name: "revision", kind: "revision" },
+] as const satisfies readonly Field[];
+
+/** note: wire scalars owned by `subject.schema.json`. */
+const SUBJECT_SCALARS = [
+  { name: "schema_version", kind: "schema_version" },
+  { name: "created_at", kind: "datetime" },
+  { name: "revision", kind: "revision" },
+] as const satisfies readonly Field[];
+
+/** note: wire scalars owned by `profile-document.schema.json`. */
+const MEMORY_PROFILE_SCALARS = [
+  { name: "schema_version", kind: "schema_version" },
+  { name: "created_at", kind: "datetime" },
+  { name: "updated_at", kind: "datetime" },
+  { name: "revision", kind: "revision" },
+] as const satisfies readonly Field[];
+
+/** note: wire scalars owned by `reflection.schema.json`. */
+const MEMORY_REFLECTION_SCALARS = [
+  { name: "schema_version", kind: "schema_version" },
+  { name: "created_at", kind: "datetime" },
+  { name: "revision", kind: "revision" },
 ] as const satisfies readonly Field[];
 
 const MEMORY_DESCRIBE_FIELDS = [
@@ -116,14 +218,14 @@ const MEMORY_DESCRIBE_FIELDS = [
 ] as const satisfies readonly Field[];
 
 const MEMORY_RECALL_FIELDS = [
-  { name: "records", kind: "array" },
+  { name: "records", kind: "array", elements: MEMORY_RECORD_SCALARS },
   { name: "total_authorized", kind: "number" },
   { name: "truncated", kind: "boolean" },
   { name: "engine_policy_version", kind: "string" },
 ] as const satisfies readonly Field[];
 
 const MEMORY_RECORDS_LIST_FIELDS = [
-  { name: "records", kind: "array" },
+  { name: "records", kind: "array", elements: MEMORY_RECORD_SCALARS },
   { name: "total_authorized", kind: "number" },
 ] as const satisfies readonly Field[];
 
@@ -156,33 +258,39 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   "memory.describe": { kind: "object", fields: MEMORY_DESCRIBE_FIELDS },
   "memory.spaces.list": {
     kind: "object",
-    fields: [{ name: "spaces", kind: "array" }],
+    fields: [{ name: "spaces", kind: "array", elements: MEMORY_SPACE_SCALARS }],
   },
   "memory.subjects.get": {
     kind: "object",
-    fields: [{ name: "subject", kind: "object" }],
+    fields: [{ name: "subject", kind: "object", nested: SUBJECT_SCALARS }],
   },
   "memory.candidates.get": {
     kind: "object",
-    fields: [{ name: "candidate", kind: "object" }],
+    fields: [
+      { name: "candidate", kind: "object", nested: MEMORY_CANDIDATE_SCALARS },
+    ],
   },
   "memory.candidates.list": {
     kind: "object",
-    fields: [{ name: "candidates", kind: "array" }],
+    fields: [
+      { name: "candidates", kind: "array", elements: MEMORY_CANDIDATE_SCALARS },
+    ],
   },
   "memory.grants.list": {
     kind: "object",
-    fields: [{ name: "grants", kind: "array" }],
+    fields: [{ name: "grants", kind: "array", elements: MEMORY_GRANT_SCALARS }],
   },
   "memory.records.get": {
     kind: "object",
-    fields: [{ name: "record", kind: "object" }],
+    fields: [{ name: "record", kind: "object", nested: MEMORY_RECORD_SCALARS }],
   },
   "memory.records.list": { kind: "object", fields: MEMORY_RECORDS_LIST_FIELDS },
   "memory.recall": { kind: "object", fields: MEMORY_RECALL_FIELDS },
   "memory.profile.get": {
     kind: "object",
-    fields: [{ name: "profiles", kind: "array" }],
+    fields: [
+      { name: "profiles", kind: "array", elements: MEMORY_PROFILE_SCALARS },
+    ],
   },
   "memory.reflections.state": {
     kind: "object",
@@ -190,7 +298,9 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   },
   "memory.reflections.list": {
     kind: "object",
-    fields: [{ name: "reflections", kind: "array" }],
+    fields: [
+      { name: "reflections", kind: "array", elements: MEMORY_REFLECTION_SCALARS },
+    ],
   },
   "memory.exports.get": {
     kind: "object",
@@ -198,7 +308,7 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   },
   "memory.receipts.get": {
     kind: "object",
-    fields: [{ name: "receipt", kind: "object" }],
+    fields: [{ name: "receipt", kind: "object", nested: MEMORY_RECEIPT_FIELDS }],
   },
   // note: every mutating memory op answers with a receipt whose envelope
   // fields are pinned above (committed and pending alike).
@@ -227,7 +337,7 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   extract: {
     kind: "object",
     fields: [
-      { name: "candidates", kind: "array" },
+      { name: "candidates", kind: "array", elements: KNOWLEDGE_ENTRY_FIELDS },
       { name: "run", kind: "object" },
     ],
   },
@@ -263,66 +373,61 @@ function matchesFieldKind(value: unknown, kind: FieldKind): boolean {
   }
 }
 
-function matchesShape(value: Record<string, unknown>, shape: SuccessShape): boolean {
-  return shape.fields.every(
-    (field) =>
-      field.name in value && matchesFieldKind(value[field.name], field.kind),
-  );
-}
-
-/**
- * note: shared wire scalar domains (spoke-data-model §Shared wire scalars) on
- * every schema-owned member of an ordinary success payload, at any depth:
- * `schema_version` `[1, 2^53-1]`, revision-typed integers `[0, 2^53]`,
- * `created_at`/`updated_at`/`opened_at`/`occurred_at` strict RFC 3339. Rust
- * enforces the same at typed decode, so the ordinary responses the strict
- * history/adopt branches do not cover must not surface a wider accept-set
- * (qc1 F-003). Product-owned bags are opaque JSON — their member names never
- * take a wire domain (Rust parity: `serde_jcs` alone bounds their integers).
- */
-const WIRE_SCALAR_MEMBERS: Readonly<Record<string, FieldKind>> = {
-  schema_version: "schema_version",
-  revision: "revision",
-  source_revision: "revision",
-  deleted: "revision",
-  floor_revision: "revision",
-  keep: "revision",
-  expected_base_revision: "revision",
-  created_at: "datetime",
-  updated_at: "datetime",
-  opened_at: "datetime",
-  occurred_at: "datetime",
-};
-
-const OPAQUE_PRODUCT_MEMBERS: Readonly<Record<string, true>> = {
-  extensions: true,
-  metadata: true,
-  state: true,
-  computable: true,
-  modules: true,
-};
-
-function matchesWireScalarDomains(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.every(matchesWireScalarDomains);
+function matchesField(value: unknown, field: Field): boolean {
+  if (!matchesFieldKind(value, field.kind)) {
+    return false;
   }
-  if (!isRecord(value)) {
-    return true;
-  }
-  for (const [key, member] of Object.entries(value)) {
-    if (OPAQUE_PRODUCT_MEMBERS[key] === true) {
-      continue;
-    }
-    const kind = WIRE_SCALAR_MEMBERS[key];
-    if (kind !== undefined && !matchesFieldKind(member, kind)) {
+  if (field.nested !== undefined) {
+    if (!isRecord(value) || !matchesPresentFields(value, field.nested)) {
       return false;
     }
-    if (!matchesWireScalarDomains(member)) {
+  }
+  if (field.elements !== undefined) {
+    if (
+      !Array.isArray(value) ||
+      !value.every(
+        (element) =>
+          isRecord(element) &&
+          matchesPresentFields(element, field.elements as readonly Field[]),
+      )
+    ) {
       return false;
     }
   }
   return true;
 }
+
+/** note: a declared subset — only members present in the payload are checked. */
+function matchesPresentFields(
+  value: Record<string, unknown>,
+  fields: readonly Field[],
+): boolean {
+  return fields.every(
+    (field) => !(field.name in value) || matchesField(value[field.name], field),
+  );
+}
+
+function matchesShape(value: Record<string, unknown>, shape: SuccessShape): boolean {
+  return shape.fields.every((field) => {
+    if (!(field.name in value)) {
+      return field.optional === true;
+    }
+    return matchesField(value[field.name], field);
+  });
+}
+
+/**
+ * note: shared wire scalar domains (spoke-data-model §Shared wire scalars) are
+ * checked on the schema-owned members declared by each success `SuccessShape`:
+ * `schema_version` `[1, 2^53-1]`, revision-typed integers `[0, 2^53]`,
+ * `created_at`/`updated_at`/`opened_at`/`occurred_at` strict RFC 3339 (qc1
+ * F-003). Rust enforces the same at typed decode, so an ordinary response the
+ * strict history/adopt branches do not cover must not surface a wider
+ * accept-set. The walk follows declared shapes only: product-owned bags
+ * (`extensions`, `metadata`, `state`, `computable`, `modules`,
+ * `Finding.text_position`) declare no nested spec and are never inspected by
+ * member name (qc1 R1-001).
+ */
 
 const EXTRACT_RESPONSE_WIRE_KEYS = new Set(["candidates", "run", "extensions"]);
 
@@ -541,28 +646,10 @@ const RELATION_SHAPE: SuccessShape = {
 };
 
 /**
- * note: optional fields of the schema-declared `KnowledgeEntry` /
- * `Relation` wire types (schemas/data/*.schema.json) — checked only when
- * present. Required members stay in the `*_FIELDS` tables above.
+ * note: optional `KnowledgeEntry` / `Relation` members are declared in the
+ * `*_FIELDS` tables above with `optional: true`; only present members are
+ * checked.
  */
-const KNOWLEDGE_ENTRY_OPTIONAL_FIELDS = [
-  { name: "source_anchor", kind: "object" },
-  { name: "adoption_anchor", kind: "object" },
-  { name: "revision", kind: "revision" },
-  { name: "created_at", kind: "datetime" },
-  { name: "updated_at", kind: "datetime" },
-  { name: "modules", kind: "object" },
-  { name: "owner", kind: "string" },
-  { name: "disclosure", kind: "string" },
-] as const satisfies readonly Field[];
-
-const RELATION_OPTIONAL_FIELDS = [
-  { name: "label", kind: "string" },
-  { name: "metadata", kind: "object" },
-  { name: "revision", kind: "revision" },
-  { name: "created_at", kind: "datetime" },
-  { name: "updated_at", kind: "datetime" },
-] as const satisfies readonly Field[];
 
 const SOURCE_ANCHOR_REQUIRED_FIELDS = [
   { name: "schema_version", kind: "schema_version" },
@@ -832,9 +919,6 @@ export function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): bool
   if ("modules" in entity && !isValidModulesMap(entity.modules)) {
     return false;
   }
-  if (!matchesOptionalFields(entity, KNOWLEDGE_ENTRY_OPTIONAL_FIELDS)) {
-    return false;
-  }
   // `revision` is revision-typed payload: the interoperable integer
   // domain is `[0, 2^53]` inclusive (contract E1); `owner` / `disclosure`
   // are non-empty when present.
@@ -865,9 +949,7 @@ export function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): bool
  */
 function isValidRelationDeep(entity: Record<string, unknown>): boolean {
   return (
-    matchesShape(entity, RELATION_SHAPE) &&
-    isValidExtensionMap(entity.extensions) &&
-    matchesOptionalFields(entity, RELATION_OPTIONAL_FIELDS)
+    matchesShape(entity, RELATION_SHAPE) && isValidExtensionMap(entity.extensions)
   );
 }
 
@@ -1001,19 +1083,10 @@ export function isValidSuccessPayload(op: string, value: unknown): boolean {
     return isValidExtractSuccessPayload(value);
   }
   if (shape.kind === "object") {
-    return (
-      isRecord(value) &&
-      matchesShape(value, shape) &&
-      matchesWireScalarDomains(value)
-    );
+    return isRecord(value) && matchesShape(value, shape);
   }
   return (
     Array.isArray(value) &&
-    value.every(
-      (element) =>
-        isRecord(element) &&
-        matchesShape(element, shape) &&
-        matchesWireScalarDomains(element),
-    )
+    value.every((element) => isRecord(element) && matchesShape(element, shape))
   );
 }

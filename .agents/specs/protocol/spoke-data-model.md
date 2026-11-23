@@ -522,6 +522,8 @@ Every member typed `Timestamp` — the `created_at` / `updated_at` envelopes, `C
 
 Other members named `revision` — the per-object optimistic-concurrency counters of the `spoke-memory` objects, `Judgment.evidence[].revision` and `Judgment.target.revision` (`schemas/data/judgment.schema.json`) — sit inside the same interval. The two `Judgment` members are narrowed to the closed interval `[1, 2^53-1]`: `Judgment.evidence[].revision` is required, `Judgment.target.revision` is optional and carries that interval whenever it is present. A member's own schema may narrow the interval (for example `minimum: 1`); it can never widen it. A nullable member (`floor_revision`, `expected_base_revision`) carries the interval whenever it is present.
 
+The inclusive `[0, 2^53]` bound is asserted on the parsed integer value. A host whose JSON parser cannot preserve integers above `2^53` (IEEE-754) therefore refuses the first representable value above `2^53`, and exact refusal of an unrepresentable wire literal is a parser-level property, not a validator-level one. The published wire bound remains `2^53`.
+
 ---
 
 ### Shared envelope pattern

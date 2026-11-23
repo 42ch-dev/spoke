@@ -1,8 +1,9 @@
 //! Promote acceptance validation and apply.
 
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
-use crate::util::validate_revision_wire;
+use crate::util::{validate_anchor_schema_versions, validate_revision_wire};
 use serde_json::{json, Map, Value};
+use spoke_schemas::integers::{REVISION_MAX, SCHEMA_VERSION_MAX};
 use spoke_schemas::knowledge_entry::KnowledgeEntry;
 use spoke_schemas::promote_request::PromoteRequest;
 
@@ -13,17 +14,20 @@ fn validate_revision(candidate_wire: &Value) -> SpokeResult<()> {
 }
 
 fn validate_knowledge_entry_shape(candidate: &KnowledgeEntry) -> SpokeResult<()> {
-    if candidate.schema_version.get() < 1 {
+    let schema_version = candidate.schema_version.get();
+    if schema_version < 1 || schema_version > SCHEMA_VERSION_MAX {
         let mut details = Map::new();
-        details.insert(
-            "schema_version".into(),
-            json!(candidate.schema_version.get()),
-        );
+        details.insert("schema_version".into(), json!(schema_version));
         return spoke_reject(
             SpokeRejectCode::InvalidInput,
-            "KnowledgeEntry schema_version must be an integer >= 1",
+            "KnowledgeEntry schema_version must be an integer in [1, 2^53-1]",
             Some(details),
         );
+    }
+
+    let anchors = validate_anchor_schema_versions(candidate);
+    if anchors.is_reject() {
+        return anchors;
     }
 
     if candidate.entry_id.is_empty() {
@@ -132,12 +136,12 @@ fn validate_promote_lifecycle(request: &PromoteRequest) -> SpokeResult<()> {
 fn next_revision(candidate: &KnowledgeEntry) -> SpokeResult<u64> {
     match candidate.revision {
         None => spoke_ok(1),
-        Some(revision) if revision == u64::MAX => {
+        Some(revision) if revision >= REVISION_MAX => {
             let mut details = Map::new();
             details.insert("revision".into(), json!(revision));
             spoke_reject(
                 SpokeRejectCode::InvalidInput,
-                "KnowledgeEntry revision cannot be incremented past u64::MAX",
+                "KnowledgeEntry revision cannot be incremented past 2^53",
                 Some(details),
             )
         }
@@ -385,6 +389,25 @@ mod tests {
         }
     }
 
+    /// The revision domain is asserted on the parsed value: an integral-float
+    /// spelling is admitted, while an exact integer past `2^53` refuses
+    /// instead of rounding back into the domain (qc3-05).
+    #[test]
+    fn revision_gate_accepts_integral_floats_and_refuses_exact_overflow() {
+        for accepted in [json!(3.0), json!(9_007_199_254_740_992.0)] {
+            let wire = candidate_wire(|candidate| {
+                candidate.insert("revision".into(), accepted.clone());
+            });
+            assert!(validate_promote_request_wire(&wire).is_ok(), "{accepted}");
+        }
+        for refused in [json!(9007199254740993_u64), json!(1.5)] {
+            let wire = candidate_wire(|candidate| {
+                candidate.insert("revision".into(), refused.clone());
+            });
+            assert!(validate_promote_request_wire(&wire).is_reject(), "{refused}");
+        }
+    }
+
     #[test]
     fn promotes_provisional_candidate_to_confirmed() {
         let result = apply_promote_acceptance(&make_request(|_| {}));
@@ -414,6 +437,80 @@ mod tests {
         assert!(result.is_ok());
         if let SpokeResult::Ok(value) = result {
             assert_eq!(value.revision, Some(3));
+        }
+    }
+
+    #[test]
+    fn enforces_schema_version_and_revision_ceilings() {
+        let wire = candidate_wire(|candidate| {
+            candidate.insert("schema_version".into(), json!(SCHEMA_VERSION_MAX));
+        });
+        assert!(validate_promote_request_wire(&wire).is_ok());
+        let wire = candidate_wire(|candidate| {
+            candidate.insert("schema_version".into(), json!(SCHEMA_VERSION_MAX + 1));
+        });
+        assert!(validate_promote_request_wire(&wire).is_reject());
+
+        // The revision member itself is in [0, 2^53].
+        let wire = candidate_wire(|candidate| {
+            candidate.insert("revision".into(), json!(REVISION_MAX));
+        });
+        assert!(validate_promote_request_wire(&wire).is_ok());
+        let wire = candidate_wire(|candidate| {
+            candidate.insert("revision".into(), json!(REVISION_MAX + 1));
+        });
+        assert!(validate_promote_request_wire(&wire).is_reject());
+
+        // Bumping must not leave the domain: 2^53-1 promotes to 2^53, a
+        // candidate already at 2^53 cannot be promoted.
+        let result = apply_promote_acceptance(&make_request(|request| {
+            request.candidate.revision = Some(REVISION_MAX - 1);
+        }));
+        if let SpokeResult::Ok(value) = result {
+            assert_eq!(value.revision, Some(REVISION_MAX));
+        } else {
+            panic!("expected 2^53-1 to promote to 2^53");
+        }
+        let result = apply_promote_acceptance(&make_request(|request| {
+            request.candidate.revision = Some(REVISION_MAX);
+        }));
+        assert!(result.is_reject());
+    }
+
+    /// The provenance anchors carry their own `schema_version` members;
+    /// the entry's SchemaVersion ceiling binds them through the real
+    /// request gate — `2^53` refuses, `2^53-1` is accepted.
+    #[test]
+    fn enforces_nested_anchor_schema_version_ceiling() {
+        for field in ["source_anchor", "adoption_anchor"] {
+            let anchor = |version: u64| match field {
+                "source_anchor" => json!({
+                    "schema_version": version,
+                    "source_id": "src",
+                    "extensions": {},
+                }),
+                _ => json!({
+                    "schema_version": version,
+                    "source_entry_id": "src",
+                    "source_revision": 1,
+                    "source_scope_id": "s",
+                    "extensions": {},
+                }),
+            };
+            let wire = candidate_wire(|candidate| {
+                candidate.insert(field.into(), anchor(SCHEMA_VERSION_MAX));
+            });
+            assert!(
+                validate_promote_request_wire(&wire).is_ok(),
+                "{field} schema_version 2^53-1 must be accepted"
+            );
+            let wire = candidate_wire(|candidate| {
+                candidate.insert(field.into(), anchor(SCHEMA_VERSION_MAX + 1));
+            });
+            assert!(
+                validate_promote_request_wire(&wire).is_reject(),
+                "{field} schema_version 2^53 must be refused"
+            );
         }
     }
 

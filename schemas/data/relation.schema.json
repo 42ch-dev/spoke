@@ -43,7 +43,9 @@
     },
     "revision": {
       "type": "integer",
+      "format": "uint64",
       "minimum": 0,
+      "maximum": 9007199254740992,
       "description": "Optimistic concurrency revision."
     },
     "created_at": {

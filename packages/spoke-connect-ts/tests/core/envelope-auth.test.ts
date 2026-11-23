@@ -6,6 +6,8 @@ import type {
   ConnectSession,
 } from "@42ch/spoke-schemas";
 
+import canonicalize from "canonicalize";
+
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 import {
@@ -446,5 +448,448 @@ describe("ConnectInvokeResponse envelope auth (spoke-connect-invoke-response-jcs
       verifyInvokeResponseAuth(EMITTER_PUBKEY, response, "session-other"),
       "envelope_auth_session_unbound",
     );
+  });
+});
+
+describe("signed member domain (Rust core/jcs.rs parity)", () => {
+  // Shared boundary contract: only a declared revision path may carry the
+  // inclusive `2^53` endpoint into the signed identity; every other member
+  // keeps the integer token Rust refuses at `serde_jcs`. The Rust lockstep
+  // cases live in `crates/spoke-connect/src/core/envelope_auth.rs`
+  // (`signed_object_respells_only_owning_revision_paths`).
+  const ENDPOINT = 2 ** 53;
+
+  async function refusal(request: InvokeRequestSignInput): Promise<Error> {
+    try {
+      await authenticateInvokeRequest(EMITTER_SEED, request);
+    } catch (error) {
+      expect(error).toMatchObject({ kind: "envelope_auth_invalid" });
+      return error as Error;
+    }
+    throw new Error("expected the signed boundary to refuse the payload");
+  }
+
+  async function responseRefusal(response: InvokeResponseSignInput): Promise<Error> {
+    try {
+      await authenticateInvokeResponse(EMITTER_SEED, response);
+    } catch (error) {
+      expect(error).toMatchObject({ kind: "envelope_auth_invalid" });
+      return error as Error;
+    }
+    throw new Error("expected the signed boundary to refuse the payload");
+  }
+
+  it("signs `relation.revision` at the endpoint and verifies the same bytes", async () => {
+    const request = requestInput({
+      op: "port.relation.put",
+      payload: {
+        relation: { relation_id: "rel_1", revision: ENDPOINT },
+        expected_base_revision: null,
+      },
+    });
+    const signed = await authenticateInvokeRequest(EMITTER_SEED, request);
+    await expect(
+      verifyInvokeRequestAuth(EMITTER_PUBKEY, signed, SESSION_ID),
+    ).resolves.toBeUndefined();
+    // note: the endpoint hashes as its equal integer spelling, shared with Rust.
+    const jcs = canonicalize({
+      session_id: signed.session_id,
+      sequence: signed.sequence,
+      request_id: signed.request_id,
+      op: signed.op,
+      payload: signed.payload,
+    });
+    expect(jcs).toContain('"revision":9007199254740992');
+  });
+
+  it("refuses an opaque `metadata.revision` and `metadata.counter` identically", async () => {
+    const messages: string[] = [];
+    for (const opaqueMember of ["revision", "counter"]) {
+      messages.push(
+        (await refusal(
+          requestInput({
+            op: "port.relation.put",
+            payload: {
+              relation: {
+                relation_id: "rel_1",
+                revision: 1,
+                metadata: { [opaqueMember]: ENDPOINT },
+              },
+              expected_base_revision: null,
+            },
+          }),
+        )).message,
+      );
+    }
+    // note: `Relation.metadata` is an open product bag — the key's spelling
+    // cannot change the verdict, so both members refuse the same way.
+    expect(messages[0]).toBe(messages[1]);
+    expect(messages[0]).toContain("outside the revision member domain");
+  });
+
+  it("signs the adoption refusal `error.details.adopted_revision` at the endpoint", async () => {
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        error: {
+          code: "REVISION_CONFLICT",
+          message: "destination already anchors the source",
+          details: { adopted_revision: ENDPOINT },
+          extensions: {},
+        },
+      },
+      {},
+      "knowledge.adopt",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "knowledge.adopt",
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("signs the served adoption refusal `payload.error.details.adopted_revision` at the endpoint", async () => {
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        payload: {
+          error: {
+            code: "REVISION_CONFLICT",
+            message: "destination already anchors the source",
+            details: { adopted_revision: ENDPOINT },
+            extensions: {},
+          },
+          extensions: {},
+        },
+      },
+      {},
+      "knowledge.adopt",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "knowledge.adopt",
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("signs the adoption success variant's `entry.revision` at the endpoint", async () => {
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        payload: {
+          outcome: "adopted",
+          entry: {
+            revision: ENDPOINT,
+            adoption_anchor: { source_revision: ENDPOINT },
+          },
+        },
+      },
+      {},
+      "knowledge.adopt",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "knowledge.adopt",
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("signs a reverse-invoke success `payload.result` revision at the endpoint", async () => {
+    // why: the reverse-invoke success branch wraps the served value as
+    // `payload.result` (frozen §4), so the op's declared response revision
+    // paths sit one level deeper on that branch.
+    const payload = {
+      result: {
+        revision: ENDPOINT,
+        adoption_anchor: { source_revision: ENDPOINT },
+      },
+    };
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        payload,
+      },
+      {},
+      "port.knowledge.put",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "port.knowledge.put",
+      ),
+    ).resolves.toBeUndefined();
+    const jcs = canonicalize({
+      session_id: response.session_id,
+      sequence: response.sequence,
+      request_id: response.request_id,
+      payload,
+    });
+    expect(jcs).toContain('"revision":9007199254740992');
+  });
+
+  it("refuses a served adoption payload carrying both `entry` and `error` (GH-01)", async () => {
+    // note: the adoption response carries one variant — the mixed malformed
+    // payload cannot borrow the success variant's `entry.revision` endpoint.
+    await expect(
+      authenticateInvokeResponse(
+        EMITTER_SEED,
+        {
+          session_id: SESSION_ID,
+          sequence: 0,
+          request_id: "req-0001",
+          payload: {
+            error: {
+              code: "REVISION_CONFLICT",
+              message: "destination already anchors the source",
+              details: { adopted_revision: ENDPOINT },
+              extensions: {},
+            },
+            entry: { revision: ENDPOINT },
+          },
+        },
+        {},
+        "knowledge.adopt",
+      ),
+    ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+  });
+
+  it("refuses the adoption refusal endpoint without its owning op (D-01)", async () => {
+    // note: the exception is op-scoped, not vocabulary-scoped — the same
+    // REVISION_CONFLICT receipt owns no revision slot for another op.
+    await expect(
+      authenticateInvokeResponse(EMITTER_SEED, {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        error: {
+          code: "REVISION_CONFLICT",
+          message: "destination already anchors the source",
+          details: { adopted_revision: ENDPOINT },
+          extensions: {},
+        },
+      }),
+    ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+  });
+
+  it("refuses the first representable integer past the endpoint on an owning path", async () => {
+    await expect(
+      authenticateInvokeRequest(
+        EMITTER_SEED,
+        requestInput({
+          op: "history.revisions.prune",
+          payload: { keep: ENDPOINT + 2 },
+        }),
+      ),
+    ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+  });
+
+  it("refuses an open `error.details` member that borrows a sibling path component (D-01)", async () => {
+    const messages: string[] = [];
+    for (const opaqueMember of ["revision", "counter", "adopted_revision"]) {
+      messages.push(
+        (await responseRefusal({
+          session_id: SESSION_ID,
+          sequence: 0,
+          request_id: "req-0001",
+          error: {
+            code: "INVALID_INPUT",
+            message: "a generic refusal",
+            details: { [opaqueMember]: ENDPOINT },
+            extensions: {},
+          },
+        })).message,
+      );
+    }
+    // note: `ErrorEnvelope.details` is an open bag — it may not borrow
+    // `payload.entry.revision`, and the key's spelling cannot change the
+    // verdict, so every member refuses identically (including the
+    // op-scoped `adopted_revision`, which owns no slot without its op).
+    expect(new Set(messages).size).toBe(1);
+    expect(messages[0]).toContain("outside the revision member domain");
+  });
+
+  it("refuses a path spliced from two owning prefixes (D-01)", async () => {
+    for (const payload of [
+      // note: only `payload.snapshot.snapshot.adoption_anchor` owns the
+      // endpoint, so one `snapshot` level may not borrow it.
+      { snapshot: { adoption_anchor: { source_revision: ENDPOINT } } },
+      // note: `payload.error.details` continues through the served adoption
+      // refusal, but `source_revision` there belongs to
+      // `payload.records.import_ref.source_revision`.
+      { error: { details: { source_revision: ENDPOINT } } },
+    ]) {
+      await expect(
+        authenticateInvokeResponse(EMITTER_SEED, {
+          session_id: SESSION_ID,
+          sequence: 0,
+          request_id: "req-0001",
+          payload,
+        }),
+      ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+    }
+  });
+
+  it("admits every owning revision path through its own prefix (D-01)", async () => {
+    for (const [op, payload] of [
+      [
+        "port.knowledge.get",
+        {
+          revision: ENDPOINT,
+          adoption_anchor: { source_revision: ENDPOINT },
+        },
+      ],
+      [
+        "history.revisions.get",
+        {
+          snapshot: {
+            revision: ENDPOINT,
+            snapshot: { adoption_anchor: { source_revision: ENDPOINT } },
+          },
+        },
+      ],
+      ["relate", { relation: { revision: ENDPOINT } }],
+    ] as const) {
+      const response = await authenticateInvokeResponse(
+        EMITTER_SEED,
+        {
+          session_id: SESSION_ID,
+          sequence: 0,
+          request_id: "req-0001",
+          payload,
+        },
+        {},
+        op,
+      );
+      await expect(
+        verifyInvokeResponseAuth(EMITTER_PUBKEY, response, SESSION_ID, op),
+      ).resolves.toBeUndefined();
+    }
+  });
+
+  it("refuses a generic rejection's `adopted_revision` on the adoption op (F-01)", async () => {
+    for (const code of ["INVALID_INPUT", "NOT_FOUND"]) {
+      // note: only REVISION_CONFLICT owns `details.adopted_revision`, so a
+      // generic refusal on the same op keeps the `2^53 - 1` bound in both
+      // response branches.
+      await expect(
+        authenticateInvokeResponse(
+          EMITTER_SEED,
+          {
+            session_id: SESSION_ID,
+            sequence: 0,
+            request_id: "req-0001",
+            error: {
+              code,
+              message: "a generic refusal",
+              details: { adopted_revision: ENDPOINT },
+              extensions: {},
+            },
+          },
+          {},
+          "knowledge.adopt",
+        ),
+      ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+      await expect(
+        authenticateInvokeResponse(
+          EMITTER_SEED,
+          {
+            session_id: SESSION_ID,
+            sequence: 0,
+            request_id: "req-0001",
+            payload: {
+              error: {
+                code,
+                message: "a generic refusal",
+                details: { adopted_revision: ENDPOINT },
+                extensions: {},
+              },
+              extensions: {},
+            },
+          },
+          {},
+          "knowledge.adopt",
+        ),
+      ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+    }
+  });
+
+  it("refuses an adoption response that inherits the prune exception (F-02)", async () => {
+    await expect(
+      authenticateInvokeResponse(
+        EMITTER_SEED,
+        {
+          session_id: SESSION_ID,
+          sequence: 0,
+          request_id: "req-0001",
+          payload: { outcome: "adopted", entry: { revision: 1 }, deleted: ENDPOINT },
+        },
+        {},
+        "knowledge.adopt",
+      ),
+    ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+  });
+
+  it("signs the actual prune response at the endpoint", async () => {
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        payload: { deleted: ENDPOINT, floor_revision: ENDPOINT },
+      },
+      {},
+      "history.revisions.prune",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "history.revisions.prune",
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("signs an unknown op whose name collides with `Object.prototype` (D-02)", async () => {
+    const request = requestInput({
+      op: "constructor",
+      payload: { note: "product data" },
+    });
+    const signed = await authenticateInvokeRequest(EMITTER_SEED, request);
+    await expect(
+      verifyInvokeRequestAuth(EMITTER_PUBKEY, signed, SESSION_ID),
+    ).resolves.toBeUndefined();
+    // note: an unknown op owns no revision path, so its payload endpoint
+    // refuses instead of inheriting `Object.prototype.constructor`.
+    await expect(
+      authenticateInvokeRequest(
+        EMITTER_SEED,
+        requestInput({ op: "constructor", payload: { note: ENDPOINT } }),
+      ),
+    ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
   });
 });

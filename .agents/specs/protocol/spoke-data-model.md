@@ -479,12 +479,59 @@ Authoritative current values remain in the holder KnowledgeEntry cognition and m
 
 ---
 
+### Shared wire scalars (normative)
+
+`schemas/common/common.schema.json` owns two scalar definitions shared by every wire family: `SchemaVersion` and `Timestamp`. Each is one closed accept-set. The schema validator, the generated types and the runtime validators of both stacks (`spoke-schemas` / `spoke-operations` in TypeScript and Rust) MUST give the same verdict for every value: what one accepts, none refuses, and the other way round. Revision integers are not a common-schema definition: their bounds are carried by the schema of the member that bears them or, for a member with no JSON Schema, by its port contract (§Revision integers).
+
+**`SchemaVersion`.** `common.SchemaVersion` is an integer in the closed interval `[1, 2^53-1]`: at least `1` and at most `9007199254740991`. `9007199254740992` (`2^53`) and every larger value, `0`, negatives and non-integers are refused. Every member named `schema_version` has this type.
+
+**`Timestamp`.** `common.Timestamp` is the RFC 3339 `date-time` production (RFC 3339 §5.6) with its offset present, and nothing else. The admitted grammar, in that ABNF:
+
+| Production | Admitted |
+|------------|----------|
+| `date-time` | `full-date "T" full-time`; the `T` may be lower-case `t` |
+| `full-date` | four ASCII digits (`0000`–`9999`), `-`, `01`–`12`, `-`, a two-digit day that exists in that month (`01`–`31`) |
+| `partial-time` | `time-hour ":" time-minute ":" time-second [time-secfrac]` with `time-hour` `00`–`23`, `time-minute` `00`–`59`, `time-second` `00`–`60` |
+| `time-secfrac` | `.` followed by one or more ASCII digits, of any length |
+| `time-offset` | `Z` (or lower-case `z`) or `time-numoffset`: `+` or `-`, offset hours `00`–`23`, `:`, offset minutes `00`–`59` |
+
+`time-second` `60` is the leap-second spelling; it is accepted on any date, without a leap-second table. `-00:00` is admitted. A value is admitted only when the whole string matches, so surrounding whitespace, a space in place of `T`, an offset-less (naive) spelling, a `UTC` suffix, an un-padded hour, minute or second, an offset without its minutes or colon, an offset beyond `±23:59`, and non-ASCII digits or signs are all refused.
+
+| Admitted | Refused |
+|----------|---------|
+| `2026-11-23T10:00:00Z` | `2026-11-23 10:00:00Z` (space in place of `T`) |
+| `2026-11-23T10:00:00+08:00` | `2026-11-23T10:00:00 UTC` (`UTC` suffix) |
+| `2026-11-23t10:00:00.123z` | `2026-11-23T10:00:00` (no offset) |
+| `2026-07-23T09:00:60Z` (leap second) | `2026-02-30T09:00:00Z` (no such day) |
+| `2026-11-23T09:00:00-00:00` | `2026-11-23T10:00:5Z` (un-padded second) |
+| `2026-11-23T09:00:00+23:59` | `2026-11-23T10:00:00+24:00` (offset out of range) |
+
+Every member typed `Timestamp` — the `created_at` / `updated_at` envelopes, `ComputableLogEntry.logged_at`, `ConnectSession.opened_at`, `Judgment.created_at` and every other `$ref` to this definition under `schemas/` — is validated against this grammar at the wire boundary and by the runtime validators; a validator MUST NOT accept a spelling the grammar refuses. `+08:00` and `Z` are both valid spellings and a receiver MUST accept each.
+
+`StoredTimestamp` — the type of `created_at` / `updated_at` on a replayed `RevisionSnapshot` ([`spoke-history.md`](spoke-history.md) §`RevisionSnapshot`) — admits exactly the same grammar and replays the stored spelling byte-for-byte: a valid `+08:00` or fractional-second spelling comes back as written, never re-spelled as `Z`.
+
+**Revision integers.** Every revision-typed wire integer is an exact integer in the closed interval `[0, 2^53]`: at least `0` and at most `9007199254740992`. `9007199254740993` (`2^53 + 1`) and every larger value, negatives and non-integers are refused. The family has six members:
+
+| Member | Where it rides |
+|--------|----------------|
+| `revision` | The optimistic-concurrency revision of `KnowledgeEntry` and `Relation`, the `RevisionSnapshot` of `history.revisions.get`, and the `history.revisions.get` request |
+| `deleted`, `floor_revision` | `HistoryPruneResult` of `history.revisions.prune` |
+| `keep` | `HistoryRevisionsPruneRequest` |
+| `expected_base_revision` | The compare-and-swap fence of a conditional `knowledge.put` / `relation.put` |
+| `source_revision` | The `knowledge.adopt` request and `AdoptionAnchor` |
+
+Other members named `revision` — the per-object optimistic-concurrency counters of the `spoke-memory` objects, `Judgment.evidence[].revision` and `Judgment.target.revision` (`schemas/data/judgment.schema.json`) — sit inside the same interval. The two `Judgment` members are narrowed to the closed interval `[1, 2^53-1]`: `Judgment.evidence[].revision` is required, `Judgment.target.revision` is optional and carries that interval whenever it is present. A member's own schema may narrow the interval (for example `minimum: 1`); it can never widen it. A nullable member (`floor_revision`, `expected_base_revision`) carries the interval whenever it is present.
+
+The inclusive `[0, 2^53]` bound is asserted on the parsed integer value. A host whose JSON parser cannot preserve integers above `2^53` (IEEE-754) therefore refuses the first representable value above `2^53`, and exact refusal of an unrepresentable wire literal is a parser-level property, not a validator-level one. The published wire bound remains `2^53`.
+
+---
+
 ### Shared envelope pattern
 
 Every durable data object schema MUST:
 
 1. Declare `"$schema": "http://json-schema.org/draft-07/schema#"` and a stable `$id` under `https://spoke42.invalid/schemas/...`.
-2. Include top-level `schema_version` (integer ≥ 1) in `required`.
+2. Include top-level `schema_version` (typed `common.SchemaVersion` — §Shared wire scalars) in `required`.
 3. Set `additionalProperties: false` on the protocol object.
 4. Include `extensions` (see §Extensions) in `required` — use `{}` when empty.
 5. Reference shared defs from `schemas/common/common.schema.json` via `$ref` (identifiers, timestamps, extension map).
@@ -989,7 +1036,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 
 ## Invariants
 
-- Every durable data object schema MUST declare draft-07 `$schema` and a stable `$id` under `https://spoke42.invalid/schemas/...`, include top-level `schema_version` (integer ≥ 1) in `required`, set `additionalProperties: false`, require `extensions` (use `{}` when empty), and `$ref` the shared defs in `common.schema.json`.
+- Every durable data object schema MUST declare draft-07 `$schema` and a stable `$id` under `https://spoke42.invalid/schemas/...`, include top-level `schema_version` (typed `common.SchemaVersion`) in `required`, set `additionalProperties: false`, require `extensions` (use `{}` when empty), and `$ref` the shared defs in `common.schema.json`.
 - `Rule` and `Finding` are never interchangeable: a Rule MUST NOT appear in `findings[]`, and a Finding MUST NOT appear in a `check` request as rules.
 - Baseline `TimelineEvent` MUST NOT require branch metadata (`spoke-baseline` excludes required Fork); when `parent_fork_id` is present `fork_id` SHOULD also be present, and `parent_fork_id` MUST NOT equal `fork_id`.
 - Computable log entries MUST NOT reuse Finding fields (`finding_id`, `severity`, `title`, `suggested_fix`, …); generated TypeScript and Rust types MUST reflect opaque JSON (`unknown` / `OpaqueJson`, `serde_json::Value`) rather than object-only maps.
@@ -997,6 +1044,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 - Cross-field tool consistency is a spec-level MUST enforced by validation helpers: every `tools[].capability_id` also appears in the same manifest's `capabilities[]`, is unique within `tools[]`, and equals that descriptor's `op`.
 - Within one collaboration context, each namespace string in `namespaces[]` MUST appear on at most one `host_id`; manifest `extensions` MUST NOT duplicate `roles`, `capabilities` or `namespaces`.
 - `entry_type`, KnowledgeEntry `status`, `relation_type`, and Finding `severity` / `status` stay `type: string` with no `enum`; the core vocabulary is documented in `description` fields only.
+- `SchemaVersion`, `Timestamp` and the revision integers MUST stay inside the intervals and grammar of §Shared wire scalars, and the schema validator, the generated types and the runtime validators of both stacks MUST give the same verdict for every value.
 
 ## Where it lives
 
@@ -1011,7 +1059,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | `schemas/data/rule.schema.json`, `schemas/data/timeline-event.schema.json` | L6 Rule, L5 TimelineEvent |
 | `schemas/data/tool-descriptor.schema.json` | ToolDescriptor ABIs |
 | `schemas/data/cognition.schema.json`, `schemas/data/mind-state.schema.json` | Optional `spoke-cognition` records and derivative MindState |
-| `schemas/common/common.schema.json` | `ExtensionMap`, `ModuleMap`, `OpaqueJson`, `BodyAttribute`, `ComputableFieldMap`, `ComputableLogEntry`, `TimelineScale`, `ForkId`, `MentalFieldMap`, `MindDelta` |
+| `schemas/common/common.schema.json` | `SchemaVersion`, `Timestamp`, `ExtensionMap`, `ModuleMap`, `OpaqueJson`, `BodyAttribute`, `ComputableFieldMap`, `ComputableLogEntry`, `TimelineScale`, `ForkId`, `MentalFieldMap`, `MindDelta` |
 | `CONCEPTS.md` | Vocabulary boundaries (KnowledgeEntry vs product stores) |
 
 Commands: `pnpm run verify-codegen`; conformance fixtures live at `fixtures/toy-world/`.
@@ -1023,3 +1071,4 @@ Commands: `pnpm run verify-codegen`; conformance fixtures live at `fixtures/toy-
 - Change to `extensions` or `modules` round-trip semantics → update §Current state extensions / modules sections and the matching helper contract in `spoke-operations.md`.
 - Change to open vocabulary or a new closed cognition dialect → update §Current state open vocabulary and §Vocabulary boundaries here plus the cognition contract pages.
 - Change to an OCC-bearing persisted entity → update §Current state Relation / Persisted-entity OCC parity here and the port contract in `spoke-operations.md`.
+- Change to a shared wire scalar (`SchemaVersion`, `Timestamp`, a revision integer) → update §Shared wire scalars here, the matching definition in `schemas/common/common.schema.json` (or the member's own schema), §Revision integers in [`spoke-connect.md`](../connect/spoke-connect.md), and the regenerated packages in the same commit.

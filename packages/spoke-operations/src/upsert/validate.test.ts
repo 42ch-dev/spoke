@@ -165,4 +165,114 @@ describe("validateUpsertKnowledgeEntry", () => {
       expect(result.code).toBe(SpokeRejectCode.MISSING_REQUIRED_FIELD);
     }
   });
+
+  it("refuses a nested source_anchor schema_version above 2^53-1", () => {
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_anchor",
+      source_anchor: {
+        schema_version: 2 ** 53,
+        source_id: "src_1",
+        extensions: {},
+      },
+    });
+
+    const result = validateUpsertKnowledgeEntry(candidate);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "source_anchor" });
+    }
+  });
+
+  it("refuses a nested adoption_anchor schema_version above 2^53-1", () => {
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_anchor",
+      adoption_anchor: {
+        schema_version: 2 ** 53,
+        source_scope_id: "scope_src",
+        source_entry_id: "kb_src",
+        source_revision: 1,
+        extensions: {},
+      },
+    });
+
+    const result = validateUpsertKnowledgeEntry(candidate);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "adoption_anchor" });
+    }
+  });
+
+  it("rejects an explicit null source_anchor as INVALID_INPUT instead of throwing", () => {
+    const candidate = {
+      ...makeKnowledgeEntry({ entry_id: "kb_null_anchor" }),
+      source_anchor: null,
+    } as unknown as KnowledgeEntry;
+
+    const result = validateUpsertKnowledgeEntry(candidate);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "source_anchor" });
+    }
+  });
+
+  it("rejects an explicit null adoption_anchor as INVALID_INPUT instead of throwing", () => {
+    const candidate = {
+      ...makeKnowledgeEntry({ entry_id: "kb_null_anchor" }),
+      adoption_anchor: null,
+    } as unknown as KnowledgeEntry;
+
+    const result = validateUpsertKnowledgeEntry(candidate);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "adoption_anchor" });
+    }
+  });
+
+  it("refuses a nested adoption_anchor source_revision above 2^53", () => {
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_anchor",
+      adoption_anchor: {
+        schema_version: 1,
+        source_scope_id: "scope_src",
+        source_entry_id: "kb_src",
+        source_revision: 2 ** 53 + 2,
+        extensions: {},
+      },
+    });
+
+    const result = validateUpsertKnowledgeEntry(candidate);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "adoption_anchor" });
+    }
+  });
+
+  it("accepts the inclusive 2^53 revision on update and refuses the next representable value", () => {
+    const ceiling = 2 ** 53;
+    const stored = makeKnowledgeEntry({ entry_id: "kb_1", revision: ceiling });
+    const accepted = makeKnowledgeEntry({ entry_id: "kb_1", revision: ceiling });
+
+    expect(validateUpsertKnowledgeEntry(accepted, { stored }).ok).toBe(true);
+
+    const refused = makeKnowledgeEntry({
+      entry_id: "kb_1",
+      revision: ceiling + 2,
+    });
+    const result = validateUpsertKnowledgeEntry(refused, { stored });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
 });

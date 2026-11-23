@@ -1,66 +1,21 @@
-// why: strict RFC 3339 with mandatory offset — mirrors the first two arms of the
-// Rust `is_parseable_date_time` chain (`DateTime::parse_from_rfc3339` /
-// `DateTime<Utc>` FromStr). Unlike `Date.parse`, it rejects date-only,
-// slash-separated, RFC 2822, and space-separated strings.
+// why: strict RFC 3339 with mandatory offset — the one wire grammar
+// (spoke-data-model §Shared wire scalars). Unlike `Date.parse`, it rejects
+// date-only, slash-separated, RFC 2822, space-separated, naive, `UTC`-suffixed
+// and whitespace-wrapped spellings.
 const RFC3339_TIMESTAMP_RE =
   /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:[Zz]|([+-])(\d{2}):(\d{2}))$/;
-// note: NaiveDateTime fallback — "YYYY-MM-DDTHH:MM:SS[.fraction]" without timezone.
-const NAIVE_TIMESTAMP_RE =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/;
 
 /**
- * Timestamp gate mirroring Rust `is_parseable_date_time`
- * (crates/spoke-operations/src/mind_state.rs): RFC 3339 first, then the
- * NaiveDateTime fallback. The accept/reject contract is pinned by the shared
+ * Strict RFC 3339 `date-time` gate with its mandatory offset (`Z` or `±hh:mm`).
+ * Calendar and clock validity match the Rust parser (`DateTime::parse_from_rfc3339`
+ * behind the shared ASCII grammar gate), including leap second `:60` and the
+ * `±23:59` offset ceiling. The accept/reject contract is pinned by the shared
  * fixture `fixtures/timestamp-parity-cases.json`, asserted by both suites.
  * Exported for the cognition validators, which reuse the same Timestamp gate.
  */
-export function isParseableDateTime(value: string): boolean {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return false;
-  }
-  const rfc3339 = RFC3339_TIMESTAMP_RE.exec(trimmed);
-  if (rfc3339 !== null) {
-    // note: Groups — 1 year, 2 month, 3 day, 4 hour, 5 minute, 6 second,
-    // 7 fraction, 8 offset sign, 9 offset hour, 10 offset minute.
-    // A `Z`/`z` offset (sign group undefined) is always in range.
-    return (
-      isCalendarDateTimeValid(
-        rfc3339[1],
-        rfc3339[2],
-        rfc3339[3],
-        rfc3339[4],
-        rfc3339[5],
-        rfc3339[6],
-      ) &&
-      (rfc3339[8] === undefined ||
-        (Number(rfc3339[9]) <= 23 && Number(rfc3339[10]) <= 59))
-    );
-  }
-  const naive = NAIVE_TIMESTAMP_RE.exec(trimmed);
-  if (naive !== null) {
-    return isCalendarDateTimeValid(
-      naive[1],
-      naive[2],
-      naive[3],
-      naive[4],
-      naive[5],
-      naive[6],
-    );
-  }
-  return false;
-}
-
-/**
- * Strict RFC 3339 gate with a mandatory UTC offset (`Z` or `±hh:mm`) — the
- * `spoke-judgment` `created_at` rule. Same calendar/clock validity and
- * leap-second acceptance as `isParseableDateTime`, minus the NaiveDateTime
- * fallback: an offsetless timestamp refuses.
- */
 export function isStrictTimestamp(value: string): boolean {
-  // Grammar matches the raw wire string exactly as received (contract
-  // §Wire-wide rules created_at) — no trim; whitespace-wrapped values refuse.
+  // Grammar matches the raw wire string exactly as received — no trim;
+  // whitespace-wrapped values refuse.
   const rfc3339 = RFC3339_TIMESTAMP_RE.exec(value);
   if (rfc3339 === null) {
     return false;

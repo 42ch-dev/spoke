@@ -16,8 +16,8 @@
 //! TypeScript parity: `packages/spoke-operations/src/judgment.ts`.
 
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
-use chrono::DateTime;
 use serde_json::{Map, Value};
+use spoke_schemas::timestamp::parse_strict;
 
 // Closed-envelope property tables (judgment.schema.json, additionalProperties:
 // false on Judgment, JudgmentRef and Verdict).
@@ -72,18 +72,12 @@ fn is_positive_integer(value: &Value) -> bool {
     wire_integer(value).is_some_and(|v| v >= 1)
 }
 
-// RFC 3339 `date-time` requires an explicit offset (`Z` or `±hh:mm`); chrono
-// refuses offsetless spellings, keeps leap-second `23:59:60` accepted and
-// refuses invalid calendar days. The grammar is matched against the raw wire
-// string exactly as received: chrono `parse_from_rfc3339` also accepts a
-// space as the date-time separator and Unicode offset signs such as U+2212,
-// so the raw-string gates refuse whitespace-wrapped, space-separated and
-// non-ASCII spellings to keep Rust and TypeScript on one strict form.
+// One timestamp gate for the whole crate: the shared strict RFC 3339 parser
+// (`spoke_schemas::timestamp`) — explicit offset required, `T`/`t` separator
+// only, calendar-valid, leap second admitted (`spoke-data-model` §Shared wire
+// scalars).
 fn is_parseable_date_time(value: &str) -> bool {
-    value.is_ascii()
-        && value.trim() == value
-        && matches!(value.as_bytes().get(10), Some(b'T' | b't'))
-        && DateTime::parse_from_rfc3339(value).is_ok()
+    parse_strict(value).is_ok()
 }
 
 // Shared ExtensionMap grammar: namespace keys match `^[a-z][a-z0-9_-]*$`.
@@ -714,6 +708,50 @@ mod tests {
         typed.evidence[0].revision =
             std::num::NonZeroU64::new(MAX_INTEROPERABLE_INTEGER + 1).unwrap();
         expect_invalid(validate_judgment_typed(&typed), "evidence[0].revision");
+    }
+
+    #[test]
+    fn validate_judgment_enforces_schema_version_and_revision_ceilings() {
+        let mut judgment = valid_judgment();
+        judgment["schema_version"] = Value::from(MAX_INTEROPERABLE_INTEGER);
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+        judgment["schema_version"] = Value::from(MAX_INTEROPERABLE_INTEGER + 1);
+        expect_invalid(validate_judgment(&judgment), "schema_version");
+
+        // `target.revision` and `evidence[].revision` keep the narrowed
+        // published domain [1, 2^53-1].
+        let mut judgment = valid_judgment();
+        judgment["target"]["revision"] = Value::from(MAX_INTEROPERABLE_INTEGER);
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+        judgment["target"]["revision"] = Value::from(MAX_INTEROPERABLE_INTEGER + 1);
+        expect_invalid(validate_judgment(&judgment), "target.revision");
+        judgment["target"]["revision"] = Value::from(0);
+        expect_invalid(validate_judgment(&judgment), "target.revision");
+
+        let mut judgment = valid_judgment();
+        judgment["evidence"][0]["revision"] = Value::from(MAX_INTEROPERABLE_INTEGER);
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+        judgment["evidence"][0]["revision"] = Value::from(MAX_INTEROPERABLE_INTEGER + 1);
+        expect_invalid(validate_judgment(&judgment), "evidence[0].revision");
+        judgment["evidence"][0]["revision"] = Value::from(0);
+        expect_invalid(validate_judgment(&judgment), "evidence[0].revision");
+    }
+
+    #[test]
+    fn validate_judgment_uses_the_strict_timestamp_gate() {
+        let mut judgment = valid_judgment();
+        judgment["created_at"] = Value::String("2026-07-23T09:00:60Z".into());
+        assert!(matches!(validate_judgment(&judgment), SpokeResult::Ok(())));
+
+        for refused in [
+            "2026-11-23T10:00:00",
+            "2026-11-23 10:00:00Z",
+            "2026-11-23T10:00:00 UTC",
+        ] {
+            let mut judgment = valid_judgment();
+            judgment["created_at"] = Value::String(refused.into());
+            expect_invalid(validate_judgment(&judgment), "created_at");
+        }
     }
 
     #[test]

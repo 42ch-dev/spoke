@@ -11,6 +11,17 @@
 //! raw 64-byte signature is encoded base64url without padding (exactly 86
 //! characters).
 //!
+//! Canonicalization is [`crate::core::jcs::canonical_bytes`], which
+//! re-spells an integer `±2^53` carried by a revision-typed member as its
+//! equal `f64`: `2^53` is a revision endpoint both stacks admit and the
+//! TypeScript canonicalizer emits that number's spelling. The re-spelling
+//! follows the owning wire paths of the op payload shape (and the adoption
+//! refusal path), never member names — an open product bag like
+//! `Relation.metadata` keeps its own members unchanged. Every other
+//! integer keeps its token, so an integer JavaScript cannot represent
+//! (`2^53 + 1`) still refuses instead of rounding, and so does the `2^53`
+//! endpoint outside an owning path (no contract domain).
+//!
 //! Signed-object rules (locked):
 //! - `extensions` and the `signature` field are excluded from every signed
 //!   object.
@@ -402,12 +413,14 @@ fn invoke_response_signed_object(
 fn sign_envelope(
     secret: &[u8],
     signed_object: &impl serde::Serialize,
+    response_op: Option<&str>,
 ) -> Result<String, CoreError> {
     if secret.len() != 32 {
         return Err(CoreError::Crypto("secret must be 32 bytes".into()));
     }
     let signing_key = SigningKey::from_bytes(secret.try_into().expect("length checked above"));
-    let bytes = serde_jcs::to_vec(signed_object).map_err(|e| CoreError::Jcs(e.to_string()))?;
+    let bytes = crate::core::jcs::canonical_bytes_with_op(signed_object, response_op)
+        .map_err(|e| CoreError::Jcs(e.to_string()))?;
     let signature: Signature = signing_key.sign(&bytes);
     Ok(URL_SAFE_NO_PAD.encode(signature.to_bytes()))
 }
@@ -457,13 +470,14 @@ fn verify_canonical_signature(
     public_key: &[u8],
     signed_object: &serde_json::Value,
     signature: &[u8; 64],
+    response_op: Option<&str>,
 ) -> Result<(), EnvelopeAuthError> {
     if public_key.len() != 32 {
         return Err(EnvelopeAuthError::Crypto("public key must be 32 bytes".into()));
     }
     let verifying_key = VerifyingKey::from_bytes(public_key.try_into().expect("length checked above"))
         .map_err(|e| EnvelopeAuthError::Crypto(format!("invalid Ed25519 public key: {e}")))?;
-    let bytes = serde_jcs::to_vec(signed_object).map_err(|e| {
+    let bytes = crate::core::jcs::canonical_bytes_with_op(signed_object, response_op).map_err(|e| {
         EnvelopeAuthError::Invalid(format!("signed object is not JSON-serializable: {e}"))
     })?;
     let signature = Signature::from_bytes(signature);
@@ -485,7 +499,7 @@ pub(crate) fn authenticate_session(
     session: &SessionSignInput,
     extensions: EnvelopeExtensions,
 ) -> Result<ConnectSession, CoreError> {
-    let signature = sign_envelope(secret, session)?;
+    let signature = sign_envelope(secret, session, None)?;
     Ok(ConnectSession {
         session_id: session
             .session_id
@@ -530,7 +544,7 @@ pub(crate) fn verify_session_auth(
 ) -> Result<(), EnvelopeAuthError> {
     let signature = require_signature(session)?;
     let signed_object = session_signed_object(session)?;
-    verify_canonical_signature(public_key, &signed_object, &signature)?;
+    verify_canonical_signature(public_key, &signed_object, &signature, None)?;
     // Binding fields are strings on every schema-valid envelope, but verify
     // runs on the raw wire form before typed deserialization: a key-holding
     // signer could craft a signed envelope with a non-string peer id, which
@@ -566,7 +580,7 @@ pub(crate) fn authenticate_invoke_request(
     request: &InvokeRequestSignInput,
     extensions: EnvelopeExtensions,
 ) -> Result<ConnectInvokeRequest, CoreError> {
-    let signature = sign_envelope(secret, request)?;
+    let signature = sign_envelope(secret, request, None)?;
     Ok(ConnectInvokeRequest {
         auth: request.auth.clone(),
         op: request.op.parse().expect("non-empty op parses"),
@@ -608,7 +622,7 @@ pub(crate) fn verify_invoke_request_auth(
 ) -> Result<(), EnvelopeAuthError> {
     let signature = require_signature(request)?;
     let signed_object = invoke_request_signed_object(request)?;
-    verify_canonical_signature(public_key, &signed_object, &signature)?;
+    verify_canonical_signature(public_key, &signed_object, &signature, None)?;
     // Fail closed on a non-string session_id (raw wire form — see
     // verify_session_auth): a non-string can never match the bound session.
     let session_id = request
@@ -630,11 +644,26 @@ pub(crate) fn verify_invoke_request_auth(
 /// The signed object mirrors the wire branch exactly — `{session_id,
 /// sequence, request_id, payload}` for the success branch, `{session_id,
 /// sequence, request_id, error}` for the error branch. The branches are
-/// never merged.
+/// never merged. This form names no request op; production callers use
+/// [`authenticate_invoke_response_with_op`] because a response envelope
+/// carries no `op` of its own.
+#[allow(dead_code)]
 pub(crate) fn authenticate_invoke_response(
     secret: &[u8],
     response: &InvokeResponseSignInput,
     extensions: EnvelopeExtensions,
+) -> Result<ConnectInvokeResponse, CoreError> {
+    authenticate_invoke_response_with_op(secret, response, extensions, None)
+}
+
+/// [`authenticate_invoke_response`] with the request op the response answers:
+/// it selects that op's response revision paths (the adoption refusal
+/// vocabulary).
+pub(crate) fn authenticate_invoke_response_with_op(
+    secret: &[u8],
+    response: &InvokeResponseSignInput,
+    extensions: EnvelopeExtensions,
+    response_op: Option<&str>,
 ) -> Result<ConnectInvokeResponse, CoreError> {
     match response {
         InvokeResponseSignInput::Success {
@@ -651,6 +680,7 @@ pub(crate) fn authenticate_invoke_response(
                     request_id,
                     payload,
                 },
+                response_op,
             )?;
             Ok(ConnectInvokeResponse::Variant0 {
                 session_id: session_id.clone(),
@@ -677,6 +707,7 @@ pub(crate) fn authenticate_invoke_response(
                     request_id,
                     error,
                 },
+                response_op,
             )?;
             Ok(ConnectInvokeResponse::Variant1 {
                 session_id: session_id.clone(),
@@ -721,14 +752,29 @@ where
 /// branch, never a merged object), the signed object must have exact keys
 /// for that branch, and on success the envelope's `session_id` must equal
 /// the bound session (step 6).
+///
+/// No request op is named here: production callers use
+/// [`verify_invoke_response_auth_with_op`] (a response envelope carries no
+/// `op`), so this default is test-facing.
+#[allow(dead_code)]
 pub(crate) fn verify_invoke_response_auth(
     public_key: &[u8],
     response: &serde_json::Value,
     expected_session_id: &str,
 ) -> Result<(), EnvelopeAuthError> {
+    verify_invoke_response_auth_with_op(public_key, response, expected_session_id, None)
+}
+
+/// [`verify_invoke_response_auth`] with the request op the response answers.
+pub(crate) fn verify_invoke_response_auth_with_op(
+    public_key: &[u8],
+    response: &serde_json::Value,
+    expected_session_id: &str,
+    response_op: Option<&str>,
+) -> Result<(), EnvelopeAuthError> {
     let signature = require_signature(response)?;
     let signed_object = invoke_response_signed_object(response)?;
-    verify_canonical_signature(public_key, &signed_object, &signature)?;
+    verify_canonical_signature(public_key, &signed_object, &signature, response_op)?;
     // Fail closed on a non-string session_id (raw wire form — see
     // verify_session_auth): a non-string can never match the bound session.
     let session_id = response
@@ -1071,7 +1117,7 @@ mod tests {
         let mut wire = wire_of(&session);
         wire["initiator_peer_id"] = serde_json::json!(123);
         let signed_object = session_signed_object(&wire).expect("signed object");
-        let signature = sign_envelope(&emitter_seed(), &signed_object).expect("re-sign");
+        let signature = sign_envelope(&emitter_seed(), &signed_object, None).expect("re-sign");
         wire["signature"] = serde_json::json!(signature);
         expect_kind(
             verify_session_auth(
@@ -1334,7 +1380,7 @@ mod tests {
         let mut wire = wire_of(&request);
         wire["session_id"] = serde_json::json!(123);
         let signed_object = invoke_request_signed_object(&wire).expect("signed object");
-        let signature = sign_envelope(&emitter_seed(), &signed_object).expect("re-sign");
+        let signature = sign_envelope(&emitter_seed(), &signed_object, None).expect("re-sign");
         wire["signature"] = serde_json::json!(signature);
         expect_kind(
             verify_invoke_request_auth(&emitter_pubkey(), &wire, SESSION_ID),
@@ -1599,6 +1645,656 @@ mod tests {
         assert_eq!(
             wire["auth"],
             serde_json::json!({ "method": "capability-token" })
+        );
+    }
+
+    /// A revision endpoint `2^53` is an exact f64: the signed identity is
+    /// the TypeScript canonicalizer's own number spelling, so signing and
+    /// verifying must not stop at `serde_jcs`'s integer ceiling (qc3-01).
+    #[test]
+    fn request_signs_and_verifies_the_exact_integer_endpoint() {
+        let mut input = request_input(None);
+        input.op = "history.revisions.prune".to_string();
+        input.payload = serde_json::json!({
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_endpoint",
+            "keep": 9_007_199_254_740_992_u64,
+        });
+        let request =
+            authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+                .expect("2^53 is a signable revision endpoint");
+        let wire = wire_of(&request);
+        verify_invoke_request_auth(&emitter_pubkey(), &wire, SESSION_ID)
+            .expect("2^53 verifies against the same canonical bytes");
+        // The signed bytes carry the endpoint's equal number spelling, the
+        // bytes the TypeScript canonicalizer emits for the same value.
+        let signed_object = invoke_request_signed_object(&wire).expect("signed object");
+        let bytes = crate::core::jcs::canonical_bytes(&signed_object).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"keep\":9007199254740992"),
+            "endpoint hashes as its equal f64 spelling: {jcs}"
+        );
+    }
+
+    /// `2^53 + 1` has no IEEE-754 identity shared with the peer, so it is
+    /// never rounded into the signed object: signing refuses it and a wire
+    /// envelope cannot verify (qc3-01).
+    #[test]
+    fn request_refuses_the_first_integer_past_the_endpoint() {
+        let mut input = request_input(None);
+        input.op = "history.revisions.prune".to_string();
+        input.payload = serde_json::json!({
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_endpoint",
+            "keep": 9_007_199_254_740_993_u64,
+        });
+        let error = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+            .expect_err("2^53 + 1 has no canonical signed identity");
+        assert!(
+            matches!(error, CoreError::Jcs(_)),
+            "canonicalization refuses the integer: {error:?}"
+        );
+    }
+
+    /// The endpoint re-spelling follows the owning wire paths, not member
+    /// spellings: a nested revision member canonicalizes as the TypeScript
+    /// number spelling, an open product bag keeps every member it owns, and
+    /// an ordinary non-revision member at `±2^53` refuses at the signed
+    /// boundary (qc2 signed-boundary / C-02).
+    #[test]
+    fn signed_object_respells_only_owning_revision_paths() {
+        let mut input = request_input(None);
+        input.op = "port.knowledge.put".to_string();
+        input.payload = serde_json::json!({
+            "entry": { "revision": 9_007_199_254_740_992_u64 },
+            "expected_base_revision": null,
+        });
+        let request = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+            .expect("a nested revision member takes the endpoint spelling");
+        let wire = wire_of(&request);
+        verify_invoke_request_auth(&emitter_pubkey(), &wire, SESSION_ID)
+            .expect("both sides canonicalize the same bytes");
+        let signed_object = invoke_request_signed_object(&wire).expect("signed object");
+        let bytes = crate::core::jcs::canonical_bytes(&signed_object).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"revision\":9007199254740992"),
+            "the nested revision endpoint hashes as its equal f64: {jcs}"
+        );
+
+        // `Relation.metadata` is an open product bag: `metadata.revision`
+        // and `metadata.counter` are the same kind of value (not revision
+        // members), so both refuse — the key's spelling cannot change the
+        // verdict — while `relation.revision` at the same endpoint signs.
+        let mut relation_input = request_input(None);
+        relation_input.op = "port.relation.put".to_string();
+        relation_input.payload = serde_json::json!({
+            "relation": {
+                "revision": 9_007_199_254_740_992_u64,
+                "metadata": { "counter": 1 },
+            },
+            "expected_base_revision": null,
+        });
+        let relation =
+            authenticate_invoke_request(&emitter_seed(), &relation_input, Default::default())
+                .expect("relation.revision owns the endpoint");
+        let relation_wire = wire_of(&relation);
+        verify_invoke_request_auth(&emitter_pubkey(), &relation_wire, SESSION_ID)
+            .expect("the relation endpoint verifies");
+        let signed_object = invoke_request_signed_object(&relation_wire).expect("signed object");
+        let bytes = crate::core::jcs::canonical_bytes(&signed_object).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"revision\":9007199254740992"),
+            "relation.revision owns the endpoint: {jcs}"
+        );
+
+        for opaque_member in ["revision", "counter"] {
+            let mut input = request_input(None);
+            input.op = "port.relation.put".to_string();
+            input.payload = serde_json::json!({
+                "relation": {
+                    "revision": 1,
+                    "metadata": { opaque_member: 9_007_199_254_740_992_u64 },
+                },
+                "expected_base_revision": null,
+            });
+            let error = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+                .expect_err("a product metadata member has no endpoint domain");
+            assert!(
+                matches!(error, CoreError::Jcs(_)),
+                "metadata.{opaque_member} refuses identically: {error:?}"
+            );
+        }
+
+        let mut input = request_input(None);
+        input.op = "port.finding.put".to_string();
+        input.payload = serde_json::json!({ "note": 9_007_199_254_740_992_u64 });
+        let error = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+            .expect_err("a non-revision member has no endpoint domain");
+        assert!(
+            matches!(error, CoreError::Jcs(_)),
+            "the signed boundary refuses a non-revision endpoint: {error:?}"
+        );
+    }
+
+    /// C-01 / D-01 — the adoption refusal carries `details.adopted_revision`
+    /// at the `2^53` endpoint in both owning branches: the transport error
+    /// envelope (`error.details`) and the served error branch the adoption
+    /// response carries inside `payload`. The paths belong to the
+    /// `knowledge.adopt` response alone, so the signer/verifier must name
+    /// that op; both branches then sign and verify over the same bytes.
+    #[test]
+    fn response_signs_adoption_refusal_revisions_at_the_endpoint() {
+        const ENDPOINT: u64 = 9_007_199_254_740_992;
+        const ADOPT: Option<&str> = Some("knowledge.adopt");
+
+        let mut details = serde_json::Map::new();
+        details.insert("adopted_revision".into(), serde_json::json!(ENDPOINT));
+        let envelope = ErrorEnvelope {
+            code: "REVISION_CONFLICT".to_string(),
+            details,
+            extensions: Default::default(),
+            message: "destination already anchors the source".to_string(),
+        };
+
+        let transport_error = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Error {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                error: envelope,
+            },
+            Default::default(),
+            ADOPT,
+        )
+        .expect("an adoption refusal at the endpoint signs");
+        let wire = wire_of(&transport_error);
+        verify_invoke_response_auth_with_op(&emitter_pubkey(), &wire, SESSION_ID, ADOPT)
+            .expect("the error branch verifies");
+        let bytes = crate::core::jcs::canonical_bytes_with_op(&wire, ADOPT).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"adopted_revision\":9007199254740992"),
+            "the refusal endpoint hashes as its equal f64: {jcs}"
+        );
+
+        let served_error = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({
+                    "error": {
+                        "code": "REVISION_CONFLICT",
+                        "message": "destination already anchors the source",
+                        "details": { "adopted_revision": ENDPOINT },
+                        "extensions": {},
+                    },
+                    "extensions": {},
+                }),
+            },
+            Default::default(),
+            ADOPT,
+        )
+        .expect("the served error branch signs");
+        let wire = wire_of(&served_error);
+        verify_invoke_response_auth_with_op(&emitter_pubkey(), &wire, SESSION_ID, ADOPT)
+            .expect("the served error branch verifies");
+        let bytes = crate::core::jcs::canonical_bytes_with_op(&wire, ADOPT).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"adopted_revision\":9007199254740992"),
+            "the served refusal endpoint hashes as its equal f64: {jcs}"
+        );
+
+        // Without the owning op the same receipt owns no revision slot: the
+        // exception is scoped to the adoption response, not to the vocabulary.
+        let wrong_code = authenticate_invoke_response(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Error {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                error: ErrorEnvelope {
+                    code: "REVISION_CONFLICT".to_string(),
+                    details: {
+                        let mut details = serde_json::Map::new();
+                        details.insert("adopted_revision".into(), serde_json::json!(ENDPOINT));
+                        details
+                    },
+                    extensions: Default::default(),
+                    message: "destination already anchors the source".to_string(),
+                },
+            },
+            Default::default(),
+        )
+        .expect_err("an unnamed op owns no response revision path");
+        assert!(matches!(wrong_code, CoreError::Jcs(_)), "{wrong_code:?}");
+
+        // The next integer has no canonical signed identity in either branch.
+        let mut details = serde_json::Map::new();
+        details.insert(
+            "adopted_revision".into(),
+            serde_json::json!(ENDPOINT + 1),
+        );
+        let error = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Error {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                error: ErrorEnvelope {
+                    code: "REVISION_CONFLICT".to_string(),
+                    details,
+                    extensions: Default::default(),
+                    message: "destination already anchors the source".to_string(),
+                },
+            },
+            Default::default(),
+            ADOPT,
+        )
+        .expect_err("2^53 + 1 has no canonical signed identity");
+        assert!(matches!(error, CoreError::Jcs(_)), "{error:?}");
+    }
+
+    /// D-01 — the walk carries only matched path prefixes: an open
+    /// `ErrorEnvelope.details` member owns no revision slot, so it cannot
+    /// borrow `revision` from a sibling path at the same depth. The
+    /// op-scoped adoption vocabulary is no exception for a generic refusal:
+    /// without the `knowledge.adopt` op, `details.adopted_revision` owns no
+    /// revision slot either. The prefix-exact owner set still admits its own
+    /// endpoint, including a mixed-prefix path
+    /// (`payload.snapshot.adoption_anchor.source_revision`).
+    #[test]
+    fn signed_walk_matches_paths_by_prefix_not_by_component() {
+        const ENDPOINT: u64 = 9_007_199_254_740_992;
+
+        for member in ["revision", "counter", "adopted_revision"] {
+            let mut details = serde_json::Map::new();
+            details.insert(member.into(), serde_json::json!(ENDPOINT));
+            let error = authenticate_invoke_response(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Error {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    error: ErrorEnvelope {
+                        code: "INVALID_INPUT".to_string(),
+                        details,
+                        extensions: Default::default(),
+                        message: "a generic refusal".to_string(),
+                    },
+                },
+                Default::default(),
+            )
+            .expect_err("an open details member owns no revision slot");
+            assert!(
+                matches!(error, CoreError::Jcs(_)),
+                "error.details.{member} refuses: {error:?}"
+            );
+        }
+
+        // Mixed prefix near miss: `payload.snapshot.adoption_anchor` carries no
+        // owning path — only `payload.snapshot.snapshot.adoption_anchor` does —
+        // so the endpoint refuses instead of borrowing
+        // `adoption_anchor`/`source_revision` from different paths.
+        for (op, near_miss) in [
+            (
+                "history.revisions.get",
+                serde_json::json!({
+                    "snapshot": { "adoption_anchor": { "source_revision": ENDPOINT } },
+                }),
+            ),
+            // `payload.error.details` continues through the served adoption
+            // refusal, but only `adopted_revision` terminates there.
+            (
+                "knowledge.adopt",
+                serde_json::json!({
+                    "error": { "details": { "source_revision": ENDPOINT } },
+                }),
+            ),
+        ] {
+            let error = authenticate_invoke_response_with_op(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Success {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    payload: near_miss.clone(),
+                },
+                Default::default(),
+                Some(op),
+            )
+            .expect_err("a spliced path owns nothing");
+            assert!(
+                matches!(error, CoreError::Jcs(_)),
+                "near miss {near_miss} refuses: {error:?}"
+            );
+        }
+
+        // The declared owners keep the endpoint, each through its own op's
+        // response set (F-02): a response never inherits another op's paths.
+        for (op, payload, endpoints) in [
+            (
+                "port.knowledge.get",
+                serde_json::json!({
+                    "revision": ENDPOINT,
+                    "adoption_anchor": { "source_revision": ENDPOINT },
+                }),
+                2,
+            ),
+            (
+                "history.revisions.get",
+                serde_json::json!({
+                    "snapshot": {
+                        "revision": ENDPOINT,
+                        "snapshot": { "adoption_anchor": { "source_revision": ENDPOINT } },
+                    },
+                }),
+                2,
+            ),
+            (
+                "relate",
+                serde_json::json!({ "relation": { "revision": ENDPOINT } }),
+                1,
+            ),
+        ] {
+            let response = authenticate_invoke_response_with_op(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Success {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    payload,
+                },
+                Default::default(),
+                Some(op),
+            )
+            .expect("every owning path keeps its endpoint");
+            let wire = wire_of(&response);
+            verify_invoke_response_auth_with_op(&emitter_pubkey(), &wire, SESSION_ID, Some(op))
+                .expect("both sides canonicalize the same bytes");
+            let bytes =
+                crate::core::jcs::canonical_bytes_with_op(&wire, Some(op)).expect("JCS");
+            let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+            assert_eq!(
+                jcs.matches("9007199254740992").count(),
+                endpoints,
+                "{op} owns its endpoint set: {jcs}"
+            );
+        }
+    }
+
+    /// F-01/F-02 — response revision paths are per op, and the adoption
+    /// `details.adopted_revision` exception is gated on its owning
+    /// discriminator. A generic `INVALID_INPUT` on `knowledge.adopt` owns no
+    /// revision slot; a `knowledge.adopt` response never inherits the
+    /// history-prune `payload.deleted` exception; the actual prune response
+    /// still signs.
+    #[test]
+    fn response_revision_paths_are_per_op_and_adoption_conflict_is_gated() {
+        const ENDPOINT: u64 = 9_007_199_254_740_992;
+        const ADOPT: Option<&str> = Some("knowledge.adopt");
+
+        // F-01: only the conflict code owns the endpoint detail. A generic
+        // rejection on the same op keeps the `2^53 - 1` bound in both
+        // response branches.
+        for code in ["INVALID_INPUT", "NOT_FOUND"] {
+            let mut details = serde_json::Map::new();
+            details.insert("adopted_revision".into(), serde_json::json!(ENDPOINT));
+            let error = authenticate_invoke_response_with_op(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Error {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    error: ErrorEnvelope {
+                        code: code.to_string(),
+                        details,
+                        extensions: Default::default(),
+                        message: "a generic refusal".to_string(),
+                    },
+                },
+                Default::default(),
+                ADOPT,
+            )
+            .expect_err("only REVISION_CONFLICT owns details.adopted_revision");
+            assert!(matches!(error, CoreError::Jcs(_)), "{code}: {error:?}");
+
+            let served = authenticate_invoke_response_with_op(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Success {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    payload: serde_json::json!({
+                        "error": {
+                            "code": code,
+                            "message": "a generic refusal",
+                            "details": { "adopted_revision": ENDPOINT },
+                            "extensions": {},
+                        },
+                        "extensions": {},
+                    }),
+                },
+                Default::default(),
+                ADOPT,
+            )
+            .expect_err("the served generic refusal owns no endpoint either");
+            assert!(matches!(served, CoreError::Jcs(_)), "{code}: {served:?}");
+        }
+
+        // F-02: the adoption response owns no `payload.deleted`; the prune
+        // op alone does.
+        let inherited = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({
+                    "outcome": "adopted",
+                    "entry": { "revision": 1 },
+                    "deleted": ENDPOINT,
+                }),
+            },
+            Default::default(),
+            ADOPT,
+        )
+        .expect_err("knowledge.adopt does not inherit the prune exception");
+        assert!(matches!(inherited, CoreError::Jcs(_)), "{inherited:?}");
+
+        // GH-01: a served payload carries one variant. The mixed malformed
+        // payload (`error` AND `entry`) owns only the error variant, so it
+        // cannot borrow the success variant's `entry.revision` endpoint.
+        let mixed = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({
+                    "error": {
+                        "code": "REVISION_CONFLICT",
+                        "message": "destination already anchors the source",
+                        "details": { "adopted_revision": ENDPOINT },
+                        "extensions": {},
+                    },
+                    "entry": { "revision": ENDPOINT },
+                }),
+            },
+            Default::default(),
+            ADOPT,
+        )
+        .expect_err("a mixed served payload owns only the error variant");
+        assert!(matches!(mixed, CoreError::Jcs(_)), "{mixed:?}");
+
+        // The success variant keeps its own endpoint.
+        let success = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({
+                    "outcome": "adopted",
+                    "entry": { "revision": ENDPOINT },
+                }),
+            },
+            Default::default(),
+            ADOPT,
+        )
+        .expect("the adoption success variant owns entry.revision");
+        let wire = wire_of(&success);
+        verify_invoke_response_auth_with_op(&emitter_pubkey(), &wire, SESSION_ID, ADOPT)
+            .expect("the success variant verifies");
+
+        // The actual prune response still signs and verifies at the endpoint.
+        let prune = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({
+                    "deleted": ENDPOINT,
+                    "floor_revision": ENDPOINT,
+                }),
+            },
+            Default::default(),
+            Some("history.revisions.prune"),
+        )
+        .expect("the prune response owns deleted and floor_revision");
+        let wire = wire_of(&prune);
+        verify_invoke_response_auth_with_op(
+            &emitter_pubkey(),
+            &wire,
+            SESSION_ID,
+            Some("history.revisions.prune"),
+        )
+        .expect("the prune response verifies");
+        let bytes = crate::core::jcs::canonical_bytes_with_op(
+            &wire,
+            Some("history.revisions.prune"),
+        )
+        .expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert_eq!(
+            jcs.matches("9007199254740992").count(),
+            2,
+            "the prune endpoints hash as their equal f64: {jcs}"
+        );
+    }
+
+    /// frozen §4 — a reverse-invoke success wraps the served value as
+    /// `payload.result`, so the op's declared response paths own the endpoint
+    /// one level deeper there too. A member no declared path owns keeps the
+    /// `2^53 − 1` bound inside the same wrapper.
+    #[test]
+    fn reverse_invoke_response_serves_declared_paths_under_result() {
+        const ENDPOINT: u64 = 9_007_199_254_740_992;
+        const OP: Option<&str> = Some("port.knowledge.put");
+
+        let payload = serde_json::json!({
+            "result": {
+                "revision": ENDPOINT,
+                "adoption_anchor": { "source_revision": ENDPOINT },
+            },
+        });
+        let response = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload,
+            },
+            Default::default(),
+            OP,
+        )
+        .expect("the served endpoints share the peer's bytes");
+        let wire = wire_of(&response);
+        verify_invoke_response_auth_with_op(&emitter_pubkey(), &wire, SESSION_ID, OP)
+            .expect("the served endpoints verify");
+        let bytes = crate::core::jcs::canonical_bytes_with_op(&wire, OP).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert_eq!(
+            jcs.matches("9007199254740992").count(),
+            2,
+            "the served endpoints hash as their equal f64: {jcs}"
+        );
+
+        let error = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({ "result": { "counter": ENDPOINT } }),
+            },
+            Default::default(),
+            OP,
+        )
+        .expect_err("payload.result.counter owns no revision slot");
+        assert!(matches!(error, CoreError::Jcs(_)), "{error:?}");
+    }
+
+    /// D-QC2-01 — an integral float has the peer's parsed value, so it takes
+    /// the same verdict as the integer spelling: refused everywhere except
+    /// the `±2^53` endpoint of an owning revision path, where the canonical
+    /// bytes are the unchanged endpoint spelling.
+    #[test]
+    fn signed_walk_refuses_opaque_endpoint_floats() {
+        const ENDPOINT: f64 = 9_007_199_254_740_992.0;
+
+        for opaque_member in ["revision", "counter"] {
+            let mut input = request_input(None);
+            input.op = "port.relation.put".to_string();
+            input.payload = serde_json::json!({
+                "relation": {
+                    "revision": 1,
+                    "metadata": { opaque_member: ENDPOINT },
+                },
+                "expected_base_revision": null,
+            });
+            let error = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+                .expect_err("an integral float at the endpoint has no non-owning domain");
+            assert!(
+                matches!(error, CoreError::Jcs(_)),
+                "metadata.{opaque_member} refuses the float spelling: {error:?}"
+            );
+        }
+
+        let mut unlisted = request_input(None);
+        unlisted.op = "port.finding.put".to_string();
+        unlisted.payload = serde_json::json!({ "note": ENDPOINT });
+        let error = authenticate_invoke_request(&emitter_seed(), &unlisted, Default::default())
+            .expect_err("a non-revision member owns no endpoint in either spelling");
+        assert!(matches!(error, CoreError::Jcs(_)), "{error:?}");
+
+        // The owning path admits the float spelling with the same bytes as
+        // the integer spelling.
+        let mut input = request_input(None);
+        input.op = "port.relation.put".to_string();
+        input.payload = serde_json::json!({
+            "relation": { "revision": ENDPOINT },
+            "expected_base_revision": null,
+        });
+        let request = authenticate_invoke_request(&emitter_seed(), &input, Default::default())
+            .expect("relation.revision owns the float endpoint");
+        let wire = wire_of(&request);
+        verify_invoke_request_auth(&emitter_pubkey(), &wire, SESSION_ID)
+            .expect("the float endpoint verifies");
+        let signed_object = invoke_request_signed_object(&wire).expect("signed object");
+        let bytes = crate::core::jcs::canonical_bytes(&signed_object).expect("JCS");
+        let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+        assert!(
+            jcs.contains("\"revision\":9007199254740992"),
+            "the float endpoint keeps the integer spelling: {jcs}"
         );
     }
 }

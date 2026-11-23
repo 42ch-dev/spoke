@@ -28,6 +28,7 @@
         "expected_revision": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 9007199254740992,
           "description": "Optimistic-concurrency precondition (MEM-R007)."
         },
         "content": {
@@ -73,6 +74,7 @@
         "expected_revision": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 9007199254740992,
           "description": "Optimistic-concurrency precondition (MEM-R007)."
         },
         "kind": {

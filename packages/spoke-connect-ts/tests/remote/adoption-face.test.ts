@@ -30,6 +30,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertAdoptionAnchorPreserved,
   resolveRetirementChain,
+  SpokeRejectCode,
   spokeOk,
   spokeReject,
   type AdoptionPort,
@@ -1186,11 +1187,13 @@ describe("adoption dedup single-flight fallback (lookup/record-only store — F-
     expect(calls).toBe(2);
   });
 
-  it("admits the inclusive 2^53 endpoint for source_revision and inside a request extension (F-013/F-006)", async () => {
+  it("admits the inclusive 2^53 endpoint for source_revision but refuses it in a product extension (F-013/F-006, qc2 Important 2)", async () => {
     // note: `9007199254740993` parses to exactly `9007199254740992`
-    // (2^53) — the same wire number Rust's adoption path admits; the
-    // payload guard, the request decoder and the anchor deep-check all
-    // share the inclusive bound.
+    // (2^53) — the same wire number Rust's adoption path admits for the
+    // top-level `source_revision`. Every other integral member keeps the
+    // `2^53 - 1` ceiling: Rust's request digest canonicalizes with
+    // `serde_jcs`, which refuses an integer at `2^53` outside the re-spelled
+    // `source_revision`.
     const calls: number[] = [];
     const port: AdoptionPort = {
       adoptKnowledgeEntry: async (_p, _s, request) => {
@@ -1214,8 +1217,8 @@ describe("adoption dedup single-flight fallback (lookup/record-only store — F-
       );
     }
     expect(calls).toEqual([9007199254740992, 9007199254740992]);
-    // The same endpoint inside a request extension passes the payload
-    // guard too.
+    // The same endpoint inside a product extension is a non-revision member:
+    // the digest would round it, so it refuses before the provider.
     const extensionEndpoint = await service.invoke(
       "peer_a",
       "knowledge.adopt",
@@ -1224,7 +1227,11 @@ describe("adoption dedup single-flight fallback (lookup/record-only store — F-
         extensions: { product: { v: 9007199254740992 } },
       },
     );
-    expect(extensionEndpoint.ok).toBe(true);
+    expect(extensionEndpoint.ok).toBe(false);
+    if (!extensionEndpoint.ok) {
+      expect(extensionEndpoint.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+    expect(calls).toEqual([9007199254740992, 9007199254740992]);
   });
 });
 
@@ -1791,15 +1798,25 @@ describe("adoption request extensions and numeric parity", () => {
     if (!scalarValue.ok) {
       expect(scalarValue.code).toBe("INVALID_INPUT");
     }
-    // note: qc1 F-013 / qc3 F-006 — the inclusive `2^53` endpoint: JS
-    // parses `9007199254740993` to exactly `9007199254740992`, the same
-    // wire number Rust's adoption path admits; only an integral member
-    // strictly beyond `2^53` (and below `2^64`) refuses.
+    // note: qc1 F-013 / qc3 F-006 / qc2 Important 2 — the inclusive `2^53`
+    // endpoint is reserved for the revision-typed member (`source_revision`).
+    // Product-owned `extensions` are non-revision members: Rust's JCS digest
+    // stops one below `2^53` for them, so an integer value at the endpoint
+    // must refuse here too. Non-integral floats stay admitted (the
+    // pre-existing parsed-value behavior), as does the `>= 2^64` branch.
     const endpoint = await service.invoke("peer_a", "knowledge.adopt", {
       ...adoptPayload("k8"),
       extensions: { product: { v: 9007199254740992 } },
     });
-    expect(endpoint.ok).toBe(true);
+    expect(endpoint.ok).toBe(false);
+    if (!endpoint.ok) {
+      expect(endpoint.code).toBe("INVALID_INPUT");
+    }
+    const fractional = await service.invoke("peer_a", "knowledge.adopt", {
+      ...adoptPayload("k8-fractional"),
+      extensions: { product: { v: 1.5 } },
+    });
+    expect(fractional.ok).toBe(true);
     const tooBigInteger = await service.invoke(
       "peer_a",
       "knowledge.adopt",

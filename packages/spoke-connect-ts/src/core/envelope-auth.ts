@@ -236,7 +236,321 @@ function assertWireKeys(
   }
 }
 
-function jcsBytes(signedObject: Record<string, unknown>): Uint8Array {
+/**
+ * note: one root-relative wire path of a signed object (object keys; array
+ * elements are transparent). Mirrors `RevisionPath` in
+ * `crates/spoke-connect/src/core/jcs.rs`.
+ */
+type RevisionPath = readonly string[];
+
+/** note: inclusive revision endpoint (`2^53`) — the Rust `EXACT_INTEGER_BOUND`. */
+const EXACT_INTEGER_BOUND = 2 ** 53;
+
+/** note: the path state of a subtree no declared revision path reaches. */
+const NO_REVISION_PATHS: readonly RevisionPath[] = [];
+
+/**
+ * note: request paths that own a revision integer, per op — the Rust
+ * `REQUEST_REVISION_PATHS` tables (`.agents/specs/connect/spoke-connect.md`
+ * §Signature canonicalization). A member outside these paths is product
+ * data: its key spelling never assigns a revision domain.
+ */
+const REQUEST_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> = {
+  "history.revisions.get": [["payload", "revision"]],
+  "history.revisions.prune": [["payload", "keep"]],
+  "knowledge.adopt": [["payload", "source_revision"]],
+  "memory.candidates.dismiss": [["payload", "expected_revision"]],
+  "memory.candidates.review": [["payload", "expected_revision"]],
+  "memory.grants.revoke": [["payload", "expected_revision"]],
+  "memory.imports.stage": [
+    ["payload", "chunk", "candidates", "revision"],
+    ["payload", "chunk", "grants", "revision"],
+    ["payload", "chunk", "profiles", "revision"],
+    ["payload", "chunk", "records", "import_ref", "source_revision"],
+    ["payload", "chunk", "records", "revision"],
+    ["payload", "chunk", "reflections", "revision"],
+    ["payload", "chunk", "subjects", "revision"],
+  ],
+  "memory.profile.update": [["payload", "expected_revision"]],
+  "memory.records.delete": [["payload", "expected_revision"]],
+  "memory.records.promote": [["payload", "expected_revision"]],
+  "memory.records.update": [["payload", "expected_revision"]],
+  "memory.spaces.freeze": [["payload", "expected_revision"]],
+  "memory.spaces.unfreeze": [["payload", "expected_revision"]],
+  "memory.subjects.fence": [["payload", "expected_revision"]],
+  "port.knowledge.put": [
+    ["payload", "entry", "revision"],
+    ["payload", "entry", "adoption_anchor", "source_revision"],
+    ["payload", "expected_base_revision"],
+  ],
+  "port.relation.put": [
+    ["payload", "relation", "revision"],
+    ["payload", "expected_base_revision"],
+  ],
+  promote: [
+    ["payload", "candidate", "revision"],
+    ["payload", "candidate", "adoption_anchor", "source_revision"],
+  ],
+  relate: [["payload", "relation", "revision"]],
+  upsert: [
+    ["payload", "knowledge_entries", "revision"],
+    ["payload", "knowledge_entries", "adoption_anchor", "source_revision"],
+  ],
+};
+
+/**
+ * note: response paths that own a revision integer, per op — mirrors the
+ * Rust `RESPONSE_REVISION_PATHS` table (derived from
+ * `schemas/ops/*-response.schema.json` plus the bare entity payloads of the
+ * `port.*` reads and writes). A response envelope carries no `op`, so the
+ * caller supplies the request op that produced it and only that op's set
+ * applies — own-keyed, empty fallback — so no response inherits another
+ * op's exception. The same set also applies under the reverse-invoke
+ * success wrapper `payload.result` (frozen §4).
+ */
+const RESPONSE_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> = {
+  extract: [
+    ["payload", "candidates", "adoption_anchor", "source_revision"],
+    ["payload", "candidates", "revision"],
+  ],
+  "history.revisions.get": [
+    ["payload", "snapshot", "revision"],
+    ["payload", "snapshot", "snapshot", "adoption_anchor", "source_revision"],
+    ["payload", "snapshot", "snapshot", "revision"],
+  ],
+  "history.revisions.prune": [["payload", "deleted"], ["payload", "floor_revision"]],
+  "knowledge.adopt": [
+    ["payload", "entry", "adoption_anchor", "source_revision"],
+    ["payload", "entry", "revision"],
+  ],
+  "memory.candidates.get": [["payload", "candidate", "revision"]],
+  "memory.candidates.list": [["payload", "candidates", "revision"]],
+  "memory.exports.get": [
+    ["payload", "chunk", "candidates", "revision"],
+    ["payload", "chunk", "grants", "revision"],
+    ["payload", "chunk", "profiles", "revision"],
+    ["payload", "chunk", "records", "import_ref", "source_revision"],
+    ["payload", "chunk", "records", "revision"],
+    ["payload", "chunk", "reflections", "revision"],
+    ["payload", "chunk", "subjects", "revision"],
+  ],
+  "memory.grants.grant": [["payload", "result", "revision"]],
+  "memory.grants.list": [["payload", "grants", "revision"]],
+  "memory.grants.revoke": [["payload", "result", "revision"]],
+  "memory.profile.get": [["payload", "profiles", "revision"]],
+  "memory.profile.update": [["payload", "result", "revision"]],
+  "memory.recall": [
+    ["payload", "records", "import_ref", "source_revision"],
+    ["payload", "records", "revision"],
+  ],
+  "memory.receipts.get": [["payload", "receipt", "result", "revision"]],
+  "memory.records.create": [["payload", "result", "revision"]],
+  "memory.records.get": [
+    ["payload", "record", "import_ref", "source_revision"],
+    ["payload", "record", "revision"],
+  ],
+  "memory.records.list": [
+    ["payload", "records", "import_ref", "source_revision"],
+    ["payload", "records", "revision"],
+  ],
+  "memory.records.promote": [["payload", "result", "revision"]],
+  "memory.records.update": [["payload", "result", "revision"]],
+  "memory.reflections.list": [["payload", "reflections", "revision"]],
+  "memory.spaces.freeze": [["payload", "result", "revision"]],
+  "memory.spaces.list": [["payload", "spaces", "revision"]],
+  "memory.spaces.unfreeze": [["payload", "result", "revision"]],
+  "memory.subjects.ensure": [["payload", "result", "revision"]],
+  "memory.subjects.fence": [["payload", "result", "revision"]],
+  "memory.subjects.get": [["payload", "subject", "revision"]],
+  "port.knowledge.get": [
+    ["payload", "adoption_anchor", "source_revision"],
+    ["payload", "revision"],
+  ],
+  "port.knowledge.put": [
+    ["payload", "adoption_anchor", "source_revision"],
+    ["payload", "revision"],
+  ],
+  "port.relation.get": [["payload", "revision"]],
+  "port.relation.put": [["payload", "revision"]],
+  "port.scope.list_knowledge_entries": [
+    ["payload", "adoption_anchor", "source_revision"],
+    ["payload", "revision"],
+  ],
+  promote: [
+    ["payload", "knowledge_entry", "adoption_anchor", "source_revision"],
+    ["payload", "knowledge_entry", "revision"],
+  ],
+  relate: [["payload", "relation", "revision"]],
+  upsert: [
+    ["payload", "knowledge_entries", "adoption_anchor", "source_revision"],
+    ["payload", "knowledge_entries", "revision"],
+  ],
+};
+
+/**
+ * note: the adoption refusal vocabulary belongs to `REVISION_CONFLICT`
+ * alone (spoke-knowledge-adoption §Refusal vocabulary), so a generic
+ * rejection on the same op owns no revision slot. Mirrors the Rust
+ * `ADOPTION_*_CONFLICT_PATH` gate.
+ */
+const ADOPTION_CONFLICT_CODE = "REVISION_CONFLICT";
+const ADOPTION_TRANSPORT_CONFLICT_PATH: RevisionPath = [
+  "error",
+  "details",
+  "adopted_revision",
+];
+const ADOPTION_SERVED_CONFLICT_PATH: RevisionPath = [
+  "payload",
+  "error",
+  "details",
+  "adopted_revision",
+];
+
+/** note: the adoption conflict detail, admitted only on its owning discriminator. */
+function adoptionConflictPaths(
+  signedObject: Record<string, unknown>,
+  op: string | undefined,
+): readonly RevisionPath[] {
+  if (op !== "knowledge.adopt") {
+    return NO_REVISION_PATHS;
+  }
+  const codeOf = (value: unknown): unknown =>
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>).code
+      : undefined;
+  const paths: RevisionPath[] = [];
+  if (codeOf(signedObject.error) === ADOPTION_CONFLICT_CODE) {
+    paths.push(ADOPTION_TRANSPORT_CONFLICT_PATH);
+  }
+  const payload = signedObject.payload;
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    codeOf((payload as Record<string, unknown>).error) === ADOPTION_CONFLICT_CODE
+  ) {
+    paths.push(ADOPTION_SERVED_CONFLICT_PATH);
+  }
+  return paths;
+}
+
+/** note: the owning revision paths of one signed object (Rust `revision_paths`). */
+function revisionPaths(
+  signedObject: Record<string, unknown>,
+  op?: string,
+): readonly RevisionPath[] {
+  const signedOp = signedObject.op;
+  if (typeof signedOp === "string") {
+    // note: own-key lookup — the open op vocabulary admits prototype names
+    // such as `constructor`, which own no paths and must not inherit one.
+    return Object.hasOwn(REQUEST_REVISION_PATHS, signedOp)
+      ? REQUEST_REVISION_PATHS[signedOp]
+      : NO_REVISION_PATHS;
+  }
+  if ("payload" in signedObject || "error" in signedObject) {
+    // note: one variant per response — a transport error at the root or a
+    // served `payload.error` owns no success path, so a malformed payload
+    // carrying both `entry` and `error` cannot borrow the success set.
+    const payload = signedObject.payload;
+    const errorVariant =
+      "error" in signedObject ||
+      (typeof payload === "object" &&
+        payload !== null &&
+        "error" in (payload as Record<string, unknown>));
+    // note: own-key lookup — an absent or unlisted op owns no response path.
+    const paths = errorVariant
+      ? NO_REVISION_PATHS
+      : op !== undefined && Object.hasOwn(RESPONSE_REVISION_PATHS, op)
+        ? RESPONSE_REVISION_PATHS[op]
+        : NO_REVISION_PATHS;
+    // note: a reverse-invoke success wraps the served value as
+    // `payload.result` (frozen §4), so the same op's declared paths apply
+    // one level deeper on that branch.
+    const served: readonly RevisionPath[] = paths.map((path) => [
+      "payload",
+      "result",
+      ...path.slice(1),
+    ]);
+    const exceptions = adoptionConflictPaths(signedObject, op);
+    return [...paths, ...served, ...exceptions];
+  }
+  return [];
+}
+
+/**
+ * why: the signed-boundary member domain (Rust `core/jcs.rs` parity, qc2
+ * C-QC2-01): an integer past `2^53 - 1` is signable only at a declared
+ * revision path, and there only at the exact `±2^53` endpoint — every other
+ * value has no shared IEEE-754 identity with the peer, so signing refuses it
+ * instead of rounding it into the signed identity.
+ *
+ * The refusal mirrors the Rust integer-token range: `serde_json` keeps an
+ * integer token as `u64`/`i64` until that range overflows and only then falls
+ * back to `f64`, so `[2^53, 2^64)` and `[-2^63, -2^53]` are the values
+ * `serde_jcs` refuses; a wider `f64` keeps the shared spelling both stacks
+ * emit for it.
+ */
+function assertRevisionDomain(
+  value: unknown,
+  paths: readonly RevisionPath[],
+  depth = 0,
+  revision = false,
+): void {
+  if (
+    typeof value === "number" &&
+    (value >= EXACT_INTEGER_BOUND
+      ? value < 2 ** 64
+      : value <= -EXACT_INTEGER_BOUND && value >= -(2 ** 63))
+  ) {
+    if (!revision || Math.abs(value) !== EXACT_INTEGER_BOUND) {
+      throw new EnvelopeAuthError(
+        "envelope_auth_invalid",
+        `integer ${String(value)} is outside the revision member domain of the signed object`,
+      );
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    // note: an array element shares its array's path — positional indexes are
+    // not wire members, so the element never owns a revision slot itself.
+    for (const element of value) {
+      assertRevisionDomain(element, paths, depth, false);
+    }
+    return;
+  }
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  for (const [key, member] of Object.entries(value)) {
+    const continuations: RevisionPath[] = [];
+    let terminal = false;
+    for (const path of paths) {
+      if (path[depth] !== key) {
+        continue;
+      }
+      if (path.length === depth + 1) {
+        terminal = true;
+      } else {
+        continuations.push(path);
+      }
+    }
+    // note: carry only the paths whose prefix already matched, so a sibling
+    // path never supplies this member's component. A member no path owns
+    // keeps no path state, but its subtree still faces the endpoint refusal.
+    if (terminal) {
+      assertRevisionDomain(member, NO_REVISION_PATHS, depth + 1, true);
+    } else if (continuations.length === 0) {
+      assertRevisionDomain(member, NO_REVISION_PATHS, 0, false);
+    } else {
+      assertRevisionDomain(member, continuations, depth + 1, false);
+    }
+  }
+}
+
+function jcsBytes(
+  signedObject: Record<string, unknown>,
+  op?: string,
+): Uint8Array {
+  assertRevisionDomain(signedObject, revisionPaths(signedObject, op));
   const jcs = canonicalize(signedObject);
   if (jcs === undefined) {
     throw new EnvelopeAuthError(
@@ -250,11 +564,12 @@ function jcsBytes(signedObject: Record<string, unknown>): Uint8Array {
 async function signEnvelope(
   secret: Uint8Array,
   signedObject: Record<string, unknown>,
+  op?: string,
 ): Promise<string> {
   if (secret.length !== 32) {
     throw new CoreError("crypto", "secret must be 32 bytes");
   }
-  const bytes = jcsBytes(signedObject);
+  const bytes = jcsBytes(signedObject, op);
   return base64UrlEncode(await signEd25519(secret, bytes));
 }
 
@@ -307,11 +622,12 @@ async function verifyCanonicalSignature(
   publicKey: Uint8Array,
   signedObject: Record<string, unknown>,
   signature: Uint8Array,
+  op?: string,
 ): Promise<void> {
   if (publicKey.length !== 32) {
     throw new CoreError("crypto", "public key must be 32 bytes");
   }
-  const bytes = jcsBytes(signedObject);
+  const bytes = jcsBytes(signedObject, op);
   if (!(await verifyEd25519(publicKey, bytes, signature))) {
     throw new EnvelopeAuthError(
       "envelope_auth_invalid",
@@ -418,20 +734,27 @@ export async function verifyInvokeRequestAuth(
  * The signed object mirrors the wire branch exactly — `{session_id,
  * sequence, request_id, payload}` for the success branch, `{session_id,
  * sequence, request_id, error}` for the error branch. The branches are never
- * merged.
+ * merged. `op` is the request op the response answers: the signed object
+ * carries no `op`, so it selects that op's response revision paths (the
+ * adoption refusal vocabulary).
  */
 export async function authenticateInvokeResponse(
   secret: Uint8Array,
   response: InvokeResponseSignInput,
   extensions: EnvelopeExtensions = {},
+  op?: string,
 ): Promise<ConnectInvokeResponse> {
   if ("payload" in response) {
-    const signature = await signEnvelope(secret, {
-      session_id: response.session_id,
-      sequence: response.sequence,
-      request_id: response.request_id,
-      payload: response.payload,
-    });
+    const signature = await signEnvelope(
+      secret,
+      {
+        session_id: response.session_id,
+        sequence: response.sequence,
+        request_id: response.request_id,
+        payload: response.payload,
+      },
+      op,
+    );
     return {
       session_id: response.session_id,
       sequence: response.sequence,
@@ -441,12 +764,16 @@ export async function authenticateInvokeResponse(
       extensions,
     };
   }
-  const signature = await signEnvelope(secret, {
-    session_id: response.session_id,
-    sequence: response.sequence,
-    request_id: response.request_id,
-    error: response.error,
-  });
+  const signature = await signEnvelope(
+    secret,
+    {
+      session_id: response.session_id,
+      sequence: response.sequence,
+      request_id: response.request_id,
+      error: response.error,
+    },
+    op,
+  );
   return {
     session_id: response.session_id,
     sequence: response.sequence,
@@ -463,12 +790,15 @@ export async function authenticateInvokeResponse(
  * must carry exactly one of `payload` / `error` (never both — the signed
  * object mirrors the wire branch, never a merged object), the signed object
  * must have exact keys for that branch, and on success the envelope's
- * `session_id` must equal the bound session (step 6).
+ * `session_id` must equal the bound session (step 6). `op` is the request op
+ * the response answers, which selects that op's response revision paths — a
+ * response envelope carries no `op` of its own.
  */
 export async function verifyInvokeResponseAuth(
   publicKey: Uint8Array,
   response: ConnectInvokeResponse,
   expectedSessionId: string,
+  op?: string,
 ): Promise<void> {
   const wire = response as unknown as Record<string, unknown>;
   const signature = requireSignature(wire.signature);
@@ -507,7 +837,7 @@ export async function verifyInvokeResponseAuth(
     };
   }
 
-  await verifyCanonicalSignature(publicKey, signedObject, signature);
+  await verifyCanonicalSignature(publicKey, signedObject, signature, op);
 
   if (wire.session_id !== expectedSessionId) {
     throw new EnvelopeAuthError(

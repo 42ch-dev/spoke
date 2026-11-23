@@ -36,12 +36,17 @@ use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+
+use crate::core::jcs::{
+    respell_endpoint, respell_paths, EXACT_INTEGER_BOUND as ADOPT_EXACT_INTEGER_BOUND,
+};
 use spoke_operations::{
     jcs_sha256_hex, spoke_ok, spoke_reject, AdoptionPort, BaselinePorts, ComputablePort,
     ForkTimelineQueryPort, HistoryPort, HistoryPruneResult, MemoryPort, ScopedKnowledgePort,
     SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::data::revision_snapshot::RevisionSnapshotSnapshot;
+use spoke_schemas::integers::SCHEMA_VERSION_MAX;
 use spoke_schemas::{
     ExtractRequest, ExtractResponse, HistoryRevisionsGetRequest, HistoryRevisionsPruneRequest,
     KnowledgeAdoptRequest, KnowledgeAdoptResponse, Principal, RevisionSnapshot, Scope,
@@ -613,33 +618,70 @@ fn scope_wire_equal(requested: &Scope, admitted: &Scope) -> bool {
     }
 }
 
-/// Largest integer that survives `serde_jcs`'s RFC 8785 number
-/// formatting: the crate encodes integers through `f64`, so IEEE-754
-/// exact integers (|n| ≤ 2^53 − 1) are the only members whose digest
-/// identity is preserved.
-const JCS_EXACT_INTEGER_MAX: u64 = 9_007_199_254_740_991;
-
 /// One more than the largest u64 — the TypeScript predicate's upper
 /// bound. A number at or beyond it is a float on both stacks and passes;
-/// an integral value strictly inside the u64 range but beyond
-/// [`JCS_EXACT_INTEGER_MAX`] is refused identically.
+/// an integral value strictly inside the u64 range but beyond the
+/// exact-integer endpoint is refused identically.
 const U64_RANGE_BOUND: f64 = 18_446_744_073_709_551_616.0; // 2^64
 
-/// Every integer member of `value` is inside the JCS exact-integer
-/// range. The prune dedup digest is SHA-256 over the RFC 8785 encoding
-/// of the whole request payload; an integer beyond 2^53 − 1 would
-/// collapse to the same canonical number as a distinct neighbor, so a
-/// different request could replay a recorded outcome under its own key.
-/// The serving boundary refuses such payloads with `INVALID_INPUT`
-/// instead of rounding (spoke-history contract §`HistoryPort`: the
-/// runtime never rounds an unrepresentable integer).
+/// Top-level request members whose contract domain is inclusive of the
+/// `2^53` endpoint (plan Clarify decision 3: `revision`, `deleted`,
+/// `floor_revision`, `keep`, `expected_base_revision`,
+/// `source_revision`). No other member — in particular no product-owned
+/// `extensions` value — may use the widened endpoint.
+const REVISION_MEMBERS: [&str; 6] = [
+    "revision",
+    "deleted",
+    "floor_revision",
+    "keep",
+    "expected_base_revision",
+    "source_revision",
+];
+
+/// Every integer member of `value` is inside the exact-integer range
+/// (`[−2^53, 2^53]` for a revision member, `[−2^53 + 1, 2^53 − 1]` for
+/// everything else). The adoption dedup digest is SHA-256 over the RFC
+/// 8785 encoding of the whole request payload; an integer beyond the
+/// member's range would collapse to the same canonical number as a
+/// distinct neighbor, so a different request could replay a recorded
+/// outcome under its own key. The serving boundary refuses such
+/// payloads with `INVALID_INPUT` instead of rounding (spoke-history
+/// contract §`HistoryPort`: the runtime never rounds an unrepresentable
+/// integer). The history prune digest uses it with `keep` as its only
+/// revision member, so its opaque-domain float refusal (magnitude up to
+/// `2^64`) is unchanged by the envelope normalizer's narrower negative
+/// range.
+///
+/// `2^53` endpoint is admitted only for the caller's top-level revision
+/// members ([`REVISION_MEMBERS`] for adoption, `keep` alone for prune):
+/// it is an exact IEEE-754 integer the TypeScript `canonicalize`
+/// reference emits as `9007199254740992` (contract C5), so the digest
+/// hashes it via [`respell_paths`]. Every other numeric member keeps the
+/// pre-widening treatment, so a product-owned `Scope.extensions` value
+/// at `2^53` is still refused.
 ///
 /// Integral floats follow the VALUE-based TypeScript rule, not the Rust
 /// token's representation (F-013): `1e16` decodes as an integral f64
 /// here and as an unsafe integral `number` there — the same wire
 /// payload must take the same refusal. Non-integral floats and
 /// out-of-u64 integral floats carry no integer identity to lose.
-fn payload_integers_jcs_exact(value: &Value) -> bool {
+fn payload_integers_jcs_exact(value: &Value, revision_members: &[&str]) -> bool {
+    match value {
+        Value::Object(members) => members.iter().all(|(key, member)| {
+            integers_within_exact_range(member, revision_members.contains(&key.as_str()))
+        }),
+        other => integers_within_exact_range(other, false),
+    }
+}
+
+/// Recursive form of [`payload_integers_jcs_exact`]: nested members
+/// never take the widened endpoint, and neither do arrays.
+fn integers_within_exact_range(value: &Value, revision_member: bool) -> bool {
+    let max = if revision_member {
+        ADOPT_EXACT_INTEGER_BOUND
+    } else {
+        ADOPT_EXACT_INTEGER_BOUND - 1
+    };
     match value {
         Value::Number(number) => {
             if number.is_u64() || number.is_i64() {
@@ -647,7 +689,7 @@ fn payload_integers_jcs_exact(value: &Value) -> bool {
                     .as_u64()
                     .or_else(|| number.as_i64().map(i64::unsigned_abs))
                     .expect("integer number");
-                magnitude <= JCS_EXACT_INTEGER_MAX
+                magnitude <= max
             } else {
                 let Some(float) = number.as_f64() else {
                     return true;
@@ -656,63 +698,40 @@ fn payload_integers_jcs_exact(value: &Value) -> bool {
                     return true;
                 }
                 let magnitude = float.abs();
-                magnitude <= JCS_EXACT_INTEGER_MAX as f64 || magnitude >= U64_RANGE_BOUND
+                magnitude <= max as f64 || magnitude >= U64_RANGE_BOUND
             }
         }
-        Value::Array(items) => items.iter().all(payload_integers_jcs_exact),
-        Value::Object(members) => members.values().all(payload_integers_jcs_exact),
+        Value::Array(items) => items
+            .iter()
+            .all(|item| integers_within_exact_range(item, false)),
+        Value::Object(members) => members
+            .values()
+            .all(|member| integers_within_exact_range(member, false)),
         _ => true,
     }
 }
 
-/// Largest integer exactly representable as an f64 — the inclusive
-/// canonicalization bound C5 states (`[0, 2^53]`, no exponent). The
-/// history digest predicate above deliberately stops one below it: a
-/// `u64` between 2^53−1 and 2^53 has no exact integer identity once it
-/// passes through `serde_jcs`'s f64 formatting, so history refuses it;
-/// adoption admits by parsed VALUE (the JavaScript rule below).
-const ADOPT_EXACT_INTEGER_BOUND: u64 = 1 << 53;
-
-/// Every number member of `value` validates identically after parse on
-/// both adoption stacks (contract Wire-wide rules, canonical numeric
-/// spelling): JavaScript parses every number token to one f64, so the
-/// predicate is value-based — an integral value is admissible exactly
-/// when its magnitude is within the inclusive exact-integer bound
-/// `[−2^53, 2^53]` or beyond the f64-representable integer range
-/// (`[−2^64, 2^64]`'s endpoints included, where JS still parses an
-/// integral f64). The Rust `u64`/`f64` token distinction must not split
-/// one wire payload (qc1 F-013 / qc3 F-006: the identical
-/// `18446744073709551615` spelling must not refuse where JavaScript
-/// admits it), and the `2^53` endpoint canonicalizes without an
-/// exponent on both stacks (C5).
-///
-/// Deliberately separate from [`payload_integers_jcs_exact`]: history's
-/// digest-integrity rule (never round an unrepresentable integer) stays
-/// untouched — this predicate is adoption-only.
-fn adopt_payload_integers_exact(value: &Value) -> bool {
-    match value {
-        Value::Number(number) => {
-            let Some(float) = number.as_f64() else {
-                return true;
-            };
-            if float.fract() != 0.0 {
-                return true;
-            }
-            let magnitude = float.abs();
-            magnitude <= ADOPT_EXACT_INTEGER_BOUND as f64 || magnitude >= U64_RANGE_BOUND
-        }
-        Value::Array(items) => items.iter().all(adopt_payload_integers_exact),
-        Value::Object(members) => members.values().all(adopt_payload_integers_exact),
-        _ => true,
+/// Adoption's digest normalization: `source_revision` is the sole
+/// revision-typed member of the adoption request, so it alone takes the
+/// `±2^53` endpoint re-spelling. Every other member keeps the raw JCS
+/// treatment — `serde_jcs` stops at `2^53 − 1`, so a product-owned
+/// `extensions` integer at `2^53` still refuses before the provider.
+fn adopt_hashed_payload(payload: &Value) -> Value {
+    let Value::Object(mut members) = payload.clone() else {
+        return payload.clone();
+    };
+    if let Some(revision) = members.get("source_revision").and_then(respell_endpoint) {
+        members.insert("source_revision".to_owned(), revision);
     }
+    Value::Object(members)
 }
 
-/// The typed `knowledge.adopt` request decode. `source_revision` goes
-/// through the raw wire number, not only the generated `u64` binding
-/// (qc3 F-006): an integral-float spelling (`1.0`) names the same wire
-/// number and decodes to the same revision, a revision beyond the
-/// exact-integer bound refuses `INVALID_INPUT` like the TypeScript
-/// `Number.isSafeInteger` decode, and a non-integer or negative value
+/// The typed `knowledge.adopt` request decode. `source_revision` is
+/// compared through its exact integer representation, not only the
+/// generated `u64` binding (qc3-05): an integral-float spelling (`1.0`)
+/// names the same wire number and decodes to the same revision, an exact
+/// integer beyond the endpoint (`9007199254740993`) refuses instead of
+/// rounding back into the domain, and a non-integer or negative value
 /// refuses the same way. Every other member decodes through the
 /// generated binding (its newtypes enforce the non-empty strings, the
 /// 1–128 code-point `idempotency_key`, the `ExtensionMap` key pattern
@@ -723,31 +742,15 @@ fn adopt_request_from_payload(op: &str, payload: &Value) -> SpokeResult<Knowledg
         message: format!("invalid {op} payload: {detail}"),
         details: None,
     };
-    let mut normalized = payload.clone();
-    let Some(revision) = normalized.get_mut("source_revision") else {
+    let Some(revision) = payload.get("source_revision") else {
         return SpokeResult::Reject(invalid("missing source_revision".into()));
     };
-    let Value::Number(number) = revision else {
+    if exact_revision_u64(revision).is_none() {
         return SpokeResult::Reject(invalid(
-            "source_revision must be a non-negative integer".into(),
-        ));
-    };
-    let Some(float) = number.as_f64() else {
-        return SpokeResult::Reject(invalid(
-            "source_revision must be a non-negative integer".into(),
-        ));
-    };
-    if !float.is_finite()
-        || float.fract() != 0.0
-        || float < 0.0
-        || float > ADOPT_EXACT_INTEGER_BOUND as f64
-    {
-        return SpokeResult::Reject(invalid(
-            "source_revision must be a non-negative integer within the exact-integer range".into(),
+            "source_revision must be a non-negative integer within [0, 2^53]".into(),
         ));
     }
-    *revision = json!(float as u64);
-    match serde_json::from_value(normalized) {
+    match serde_json::from_value(payload.clone()) {
         Ok(request) => SpokeResult::Ok(request),
         Err(error) => SpokeResult::Reject(invalid(error.to_string())),
     }
@@ -776,6 +779,16 @@ pub(crate) fn validate_history_snapshot(
     entity_id: &str,
     revision: u64,
 ) -> SpokeResult<()> {
+    if snapshot.schema_version.get() > SCHEMA_VERSION_MAX {
+        return history_transport_reject(
+            "provider returned a RevisionSnapshot schema_version above 2^53-1",
+        );
+    }
+    if snapshot.revision > ADOPT_EXACT_INTEGER_BOUND {
+        return history_transport_reject(
+            "provider returned a RevisionSnapshot revision above 2^53",
+        );
+    }
     if *snapshot.entity_kind != entity_kind
         || *snapshot.entity_id != entity_id
         || snapshot.revision != revision
@@ -798,16 +811,58 @@ pub(crate) fn validate_history_snapshot(
             "provider returned a malformed RevisionSnapshot: snapshot variant does not agree with entity_kind",
         );
     }
-    let (nested_id, nested_revision) = match &snapshot.snapshot {
-        RevisionSnapshotSnapshot::KnowledgeEntry {
-            entry_id, revision, ..
-        } => (entry_id.as_str(), *revision),
-        RevisionSnapshotSnapshot::Relation {
-            relation_id,
-            revision,
-            ..
-        } => (relation_id.as_str(), *revision),
-    };
+    let (nested_id, nested_revision, nested_schema_version, nested_anchor_versions) =
+        match &snapshot.snapshot {
+            RevisionSnapshotSnapshot::KnowledgeEntry {
+                entry_id,
+                revision,
+                schema_version,
+                source_anchor,
+                adoption_anchor,
+                ..
+            } => (
+                entry_id.as_str(),
+                *revision,
+                schema_version.0.get(),
+                [
+                    source_anchor
+                        .as_ref()
+                        .map(|anchor| anchor.schema_version.0.get()),
+                    adoption_anchor
+                        .as_ref()
+                        .map(|anchor| anchor.schema_version.0.get()),
+                ],
+            ),
+            RevisionSnapshotSnapshot::Relation {
+                relation_id,
+                revision,
+                schema_version,
+                ..
+            } => (
+                relation_id.as_str(),
+                *revision,
+                schema_version.0.get(),
+                [None, None],
+            ),
+        };
+    if nested_schema_version > SCHEMA_VERSION_MAX {
+        return history_transport_reject(
+            "provider returned a malformed RevisionSnapshot: nested schema_version above 2^53-1",
+        );
+    }
+    // The provenance anchors carry their own `schema_version` members
+    // (`SourceAnchor` / `AdoptionAnchor`); the generated carriers are
+    // unbounded `NonZeroU64`, so the SchemaVersion ceiling applies here
+    // too.
+    if nested_anchor_versions
+        .iter()
+        .flatten()
+        .any(|version| *version > SCHEMA_VERSION_MAX)
+    {
+        return history_transport_reject(
+            "provider returned a malformed RevisionSnapshot: nested anchor schema_version above 2^53-1",
+        );
+    }
     if nested_id != entity_id {
         return history_transport_reject(
             "provider returned a malformed RevisionSnapshot: nested entity id does not equal the envelope entity_id",
@@ -819,9 +874,13 @@ pub(crate) fn validate_history_snapshot(
     // this envelope value") — an absent member is malformed, never
     // skipped.
     match nested_revision {
-        Some(nested_revision) if nested_revision == revision => spoke_ok(()),
+        Some(nested_revision)
+            if nested_revision <= ADOPT_EXACT_INTEGER_BOUND && nested_revision == revision =>
+        {
+            spoke_ok(())
+        }
         _ => history_transport_reject(
-            "provider returned a malformed RevisionSnapshot: nested entity revision must be present and equal the envelope revision",
+            "provider returned a malformed RevisionSnapshot: nested entity revision must be present, inside [0, 2^53] and equal the envelope revision",
         ),
     }
 }
@@ -860,23 +919,24 @@ fn valid_served_snapshot(
 /// Shared `history.revisions.prune` success-shape validation (contract
 /// §Connect operations — one shape for the serving face and each
 /// `RemoteAdapter`): `deleted` is a count and `floor_revision` a revision,
-/// both in the interoperable `[0, 2^53]` f64-observed domain
-/// ([`revision_in_domain`]); `floor_revision` is a present nullable
-/// member. A value outside the domain is an out-of-domain provider answer
-/// and refuses like the adoption guards.
+/// both compared through their exact integer representation
+/// ([`exact_revision_u64`]): an out-of-domain exact integer refuses
+/// instead of being f64-rounded back into the domain. `floor_revision` is
+/// a present nullable member. A value outside the domain is an
+/// out-of-domain provider answer and refuses like the adoption guards.
 pub(crate) fn validate_history_prune_success(value: &Value) -> SpokeResult<()> {
     let Some(object) = value.as_object() else {
         return history_transport_reject(
             "malformed history.revisions.prune success value: payload is not an object",
         );
     };
-    if !object.get("deleted").is_some_and(revision_in_domain) {
+    if object.get("deleted").and_then(exact_revision_u64).is_none() {
         return history_transport_reject(
             "malformed history.revisions.prune success value: deleted must be a non-negative integer within the exact-integer range",
         );
     }
     match object.get("floor_revision") {
-        Some(floor) if floor.is_null() || revision_in_domain(floor) => spoke_ok(()),
+        Some(floor) if floor.is_null() || exact_revision_u64(floor).is_some() => spoke_ok(()),
         Some(_) => history_transport_reject(
             "malformed history.revisions.prune success value: floor_revision must be an integer within the exact-integer range or null",
         ),
@@ -958,17 +1018,36 @@ impl RemoteHistoryService for HistoryPortService {
         // (idempotency key included) — compute it before the scope member
         // moves out for decoding.
         let payload_digest = if op == HISTORY_OP_PRUNE {
-            // The digest covers the WHOLE request object under RFC 8785
-            // — refuse any member outside the JCS exact-integer range
-            // before hashing (see `payload_integers_jcs_exact`).
-            if !payload_integers_jcs_exact(&payload) {
+            // The digest covers the WHOLE request object under RFC 8785.
+            // Refuse any member outside the prune's digest domain before
+            // hashing (see `payload_integers_jcs_exact`): `keep` alone may
+            // carry the `2^53` endpoint, while an opaque integral float
+            // whose magnitude lies in `[2^53, 2^64)` keeps wave E's
+            // refusal rather than the envelope normalizer's narrower
+            // negative range.
+            if !payload_integers_jcs_exact(&payload, &["keep"]) {
                 return spoke_reject(
                     SpokeRejectCode::InvalidInput,
                     format!("invalid {op} payload: integer member outside the exact-integer range"),
                     history_input_details(op),
                 );
             }
-            match jcs_sha256_hex(&payload) {
+            // Normalization owns only this op's revision member (`keep`):
+            // an endpoint elsewhere in the object — including the extra
+            // top-level `revision` spelling the shared six-member predicate
+            // widens — is not this digest's to re-spell, so the walk refuses
+            // it as a structured `INVALID_INPUT` instead of unwinding.
+            let normalized = match respell_paths(payload.clone(), &[&["keep"]]) {
+                Ok(normalized) => normalized,
+                Err(error) => {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        format!("invalid {op} payload: {error}"),
+                        history_input_details(op),
+                    )
+                }
+            };
+            match jcs_sha256_hex(&normalized) {
                 SpokeResult::Ok(digest) => Some(digest),
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             }
@@ -1240,17 +1319,21 @@ impl RemoteAdoptionService for AdoptionPortService {
             });
         }
         // The digest covers the WHOLE request object under RFC 8785 —
-        // refuse any member outside the adoption exact-integer rule
-        // before hashing (see `adopt_payload_integers_exact`; history
-        // keeps its own stricter digest rule).
-        if !adopt_payload_integers_exact(&payload) {
+        // refuse any member outside the exact-integer rule before hashing
+        // (see `payload_integers_jcs_exact`: only a revision-typed member
+        // may carry the `2^53` endpoint), then hash the copy whose
+        // `source_revision` endpoint is the equal f64 (`serde_jcs` stops
+        // one below it, while the endpoint is a valid revision spelling).
+        // An unrelated `2^53` — a product-owned `extensions` value
+        // included — keeps the raw JCS treatment and refuses here.
+        if !payload_integers_jcs_exact(&payload, &REVISION_MEMBERS) {
             return spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 format!("invalid {op} payload: integer member outside the exact-integer range"),
                 None,
             );
         }
-        let payload_digest = match jcs_sha256_hex(&payload) {
+        let payload_digest = match jcs_sha256_hex(&adopt_hashed_payload(&payload)) {
             SpokeResult::Ok(digest) => digest,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
@@ -1389,28 +1472,88 @@ fn adoption_replay(outcome: SpokeResult<Value>) -> SpokeResult<Value> {
     }
 }
 
-/// The f64-observed exact-integer value of a revision member: `Some(u64)`
-/// when the member is an in-domain integer spelling, `None` otherwise.
-/// One rule shared by the served bounds, the put-payload rewrite and the
-/// reject guard (qc3 F-025/F-026).
+/// The exact integer a revision member names, without an f64 round-trip:
+/// an integer token keeps its own value (an exact `9007199254740993`
+/// refuses instead of rounding back into the domain), an integral float
+/// spelling is admitted by its parsed value (`9007199254740992.0` ≡
+/// `2^53`). One rule shared by the prune success gate and the relation
+/// put fence (qc3-05).
 pub(crate) fn exact_revision_u64(value: &Value) -> Option<u64> {
+    if let Some(revision) = value.as_u64() {
+        return (revision <= ADOPT_EXACT_INTEGER_BOUND).then_some(revision);
+    }
     let float = value.as_f64()?;
     (float.fract() == 0.0 && float >= 0.0 && float <= ADOPT_EXACT_INTEGER_BOUND as f64)
         .then_some(float as u64)
 }
 
+/// The f64-observed identity of a revision member — the number JavaScript
+/// reads for the same token (`9007199254740993` ≡ `9007199254740992.0`).
+/// Used only where the emitted wire value must carry the parsed identity
+/// (adoption normalization); admission gates use [`exact_revision_u64`].
+pub(crate) fn f64_identity_revision_u64(value: &Value) -> Option<u64> {
+    let float = value.as_f64()?;
+    (float.fract() == 0.0 && float >= 0.0 && float <= ADOPT_EXACT_INTEGER_BOUND as f64)
+        .then_some(float as u64)
+}
+
+/// Every structural `schema_version` member inside a decoded payload must
+/// be in the SchemaVersion domain. The generated carrier is `NonZeroU64`
+/// with no ceiling, so this raw-JSON scan re-applies the bound on every
+/// payload before its typed decode. Product-owned opaque bags
+/// (`extensions`, `modules`, `state`, `computable`), the explicitly
+/// open `metadata` object, and `Finding.text_position` are skipped: their
+/// keys are not protocol members, so a product value that happens to be
+/// named `schema_version` must reach the provider untouched (qc2
+/// Important 6 / qc3-07).
+pub(crate) fn schema_versions_in_domain(value: &Value) -> bool {
+    match value {
+        Value::Object(members) => members.iter().all(|(key, member)| {
+            if key == "schema_version" {
+                schema_version_in_domain(member)
+            } else if matches!(
+                key.as_str(),
+                "extensions" | "modules" | "state" | "computable" | "metadata" | "text_position"
+            ) {
+                true
+            } else {
+                schema_versions_in_domain(member)
+            }
+        }),
+        Value::Array(items) => items.iter().all(schema_versions_in_domain),
+        _ => true,
+    }
+}
+
+/// One wire number against the SchemaVersion domain, read by its parsed
+/// value: an integral float spelling names the same wire number JavaScript
+/// reads (`1.0` ≡ `1`, and `9007199254740992.0` ≡ `2^53` is out of domain)
+/// while an exact integer token keeps its own value.
+fn schema_version_in_domain(value: &Value) -> bool {
+    let Some(number) = value.as_number() else {
+        return false;
+    };
+    if let Some(version) = number.as_u64() {
+        return (1..=SCHEMA_VERSION_MAX).contains(&version);
+    }
+    number.as_f64().is_some_and(|version| {
+        version.fract() == 0.0 && version >= 1.0 && version <= SCHEMA_VERSION_MAX as f64
+    })
+}
+
 /// Provider-fault guard for a Reject receipt's revision-typed detail
-/// (qc1 F-031): `details.adopted_revision` obeys the same `[0, 2^53]`
-/// f64-observed domain as every other revision member, so an out-of-domain
-/// value settles as a provider-fault `INTERNAL_ERROR` (transport kind)
-/// instead of travelling on the wire; an in-domain integer spelling
-/// normalizes to the identity JavaScript reads. `Some(fault)` means the
-/// receipt is malformed; `None` means it was conformant (normalized in
-/// place when a rewrite applied).
+/// (qc1 F-031 / qc3-05): `details.adopted_revision` obeys the `[0, 2^53]`
+/// domain compared on the exact integer representation — an exact
+/// `9007199254740993` is out of domain and settles as a provider-fault
+/// `INTERNAL_ERROR` (transport kind) instead of being rounded back into the
+/// domain, while an integral-float spelling is admitted by its parsed value
+/// and normalizes to that integer. `Some(fault)` means the receipt is
+/// malformed; `None` means it was conformant (normalized in place when a
+/// rewrite applied).
 pub(crate) fn normalize_adopt_reject_details(reject: &mut SpokeReject) -> Option<SpokeReject> {
     let details = reject.details.as_mut()?;
     let adopted_revision = details.get_mut("adopted_revision")?;
-    if !revision_in_domain(adopted_revision) {
+    let Some(revision) = exact_revision_u64(adopted_revision) else {
         let mut fault_details = Map::new();
         fault_details.insert("kind".into(), Value::String("transport".into()));
         return Some(SpokeReject {
@@ -1420,20 +1563,19 @@ pub(crate) fn normalize_adopt_reject_details(reject: &mut SpokeReject) -> Option
                     .into(),
             details: Some(fault_details),
         });
-    }
-    if let Some(rounded) = exact_revision_u64(adopted_revision) {
-        *adopted_revision = json!(rounded);
-    }
+    };
+    *adopted_revision = json!(revision);
     None
 }
 
-/// Revision-domain rule shared by the served-bound checks: the bound is
+/// Revision-domain rule for the adoption served bounds: the bound is
 /// evaluated on the f64 VALUE — the same number JavaScript observes —
 /// not the wire token, so an integer spelling between `u64` and its f64
 /// rounding (`9007199254740993` ≡ `9007199254740992.0`) admits or
-/// refuses identically on both stacks (contract E1 / qc3 F-006).
+/// refuses identically on both stacks (contract E1 / qc3 F-006). Admission
+/// gates that must not round use [`exact_revision_u64`].
 fn revision_in_domain(value: &Value) -> bool {
-    exact_revision_u64(value).is_some()
+    f64_identity_revision_u64(value).is_some()
 }
 
 /// Served-side adopt-response validation (spoke-knowledge-adoption
@@ -1489,12 +1631,12 @@ fn valid_served_adopt_result(
                 "adoption provider returned a malformed error envelope",
             );
         }
-        // qc3 F-021 residual - a revision-typed member inside the
+        // qc3 F-021 / qc3-05 - a revision-typed member inside the
         // failure `details` (`details.adopted_revision`, contract
-        // §Refusal vocabulary) lives in the same `[0, 2^53]`
-        // f64-observed domain as every other revision member:
-        // out-of-domain refuses, an in-domain integer spelling
-        // normalizes to the identity JavaScript reads.
+        // §Refusal vocabulary) obeys the `[0, 2^53]` domain on its exact
+        // integer representation: an exact out-of-domain integer refuses
+        // instead of rounding, an integral-float spelling normalizes to
+        // its parsed integer.
         // (`details.retirement_chain` is an array of source-entry-id
         // strings - it carries no revision member.)
         let mut emitted = value.clone();
@@ -1505,14 +1647,12 @@ fn valid_served_adopt_result(
             .and_then(Value::as_object_mut)
             .and_then(|details| details.get_mut("adopted_revision"))
         {
-            if !revision_in_domain(adopted_revision) {
+            let Some(revision) = exact_revision_u64(adopted_revision) else {
                 return history_transport_reject(
                     "adoption provider returned an error details.adopted_revision outside [0, 2^53]",
                 );
-            }
-            if let Some(rounded) = exact_revision_u64(adopted_revision) {
-                *adopted_revision = json!(rounded);
-            }
+            };
+            *adopted_revision = json!(revision);
         }
         return spoke_ok(emitted);
     }
@@ -1556,6 +1696,14 @@ fn valid_served_adopt_result(
             "adoption provider returned an entry that is not a valid KnowledgeEntry",
         );
     };
+    // SchemaVersion is `[1, 2^53-1]`; scan the entry and its nested
+    // anchors on the raw provider value (the typed carriers are unbounded
+    // `NonZeroU64`).
+    if !schema_versions_in_domain(entry) {
+        return history_transport_reject(
+            "adoption provider returned an entry with a schema_version outside [1, 2^53-1]",
+        );
+    }
     // Contract E1 — revision-typed members live in the interoperable
     // integer domain `[0, 2^53]` on the wire; the bound runs on the RAW
     // provider value (f64-observed) BEFORE any normalization to `u64`,
@@ -1595,7 +1743,7 @@ fn valid_served_adopt_result(
     {
         let normalize = |member: Option<&mut Value>| {
             let Some(member) = member else { return };
-            if let Some(rounded) = exact_revision_u64(member) {
+            if let Some(rounded) = f64_identity_revision_u64(member) {
                 *member = json!(rounded);
             }
         };
@@ -1990,7 +2138,7 @@ mod history_tests {
             *self.last_scope.lock().expect("lock") = Some(scope.clone());
             spoke_ok(HistoryPruneResult {
                 deleted: 1,
-                floor_revision: Some(keep + 1),
+                floor_revision: (keep < ADOPT_EXACT_INTEGER_BOUND).then_some(keep + 1),
             })
         }
     }
@@ -2435,10 +2583,129 @@ mod history_tests {
         ));
     }
 
+    /// SchemaVersion is `[1, 2^53-1]`; the generated carriers are
+    /// unbounded `NonZeroU64`, so the raw-JSON scan re-applies the bound
+    /// to every member, nested anchors included.
+    #[test]
+    fn schema_version_scan_bounds_every_member() {
+        assert!(schema_versions_in_domain(&json!({"schema_version": 1})));
+        assert!(schema_versions_in_domain(
+            &json!({"schema_version": 9_007_199_254_740_991u64})
+        ));
+        assert!(!schema_versions_in_domain(&json!({"schema_version": 0})));
+        assert!(!schema_versions_in_domain(
+            &json!({"schema_version": 9_007_199_254_740_992u64})
+        ));
+        assert!(!schema_versions_in_domain(&json!({
+            "entry": {"adoption_anchor": {"schema_version": 9_007_199_254_740_992u64}}
+        })));
+        // Integral-float spellings name the same wire number JavaScript
+        // reads: `1.0` is the parsed `1`, and `2^53` in either spelling is
+        // outside the SchemaVersion domain (C-03).
+        assert!(schema_versions_in_domain(&json!({"schema_version": 1.0})));
+        assert!(!schema_versions_in_domain(
+            &json!({"schema_version": 9_007_199_254_740_992.0})
+        ));
+        assert!(!schema_versions_in_domain(&json!({"schema_version": 1.5})));
+        assert!(schema_versions_in_domain(
+            &json!({"findings": [{"schema_version": 2}]})
+        ));
+        // The open `metadata` object is product data: a member that happens
+        // to be named `schema_version` is never a protocol version.
+        assert!(schema_versions_in_domain(
+            &json!({"metadata": {"schema_version": "product-v2"}})
+        ));
+    }
+
+    /// A request revision outside `[0, 2^53]` refuses before the port is
+    /// called: the generated `revision` carrier decodes through
+    /// `deserialize_revision`, which owns the bound.
+    #[tokio::test]
+    async fn history_get_revision_above_domain_is_invalid_input() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let result = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_GET,
+                json!({
+                    "entity_kind": "knowledge_entry",
+                    "entity_id": "e1",
+                    "revision": 9_007_199_254_740_993u64,
+                }),
+            )
+            .await;
+        assert!(matches!(
+            result,
+            SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                ..
+            })
+        ));
+        assert_eq!(port.get_calls.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    /// A provider snapshot outside the published SchemaVersion / revision
+    /// domains never decodes into the typed carrier — envelope, nested
+    /// snapshot, provenance anchor or revision (the generated bounds).
+    #[tokio::test]
+    async fn snapshot_domains_are_enforced() {
+        let mut envelope = snapshot_json("e1", 3);
+        envelope["schema_version"] = json!(9_007_199_254_740_992u64);
+        let mut nested = snapshot_json("e1", 3);
+        nested["snapshot"]["schema_version"] = json!(9_007_199_254_740_992u64);
+        let mut source_anchor = snapshot_json("e1", 3);
+        source_anchor["snapshot"]["source_anchor"] = json!({
+            "schema_version": 9_007_199_254_740_992u64,
+            "source_id": "src",
+            "extensions": {},
+        });
+        let mut adoption_anchor = snapshot_json("e1", 3);
+        adoption_anchor["snapshot"]["adoption_anchor"] = json!({
+            "schema_version": 9_007_199_254_740_992u64,
+            "source_entry_id": "src",
+            "source_revision": 1,
+            "source_scope_id": "s",
+            "extensions": {},
+        });
+        let revision = snapshot_json("e1", 9_007_199_254_740_993u64);
+        for (name, doc) in [
+            ("envelope schema_version", envelope),
+            ("nested schema_version", nested),
+            ("source_anchor schema_version", source_anchor),
+            ("adoption_anchor schema_version", adoption_anchor),
+            ("revision", revision),
+        ] {
+            assert!(
+                serde_json::from_value::<RevisionSnapshot>(doc).is_err(),
+                "{name} outside the domain must not decode"
+            );
+        }
+
+        // The SchemaVersion endpoint itself (2^53-1) is accepted.
+        let mut doc = snapshot_json("e1", 3);
+        doc["snapshot"]["source_anchor"] = json!({
+            "schema_version": SCHEMA_VERSION_MAX,
+            "source_id": "src",
+            "extensions": {},
+        });
+        doc["snapshot"]["adoption_anchor"] = json!({
+            "schema_version": SCHEMA_VERSION_MAX,
+            "source_entry_id": "src",
+            "source_revision": 1,
+            "source_scope_id": "s",
+            "extensions": {},
+        });
+        let snapshot: RevisionSnapshot = serde_json::from_value(doc).expect("decodes");
+        assert!(valid_served_snapshot(snapshot, "knowledge_entry", "e1", 3).is_ok());
+    }
+
     /// The prune dedup digest is SHA-256 over RFC 8785 JSON, which
     /// encodes integers through f64 — a payload integer beyond
     /// 2^53 − 1 would merge distinct requests under one digest, so the
-    /// serving boundary answers `INVALID_INPUT` before any port call.
+    /// serving boundary answers `INVALID_INPUT` before any port call (the
+    /// generated `keep` carrier enforces the domain at decode).
     #[tokio::test]
     async fn prune_payload_out_of_range_integer_is_invalid_input() {
         let port = Arc::new(StubHistoryPort::new());
@@ -2459,6 +2726,260 @@ mod history_tests {
             })
         ));
         assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    /// F-QC2-01 — the prune digest keeps its previous opaque numeric
+    /// domain: an integral float `-1e19` in `extensions` lies below the
+    /// envelope normalizer's `-2^63` floor but inside the digest's old
+    /// magnitude-below-`2^64` refusal, so it is `INVALID_INPUT` before any
+    /// port call. The `keep` endpoint at `2^53` stays admitted.
+    #[tokio::test]
+    async fn prune_opaque_float_outside_previous_domain_is_invalid_input() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let mut payload = prune_payload("k-opaque-float", 2, None);
+        payload["extensions"] = json!({ "ns": { "n": -1e19 } });
+        let result = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, payload)
+            .await;
+        assert!(
+            matches!(
+                result,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "an opaque float in the previous refusal range must reject: {result:?}"
+        );
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+
+        let keep = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_PRUNE,
+                prune_payload("k-opaque-float-keep", 9_007_199_254_740_992, None),
+            )
+            .await;
+        assert!(matches!(keep, SpokeResult::Ok(_)), "{keep:?}");
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    /// E-01 / E-QC1-01 — the prune digest normalization follows the op's
+    /// `keep`-only ownership. An extra top-level `revision` with the float
+    /// endpoint spelling passes the shared six-member predicate, but it is
+    /// not this digest's to re-spell, so the service answers a structured
+    /// `INVALID_INPUT` instead of unwinding on a failed normalization.
+    #[tokio::test]
+    async fn prune_extra_endpoint_member_is_invalid_input_not_a_panic() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let mut payload = prune_payload("k-extra-endpoint", 2, None);
+        payload["revision"] = json!(9_007_199_254_740_992.0);
+        let result = service
+            .invoke("peer-a", HISTORY_OP_PRUNE, payload)
+            .await;
+        assert!(
+            matches!(
+                result,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "the wrong-slot endpoint must reject: {result:?}"
+        );
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    /// qc2 Important 3 / qc3-05 — the typed history request decode accepts
+    /// an integral-float revision spelling on both request branches
+    /// (`revision`, `keep`); the port receives the parsed endpoint value.
+    #[tokio::test]
+    async fn history_request_decodes_integral_float_revisions() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let get = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_GET,
+                json!({
+                    "entity_kind": "knowledge_entry",
+                    "entity_id": "e1",
+                    "revision": 9_007_199_254_740_992.0,
+                }),
+            )
+            .await;
+        assert!(matches!(get, SpokeResult::Ok(_)), "{get:?}");
+        assert_eq!(port.get_calls.load(AtomicOrdering::SeqCst), 1);
+
+        let mut prune = prune_payload("k-float", 0, None);
+        prune["keep"] = json!(2.0);
+        let prune = service.invoke("peer-a", HISTORY_OP_PRUNE, prune).await;
+        assert!(matches!(prune, SpokeResult::Ok(_)), "{prune:?}");
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    /// The contract's revision domain is inclusive of `2^53` (C5): the
+    /// `9007199254740992` endpoint is an exact f64, canonicalizes without
+    /// an exponent like the TypeScript `canonicalize` reference, and the
+    /// prune reaches the port. Only `2^53 + 1` is refused.
+    #[tokio::test]
+    async fn prune_keep_at_exact_integer_endpoint_reaches_port() {
+        assert_eq!(
+            serde_jcs::to_string(&respell_paths(
+                json!({ "keep": 9_007_199_254_740_992u64 }),
+                &[&["keep"]],
+            )
+            .expect("the endpoint re-spells"))
+            .expect("canonical string"),
+            "{\"keep\":9007199254740992}"
+        );
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let result = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_PRUNE,
+                prune_payload("k-endpoint", 9_007_199_254_740_992, None),
+            )
+            .await;
+        assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    /// qc3-05: the prune success gate compares each revision member's exact
+    /// integer representation — an exact `2^53 + 1` from a provider refuses
+    /// as a transport fault instead of being f64-rounded back into the
+    /// domain, while the `2^53` endpoint serves in either spelling.
+    #[test]
+    fn prune_success_gate_compares_revision_members_exactly() {
+        assert!(validate_history_prune_success(&json!({
+            "deleted": 9_007_199_254_740_992_u64,
+            "floor_revision": Value::Null,
+        }))
+        .is_ok());
+        assert!(validate_history_prune_success(&json!({
+            "deleted": 9_007_199_254_740_992.0,
+            "floor_revision": 9_007_199_254_740_992.0,
+        }))
+        .is_ok());
+        for refused in [9_007_199_254_740_993_u64, 9_007_199_254_740_994_u64] {
+            for payload in [
+                json!({ "deleted": refused, "floor_revision": Value::Null }),
+                json!({ "deleted": 1, "floor_revision": refused }),
+            ] {
+                assert!(
+                    validate_history_prune_success(&payload).is_reject(),
+                    "{payload} carries an out-of-domain exact integer"
+                );
+            }
+        }
+    }
+
+    /// qc3-05 end to end through the service: a provider's exact
+    /// `9007199254740993` `deleted` answer is a fault, never a rounded
+    /// success; the `2^53` endpoint reaches the caller unchanged.
+    #[tokio::test]
+    async fn prune_provider_exact_integer_beyond_domain_is_a_fault() {
+        struct FixedPrunePort(u64);
+        #[async_trait]
+        impl HistoryPort for FixedPrunePort {
+            async fn get_history_snapshot(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _entity_kind: &str,
+                _entity_id: &str,
+                _revision: u64,
+            ) -> SpokeResult<RevisionSnapshot> {
+                unreachable!("prune-only fixture")
+            }
+
+            async fn prune_history(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _entity_kind: &str,
+                _entity_id: &str,
+                _keep: u64,
+            ) -> SpokeResult<HistoryPruneResult> {
+                spoke_ok(HistoryPruneResult {
+                    deleted: self.0,
+                    floor_revision: None,
+                })
+            }
+        }
+        let serve = |deleted: u64| async move {
+            let port: Arc<dyn HistoryPort + Send + Sync> = Arc::new(FixedPrunePort(deleted));
+            HistoryPortService::new(port, admission(scope("s1"), principal("peer-p")))
+                .invoke("peer-a", HISTORY_OP_PRUNE, prune_payload("k-exact", 1, None))
+                .await
+        };
+        let served = serve(9_007_199_254_740_992).await;
+        let SpokeResult::Ok(value) = served else {
+            panic!("the 2^53 endpoint serves: {served:?}")
+        };
+        assert_eq!(value.get("deleted"), Some(&json!(9_007_199_254_740_992_u64)));
+        for refused in [9_007_199_254_740_993_u64, 9_007_199_254_740_994_u64] {
+            match serve(refused).await {
+                SpokeResult::Reject(reject) => {
+                    assert_eq!(reject.code, SpokeRejectCode::InternalError, "{refused}");
+                }
+                SpokeResult::Ok(value) => panic!("{refused} must refuse, served {value}"),
+            }
+        }
+    }
+
+    /// The widened `2^53` admission is revision-typed only: `keep`
+    /// reaches the port at the endpoint, while a product-owned
+    /// `Scope.extensions` value at the same magnitude keeps the
+    /// pre-widening refusal (`INVALID_INPUT`, no port call). The scope
+    /// here matches the admission so the digest guard — not scope
+    /// equality — is what refuses.
+    #[tokio::test]
+    async fn prune_guard_admits_the_endpoint_only_for_revision_members() {
+        let port = Arc::new(StubHistoryPort::new());
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")));
+        let endpoint_scope = json!({
+            "scope_id": "s1",
+            "extensions": {
+                "ns": { "value": 9_007_199_254_740_992.0 },
+            },
+        });
+        let extensions_at_endpoint = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_PRUNE,
+                prune_payload("k-ext", 2, Some(&endpoint_scope)),
+            )
+            .await;
+        assert!(
+            matches!(
+                extensions_at_endpoint,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "a non-revision member at 2^53 must refuse: {extensions_at_endpoint:?}"
+        );
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 0);
+
+        let keep_at_endpoint = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_PRUNE,
+                prune_payload("k-keep", 9_007_199_254_740_992, None),
+            )
+            .await;
+        assert!(matches!(keep_at_endpoint, SpokeResult::Ok(_)), "{keep_at_endpoint:?}");
+        assert_eq!(port.prune_calls.load(AtomicOrdering::SeqCst), 1);
     }
 
     /// §9.1 recorded-outcome model: a provider reject is a settled
@@ -2569,7 +3090,7 @@ mod history_tests {
             json!(-1e16),
         ] {
             assert!(
-                !payload_integers_jcs_exact(&refused),
+                !payload_integers_jcs_exact(&refused, &REVISION_MEMBERS),
                 "{refused} must be refused"
             );
         }
@@ -2581,7 +3102,7 @@ mod history_tests {
             json!(0.0),
         ] {
             assert!(
-                payload_integers_jcs_exact(&accepted),
+                payload_integers_jcs_exact(&accepted, &REVISION_MEMBERS),
                 "{accepted} must be accepted"
             );
         }
@@ -2642,44 +3163,10 @@ mod history_tests {
         }
     }
 
-    /// Adoption's numeric admission is value-based — the JavaScript rule:
-    /// every number token parses to one f64, so the Rust `u64`/`f64` token
-    /// split must not refuse a wire value JavaScript admits (qc1 F-013 /
-    /// qc3 F-006) and the exact-integer bound is inclusive of `2^53` (C5).
-    /// Deliberately unlike `payload_integers_jcs_exact`, whose stricter
-    /// history digest rule stays untouched.
-    #[test]
-    fn adopt_numeric_exactness_follows_the_javascript_value_rule() {
-        for refused in [
-            json!(9_007_199_254_740_995u64), // f64 2^53+2, integral, inside u64
-            json!(1e16),                     // integral, inside (2^53, 2^64)
-            json!(-1e16),
-            json!(9.1e15), // 9_100_000_000_000_000 — integral, just past 2^53
-        ] {
-            assert!(
-                !adopt_payload_integers_exact(&refused),
-                "{refused} must be refused"
-            );
-        }
-        for accepted in [
-            json!(18446744073709551615u64), // u64::MAX — f64 2^64, admitted like JS
-            json!(9007199254740993u64),     // f64 rounds to exactly 2^53 (inclusive)
-            json!(9_007_199_254_740_992.0), // the C5 endpoint, integral float
-            json!(1e20),                    // integral float beyond the f64 range
-            json!(1.5),
-            json!(0.0),
-        ] {
-            assert!(
-                adopt_payload_integers_exact(&accepted),
-                "{accepted} must be accepted"
-            );
-        }
-    }
-
     /// The typed request decode sees the raw wire number for
     /// `source_revision`: an integral-float spelling names the same wire
-    /// number as its integer spelling, and a revision beyond the exact
-    /// bound refuses `INVALID_INPUT` like the TypeScript decode.
+    /// number as its integer spelling, while an exact integer beyond the
+    /// endpoint refuses `INVALID_INPUT` instead of rounding (qc3-05).
     fn decode_revision(revision: Value) -> SpokeResult<KnowledgeAdoptRequest> {
         let payload = adopt_payload(None);
         let mut payload = serde_json::to_value(&payload).expect("payload object");
@@ -2688,7 +3175,7 @@ mod history_tests {
     }
 
     #[test]
-    fn adopt_request_decode_normalizes_integral_float_revisions() {
+    fn adopt_request_decode_accepts_integral_float_revisions() {
         let decoded_revision = |revision: Value| match decode_revision(revision) {
             SpokeResult::Ok(request) => Some(request.source_revision),
             SpokeResult::Reject(_) => None,
@@ -2696,9 +3183,8 @@ mod history_tests {
         assert_eq!(decoded_revision(json!(1.0)), Some(1));
         assert_eq!(decoded_revision(json!(3)), Some(3));
         assert_eq!(decoded_revision(json!(9007199254740992.0)), Some(1 << 53));
-        // JS parses this token to exactly 2^53 and admits it.
-        assert_eq!(decoded_revision(json!(9007199254740993u64)), Some(1 << 53));
         for refused in [
+            json!(9007199254740993u64), // the first exact integer past the endpoint
             json!(9007199254740995u64), // f64 2^53+2
             json!(1.5),
             json!(-1.0),
@@ -2861,6 +3347,197 @@ mod history_tests {
         assert_eq!(*port.0.lock().expect("capture lock"), vec![7]);
     }
 
+    /// The adoption dedup digest hashes the WHOLE request under RFC
+    /// 8785, and `source_revision` is contract-inclusive of `2^53` (C5).
+    /// `serde_jcs` stops one below the endpoint, so the serving face
+    /// re-spells it as the equal f64 — canonical bytes
+    /// `9007199254740992`, the same bytes the TypeScript canonicalizer
+    /// emits — and the adoption reaches the provider. Replay keeps
+    /// whole-request identity; a different payload under the same key
+    /// conflicts; the literal `2^53 + 1` still refuses.
+    #[tokio::test]
+    async fn adopt_source_revision_endpoint_serves_replays_and_conflicts() {
+        struct EndpointPort {
+            calls: AtomicU64,
+        }
+        #[async_trait]
+        impl AdoptionPort for EndpointPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+                assert_eq!(request.source_revision, 1 << 53);
+                spoke_ok(
+                    serde_json::from_value(json!({
+                        "outcome": "adopted",
+                        "entry": {
+                            "schema_version": 1,
+                            "entry_id": "ke_dst",
+                            "entry_type": "note",
+                            "canonical_name": "copy",
+                            "status": "confirmed",
+                            "revision": 1,
+                            "body": {},
+                            "adoption_anchor": {
+                                "schema_version": 1,
+                                "source_scope_id": "spc_local",
+                                "source_entry_id": "src-entry",
+                                "source_revision": 9_007_199_254_740_992u64,
+                                "extensions": {},
+                            },
+                            "extensions": {},
+                        },
+                    }))
+                    .expect("response decodes"),
+                )
+            }
+        }
+        let port = Arc::new(EndpointPort {
+            calls: AtomicU64::new(0),
+        });
+        let service = AdoptionPortService::new(
+            Arc::clone(&port) as Arc<dyn AdoptionPort + Send + Sync>,
+            admission(scope("spc_local"), principal("prn_peer-a")),
+        );
+        let payload = || {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload["source_revision"] = json!(9_007_199_254_740_992u64);
+            payload
+        };
+
+        let first = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload())
+            .await;
+        let SpokeResult::Ok(first) = first else {
+            panic!("a source_revision at 2^53 must serve: {first:?}")
+        };
+        assert_eq!(first["outcome"], "adopted");
+
+        let replay = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload())
+            .await;
+        let SpokeResult::Ok(replay) = replay else {
+            panic!("same-key same-digest must replay: {replay:?}")
+        };
+        assert_eq!(replay["outcome"], "already_present");
+        assert_eq!(port.calls.load(AtomicOrdering::SeqCst), 1);
+
+        let mut conflicting = payload();
+        conflicting["source_entry_id"] = json!("src-entry-2");
+        let conflict = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, conflicting)
+            .await;
+        assert!(
+            matches!(
+                conflict,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::IdempotencyConflict,
+                    ..
+                })
+            ),
+            "same key with a different digest must conflict: {conflict:?}"
+        );
+        assert_eq!(port.calls.load(AtomicOrdering::SeqCst), 1);
+
+        let mut over_bound = payload();
+        over_bound["idempotency_key"] = json!("key-over");
+        over_bound["source_revision"] = json!(9_007_199_254_740_993u64);
+        let refused = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, over_bound)
+            .await;
+        assert!(
+            matches!(
+                refused,
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "the literal 2^53 + 1 must refuse INVALID_INPUT: {refused:?}"
+        );
+        assert_eq!(port.calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    /// Important 1 (fix 3): the adoption digest's `±2^53` endpoint is
+    /// revision-typed only. `source_revision = 2^53` reaches the provider,
+    /// while the same integer in a product-owned `extensions` value keeps
+    /// the pre-widening JCS treatment and refuses before any provider
+    /// call.
+    #[tokio::test]
+    async fn adopt_endpoint_is_admitted_only_for_source_revision() {
+        struct CountingPort(AtomicU64);
+        #[async_trait]
+        impl AdoptionPort for CountingPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                self.0.fetch_add(1, AtomicOrdering::SeqCst);
+                assert_eq!(request.source_revision, 1 << 53);
+                spoke_ok(
+                    serde_json::from_value(json!({
+                        "outcome": "adopted",
+                        "entry": served_entry(1 << 53, 1),
+                    }))
+                    .expect("response decodes"),
+                )
+            }
+        }
+        let port = Arc::new(CountingPort(AtomicU64::new(0)));
+        let service = AdoptionPortService::new(
+            Arc::clone(&port) as Arc<dyn AdoptionPort + Send + Sync>,
+            admission(scope("spc_local"), principal("prn_peer-a")),
+        );
+        let payload = |extensions: Option<Value>| {
+            let mut payload = adopt_payload(extensions);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload
+        };
+
+        for (index, spelling) in [
+            json!(9_007_199_254_740_992u64),
+            json!(9_007_199_254_740_992.0),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut extensions_at_endpoint = payload(Some(json!({
+                "ns": { "value": spelling },
+            })));
+            extensions_at_endpoint["idempotency_key"] = json!(format!("key-ext-{index}"));
+            let refused = service
+                .invoke("peer-a", KNOWLEDGE_OP_ADOPT, extensions_at_endpoint)
+                .await;
+            assert!(
+                matches!(
+                    refused,
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::InvalidInput,
+                        ..
+                    })
+                ),
+                "an extensions {spelling} at 2^53 must refuse: {refused:?}"
+            );
+            assert_eq!(port.0.load(AtomicOrdering::SeqCst), 0);
+        }
+
+        let mut revision_at_endpoint = payload(None);
+        revision_at_endpoint["source_revision"] = json!(9_007_199_254_740_992u64);
+        let served = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, revision_at_endpoint)
+            .await;
+        assert!(matches!(served, SpokeResult::Ok(_)), "{served:?}");
+        assert_eq!(port.0.load(AtomicOrdering::SeqCst), 1);
+    }
+
     /// E1/E2 fixtures: a provider result factory with an overridable
     /// anchor `source_revision`, `entry.revision` and response
     /// `extensions`.
@@ -2921,42 +3598,32 @@ mod history_tests {
             payload
         };
 
-        // The inclusive endpoint admits on the served path; one step
-        // beyond it refuses.
+        // The inclusive endpoint admits on the served path. An
+        // out-of-domain provider revision never decodes into the typed
+        // carrier, so it cannot reach the port's caller at all.
         for (anchor_revision, entry_revision, served_ok) in [
             (9007199254740992_u64, 1_u64, true),
             (9007199254740994_u64, 1_u64, false),
             (1_u64, 9007199254740992_u64, true),
             (1_u64, 9007199254740994_u64, false),
         ] {
+            if !served_ok {
+                assert!(
+                    serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+                        "outcome": "adopted",
+                        "entry": served_entry(anchor_revision, entry_revision),
+                    }))
+                    .is_err(),
+                    "anchor_revision={anchor_revision} entry_revision={entry_revision}: out-of-domain must not decode"
+                );
+                continue;
+            }
             let service = AdoptionPortService::new(
                 Arc::new(ServedPort(served_entry(anchor_revision, entry_revision), false)),
                 admission(),
             );
             let result = service.invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload()).await;
-            assert_eq!(
-                matches!(result, SpokeResult::Ok(_)),
-                served_ok,
-                "anchor_revision={anchor_revision} entry_revision={entry_revision}: {result:?}"
-            );
-            // qc1 F-013 — an out-of-domain provider revision REFUSES; it
-            // is never normalized into the domain first. `2^53 + 2`
-            // (f64-exact at this magnitude) must not round down to a
-            // success.
-            if !served_ok {
-                let SpokeResult::Reject(reject) = &result else {
-                    unreachable!("asserted above");
-                };
-                assert_eq!(
-                    reject.code,
-                    SpokeRejectCode::InternalError,
-                    "out-of-domain revision must refuse INTERNAL_ERROR: {result:?}"
-                );
-                assert!(
-                    reject.message.contains("outside [0, 2^53]"),
-                    "refusal names the revision domain: {reject:?}"
-                );
-            }
+            assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
         }
 
         // E2: a producer-supplied `extensions` member rides the served
@@ -3038,11 +3705,11 @@ mod history_tests {
         assert_eq!(value["extensions"], json!({ "product": { "v": 1 } }));
         assert!(value.get("error").is_some());
 
-        // qc3 F-021 residual — a revision-typed member inside failure
-        // `details` obeys the same `[0, 2^53]` f64-observed domain:
-        // out-of-domain refuses `INTERNAL_ERROR`, an in-domain spelling
-        // normalizes to the identity JavaScript reads, and an ordinary
-        // detail rides verbatim.
+        // qc3 F-021 / qc3-05 — a revision-typed member inside failure
+        // `details` obeys the `[0, 2^53]` domain on its exact integer
+        // representation: an exact out-of-domain integer refuses
+        // `INTERNAL_ERROR`, an integral-float spelling normalizes to its
+        // parsed integer, and an ordinary detail rides verbatim.
         let verbatim_details = serve(json!({
             "error": {
                 "code": "REVISION_CONFLICT",
@@ -3066,7 +3733,7 @@ mod history_tests {
             "error": {
                 "code": "REVISION_CONFLICT",
                 "message": "conflict",
-                "details": { "adopted_revision": 9007199254740993_u64 },
+                "details": { "adopted_revision": 9_007_199_254_740_992.0 },
                 "extensions": {},
             },
         }))
@@ -3077,14 +3744,14 @@ mod history_tests {
         assert_eq!(
             value["error"]["details"]["adopted_revision"],
             json!(9007199254740992_u64),
-            "adopted_revision normalizes to the f64-observed identity"
+            "an integral-float adopted_revision normalizes to its parsed integer"
         );
 
         let out_of_domain_details = serve(json!({
             "error": {
                 "code": "REVISION_CONFLICT",
                 "message": "conflict",
-                "details": { "adopted_revision": 9007199254740994_u64 },
+                "details": { "adopted_revision": 9007199254740993_u64 },
                 "extensions": {},
             },
         }))
@@ -3095,26 +3762,18 @@ mod history_tests {
         assert_eq!(reject.code, SpokeRejectCode::InternalError);
         assert!(reject.message.contains("adopted_revision outside [0, 2^53]"));
 
-        // qc3 F-006 residual: the emitted revision identity is the
-        // f64-observed value — `9007199254740993` serves as
-        // `9007199254740992`, the number JavaScript reads.
-        let normalized = serve(json!({
-            "outcome": "adopted",
-            "entry": served_entry(9007199254740993, 9007199254740993),
-        }))
-        .await;
-        let SpokeResult::Ok(value) = normalized else {
-            panic!("an in-domain spelling must serve: {normalized:?}")
-        };
-        assert_eq!(
-            value["entry"]["adoption_anchor"]["source_revision"],
-            json!(9007199254740992_u64),
-            "anchor revision normalizes to the f64-observed identity"
-        );
-        assert_eq!(
-            value["entry"]["revision"],
-            json!(9007199254740992_u64),
-            "entry revision normalizes to the f64-observed identity"
+        // An out-of-domain exact revision never decodes into the typed
+        // carrier (`9007199254740993` is beyond the `[0, 2^53]` domain),
+        // so the serving guard never sees one from a JSON provider
+        // answer; the `details.adopted_revision` receipt above is opaque
+        // JSON and keeps the f64-observed normalization.
+        assert!(
+            serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+                "outcome": "adopted",
+                "entry": served_entry(9007199254740993, 9007199254740993),
+            }))
+            .is_err(),
+            "an out-of-domain entry revision must not decode"
         );
     }
 
@@ -3218,14 +3877,21 @@ mod history_tests {
         // 2^53 + 2 — f64-exact, one step beyond the inclusive endpoint.
         const OUT: u64 = 9007199254740994;
 
-        assert_refused(
-            serve(json!({ "outcome": "adopted", "entry": served_entry(1, OUT) })).await,
-            "entry.revision",
-        );
-        assert_refused(
-            serve(json!({ "outcome": "adopted", "entry": served_entry(OUT, 1) })).await,
-            "adoption_anchor.source_revision",
-        );
+        // An out-of-domain entry revision never decodes into the typed
+        // carrier, so the typed decode is the refusal for both entry
+        // slots.
+        for entry in [served_entry(1, OUT), served_entry(OUT, 1)] {
+            assert!(
+                serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+                    "outcome": "adopted",
+                    "entry": entry,
+                }))
+                .is_err(),
+                "an out-of-domain provider entry must not decode"
+            );
+        }
+        // The refusal receipt is opaque `details` JSON, so the serving
+        // guard is what refuses it.
         assert_refused(
             serve(json!({
                 "error": {
@@ -3289,11 +3955,11 @@ mod history_tests {
         );
     }
 
-    /// qc1 F-031 — a provider Reject receipt's `details.adopted_revision`
-    /// obeys the same `[0, 2^53]` f64-observed domain as the served
-    /// branches: an out-of-domain value settles as a provider-fault
-    /// `INTERNAL_ERROR`, an in-domain value serves (with the between-f64
-    /// spelling normalized to the identity JavaScript reads).
+    /// qc1 F-031 / qc3-05 — a provider Reject receipt's
+    /// `details.adopted_revision` obeys the `[0, 2^53]` domain compared on
+    /// its exact integer representation: an exact out-of-domain integer
+    /// settles as a provider-fault `INTERNAL_ERROR`, an in-domain value
+    /// (integer or integral float) serves normalized to its integer.
     #[tokio::test]
     async fn served_reject_receipt_enforces_the_details_revision_domain() {
         struct RejectPort(SpokeReject);
@@ -3338,9 +4004,15 @@ mod history_tests {
                 json!(9007199254740992_u64),
             ),
             (
-                json!(9007199254740993_u64),
+                json!(9_007_199_254_740_992.0),
                 SpokeRejectCode::RevisionConflict,
                 json!(9007199254740992_u64),
+            ),
+            (
+                json!(9007199254740993_u64),
+                SpokeRejectCode::InternalError,
+                // An exact integer past the endpoint is never rounded in.
+                json!(null),
             ),
             (
                 json!(9007199254740994_u64),

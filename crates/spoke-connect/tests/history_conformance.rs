@@ -1052,6 +1052,137 @@ async fn wrong_target_snapshot_is_transport_decode_error() {
     host.close();
 }
 
+/// qc2 Critical 2 / qc3-01 — the `2^53` revision endpoint crosses a signed
+/// Rust Connect session end to end: request signing, responder
+/// verification, service admission, provider dispatch, and both response
+/// validation boundaries all carry the endpoint's equal number spelling.
+#[tokio::test]
+async fn signed_prune_carries_the_exact_integer_endpoint() {
+    const ENDPOINT: u64 = 9_007_199_254_740_992;
+
+    struct EndpointPort {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl HistoryPort for EndpointPort {
+        async fn get_history_snapshot(
+            &self,
+            _principal: &Principal,
+            _scope: &Scope,
+            _entity_kind: &str,
+            _entity_id: &str,
+            _revision: u64,
+        ) -> SpokeResult<RevisionSnapshot> {
+            unreachable!("prune-only fixture")
+        }
+
+        async fn prune_history(
+            &self,
+            _principal: &Principal,
+            _scope: &Scope,
+            _entity_kind: &str,
+            _entity_id: &str,
+            keep: u64,
+        ) -> SpokeResult<HistoryPruneResult> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            // Echoing `keep` proves the provider observed the endpoint.
+            spoke_ok(HistoryPruneResult {
+                deleted: keep,
+                floor_revision: Some(ENDPOINT),
+            })
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let service: Arc<dyn RemoteHistoryService> = Arc::new(HistoryPortService::new(
+        Arc::new(EndpointPort {
+            calls: Arc::clone(&calls),
+        }),
+        admission(),
+    ));
+    let host = dial_host(
+        Some(service),
+        &HOST_CAPABILITIES,
+        &CLIENT_CAPABILITIES,
+        None,
+        None,
+        &[],
+    )
+    .await;
+    let result = host
+        .client
+        .prune_history(
+            &scope(ADMITTED_SCOPE),
+            "knowledge_entry",
+            "ke_endpoint",
+            ENDPOINT,
+            Some("k-endpoint"),
+        )
+        .await;
+    let SpokeResult::Ok(result) = result else {
+        panic!("a signed prune at the 2^53 endpoint must succeed: {result:?}")
+    };
+    assert_eq!(result.deleted, ENDPOINT, "the provider saw keep = 2^53");
+    assert_eq!(result.floor_revision, Some(ENDPOINT));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    host.close();
+}
+
+/// The first integer past the endpoint has no canonical signed identity, so
+/// the call refuses before the port ever runs (qc3-01).
+#[tokio::test]
+async fn signed_prune_refuses_the_first_integer_past_the_endpoint() {
+    let port = ScriptedHistoryPort::load(&[json!({
+        "entity_kind": "knowledge_entry",
+        "entity_id": "ke_endpoint",
+        "checkpoints": [1, 3, 5],
+        "stored_snapshot": {
+            "schema_version": 1,
+            "entity_kind": "knowledge_entry",
+            "entity_id": "ke_endpoint",
+            "revision": 1,
+            "snapshot": {
+                "schema_version": 1,
+                "entry_id": "ke_endpoint",
+                "entry_type": "note",
+                "canonical_name": "endpoint",
+                "status": "confirmed",
+                "revision": 1,
+                "body": {},
+                "extensions": {}
+            },
+            "extensions": {}
+        }
+    })]);
+    let service = history_service(Arc::clone(&port), None);
+    let host = dial_host(
+        Some(service),
+        &HOST_CAPABILITIES,
+        &CLIENT_CAPABILITIES,
+        None,
+        None,
+        &[],
+    )
+    .await;
+    let result = host
+        .client
+        .prune_history(
+            &scope(ADMITTED_SCOPE),
+            "knowledge_entry",
+            "ke_endpoint",
+            9_007_199_254_740_993,
+            Some("k-past-endpoint"),
+        )
+        .await;
+    match result {
+        SpokeResult::Reject(reject) => assert_eq!(reject.code, SpokeRejectCode::InternalError),
+        SpokeResult::Ok(value) => panic!("2^53 + 1 must refuse, served {value:?}"),
+    }
+    assert_eq!(port.calls(), 0, "the port never runs");
+    host.close();
+}
+
 /// §14.2/§14.3: a serve budget that expires AFTER the history service was
 /// invoked answers `OUTCOME_UNCERTAIN`/`uncertain` — the detached prune
 /// still settles and records, so a same-key replay recovers the outcome.

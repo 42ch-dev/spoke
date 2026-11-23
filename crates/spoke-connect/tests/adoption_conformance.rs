@@ -1190,3 +1190,133 @@ async fn run_case(case: &Value) -> Result<(), String> {
             .unwrap_or_else(|| "panic".to_string())
     })
 }
+
+// ── Signed endpoint receipts ──────────────────────────────────────────────
+
+/// One adoption destination seeded as the fixture provider's stored copy:
+/// the anchor names the source tuple the destination already carries, so a
+/// later adoption of the same source at another revision is the
+/// `REVISION_CONFLICT` the contract reports through
+/// `details.adopted_revision`.
+fn occupied_destination(adopted_revision: u64) -> Value {
+    json!({
+        "schema_version": 1,
+        "entry_id": "ke_shared_a",
+        "entry_type": "note",
+        "canonical_name": "shared-a",
+        "status": "confirmed",
+        "revision": 1,
+        "body": {},
+        "extensions": {},
+        "adoption_anchor": {
+            "schema_version": 1,
+            "source_scope_id": SOURCE_SCOPE,
+            "source_entry_id": "ke_shared_a",
+            "source_revision": adopted_revision,
+            "extensions": {},
+        },
+    })
+}
+
+fn endpoint_state(adopted_revision: u64) -> Arc<FixtureState> {
+    FixtureState::load(&json!({
+        "sources": [{
+            "entry_id": "ke_shared_a",
+            "entry": {
+                "schema_version": 1,
+                "entry_id": "ke_shared_a",
+                "entry_type": "note",
+                "canonical_name": "shared-a",
+                "status": "confirmed",
+                "revision": 7,
+                "body": {},
+                "extensions": {},
+            },
+        }],
+        "destinations": [occupied_destination(adopted_revision)],
+    }))
+}
+
+async fn adopt_endpoint_conflict(
+    adopted_revision: u64,
+) -> (SpokeResult<KnowledgeAdoptResponse>, usize) {
+    let state = endpoint_state(adopted_revision);
+    let port = Arc::new(ScriptedAdoptionPort {
+        state: Arc::clone(&state),
+    });
+    let service: Arc<dyn RemoteAdoptionService> = adoption_service(port, None, None);
+    let host = dial_host(
+        Some(service),
+        Arc::clone(&state),
+        &HOST_CAPABILITIES,
+        &CLIENT_CAPABILITIES,
+    )
+    .await;
+    let request: KnowledgeAdoptRequest = serde_json::from_value(json!({
+        "source_scope_id": SOURCE_SCOPE,
+        "source_entry_id": "ke_shared_a",
+        "source_revision": 7,
+        "destination_scope_id": DESTINATION_SCOPE,
+        "idempotency_key": "endpoint-conflict",
+        "extensions": {},
+    }))
+    .expect("adopt request decodes");
+    let client_peer = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let result = host
+        .client
+        .adopt_knowledge_entry(
+            &principal(&client_peer),
+            &scope(DESTINATION_SCOPE),
+            &request,
+        )
+        .await;
+    let calls = state.calls();
+    host.close();
+    (result, calls)
+}
+
+/// C-01 — a valid adoption conflict at the `2^53` endpoint is signed by the
+/// responder, verified by the client and decoded as a
+/// `REVISION_CONFLICT` receipt carrying the exact endpoint revision. The
+/// provider-level assertion alone never traversed the signed transport, so
+/// the missing canonicalization path answered a transport signing failure.
+#[tokio::test]
+async fn signed_adopt_conflict_receipt_carries_the_exact_integer_endpoint() {
+    const ENDPOINT: u64 = 9_007_199_254_740_992;
+    let (result, calls) = adopt_endpoint_conflict(ENDPOINT).await;
+    let SpokeResult::Reject(reject) = result else {
+        panic!("an occupied destination at 2^53 must refuse the adoption: {result:?}")
+    };
+    assert_eq!(reject.code, SpokeRejectCode::RevisionConflict);
+    assert_eq!(
+        reject
+            .details
+            .as_ref()
+            .and_then(|details| details.get("adopted_revision")),
+        Some(&json!(ENDPOINT)),
+        "the signed receipt carries the endpoint revision: {reject:?}"
+    );
+    assert_eq!(calls, 1, "the provider ran once and produced the receipt");
+}
+
+/// The first integer past the endpoint has no canonical signed identity, so
+/// a receipt naming it is a provider fault and never travels as a signed
+/// `REVISION_CONFLICT` (C-01).
+#[tokio::test]
+async fn signed_adopt_conflict_refuses_the_first_integer_past_the_endpoint() {
+    const PAST_ENDPOINT: u64 = 9_007_199_254_740_993;
+    let (result, calls) = adopt_endpoint_conflict(PAST_ENDPOINT).await;
+    let SpokeResult::Reject(reject) = result else {
+        panic!("an out-of-domain receipt must not serve: {result:?}")
+    };
+    assert_eq!(reject.code, SpokeRejectCode::InternalError);
+    assert!(
+        reject
+            .details
+            .as_ref()
+            .and_then(|details| details.get("adopted_revision"))
+            .is_none(),
+        "the out-of-domain revision never reaches the wire: {reject:?}"
+    );
+    assert_eq!(calls, 1);
+}

@@ -78,6 +78,13 @@ export {
 } from "./computable/validate.js";
 
 export { validateMindState } from "./mind-state/validate.js";
+export { isStrictTimestamp } from "./timestamp.js";
+export {
+  isRevisionInteger,
+  isSchemaVersion,
+  MAX_REVISION,
+  MAX_SCHEMA_VERSION,
+} from "./wire-scalars.js";
 
 export {
   validateCognitionRecord,

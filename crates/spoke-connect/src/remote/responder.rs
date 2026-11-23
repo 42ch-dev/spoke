@@ -81,12 +81,13 @@ use spoke_schemas::{
 
 use crate::cognition::{unsupported_cognition_requirement, WIRE_INVALID_INPUT};
 use crate::core::{
-    authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
+    authenticate_invoke_request, authenticate_invoke_response_with_op, authenticate_session,
     check_response_correlation, cognition_requirement_present, derive_peer_id_from_ed25519_pubkey,
     is_allowlisted, required_capability, sign_hello_ed25519, verify_hello_ed25519,
-    verify_invoke_request_auth, verify_invoke_response_auth, Correlation, EnvelopeAuthError,
-    InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput, NonceStore, OutboundSequence,
-    SessionSignInput, CAPABILITY_KE_OWNERSHIP, CAPABILITY_SPOKE_COGNITION,
+    verify_invoke_request_auth, verify_invoke_response_auth_with_op, Correlation,
+    EnvelopeAuthError, InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput,
+    NonceStore, OutboundSequence, SessionSignInput, CAPABILITY_KE_OWNERSHIP,
+    CAPABILITY_SPOKE_COGNITION,
 };
 use crate::hello::generate_nonce;
 use crate::remote::remote_adapter::{
@@ -94,7 +95,9 @@ use crate::remote::remote_adapter::{
     wire_response_correlation, RemoteError as ResponderError,
     RemoteErrorKind as ResponderErrorKind, RemoteIdentity, ToolHandler,
 };
-use crate::remote::serve_ports::{exact_revision_u64, RemoteServePorts};
+use crate::remote::serve_ports::{
+    exact_revision_u64, schema_versions_in_domain, RemoteServePorts,
+};
 use crate::remote::transport::Transport;
 use crate::remote::{
     baseline_scope_shape, port_dispatch_allowed, requires_ownership_capability,
@@ -171,6 +174,18 @@ fn payload_field<T: DeserializeOwned>(payload: &Value, field: &str, op: &str) ->
             None,
         );
     };
+    // The generated `SchemaVersion` carriers are unbounded `NonZeroU64`;
+    // every `schema_version` member must also satisfy the published
+    // `[1, 2^53-1]` domain before the typed decode.
+    if !schema_versions_in_domain(value) {
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            format!(
+                "invalid {op} payload: {field} carries a schema_version outside [1, 2^53-1]"
+            ),
+            None,
+        );
+    }
     match serde_json::from_value(value.clone()) {
         Ok(value) => spoke_ok(value),
         Err(error) => spoke_reject(
@@ -471,22 +486,14 @@ fn decode_knowledge_call<'a>(
             // bound runs on the RAW payload (TS parity:
             // `isAdoptExactNonNegativeInteger` inside
             // `isValidKnowledgeEntryDeep` / `validateKnowledgeOpPayload`).
-            const ADOPT_EXACT_INTEGER_BOUND: u64 = 1 << 53;
+            // The bound is compared on the exact integer representation
+            // (qc3-05): an exact `9007199254740993` refuses instead of
+            // rounding into `2^53`, while an integral-float spelling is
+            // admitted by its parsed value.
             fn adopt_domain(value: Option<&Value>) -> bool {
                 match value {
-                    None => true,
-                    Some(Value::Null) => true,
-                    Some(Value::Number(number)) => number.as_f64().is_some_and(|float| {
-                        // The bound is evaluated on the f64 VALUE — the
-                        // same number JavaScript observes — so an integer
-                        // spelling between u64 and its f64 rounding
-                        // (`9007199254740993` ≡ `9007199254740992.0`)
-                        // admits or refuses identically on both stacks.
-                        float.fract() == 0.0
-                            && float >= 0.0
-                            && float <= ADOPT_EXACT_INTEGER_BOUND as f64
-                    }),
-                    Some(_) => false,
+                    None | Some(Value::Null) => true,
+                    Some(value) => exact_revision_u64(value).is_some(),
                 }
             }
             if let Some(members) = payload.get("entry").and_then(Value::as_object) {
@@ -517,66 +524,32 @@ fn decode_knowledge_call<'a>(
                     None,
                 );
             }
-            // qc3 F-006 residual — the typed `u64` decoders must see the
-            // SAME integer identity JavaScript observes: every number
-            // parses to one f64, so an in-domain revision member
-            // (`9007199254740993` or `3.0`) normalizes to the f64-rounded
-            // `u64` before decode — mirroring
-            // `adopt_request_from_payload`'s `float as u64` rewrite. The
-            // copy is made only when a member's spelling actually differs
-            // from the f64-observed `u64` (qc3 F-025): an ordinary
-            // integer payload decodes from the borrowed value.
-            let entry_members = payload.get("entry").and_then(Value::as_object);
-            let needs_rewrite = |revision: Option<&Value>| {
-                revision.and_then(exact_revision_u64).is_some_and(|rounded| {
-                    revision.and_then(Value::as_u64) != Some(rounded)
-                })
+            let entry = match payload_field::<KnowledgeEntry>(payload, "entry", op) {
+                SpokeResult::Ok(value) => value,
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
-            let rewrite_needed = needs_rewrite(entry_members.and_then(|e| e.get("revision")))
-                || needs_rewrite(
-                    entry_members
-                        .and_then(|e| e.get("adoption_anchor"))
-                        .and_then(Value::as_object)
-                        .and_then(|anchor| anchor.get("source_revision")),
-                )
-                || needs_rewrite(payload.get("expected_base_revision"));
-            let mut normalized_payload;
-            let decode_payload = if rewrite_needed {
-                normalized_payload = payload.clone();
-                let normalize_revision = |member: Option<&mut Value>| {
-                    let Some(member) = member else { return };
-                    if let Some(rounded) = exact_revision_u64(member) {
-                        *member = json!(rounded);
+            // The raw `Option<u64>` binding refuses an integral-float
+            // spelling; the member decodes through its exact integer
+            // representation like `relation.put` does (qc3-05).
+            let expected = match payload.get("expected_base_revision") {
+                Some(Value::Null) => None,
+                Some(value) => match exact_revision_u64(value) {
+                    Some(revision) => Some(revision),
+                    None => {
+                        return spoke_reject(
+                            SpokeRejectCode::InvalidInput,
+                            "invalid port.knowledge.put payload: expected_base_revision must be an integer within [0, 2^53] or null",
+                            None,
+                        )
                     }
-                };
-                if let Some(members) = normalized_payload
-                    .get_mut("entry")
-                    .and_then(Value::as_object_mut)
-                {
-                    normalize_revision(members.get_mut("revision"));
-                    normalize_revision(
-                        members
-                            .get_mut("adoption_anchor")
-                            .and_then(Value::as_object_mut)
-                            .and_then(|anchor| anchor.get_mut("source_revision")),
-                    );
+                },
+                None => {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        "invalid port.knowledge.put payload: missing expected_base_revision",
+                        None,
+                    )
                 }
-                normalize_revision(normalized_payload.get_mut("expected_base_revision"));
-                &normalized_payload
-            } else {
-                payload
-            };
-            let entry = match payload_field::<KnowledgeEntry>(decode_payload, "entry", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
-            };
-            let expected = match payload_field::<Option<u64>>(
-                decode_payload,
-                "expected_base_revision",
-                op,
-            ) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
             spoke_ok(KnowledgeCall::PutKnowledgeEntry(entry, expected))
         }
@@ -817,10 +790,45 @@ fn decode_port_call<'a>(
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
-            let expected = match payload_field::<Option<u64>>(payload, "expected_base_revision", op)
+            // Contract E1: revision-typed members live in the `[0, 2^53]`
+            // domain; the generated entity carries an unbounded `u64`, so
+            // the bound runs here before the provider (qc2 Important 1 /
+            // qc3-05) — an exact `9007199254740994` must refuse, never be
+            // flushed to the port.
+            if relation
+                .revision
+                .is_some_and(|revision| revision > crate::core::jcs::EXACT_INTEGER_BOUND)
             {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+                return spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    "invalid port.relation.put payload: relation.revision must be an integer within [0, 2^53]",
+                    None,
+                );
+            }
+            // Contract E1: `expected_base_revision` is revision-typed
+            // (`[0, 2^53]`) or null. The revision is decoded from the raw
+            // member through its exact integer representation, so an
+            // integral float spelling (`1.0`) names the same base instead
+            // of failing the typed `u64` decode.
+            let expected = match payload.get("expected_base_revision") {
+                Some(Value::Null) => None,
+                Some(value) => match exact_revision_u64(value) {
+                    Some(revision) => Some(revision),
+                    None => {
+                        return spoke_reject(
+                            SpokeRejectCode::InvalidInput,
+                            "invalid port.relation.put payload: expected_base_revision must be an integer within [0, 2^53] or null",
+                            None,
+                        )
+                    }
+                },
+                None => {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        "invalid port.relation.put payload: missing expected_base_revision",
+                        None,
+                    )
+                }
             };
             spoke_ok(PortCall::PutRelation(relation, expected))
         }
@@ -1031,6 +1039,9 @@ fn adoption_panic_uncertain_reject() -> SpokeReject {
 /// timeout task (mirror of the adapter's `PendingInvoke`).
 struct PendingReverseInvoke {
     correlation: Correlation,
+    /// The request op: a response envelope carries no `op`, so the waiter
+    /// supplies it to select the op-scoped response revision paths.
+    op: String,
     tx: tokio::sync::mpsc::Sender<Result<ConnectInvokeResponse, ResponderError>>,
     timeout_task: tokio::task::JoinHandle<()>,
 }
@@ -1842,7 +1853,7 @@ impl ConnectResponder {
             SpokeResult::Ok(value) => {
                 // Success branch: `payload = { "result": <opaque JSON> }`
                 // (frozen §4).
-                let signed = authenticate_invoke_response(
+                let signed = authenticate_invoke_response_with_op(
                     &secret,
                     &InvokeResponseSignInput::Success {
                         session_id: session_id.to_owned(),
@@ -1851,6 +1862,7 @@ impl ConnectResponder {
                         payload: json!({ "result": value }),
                     },
                     HashMap::new(),
+                    doc.get("op").and_then(Value::as_str),
                 )
                 .map_err(|error| {
                     ResponderError::new(
@@ -1870,7 +1882,7 @@ impl ConnectResponder {
                             .expect("ops error envelope serializes"),
                     )
                     .expect("field-identical error envelope converts");
-                let signed = authenticate_invoke_response(
+                let signed = authenticate_invoke_response_with_op(
                     &secret,
                     &InvokeResponseSignInput::Error {
                         session_id: session_id.to_owned(),
@@ -1879,6 +1891,7 @@ impl ConnectResponder {
                         error,
                     },
                     HashMap::new(),
+                    doc.get("op").and_then(Value::as_str),
                 )
                 .map_err(|error| {
                     ResponderError::new(
@@ -2899,7 +2912,7 @@ impl ConnectResponder {
             error.insert("details".into(), Value::Object(details.clone()));
         }
         error.insert("extensions".into(), json!({}));
-        let signed = authenticate_invoke_response(
+        let signed = authenticate_invoke_response_with_op(
             &self.local_secret,
             &InvokeResponseSignInput::Error {
                 session_id: session_id.to_owned(),
@@ -2913,6 +2926,7 @@ impl ConnectResponder {
                 })?,
             },
             HashMap::new(),
+            doc.get("op").and_then(Value::as_str),
         )
         .map_err(|error| {
             ResponderError::new(
@@ -2942,7 +2956,7 @@ impl ConnectResponder {
         } else {
             payload
         };
-        let signed = authenticate_invoke_response(
+        let signed = authenticate_invoke_response_with_op(
             &self.local_secret,
             &InvokeResponseSignInput::Success {
                 session_id: session_id.to_owned(),
@@ -2951,6 +2965,7 @@ impl ConnectResponder {
                 payload,
             },
             HashMap::new(),
+            doc.get("op").and_then(Value::as_str),
         )
         .map_err(|error| {
             ResponderError::new(
@@ -3007,7 +3022,13 @@ impl ConnectResponder {
                 )
             })
             .and_then(|()| {
-                verify_invoke_response_auth(&client_pubkey, doc, &session_id).map_err(|error| {
+                verify_invoke_response_auth_with_op(
+                    &client_pubkey,
+                    doc,
+                    &session_id,
+                    Some(&entry.op),
+                )
+                .map_err(|error| {
                     match error.kind() {
                         Some(kind) => ResponderError::new(
                             match kind {
@@ -3128,6 +3149,7 @@ impl ConnectResponder {
                     request_id: request_id.clone(),
                 },
                 tx: tx.clone(),
+                op: op.to_owned(),
                 timeout_task,
             },
         );
@@ -3369,19 +3391,17 @@ mod tests {
         )
     }
 
-    /// qc3 F-026 — the put decode normalizes every f64-spelling revision
-    /// member to the identity JavaScript observes, on BOTH branches of the
-    /// conditional copy: an ordinary integer payload decodes from the
-    /// borrowed value, a `3.0` float spelling and a between-f64-integers
-    /// spelling take the rewrite branch. Both branches must produce the
-    /// same decoded call.
+    /// qc3-05 — every revision slot of `port.knowledge.put` is compared on
+    /// its exact integer representation: an integral-float spelling decodes
+    /// by its parsed value, an exact integer past the endpoint refuses
+    /// instead of rounding back into the domain.
     #[test]
-    fn scoped_put_normalizes_f64_revision_spellings() {
+    fn scoped_put_decodes_float_revisions_and_refuses_exact_overflow() {
         for (spelling, expected) in [
             (json!(3), 3_u64),
             (json!(3.0), 3_u64),
             (json!(9007199254740992_u64), 9007199254740992_u64),
-            (json!(9007199254740993_u64), 9007199254740992_u64),
+            (json!(9007199254740992.0), 9007199254740992_u64),
         ] {
             let mut entry = minimal_put_entry();
             entry["revision"] = spelling.clone();
@@ -3397,14 +3417,216 @@ mod tests {
             assert_eq!(
                 entry.revision,
                 Some(expected),
-                "entry.revision={spelling} must decode to the f64-observed identity"
+                "entry.revision={spelling} must decode by its parsed value"
             );
             assert_eq!(
                 base_revision,
                 Some(expected),
-                "expected_base_revision={spelling} must decode to the f64-observed identity"
+                "expected_base_revision={spelling} must decode by its parsed value"
             );
         }
+
+        let rejects = |entry: Value, base: Value| {
+            matches!(
+                decode_knowledge_call(
+                    "port.knowledge.put",
+                    &json!({ "entry": entry, "expected_base_revision": base }),
+                    None,
+                ),
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            )
+        };
+        for refused in [
+            json!(9007199254740993_u64),
+            json!(9007199254740994_u64),
+            json!(1.5),
+            json!(-1),
+        ] {
+            let mut entry = minimal_put_entry();
+            entry["revision"] = refused.clone();
+            assert!(rejects(entry, Value::Null), "entry.revision={refused}");
+            assert!(
+                rejects(minimal_put_entry(), refused.clone()),
+                "expected_base_revision={refused}"
+            );
+            let mut entry = minimal_put_entry();
+            entry["adoption_anchor"] = json!({
+                "schema_version": 1,
+                "source_scope_id": "spc_local",
+                "source_entry_id": "ke_src",
+                "source_revision": refused.clone(),
+                "extensions": {},
+            });
+            assert!(
+                rejects(entry, Value::Null),
+                "adoption_anchor.source_revision={refused}"
+            );
+        }
+    }
+
+    fn minimal_relation() -> Value {
+        json!({
+            "schema_version": 1,
+            "relation_id": "rel_x",
+            "relation_type": "related_to",
+            "from_id": "ke_a",
+            "to_id": "ke_b",
+            "extensions": {},
+        })
+    }
+
+    fn decode_relation_put(payload: Value) -> SpokeResult<PortCall<'static>> {
+        decode_port_call("port.relation.put", &payload, None)
+    }
+
+    /// qc2 Important 1 / qc3-05 / qc3-07 — the relation put fence admits
+    /// the `2^53` revision endpoint and an integral-float base spelling,
+    /// leaves the open `metadata` object untouched, and refuses an exact
+    /// revision beyond the domain before the provider.
+    #[test]
+    fn relation_put_admits_the_endpoint_and_refuses_oversized_revisions() {
+        let mut relation = minimal_relation();
+        relation["revision"] = json!(9_007_199_254_740_992_u64);
+        relation["metadata"] = json!({ "schema_version": "product-v2" });
+        for base in [Value::Null, json!(1), json!(1.0)] {
+            let payload = json!({
+                "relation": relation,
+                "expected_base_revision": base,
+            });
+            let call = decode_relation_put(payload);
+            let SpokeResult::Ok(PortCall::PutRelation(decoded, expected)) = call else {
+                panic!("base={base}: an endpoint revision + opaque metadata must decode")
+            };
+            assert_eq!(decoded.revision, Some(9_007_199_254_740_992));
+            assert_eq!(
+                decoded.metadata.get("schema_version"),
+                Some(&json!("product-v2")),
+                "metadata is opaque"
+            );
+            assert_eq!(
+                expected,
+                if base.is_null() { None } else { Some(1) },
+                "base={base}"
+            );
+        }
+
+        for refused in [9_007_199_254_740_993_u64, 9_007_199_254_740_994_u64] {
+            let mut relation = minimal_relation();
+            relation["revision"] = json!(refused);
+            let oversized_relation = decode_relation_put(json!({
+                "relation": relation,
+                "expected_base_revision": Value::Null,
+            }));
+            assert!(
+                matches!(
+                    oversized_relation,
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::InvalidInput,
+                        ..
+                    })
+                ),
+                "relation.revision={refused} must refuse before the provider"
+            );
+            let oversized_base = decode_relation_put(json!({
+                "relation": minimal_relation(),
+                "expected_base_revision": refused,
+            }));
+            assert!(
+                matches!(
+                    oversized_base,
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::InvalidInput,
+                        ..
+                    })
+                ),
+                "expected_base_revision={refused} must refuse before the provider"
+            );
+        }
+    }
+
+    /// C-03 — an integral-float `schema_version` names the same wire number
+    /// the typed decoder and TypeScript read, so the raw scan admits it and
+    /// the generated visitor decodes the parsed integer; the `2^53` endpoint
+    /// is outside the SchemaVersion domain in either spelling.
+    #[test]
+    fn relation_put_reads_schema_version_by_its_parsed_value() {
+        let mut relation = minimal_relation();
+        relation["schema_version"] = json!(1.0);
+        let call = decode_relation_put(json!({
+            "relation": relation,
+            "expected_base_revision": Value::Null,
+        }));
+        let SpokeResult::Ok(PortCall::PutRelation(decoded, _)) = call else {
+            panic!("schema_version 1.0 must decode to the parsed 1")
+        };
+        assert_eq!(decoded.schema_version.get(), 1);
+
+        for refused in [
+            json!(9_007_199_254_740_992_u64),
+            json!(9_007_199_254_740_992.0),
+        ] {
+            let mut relation = minimal_relation();
+            relation["schema_version"] = refused.clone();
+            assert!(
+                matches!(
+                    decode_relation_put(json!({
+                        "relation": relation,
+                        "expected_base_revision": Value::Null,
+                    })),
+                    SpokeResult::Reject(SpokeReject {
+                        code: SpokeRejectCode::InvalidInput,
+                        ..
+                    })
+                ),
+                "schema_version={refused} must refuse"
+            );
+        }
+    }
+
+    fn minimal_finding() -> Value {
+        json!({
+            "schema_version": 1,
+            "finding_id": "fnd_x",
+            "severity": "minor",
+            "status": "open",
+            "title": "title",
+            "description": "description",
+            "extensions": {},
+        })
+    }
+
+    /// `Finding.text_position` is product data: a member spelled
+    /// `schema_version` reaches the provider untouched, while the finding's
+    /// own schema-owned `schema_version` stays bounded.
+    #[test]
+    fn finding_put_admits_opaque_text_position_and_bounds_schema_version() {
+        let mut finding = minimal_finding();
+        finding["text_position"] = json!({ "schema_version": "draft", "revision": "draft" });
+        let call = decode_port_call("port.finding.put", &json!({ "findings": [finding] }), None);
+        let SpokeResult::Ok(PortCall::PutFindings(findings)) = call else {
+            panic!("an opaque text_position must reach the provider")
+        };
+        assert_eq!(
+            findings[0].text_position.get("schema_version"),
+            Some(&json!("draft")),
+            "text_position is opaque"
+        );
+
+        let mut finding = minimal_finding();
+        finding["schema_version"] = json!(9_007_199_254_740_992_u64);
+        assert!(
+            matches!(
+                decode_port_call("port.finding.put", &json!({ "findings": [finding] }), None),
+                SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InvalidInput,
+                    ..
+                })
+            ),
+            "the finding's own schema_version is schema-owned"
+        );
     }
 
     /// Every declared nested member is non-nullable: an explicit `null`

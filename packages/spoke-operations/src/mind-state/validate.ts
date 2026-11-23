@@ -1,7 +1,7 @@
 import type { MindState } from "@42ch/spoke-schemas";
 
 import { validateCognitionProjection } from "../cognition/validate.js";
-import { isParseableDateTime } from "../timestamp.js";
+import { isStrictTimestamp } from "../timestamp.js";
 
 // note: Closed-envelope property table (mind-state.schema.json, additionalProperties: false).
 const MIND_STATE_KEYS: Record<string, true> = {
@@ -96,9 +96,10 @@ export function validateMindState(state: unknown): state is MindState {
     }
   }
 
+  // note: SchemaVersion is [1, 2^53-1]; `Number.isSafeInteger` is that ceiling.
   if (
     typeof state.schema_version !== "number" ||
-    !Number.isInteger(state.schema_version) ||
+    !Number.isSafeInteger(state.schema_version) ||
     state.schema_version < 1
   ) {
     return false;
@@ -125,7 +126,7 @@ export function validateMindState(state: unknown): state is MindState {
   for (const field of ["occurred_at", "created_at", "updated_at"] as const) {
     const value = state[field];
     if (value !== undefined) {
-      if (typeof value !== "string" || !isParseableDateTime(value)) {
+      if (typeof value !== "string" || !isStrictTimestamp(value)) {
         return false;
       }
     }

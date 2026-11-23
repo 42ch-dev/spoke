@@ -59,6 +59,8 @@ import { issueCapabilityToken } from "../../src/core/capability-token.js";
 // 4-field (pre-dial-binding) responder hello served over a scripted
 // transport — test-only import; the adapter surface stays clean.
 import { signHelloEd25519 } from "../../src/core/hello.js";
+import { authenticateSession } from "../../src/core/envelope-auth.js";
+import { generateNonce } from "../../src/core/nonce.js";
 import { schemaConformantManifest } from "../fixtures/golden.js";
 import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
 import { MAX_SEQUENCE } from "../../src/core/sequence.js";
@@ -758,6 +760,89 @@ describe("RemoteAdapter loopback interop", () => {
   );
 
   it(
+    "fails the dial when the session snapshot opened_at is not a strict timestamp (qc1 F-005)",
+    async () => {
+      // why: the session snapshot guard checks presence only, so a validly
+      // signed snapshot with an offsetless `opened_at` could establish a
+      // session. The shared strict RFC 3339 grammar is the one Timestamp
+      // contract and must fail the dial before any session state exists.
+      const seedHost = seed(0xa0);
+      const seedClient = seed(0x10);
+      const pubkeyHost = getPublicKeyEd25519(seedHost);
+      const peerIdHost = derivePeerIdFromEd25519Pubkey(pubkeyHost);
+      const peerIdClient = derivePeerIdFromEd25519Pubkey(
+        getPublicKeyEd25519(seedClient),
+      );
+      const textEncoder = new TextEncoder();
+
+      let capturedInitiatorNonce: string | undefined;
+      let received = 0;
+      // why: a non-string JSON value must also fail the dial — `RegExp.exec`
+      // coerces a one-element array to the timestamp string (qc1 F-005).
+      const openedAtCases: unknown[] = [
+        "2026-07-23T09:00:00",
+        ["2026-07-23T09:00:00Z"],
+      ];
+      for (const [index, openedAt] of openedAtCases.entries()) {
+        capturedInitiatorNonce = undefined;
+        received = 0;
+        const scriptedTransport: Transport = {
+          send: async (bytes) => {
+            const doc: unknown = decodeJsonMessage(bytes);
+            if (
+              typeof doc === "object" &&
+              doc !== null &&
+              "nonce" in doc &&
+              typeof doc.nonce === "string"
+            ) {
+              capturedInitiatorNonce = doc.nonce;
+            }
+          },
+          recv: async () => {
+            received += 1;
+            if (received === 1) {
+              if (capturedInitiatorNonce === undefined) {
+                throw new Error("initiator hello was not observed");
+              }
+              const hello = await signHelloEd25519(
+                seedHost,
+                generateNonce(),
+                schemaConformantManifest(),
+                capturedInitiatorNonce,
+              );
+              return textEncoder.encode(encodeJsonMessage(hello));
+            }
+            if (received === 2) {
+              const session = await authenticateSession(seedHost, {
+                session_id: `sess-invalid-opened-at-${index}`,
+                initiator_peer_id: peerIdClient,
+                responder_peer_id: peerIdHost,
+                opened_at: openedAt as string,
+                negotiated_capabilities: ["spoke-baseline"],
+                initial_sequence: 0,
+              });
+              return textEncoder.encode(encodeJsonMessage(session));
+            }
+            throw new Error("scripted transport closed");
+          },
+          close: () => {},
+        };
+
+        await expect(
+          connectRemoteAdapter({
+            transport: scriptedTransport,
+            localIdentity: { seed: seedClient },
+            localManifest: clientManifest(),
+            remotePubkey: pubkeyHost,
+            allowlist: [peerIdHost],
+          }),
+        ).rejects.toThrow(/opened_at/);
+      }
+    },
+    15000,
+  );
+
+  it(
     "propagates protocol_version_mismatch through the dial when the responder hello version mismatches",
     async () => {
       const seedHost = seed(0xa0);
@@ -1184,6 +1269,302 @@ describe("RemoteAdapter loopback interop", () => {
     },
     15000,
   );
+
+  it(
+    "rejects an ordinary knowledge/relation get response outside the shared scalar domains (qc1 F-003)",
+    async () => {
+      // why: the ordinary knowledge/relation success gate used to check the
+      // primitive shape only, so `schema_version: 0`, a negative revision and
+      // an offsetless `created_at` surfaced `spokeOk`. The shared wire scalar
+      // domains must reject before `spokeOk` (Rust typed decode parity).
+      // note: out-of-domain integers cannot traverse the signed boundary at
+      // all (member-domain refusal, asserted below), so the wire cases here
+      // carry values that sign and still fail the client gate.
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const entry = {
+        schema_version: 1,
+        entry_id: "kb_tw_mira",
+        entry_type: "character",
+        canonical_name: "Mira Vale",
+        status: "confirmed",
+        body: {},
+        extensions: {},
+      };
+      const relation = {
+        schema_version: 1,
+        relation_id: "rel_boundary",
+        relation_type: "related_to",
+        from_id: "kb_from",
+        to_id: "kb_to",
+        extensions: {},
+      };
+      const malformed: Record<string, unknown> = {
+        kb_schema_version_zero: { ...entry, schema_version: 0 },
+        kb_revision_negative: { ...entry, revision: -1 },
+        // note: an integral float above `2^53` is signable (the signed gate
+        // refuses only the `[2^53, 2^64)` integer-token range), so this case
+        // still exercises the consumer-side upper bound.
+        kb_revision_over: { ...entry, revision: 1e20 },
+        kb_created_at_naive: {
+          ...entry,
+          created_at: "2026-07-23T09:00:00",
+        },
+        rel_revision_negative: { ...relation, revision: -1 },
+        rel_updated_at_naive: {
+          ...relation,
+          updated_at: "2026-07-23 09:00:00Z",
+        },
+      };
+      const { client, host } = await dial(hostAdapter, {
+        hostResponseOverride: (request) => {
+          // why: the fixture routes on the get request's id member.
+          const requestPayload = request.payload as {
+            entry_id?: string;
+            relation_id?: string;
+          };
+          const requestedId =
+            requestPayload.entry_id ?? requestPayload.relation_id ?? "";
+          return {
+            session_id: request.session_id,
+            sequence: request.sequence,
+            request_id: request.request_id,
+            payload: malformed[requestedId] ?? entry,
+            extensions: {},
+          };
+        },
+      });
+      try {
+        for (const requestedId of Object.keys(malformed)) {
+          const isRelation = requestedId.startsWith("rel_");
+          const result = isRelation
+            ? await client.getRelation(requestedId)
+            : await client.getKnowledgeEntry(requestedId);
+          expect(result, requestedId).toEqual({
+            ok: false,
+            code: SpokeRejectCode.INTERNAL_ERROR,
+            message: expect.stringContaining("payload decode failed"),
+            details: { kind: "transport" },
+          });
+        }
+        // note: the same session still serves a valid payload.
+        const valid = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(valid.ok).toBe(true);
+        expect(client.state).toBe("Established");
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it("validates schema-owned wire scalars on the declared response shapes (qc1 F-003 / R1-001)", () => {
+    const receipt = {
+      schema_version: 1,
+      receipt_id: "rcpt_1",
+      op: "memory.capture",
+      space_id: "space_1",
+      requester_principal_id: "prn_1",
+      payload_digest: "sha256:00",
+      status: "committed",
+      created_at: "2026-07-23T09:00:00Z",
+      extensions: {},
+    };
+    // note: `completed_at` is a schema-owned Timestamp outside the history names.
+    expect(
+      isValidSuccessPayload("memory.receipts.get", {
+        receipt: { ...receipt, completed_at: "2026-07-23T09:00:00" },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.receipts.get", {
+        receipt: { ...receipt, completed_at: "2026-07-23T09:00:00+02:00" },
+      }),
+    ).toBe(true);
+
+    const grant = {
+      schema_version: 1,
+      grant_id: "grant_1",
+      space_id: "space_1",
+      principal_id: "prn_1",
+      capabilities: [],
+      context_ids: [],
+      created_at: "2026-07-23T09:00:00Z",
+      revision: 1,
+      extensions: {},
+    };
+    expect(
+      isValidSuccessPayload("memory.grants.list", {
+        grants: [{ ...grant, expires_at: "2026-07-23T09:00:00" }],
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.grants.list", {
+        grants: [{ ...grant, expires_at: "2026-07-23T09:00:00Z" }],
+      }),
+    ).toBe(true);
+
+    const candidate = {
+      schema_version: 1,
+      entry_id: "kb_candidate",
+      entry_type: "character",
+      canonical_name: "Candidate",
+      status: "provisional",
+      body: {},
+      extensions: {},
+    };
+    // note: the `extract` early return used to skip the scalar walk.
+    expect(
+      isValidSuccessPayload("extract", {
+        candidates: [{ ...candidate, revision: 2 ** 53 + 2 }],
+        run: { run_id: "run_1" },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("extract", {
+        candidates: [{ ...candidate, created_at: "2026-07-23T09:00:00" }],
+        run: { run_id: "run_1" },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("extract", {
+        candidates: [
+          { ...candidate, created_at: "2026-07-23T09:00:00Z", revision: 2 ** 53 },
+        ],
+        run: { run_id: "run_1" },
+      }),
+    ).toBe(true);
+
+    // note: a nested schema-owned revision (adoption anchor) is bounded on the
+    // ordinary knowledge response (qc3-04 at the wire gate).
+    expect(
+      isValidSuccessPayload("port.knowledge.put", {
+        ...candidate,
+        adoption_anchor: {
+          schema_version: 1,
+          source_scope_id: "scope_src",
+          source_entry_id: "kb_src",
+          source_revision: 2 ** 53 + 2,
+          extensions: {},
+        },
+      }),
+    ).toBe(false);
+
+    const finding = {
+      schema_version: 1,
+      finding_id: "fnd_1",
+      severity: "minor",
+      status: "open",
+      title: "Title",
+      description: "Description",
+      extensions: {},
+    };
+    // note: `text_position` is an open product object — a member named
+    // `revision` is product data, not a wire revision (qc1 R1-001).
+    expect(
+      isValidSuccessPayload("port.finding.put", [
+        { ...finding, text_position: { revision: "draft", schema_version: "x" } },
+      ]),
+    ).toBe(true);
+    expect(
+      isValidSuccessPayload("port.finding.put", [
+        { ...finding, extensions: { ns: { revision: "draft" } } },
+      ]),
+    ).toBe(true);
+
+    // note: the export chunk is a schema-owned shape, not an opaque bag
+    // (qc1 R2-002) — the header scalars and every element run stay bounded.
+    const chunk = {
+      export_id: "exp_1",
+      chunk_ordinal: 1,
+      chunk_count: 2,
+      bundle_digest: "a".repeat(64),
+      chunk_digest: "b".repeat(64),
+      bytes: 2,
+    };
+    expect(isValidSuccessPayload("memory.exports.get", { chunk })).toBe(true);
+    expect(
+      isValidSuccessPayload("memory.exports.get", {
+        chunk: {
+          ...chunk,
+          chunk_ordinal: 0,
+          header: { schema_version: 2 ** 53 },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.exports.get", {
+        chunk: { ...chunk, chunk_ordinal: 0, header: { schema_version: 1 } },
+      }),
+    ).toBe(true);
+    expect(
+      isValidSuccessPayload("memory.exports.get", {
+        chunk: { ...chunk, records: [{ revision: 2 ** 53 + 2 }] },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.exports.get", {
+        chunk: { ...chunk, records: [{ revision: 2 ** 53 }] },
+      }),
+    ).toBe(true);
+
+    // note: the retained record's schema-owned scalars (revision starts at 1;
+    // import attribution and the tombstone marker are bounded members).
+    const record = {
+      schema_version: 1,
+      occurred_at: "2026-07-23T09:00:00Z",
+      created_at: "2026-07-23T09:00:00Z",
+      updated_at: "2026-07-23T09:00:00Z",
+      revision: 1,
+      provenance: { captured_at: "2026-07-23T09:00:00Z" },
+    };
+    expect(isValidSuccessPayload("memory.records.get", { record })).toBe(true);
+    expect(
+      isValidSuccessPayload("memory.records.get", {
+        record: { ...record, revision: 0 },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.records.get", {
+        record: {
+          ...record,
+          import_ref: {
+            import_id: "imp_1",
+            source_record_id: "rec_src",
+            source_revision: 2 ** 53 + 2,
+          },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.records.get", {
+        record: {
+          ...record,
+          import_ref: {
+            import_id: "imp_1",
+            source_record_id: "rec_src",
+            source_revision: 2 ** 53,
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isValidSuccessPayload("memory.records.get", {
+        record: {
+          ...record,
+          tombstone: { deleted_at: "2026-07-23T09:00:00", deleted_by: "prn_1" },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("memory.records.get", {
+        record: {
+          ...record,
+          tombstone: { deleted_at: "2026-07-23T09:00:00Z", deleted_by: "prn_1" },
+        },
+      }),
+    ).toBe(true);
+  });
 
   it(
     "refuses a mixed knowledge.adopt payload (success members + error) as INTERNAL_ERROR kind transport (qc1 F-032)",

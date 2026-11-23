@@ -27,6 +27,7 @@ pub(crate) mod golden;
 #[cfg(test)]
 pub(crate) mod golden_envelope_auth;
 mod hello_crypto;
+pub(crate) mod jcs;
 mod nonce;
 mod peer_id;
 mod sequence;
@@ -50,8 +51,9 @@ pub use error::{CoreError, CoreInvokeError};
 // remote-adapter public surface or FFI): authenticate/verify helpers +
 // their sign inputs, the locked error kinds, and the algorithm ids.
 pub(crate) use envelope_auth::{
-    authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
-    verify_invoke_request_auth, verify_invoke_response_auth, verify_session_auth,
+    authenticate_invoke_request, authenticate_invoke_response,
+    authenticate_invoke_response_with_op, authenticate_session, verify_invoke_request_auth,
+    verify_invoke_response_auth, verify_invoke_response_auth_with_op, verify_session_auth,
     EnvelopeAuthError, EnvelopeAuthErrorKind, EnvelopeExtensions, InvokeRequestSignInput,
     InvokeResponseSignInput, SessionSignInput, ALGORITHM_INVOKE_REQUEST_JCS_V1,
     ALGORITHM_INVOKE_RESPONSE_JCS_V1, ALGORITHM_SESSION_JCS_V1,

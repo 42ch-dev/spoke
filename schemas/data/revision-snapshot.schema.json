@@ -28,7 +28,9 @@
     },
     "revision": {
       "type": "integer",
+      "format": "uint64",
       "minimum": 0,
+      "maximum": 9007199254740992,
       "description": "Revision represented by this snapshot; equals the selected entity snapshot's own revision."
     },
     "snapshot": {

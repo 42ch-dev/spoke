@@ -273,21 +273,13 @@ pub fn validate_compute_request(request: &ComputeRequest) -> SpokeResult<()> {
 mod tests {
     use super::*;
     use crate::result::SpokeResult;
-    use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+    use chrono::{TimeZone, Utc};
     use serde_json::json;
     use spoke_schemas::ComputableLogChange;
     use std::collections::HashMap;
 
     fn is_parseable_date_time(value: &str) -> bool {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            return false;
-        }
-
-        DateTime::parse_from_rfc3339(trimmed).is_ok()
-            || trimmed.parse::<DateTime<Utc>>().is_ok()
-            || NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.f").is_ok()
-            || NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S").is_ok()
+        spoke_schemas::timestamp::parse_strict(value).is_ok()
     }
 
     fn validate_computable_log_change(change: &Value, index: usize) -> SpokeResult<()> {
@@ -449,13 +441,25 @@ mod tests {
     }
 
     #[test]
-    fn validate_computable_log_entry_accepts_datetime_without_timezone_suffix() {
+    fn validate_computable_log_entry_refuses_non_strict_spellings() {
+        for refused in [
+            "2026-07-23T05:50:00",
+            "2026-07-23 05:50:00Z",
+            "2026-07-23T05:50:00 UTC",
+        ] {
+            let result = validate_computable_log_entry_wire(&json!({
+                "logged_at": refused,
+                "entry_id": "kb_tw_harbor",
+                "changes": [{ "path": "tide_level", "previous": 2.1, "next": 2.4 }],
+            }));
+
+            assert!(result.is_reject(), "expected {refused} to be refused");
+        }
+
         let result = validate_computable_log_entry_wire(&json!({
-            "logged_at": "2026-07-23T05:50:00",
+            "logged_at": "2026-07-23T05:50:60Z",
             "entry_id": "kb_tw_harbor",
             "changes": [{ "path": "tide_level", "previous": 2.1, "next": 2.4 }],
-            "session_id": "sess_tw_dawn_arrival",
-            "message": "Tide updated."
         }));
 
         assert!(result.is_ok());

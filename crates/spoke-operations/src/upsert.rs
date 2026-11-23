@@ -2,7 +2,9 @@
 
 use crate::occ::assert_revision_match;
 use crate::result::{spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
+use crate::util::validate_anchor_schema_versions;
 use serde_json::{json, Map, Value};
+use spoke_schemas::integers::{REVISION_MAX, SCHEMA_VERSION_MAX};
 use spoke_schemas::knowledge_entry::KnowledgeEntry;
 
 const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
@@ -37,17 +39,20 @@ impl Default for ValidateUpsertKnowledgeEntryContext<'_> {
 }
 
 fn validate_required_knowledge_entry_fields(candidate: &KnowledgeEntry) -> SpokeResult<()> {
-    if candidate.schema_version.get() < 1 {
+    let schema_version = candidate.schema_version.get();
+    if schema_version < 1 || schema_version > SCHEMA_VERSION_MAX {
         let mut details = Map::new();
-        details.insert(
-            "schema_version".into(),
-            json!(candidate.schema_version.get()),
-        );
+        details.insert("schema_version".into(), json!(schema_version));
         return spoke_reject(
             SpokeRejectCode::InvalidInput,
-            "KnowledgeEntry schema_version must be an integer >= 1",
+            "KnowledgeEntry schema_version must be an integer in [1, 2^53-1]",
             Some(details),
         );
+    }
+
+    let anchors = validate_anchor_schema_versions(candidate);
+    if anchors.is_reject() {
+        return anchors;
     }
 
     if candidate.entry_id.is_empty() {
@@ -150,6 +155,16 @@ fn validate_update_path(candidate: &KnowledgeEntry, stored: &KnowledgeEntry) -> 
             Some(details),
         );
     };
+
+    if revision > REVISION_MAX {
+        let mut details = Map::new();
+        details.insert("revision".into(), json!(revision));
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            "KnowledgeEntry revision must be an integer in [0, 2^53]",
+            Some(details),
+        );
+    }
 
     assert_revision_match(revision, stored.revision.unwrap_or(0))
 }
@@ -304,6 +319,100 @@ mod tests {
             }
         )
         .is_ok());
+    }
+
+    #[test]
+    fn enforces_schema_version_and_revision_ceilings() {
+        let candidate = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_new".into();
+            entry.schema_version = NonZeroU64::new(SCHEMA_VERSION_MAX).unwrap();
+        });
+        assert!(validate_upsert_knowledge_entry(
+            &candidate,
+            ValidateUpsertKnowledgeEntryContext::default()
+        )
+        .is_ok());
+
+        let candidate = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_new".into();
+            entry.schema_version = NonZeroU64::new(SCHEMA_VERSION_MAX + 1).unwrap();
+        });
+        assert!(validate_upsert_knowledge_entry(
+            &candidate,
+            ValidateUpsertKnowledgeEntryContext::default()
+        )
+        .is_reject());
+
+        // Update revision: the inclusive 2^53 endpoint is accepted and the
+        // first value above it is refused.
+        let stored = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_1".into();
+            entry.revision = Some(REVISION_MAX);
+        });
+        let candidate = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_1".into();
+            entry.revision = Some(REVISION_MAX);
+        });
+        assert!(validate_upsert_knowledge_entry(
+            &candidate,
+            ValidateUpsertKnowledgeEntryContext {
+                stored: Some(&stored),
+                mode: None,
+            }
+        )
+        .is_ok());
+
+        let candidate = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_1".into();
+            entry.revision = Some(REVISION_MAX + 1);
+        });
+        assert!(validate_upsert_knowledge_entry(
+            &candidate,
+            ValidateUpsertKnowledgeEntryContext {
+                stored: Some(&stored),
+                mode: None,
+            }
+        )
+        .is_reject());
+    }
+
+    /// The provenance anchors carry their own `schema_version` members; the
+    /// entry's SchemaVersion ceiling binds them — `2^53` is refused by the
+    /// generated carrier decode, `2^53-1` is accepted.
+    #[test]
+    fn enforces_nested_anchor_schema_version_ceiling() {
+        for field in ["source_anchor", "adoption_anchor"] {
+            let anchor = |version: u64| match field {
+                "source_anchor" => json!({
+                    "schema_version": version,
+                    "source_id": "src",
+                    "extensions": {},
+                }),
+                _ => json!({
+                    "schema_version": version,
+                    "source_entry_id": "src",
+                    "source_revision": 1,
+                    "source_scope_id": "s",
+                    "extensions": {},
+                }),
+            };
+            let decode = |version: u64| {
+                let mut wire = serde_json::to_value(make_knowledge_entry(|entry| {
+                    entry.entry_id = "kb_new".into();
+                }))
+                .expect("serializable");
+                wire[field] = anchor(version);
+                serde_json::from_value::<KnowledgeEntry>(wire)
+            };
+            assert!(
+                decode(SCHEMA_VERSION_MAX).is_ok(),
+                "{field} schema_version 2^53-1 must decode"
+            );
+            assert!(
+                decode(SCHEMA_VERSION_MAX + 1).is_err(),
+                "{field} schema_version 2^53 must be refused at decode"
+            );
+        }
     }
 
     #[test]

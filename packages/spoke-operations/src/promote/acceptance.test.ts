@@ -207,4 +207,93 @@ describe("applyPromoteAcceptance", () => {
       expect(result.value.updated_at).toBeUndefined();
     }
   });
+
+  it("refuses an increment from the 2^53 ceiling", () => {
+    const result = applyPromoteAcceptance(
+      makeRequest({ candidate: makeCandidate({ revision: 2 ** 53 }) }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ revision: 2 ** 53 });
+    }
+  });
+
+  it("refuses a candidate revision above the 2^53 ceiling", () => {
+    const result = validatePromoteRequest(
+      makeRequest({ candidate: makeCandidate({ revision: 2 ** 53 + 2 }) }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
+
+  it("refuses a nested anchor schema_version above 2^53-1", () => {
+    const result = validatePromoteRequest(
+      makeRequest({
+        candidate: makeCandidate({
+          source_anchor: {
+            schema_version: 2 ** 53,
+            source_id: "src_1",
+            extensions: {},
+          },
+        }),
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "source_anchor" });
+    }
+  });
+
+  it("rejects an explicit null source_anchor as INVALID_INPUT instead of throwing", () => {
+    const candidate = { ...makeCandidate(), source_anchor: null } as unknown as KnowledgeEntry;
+
+    const result = validatePromoteRequest(makeRequest({ candidate }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "source_anchor" });
+    }
+  });
+
+  it("rejects an explicit null adoption_anchor as INVALID_INPUT instead of throwing", () => {
+    const candidate = { ...makeCandidate(), adoption_anchor: null } as unknown as KnowledgeEntry;
+
+    const result = validatePromoteRequest(makeRequest({ candidate }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "adoption_anchor" });
+    }
+  });
+
+  it("refuses a nested adoption_anchor source_revision above 2^53", () => {
+    const result = validatePromoteRequest(
+      makeRequest({
+        candidate: makeCandidate({
+          adoption_anchor: {
+            schema_version: 1,
+            source_scope_id: "scope_src",
+            source_entry_id: "kb_src",
+            source_revision: 2 ** 53 + 2,
+            extensions: {},
+          },
+        }),
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "adoption_anchor" });
+    }
+  });
 });

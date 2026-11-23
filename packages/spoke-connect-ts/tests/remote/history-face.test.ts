@@ -156,8 +156,16 @@ describe("decodeHistoryCall — closed request shape", () => {
     }
   });
 
-  it("refuses non-exact-integers instead of rounding (u64 range)", () => {
-    for (const revision of [Number.MAX_SAFE_INTEGER + 1, 1.5, -1, "3"]) {
+  it("enforces the inclusive [0, 2^53] revision domain", () => {
+    // note: the ceiling is `2^53` inclusive — one step past
+    // `Number.isSafeInteger` (spoke-data-model §Shared wire scalars).
+    for (const payload of [
+      { ...base, revision: 2 ** 53 },
+      { ...base, revision: 0 },
+    ]) {
+      expect(decodeHistoryCall("history.revisions.get", payload).ok).toBe(true);
+    }
+    for (const revision of [2 ** 53 + 2, 1.5, -1, "3"]) {
       const result = decodeHistoryCall("history.revisions.get", {
         ...base,
         revision,
@@ -167,15 +175,33 @@ describe("decodeHistoryCall — closed request shape", () => {
         expect(result.code).toBe("INVALID_INPUT");
       }
     }
-    for (const keep of [Number.MAX_SAFE_INTEGER + 1, 2.5, -1]) {
-      const result = decodeHistoryCall("history.revisions.prune", {
+    expect(
+      decodeHistoryCall("history.revisions.prune", {
         entity_kind: "knowledge_entry",
         entity_id: "ke_1",
-        keep,
+        keep: 2 ** 53,
         idempotency_key: "k1",
-      });
-      expect(result.ok).toBe(false);
+      }).ok,
+    ).toBe(true);
+    for (const keep of [2 ** 53 + 2, 2.5, -1]) {
+      expect(
+        decodeHistoryCall("history.revisions.prune", {
+          entity_kind: "knowledge_entry",
+          entity_id: "ke_1",
+          keep,
+          idempotency_key: "k1",
+        }).ok,
+      ).toBe(false);
     }
+  });
+
+  it("enforces the SchemaVersion [1, 2^53-1] ceiling on the snapshot envelope", () => {
+    expect(
+      isValidRevisionSnapshot({ ...snapshot("ke_1", 1), schema_version: 2 ** 53 - 1 }),
+    ).toBe(true);
+    expect(
+      isValidRevisionSnapshot({ ...snapshot("ke_1", 1), schema_version: 2 ** 53 }),
+    ).toBe(false);
   });
 
   it("enforces idempotency_key 1–128 chars on prune", () => {

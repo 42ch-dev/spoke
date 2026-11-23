@@ -2,6 +2,7 @@ import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
 
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";
+import { MAX_REVISION, isRevisionInteger, isSchemaVersion } from "../wire-scalars.js";
 
 const TERMINAL_KNOWLEDGE_ENTRY_STATUSES = new Set(["merged", "deleted"]);
 
@@ -32,6 +33,15 @@ function validateRevision(candidate: KnowledgeEntry): SpokeResult<void> {
     );
   }
 
+  // note: revision-typed member — inclusive `[0, 2^53]` (qc3-04).
+  if (candidate.revision > MAX_REVISION) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "KnowledgeEntry revision must be an integer in [0, 2^53]",
+      { revision: candidate.revision },
+    );
+  }
+
   return spokeOk();
 }
 
@@ -48,9 +58,10 @@ function validateKnowledgeEntryShape(candidate: KnowledgeEntry): SpokeResult<voi
     }
   }
 
+  // note: SchemaVersion is [1, 2^53-1]; `Number.isSafeInteger` is that ceiling.
   if (
     typeof candidate.schema_version !== "number" ||
-    !Number.isInteger(candidate.schema_version) ||
+    !Number.isSafeInteger(candidate.schema_version) ||
     candidate.schema_version < 1
   ) {
     return spokeReject(
@@ -58,6 +69,62 @@ function validateKnowledgeEntryShape(candidate: KnowledgeEntry): SpokeResult<voi
       "KnowledgeEntry schema_version must be an integer >= 1",
       { schema_version: candidate.schema_version },
     );
+  }
+
+  // note: nested provenance anchors share the entry's `[1, 2^53-1]` domain
+  // (Rust parity: `validate_anchor_schema_versions`); `adoption_anchor`
+  // `source_revision` is revision-typed `[0, 2^53]` (qc3-04). A present
+  // non-object anchor (e.g. explicit `null`) is malformed input — reject it
+  // like Rust's typed decode, never throw a `TypeError` (qc1 R1-002).
+  const sourceAnchor = candidate.source_anchor;
+  if (sourceAnchor !== undefined) {
+    if (
+      typeof sourceAnchor !== "object" ||
+      sourceAnchor === null ||
+      Array.isArray(sourceAnchor)
+    ) {
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        "KnowledgeEntry source_anchor must be an object",
+        { field: "source_anchor" },
+      );
+    }
+    if (!isSchemaVersion(sourceAnchor.schema_version)) {
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        "KnowledgeEntry source_anchor schema_version must be an integer in [1, 2^53-1]",
+        { field: "source_anchor" },
+      );
+    }
+  }
+
+  const adoptionAnchor = candidate.adoption_anchor;
+  if (adoptionAnchor !== undefined) {
+    if (
+      typeof adoptionAnchor !== "object" ||
+      adoptionAnchor === null ||
+      Array.isArray(adoptionAnchor)
+    ) {
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        "KnowledgeEntry adoption_anchor must be an object",
+        { field: "adoption_anchor" },
+      );
+    }
+    if (!isSchemaVersion(adoptionAnchor.schema_version)) {
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        "KnowledgeEntry adoption_anchor schema_version must be an integer in [1, 2^53-1]",
+        { field: "adoption_anchor" },
+      );
+    }
+    if (!isRevisionInteger(adoptionAnchor.source_revision)) {
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        "KnowledgeEntry adoption_anchor source_revision must be an integer in [0, 2^53]",
+        { field: "adoption_anchor" },
+      );
+    }
   }
 
   if (
@@ -176,12 +243,23 @@ function validatePromoteLifecycle(
   return spokeOk();
 }
 
-function nextRevision(candidate: KnowledgeEntry): number {
+function nextRevision(candidate: KnowledgeEntry): SpokeResult<number> {
   if (candidate.revision === undefined) {
-    return 1;
+    return spokeOk(1);
   }
 
-  return candidate.revision + 1;
+  // note: `2^53 + 1` is not representable in IEEE-754, so adding one at the
+  // ceiling leaves the counter unchanged; refuse instead of emitting a
+  // revision that never advanced (Rust parity: `next_revision`, qc3-04).
+  if (candidate.revision >= MAX_REVISION) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "KnowledgeEntry revision cannot be incremented past 2^53",
+      { revision: candidate.revision },
+    );
+  }
+
+  return spokeOk(candidate.revision + 1);
 }
 
 /**
@@ -206,9 +284,14 @@ export function applyPromoteAcceptance(
 
   const { candidate } = request;
 
+  const revision = nextRevision(candidate);
+  if (!revision.ok) {
+    return revision;
+  }
+
   return spokeOk({
     ...candidate,
     status: "confirmed",
-    revision: nextRevision(candidate),
+    revision: revision.value,
   });
 }

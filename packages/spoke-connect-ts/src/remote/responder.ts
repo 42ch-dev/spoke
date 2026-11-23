@@ -115,7 +115,11 @@ import {
   isConnectInvokeRequest,
   isConnectInvokeResponse,
 } from "./guards.js";
-import { isValidKnowledgeEntryDeep, isAdoptExactNonNegativeInteger } from "./payload.js";
+import {
+  isValidKnowledgeEntryDeep,
+  isValidSuccessPayload,
+  isRevisionInteger,
+} from "./payload.js";
 import type { RemoteAdoptionService, RemoteHistoryService } from "./serve_ports.js";
 import type { RemoteIdentity, ToolHandler } from "./remote-adapter.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
@@ -330,7 +334,7 @@ export function validateAdoptRejectReceipt(reject: SpokeReject): SpokeReject {
   if (
     isJsonObject(details) &&
     "adopted_revision" in details &&
-    !isAdoptExactNonNegativeInteger(details.adopted_revision)
+    !isRevisionInteger(details.adopted_revision)
   ) {
     return spokeReject(
       SpokeRejectCode.INTERNAL_ERROR,
@@ -575,7 +579,7 @@ function validateKnowledgeEntryFields(
   const schemaVersion = entry.schema_version;
   if (
     typeof schemaVersion !== "number" ||
-    !Number.isInteger(schemaVersion) ||
+    !Number.isSafeInteger(schemaVersion) ||
     schemaVersion < 1
   ) {
     return "entry.schema_version must be an integer >= 1";
@@ -654,7 +658,7 @@ export function validateKnowledgeOpPayload(
     if (
       expected !== undefined &&
       expected !== null &&
-      !isAdoptExactNonNegativeInteger(expected)
+      !isRevisionInteger(expected)
     ) {
       return scopePayloadReject(
         op,
@@ -694,7 +698,7 @@ function isValidSourceAnchor(value: unknown): boolean {
   const schemaVersion = value.schema_version;
   if (
     typeof schemaVersion !== "number" ||
-    !Number.isInteger(schemaVersion) ||
+    !Number.isSafeInteger(schemaVersion) ||
     schemaVersion < 1
   ) {
     return false;
@@ -1050,10 +1054,46 @@ function dispatchPortOp(
     case "port.relation.get":
       return ports.getRelation(payload.relation_id as string);
     case "port.relation.put":
-      return ports.putRelation(
-        payload.relation as Relation,
-        payload.expected_base_revision as number | null,
-      );
+      // note: Rust decodes the payload into a typed `RelationPutRequest` and
+      // refuses a missing `expected_base_revision` member; the TS path must
+      // not turn that absence into `null` (create-only), nor forward an
+      // unbounded `relation.revision` (qc2). Both checks run before the
+      // provider, mirroring the knowledge put path and Rust.
+      {
+        const relation = payload.relation;
+        if (!isValidSuccessPayload("port.relation.put", relation)) {
+          return Promise.resolve(
+            spokeReject(
+              SpokeRejectCode.INVALID_INPUT,
+              "relation must be a well-formed Relation with a revision in [0, 2^53]",
+              { field: "relation" },
+            ),
+          );
+        }
+        if (!("expected_base_revision" in payload)) {
+          return Promise.resolve(
+            spokeReject(
+              SpokeRejectCode.INVALID_INPUT,
+              "expected_base_revision is required (nullable) on port.relation.put",
+              { field: "expected_base_revision" },
+            ),
+          );
+        }
+        const expected = payload.expected_base_revision;
+        if (expected !== null && !isRevisionInteger(expected)) {
+          return Promise.resolve(
+            spokeReject(
+              SpokeRejectCode.INVALID_INPUT,
+              "expected_base_revision must be a non-negative integer within [0, 2^53] or null",
+              { field: "expected_base_revision" },
+            ),
+          );
+        }
+        return ports.putRelation(
+          relation as Relation,
+          expected as number | null,
+        );
+      }
     case "port.scope.list_timeline_events":
       return ports.listTimelineEvents(payload.scope as Scope);
     case "port.finding.put":
@@ -1137,6 +1177,8 @@ export interface ConnectResponderOptions {
 
 interface PendingReverseInvoke {
   correlation: Correlation;
+  /** note: the request op — a response envelope carries no op of its own. */
+  op: string;
   resolve: (response: ConnectInvokeResponse) => void;
   reject: (error: ResponderError) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -1789,14 +1831,19 @@ export class ConnectResponder {
     if (result.ok) {
       // note: success branch — `payload = { "result": <opaque JSON> }` (frozen §4).
       this.#sendReverseResponse(
-        await authenticateInvokeResponse(this.#secret, {
-          session_id: doc.session_id,
-          sequence: doc.sequence,
-          request_id: doc.request_id,
-          payload: {
-            result: "value" in result ? result.value : undefined,
+        await authenticateInvokeResponse(
+          this.#secret,
+          {
+            session_id: doc.session_id,
+            sequence: doc.sequence,
+            request_id: doc.request_id,
+            payload: {
+              result: "value" in result ? result.value : undefined,
+            },
           },
-        }),
+          {},
+          doc.op,
+        ),
       );
     } else {
       await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
@@ -2581,12 +2628,17 @@ export class ConnectResponder {
     payload: unknown,
   ): Promise<void> {
     this.#sendReverseResponse(
-      await authenticateInvokeResponse(this.#secret, {
-        session_id: doc.session_id,
-        sequence: doc.sequence,
-        request_id: doc.request_id,
-        payload: (payload ?? {}) as Record<string, unknown>,
-      }),
+      await authenticateInvokeResponse(
+        this.#secret,
+        {
+          session_id: doc.session_id,
+          sequence: doc.sequence,
+          request_id: doc.request_id,
+          payload: (payload ?? {}) as Record<string, unknown>,
+        },
+        {},
+        doc.op,
+      ),
     );
   }
 
@@ -2595,12 +2647,17 @@ export class ConnectResponder {
     error: ErrorEnvelope,
   ): Promise<void> {
     this.#sendReverseResponse(
-      await authenticateInvokeResponse(this.#secret, {
-        session_id: doc.session_id,
-        sequence: doc.sequence,
-        request_id: doc.request_id,
-        error,
-      }),
+      await authenticateInvokeResponse(
+        this.#secret,
+        {
+          session_id: doc.session_id,
+          sequence: doc.sequence,
+          request_id: doc.request_id,
+          error,
+        },
+        {},
+        doc.op,
+      ),
     );
   }
 
@@ -2627,7 +2684,12 @@ export class ConnectResponder {
         throw new ResponderError("session_closed", "connect session closed");
       }
       checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
-      await verifyInvokeResponseAuth(clientPubkey, doc, session.session_id);
+      await verifyInvokeResponseAuth(
+        clientPubkey,
+        doc,
+        session.session_id,
+        entry.op,
+      );
       entry.resolve(doc);
     } catch (error) {
       if (error instanceof EnvelopeAuthError) {
@@ -2709,6 +2771,7 @@ export class ConnectResponder {
           sequence: unsigned.sequence,
           request_id: unsigned.request_id,
         },
+        op,
         resolve,
         reject,
         timer,

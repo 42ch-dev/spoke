@@ -144,6 +144,7 @@ pub enum CandidatesDismissPollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -159,6 +160,7 @@ pub enum CandidatesDismissPollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: CandidatesDismissPollBranchVariant1Status,
@@ -500,6 +502,7 @@ pub enum CandidatesReviewPollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -515,6 +518,7 @@ pub enum CandidatesReviewPollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: CandidatesReviewPollBranchVariant1Status,
@@ -856,6 +860,7 @@ pub enum CapturePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -871,6 +876,7 @@ pub enum CapturePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: CapturePollBranchVariant1Status,
@@ -1343,6 +1349,7 @@ pub enum ExportsCreatePollBranch {
     Variant2 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -1358,6 +1365,7 @@ pub enum ExportsCreatePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: ExportsCreatePollBranchVariant2Status,
@@ -1948,6 +1956,7 @@ pub enum GrantsGrantPollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -1963,6 +1972,7 @@ pub enum GrantsGrantPollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: GrantsGrantPollBranchVariant1Status,
@@ -2074,6 +2084,7 @@ impl ::std::convert::TryFrom<::std::string::String> for GrantsGrantPollBranchVar
 #[serde(deny_unknown_fields)]
 pub struct GrantsGrantPollBranchVariant0Result {
     pub grant_id: GrantId,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
 }
 impl GrantsGrantPollBranchVariant0Result {
@@ -2300,6 +2311,7 @@ pub enum GrantsRevokePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -2315,6 +2327,7 @@ pub enum GrantsRevokePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: GrantsRevokePollBranchVariant1Status,
@@ -2426,6 +2439,7 @@ impl ::std::convert::TryFrom<::std::string::String> for GrantsRevokePollBranchVa
 #[serde(deny_unknown_fields)]
 pub struct GrantsRevokePollBranchVariant0Result {
     pub grant_id: GrantId,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub revoked: bool,
 }
@@ -2767,6 +2781,7 @@ pub enum ImportsActivatePollBranch {
     Variant2 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -2782,6 +2797,7 @@ pub enum ImportsActivatePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: ImportsActivatePollBranchVariant2Status,
@@ -3274,6 +3290,7 @@ pub enum ImportsDiscardPollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -3289,6 +3306,7 @@ pub enum ImportsDiscardPollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: ImportsDiscardPollBranchVariant1Status,
@@ -3643,6 +3661,7 @@ pub enum ImportsStagePollBranch {
     Variant2 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -3658,6 +3677,7 @@ pub enum ImportsStagePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: ImportsStagePollBranchVariant2Status,
@@ -5687,6 +5707,7 @@ pub enum ProfileUpdatePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -5702,6 +5723,7 @@ pub enum ProfileUpdatePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: ProfileUpdatePollBranchVariant1Status,
@@ -5813,6 +5835,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ProfileUpdatePollBranchV
 #[serde(deny_unknown_fields)]
 pub struct ProfileUpdatePollBranchVariant0Result {
     pub profile_kind: ProfileKind,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
 }
 impl ProfileUpdatePollBranchVariant0Result {
@@ -6256,6 +6279,7 @@ pub enum RecordsCreatePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -6271,6 +6295,7 @@ pub enum RecordsCreatePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: RecordsCreatePollBranchVariant1Status,
@@ -6382,6 +6407,7 @@ impl ::std::convert::TryFrom<::std::string::String> for RecordsCreatePollBranchV
 #[serde(deny_unknown_fields)]
 pub struct RecordsCreatePollBranchVariant0Result {
     pub record_id: RecordId,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
 }
 impl RecordsCreatePollBranchVariant0Result {
@@ -6608,6 +6634,7 @@ pub enum RecordsDeletePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -6623,6 +6650,7 @@ pub enum RecordsDeletePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: RecordsDeletePollBranchVariant1Status,
@@ -6960,6 +6988,7 @@ pub enum RecordsPromotePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -6975,6 +7004,7 @@ pub enum RecordsPromotePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: RecordsPromotePollBranchVariant1Status,
@@ -7088,6 +7118,7 @@ impl ::std::convert::TryFrom<::std::string::String> for RecordsPromotePollBranch
 #[serde(deny_unknown_fields)]
 pub struct RecordsPromotePollBranchVariant0Result {
     pub record_id: RecordId,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     #[doc = "Write placement (§6.6): context_id is required iff visibility = \"context\" and MUST be omitted when visibility = \"shared\". Changed only by memory.records.promote."]
     pub scope: PlacementScope,
@@ -7318,6 +7349,7 @@ pub enum RecordsUpdatePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -7333,6 +7365,7 @@ pub enum RecordsUpdatePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: RecordsUpdatePollBranchVariant1Status,
@@ -7444,6 +7477,7 @@ impl ::std::convert::TryFrom<::std::string::String> for RecordsUpdatePollBranchV
 #[serde(deny_unknown_fields)]
 pub struct RecordsUpdatePollBranchVariant0Result {
     pub record_id: RecordId,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
 }
 impl RecordsUpdatePollBranchVariant0Result {
@@ -7732,6 +7766,7 @@ pub enum ReflectionsGeneratePollBranch {
     Variant2 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -7747,6 +7782,7 @@ pub enum ReflectionsGeneratePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: ReflectionsGeneratePollBranchVariant2Status,
@@ -8327,7 +8363,7 @@ impl ::std::convert::TryFrom<::std::string::String> for RetryClass {
 }
 #[doc = "Wire schema version (integer >= 1)."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(transparent)]
+#[serde(try_from = "u64", into = "::std::num::NonZeroU64")]
 pub struct Shared0(pub ::std::num::NonZeroU64);
 impl ::std::ops::Deref for Shared0 {
     type Target = ::std::num::NonZeroU64;
@@ -8353,12 +8389,12 @@ impl ::std::fmt::Display for Shared0 {
 impl ::std::str::FromStr for Shared0 {
     type Err = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
-        Ok(Self(value.parse()?))
+        Ok(Self(crate::integers::parse_schema_version(value)?))
     }
 }
 #[doc = "RFC 3339 UTC datetime string."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(transparent)]
+#[serde(try_from = "::std::string::String", into = "::std::string::String")]
 pub struct Shared1(pub ::chrono::DateTime<::chrono::offset::Utc>);
 impl ::std::ops::Deref for Shared1 {
     type Target = ::chrono::DateTime<::chrono::offset::Utc>;
@@ -8384,7 +8420,7 @@ impl ::std::fmt::Display for Shared1 {
 impl ::std::str::FromStr for Shared1 {
     type Err = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
-        Ok(Self(value.parse()?))
+        Ok(Self(crate::timestamp::parse_strict(value)?))
     }
 }
 #[doc = "Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip."]
@@ -9774,6 +9810,7 @@ impl Shared4 {
 pub struct Shared5 {
     pub completed_at: Shared1,
     #[doc = "RFC 3339 UTC datetime string."]
+    #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
     pub created_at: ::chrono::DateTime<::chrono::offset::Utc>,
     #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
     pub error: Shared3,
@@ -9791,6 +9828,7 @@ pub struct Shared5 {
     pub receipt_id: ReceiptId,
     pub requester_principal_id: RequesterPrincipalId,
     #[doc = "Wire schema version (integer >= 1)."]
+    #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
     pub schema_version: ::std::num::NonZeroU64,
     pub space_id: SpaceId,
     pub status: ::std::string::String,
@@ -9914,6 +9952,7 @@ pub enum SpacesFreezePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -9929,6 +9968,7 @@ pub enum SpacesFreezePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: SpacesFreezePollBranchVariant1Status,
@@ -10040,6 +10080,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SpacesFreezePollBranchVa
 #[serde(deny_unknown_fields)]
 pub struct SpacesFreezePollBranchVariant0Result {
     pub pending_receipts: u64,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub status: ::std::string::String,
 }
@@ -10267,6 +10308,7 @@ pub enum SpacesUnfreezePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -10282,6 +10324,7 @@ pub enum SpacesUnfreezePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: SpacesUnfreezePollBranchVariant1Status,
@@ -10395,6 +10438,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SpacesUnfreezePollBranch
 #[serde(deny_unknown_fields)]
 pub struct SpacesUnfreezePollBranchVariant0Result {
     pub pending_receipts: u64,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub status: ::std::string::String,
 }
@@ -10750,6 +10794,7 @@ pub enum SubjectsEnsurePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -10766,6 +10811,7 @@ pub enum SubjectsEnsurePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: SubjectsEnsurePollBranchVariant1Status,
@@ -10823,6 +10869,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SubjectsEnsurePollBranch
 #[serde(deny_unknown_fields)]
 pub struct SubjectsEnsurePollBranchVariant0Result {
     pub created: bool,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub status: Status,
     pub subject_id: SubjectId,
@@ -10997,6 +11044,7 @@ pub enum SubjectsFencePollBranch {
     Variant1 {
         completed_at: Shared1,
         #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
         created_at: ::chrono::DateTime<::chrono::offset::Utc>,
         #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
         error: Shared3,
@@ -11012,6 +11060,7 @@ pub enum SubjectsFencePollBranch {
         receipt_id: ReceiptId,
         requester_principal_id: RequesterPrincipalId,
         #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
         schema_version: ::std::num::NonZeroU64,
         space_id: SpaceId,
         status: SubjectsFencePollBranchVariant1Status,
@@ -11123,6 +11172,7 @@ impl ::std::convert::TryFrom<::std::string::String> for SubjectsFencePollBranchV
 #[serde(deny_unknown_fields)]
 pub struct SubjectsFencePollBranchVariant0Result {
     pub fenced_contexts: ::std::vec::Vec<::std::string::String>,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
     pub revision: ::std::num::NonZeroU64,
     pub status: Status,
     pub subject_id: SubjectId,
@@ -15620,5 +15670,23 @@ impl ::std::convert::TryFrom<String> for Shared1 {
     type Error = <::chrono::DateTime<::chrono::offset::Utc> as ::std::str::FromStr>::Err;
     fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
         value.parse()
+    }
+}
+impl ::std::convert::From<Shared1> for ::std::string::String {
+    fn from(value: Shared1) -> Self {
+        value
+            .0
+            .to_rfc3339_opts(::chrono::SecondsFormat::AutoSi, true)
+    }
+}
+impl ::std::convert::TryFrom<u64> for Shared0 {
+    type Error = ::std::num::ParseIntError;
+    fn try_from(value: u64) -> ::std::result::Result<Self, Self::Error> {
+        if value > crate::integers::SCHEMA_VERSION_MAX {
+            return ::std::result::Result::Err(crate::integers::out_of_domain());
+        }
+        let inner =
+            ::std::num::NonZeroU64::new(value).ok_or_else(crate::integers::out_of_domain)?;
+        ::std::result::Result::Ok(Self(inner))
     }
 }

@@ -221,8 +221,9 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   "memory.imports.activate": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   "memory.imports.discard": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   // note: `knowledge.adopt` success branch (knowledge-adopt-response
-  // schema): `{ outcome, entry }` — the error branch never reaches this
-  // gate (a refusal answers the connect error envelope).
+  // schema): `{ outcome, entry }`. The failure branch travels as the
+  // response payload too — `isAdoptFailurePayload` accepts `{error,
+  // extensions?}` before this success gate runs (contract E3).
   "knowledge.adopt": {
     kind: "object",
     fields: [
@@ -885,6 +886,59 @@ function isValidHistorySuccessPayload(op: string, value: unknown): boolean {
     (value.floor_revision === null ||
       isExactNonNegativeInteger(value.floor_revision))
   );
+}
+
+/** Served `knowledge.adopt` failure branch (contract §`KnowledgeAdoptResponse`
+ * `OneOf1`, E3): a closed `{error, extensions?}` envelope. A provider
+ * refusal travels as the response PAYLOAD (a successful port outcome),
+ * never a connect error envelope — the client gate must accept it
+ * verbatim (qc2 QC2-21 / F-030; Rust `invoke_mapped<KnowledgeAdoptResponse>`
+ * decodes both branches). */
+export function isAdoptFailurePayload(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const member of Object.keys(value)) {
+    if (member !== "error" && member !== "extensions") {
+      return false;
+    }
+  }
+  const error = value.error;
+  if (!isRecord(error)) {
+    return false;
+  }
+  for (const member of Object.keys(error)) {
+    if (
+      member !== "code" &&
+      member !== "message" &&
+      member !== "details" &&
+      member !== "extensions"
+    ) {
+      return false;
+    }
+  }
+  if (
+    typeof error.code !== "string" ||
+    typeof error.message !== "string" ||
+    !isValidExtensionMap(error.extensions)
+  ) {
+    return false;
+  }
+  if ("details" in error) {
+    if (!isRecord(error.details)) {
+      return false;
+    }
+    if (
+      "adopted_revision" in error.details &&
+      !isAdoptExactNonNegativeInteger(error.details.adopted_revision)
+    ) {
+      return false;
+    }
+  }
+  if ("extensions" in value && !isValidExtensionMap(value.extensions)) {
+    return false;
+  }
+  return true;
 }
 
 export function isValidSuccessPayload(op: string, value: unknown): boolean {

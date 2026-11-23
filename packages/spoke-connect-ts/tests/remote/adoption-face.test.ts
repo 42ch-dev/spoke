@@ -1574,6 +1574,112 @@ describe("served result failure branch + extension validation (E3 / qc3 F-021/F-
   });
 });
 
+// ── Provider Reject receipt details domain (qc1 F-031) ────────────────
+
+describe("provider Reject receipt details domain (F-031)", () => {
+  it("enforces [0, 2^53] on details.adopted_revision and preserves an in-domain receipt", async () => {
+    for (const [adoptedRevision, expectedCode] of [
+      [7, "REVISION_CONFLICT"],
+      [9007199254740992, "REVISION_CONFLICT"],
+      [9007199254740994, "INTERNAL_ERROR"],
+    ] as const) {
+      const service = new AdoptionPortService(
+        {
+          adoptKnowledgeEntry: async () =>
+            spokeReject("REVISION_CONFLICT", "conflict", {
+              adopted_revision: adoptedRevision,
+            }),
+        },
+        DEDUP_ADMISSION,
+        { dedupStore: new InMemoryHistoryDedupStore() },
+      );
+      const result = await service.invoke(
+        "peer_a",
+        "knowledge.adopt",
+        adoptPayload(`k-f031-${adoptedRevision}`),
+      );
+      expect(result.ok, `adopted_revision=${adoptedRevision}`).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe(expectedCode);
+        if (expectedCode === "REVISION_CONFLICT") {
+          expect(result.details).toEqual({ adopted_revision: adoptedRevision });
+        } else {
+          expect(result.details).toEqual({ kind: "transport" });
+        }
+      }
+    }
+  });
+});
+
+// ── Connect-level two-branch adopt payload (qc2 QC2-21 / F-030) ────────
+
+describe("connect-level adoption failure payload (F-030)", () => {
+  it("a served failure envelope passes the client payload gate on first delivery and dedup replay", async () => {
+    const failure = {
+      error: {
+        code: "REVISION_CONFLICT",
+        message: "conflict",
+        details: { adopted_revision: 7 },
+        extensions: { product: { v: 1 } },
+      },
+      extensions: { transport: { trace: "t-1" } },
+    };
+    let calls = 0;
+    const service: RemoteAdoptionService = new AdoptionPortService(
+      {
+        adoptKnowledgeEntry: async () => {
+          calls += 1;
+          return spokeOk(failure as unknown as KnowledgeAdoptResponse);
+        },
+      },
+      DEDUP_ADMISSION,
+    );
+    const dialed = await dialAdoptionHost({
+      clientCapabilities: CLIENT_CAPABILITIES,
+      ports: {
+        knowledge: {
+          store: fixtureScopedStore(fixtureState({})),
+          admission: () =>
+            spokeOk({ scope_id: DESTINATION_SCOPE, extensions: {} }),
+        },
+        asAdoption: () => service,
+      },
+    });
+    const clientScope: Scope = {
+      scope_id: DESTINATION_SCOPE,
+      extensions: {},
+    };
+    const request = adoptPayload(
+      "k-f030",
+    ) as unknown as KnowledgeAdoptRequest;
+    try {
+      const first = await dialed.client.adoptKnowledgeEntry(
+        PRINCIPAL,
+        clientScope,
+        request,
+      );
+      expect(first.ok).toBe(true);
+      if (first.ok) {
+        expect(first.value).toEqual(failure);
+      }
+      const replay = await dialed.client.adoptKnowledgeEntry(
+        PRINCIPAL,
+        clientScope,
+        request,
+      );
+      // The server records the settled failure and replays it verbatim
+      // (no `outcome` member to normalize); the client accepts it again.
+      expect(replay.ok).toBe(true);
+      if (replay.ok) {
+        expect(replay.value).toEqual(failure);
+      }
+      expect(calls).toBe(1);
+    } finally {
+      dialed.close();
+    }
+  });
+});
+
 // ── Destination admission at the serving boundary (C7 / QC2-08) ────────
 
 describe("adoption destination admission (contract Wire-wide rules)", () => {

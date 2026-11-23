@@ -1054,10 +1054,40 @@ export class AdoptionPortService implements RemoteAdoptionService {
     // alias the dedup receipt record (qc3 F-009).
     const outcome = result.ok
       ? validServedAdoptResult(result.value, request.destination_entry_id)
-      : (JSON.parse(JSON.stringify(result)) as SpokeResult<unknown>);
+      : validateAdoptReject(
+          JSON.parse(JSON.stringify(result)) as SpokeResult<unknown>,
+        );
     await this.#dedup.record(dedupKey, payloadDigest, outcome);
     return JSON.parse(JSON.stringify(outcome)) as SpokeResult<unknown>;
   }
+}
+
+/** Provider-fault guard for a `knowledge.adopt` Reject receipt (qc1
+ * F-031): a revision-typed member in `details` (`details.adopted_revision`)
+ * obeys the same `[0, 2^53]` f64-observed domain as every other revision
+ * member, so an out-of-domain value settles as a provider-fault
+ * `INTERNAL_ERROR` (transport kind) instead of reaching the caller. The
+ * reject is otherwise returned verbatim (JS numbers are already the
+ * f64-observed identity). */
+function validateAdoptReject(
+  result: SpokeResult<unknown>,
+): SpokeResult<unknown> {
+  if (result.ok) {
+    return result;
+  }
+  const details = result.details;
+  if (
+    isJsonObject(details) &&
+    "adopted_revision" in details &&
+    !isAdoptExactNonNegativeInteger(details.adopted_revision)
+  ) {
+    return spokeReject(
+      SpokeRejectCode.INTERNAL_ERROR,
+      "adoption provider returned an error details.adopted_revision outside [0, 2^53]",
+      { kind: "transport" },
+    );
+  }
+  return result;
 }
 
 /** `ErrorEnvelope` members (common/error-envelope.schema.json) — any

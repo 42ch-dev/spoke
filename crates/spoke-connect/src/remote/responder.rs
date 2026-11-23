@@ -528,15 +528,9 @@ fn decode_knowledge_call<'a>(
             // integer payload decodes from the borrowed value.
             let entry_members = payload.get("entry").and_then(Value::as_object);
             let needs_rewrite = |revision: Option<&Value>| {
-                revision
-                    .and_then(Value::as_number)
-                    .and_then(|number| number.as_f64().map(|float| (number, float)))
-                    .is_some_and(|(number, float)| {
-                        float.fract() == 0.0
-                            && float >= 0.0
-                            && float <= ADOPT_EXACT_INTEGER_BOUND as f64
-                            && number.as_u64() != Some(float as u64)
-                    })
+                revision.and_then(exact_revision_u64).is_some_and(|rounded| {
+                    revision.and_then(Value::as_u64) != Some(rounded)
+                })
             };
             let rewrite_needed = needs_rewrite(entry_members.and_then(|e| e.get("revision")))
                 || needs_rewrite(
@@ -550,15 +544,9 @@ fn decode_knowledge_call<'a>(
             let decode_payload = if rewrite_needed {
                 normalized_payload = payload.clone();
                 let normalize_revision = |member: Option<&mut Value>| {
-                    if let Some(Value::Number(number)) = member {
-                        if let Some(float) = number.as_f64() {
-                            if float.fract() == 0.0
-                                && float >= 0.0
-                                && float <= ADOPT_EXACT_INTEGER_BOUND as f64
-                            {
-                                *number = serde_json::Number::from(float as u64);
-                            }
-                        }
+                    let Some(member) = member else { return };
+                    if let Some(rounded) = exact_revision_u64(member) {
+                        *member = json!(rounded);
                     }
                 };
                 if let Some(members) = normalized_payload
@@ -2419,7 +2407,19 @@ impl ConnectResponder {
         };
         match result {
             SpokeResult::Ok(value) => self.send_ok_response(doc, value).await?,
-            SpokeResult::Reject(reject) => {
+            SpokeResult::Reject(mut reject) => {
+                // qc1 F-031 — the responder never trusts an arbitrary
+                // `RemoteAdoptionService` implementation: a Reject
+                // receipt's revision-typed detail gets the same
+                // `[0, 2^53]` guard as the served branches, so an
+                // out-of-domain `details.adopted_revision` answers a
+                // provider-fault `INTERNAL_ERROR` instead of travelling
+                // on the wire.
+                if let Some(fault) =
+                    crate::remote::serve_ports::normalize_adopt_reject_details(&mut reject)
+                {
+                    reject = fault;
+                }
                 self.send_reverse_error_envelope(
                     doc,
                     reject.code.as_str(),
@@ -3367,6 +3367,44 @@ mod tests {
             &json!({ "entry": entry, "expected_base_revision": Value::Null }),
             None,
         )
+    }
+
+    /// qc3 F-026 — the put decode normalizes every f64-spelling revision
+    /// member to the identity JavaScript observes, on BOTH branches of the
+    /// conditional copy: an ordinary integer payload decodes from the
+    /// borrowed value, a `3.0` float spelling and a between-f64-integers
+    /// spelling take the rewrite branch. Both branches must produce the
+    /// same decoded call.
+    #[test]
+    fn scoped_put_normalizes_f64_revision_spellings() {
+        for (spelling, expected) in [
+            (json!(3), 3_u64),
+            (json!(3.0), 3_u64),
+            (json!(9007199254740992_u64), 9007199254740992_u64),
+            (json!(9007199254740993_u64), 9007199254740992_u64),
+        ] {
+            let mut entry = minimal_put_entry();
+            entry["revision"] = spelling.clone();
+            let payload = json!({
+                "entry": entry,
+                "expected_base_revision": spelling.clone(),
+            });
+            let call = decode_knowledge_call("port.knowledge.put", &payload, None);
+            let SpokeResult::Ok(KnowledgeCall::PutKnowledgeEntry(entry, base_revision)) = call
+            else {
+                panic!("revision={spelling} must decode")
+            };
+            assert_eq!(
+                entry.revision,
+                Some(expected),
+                "entry.revision={spelling} must decode to the f64-observed identity"
+            );
+            assert_eq!(
+                base_revision,
+                Some(expected),
+                "expected_base_revision={spelling} must decode to the f64-observed identity"
+            );
+        }
     }
 
     /// Every declared nested member is non-nullable: an explicit `null`

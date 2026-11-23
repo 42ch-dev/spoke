@@ -1318,7 +1318,17 @@ impl RemoteAdoptionService for AdoptionPortService {
                 response,
                 request.destination_entry_id.as_deref().map(String::as_str),
             ),
-            SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+            SpokeResult::Reject(mut reject) => {
+                // qc1 F-031 — a provider Reject receipt's revision-typed
+                // detail gets the same domain guard as the served
+                // branches: an out-of-domain `details.adopted_revision`
+                // settles as a provider fault instead of reaching the
+                // wire.
+                if let Some(fault) = normalize_adopt_reject_details(&mut reject) {
+                    reject = fault;
+                }
+                SpokeResult::Reject(reject)
+            }
         };
         // The settled outcome is recorded — success or reject — so a
         // same-key replay never re-executes the adoption.
@@ -1352,15 +1362,51 @@ fn adoption_replay(outcome: SpokeResult<Value>) -> SpokeResult<Value> {
     }
 }
 
+/// The f64-observed exact-integer value of a revision member: `Some(u64)`
+/// when the member is an in-domain integer spelling, `None` otherwise.
+/// One rule shared by the served bounds, the put-payload rewrite and the
+/// reject guard (qc3 F-025/F-026).
+pub(crate) fn exact_revision_u64(value: &Value) -> Option<u64> {
+    let float = value.as_f64()?;
+    (float.fract() == 0.0 && float >= 0.0 && float <= ADOPT_EXACT_INTEGER_BOUND as f64)
+        .then_some(float as u64)
+}
+
+/// Provider-fault guard for a Reject receipt's revision-typed detail
+/// (qc1 F-031): `details.adopted_revision` obeys the same `[0, 2^53]`
+/// f64-observed domain as every other revision member, so an out-of-domain
+/// value settles as a provider-fault `INTERNAL_ERROR` (transport kind)
+/// instead of travelling on the wire; an in-domain integer spelling
+/// normalizes to the identity JavaScript reads. `Some(fault)` means the
+/// receipt is malformed; `None` means it was conformant (normalized in
+/// place when a rewrite applied).
+pub(crate) fn normalize_adopt_reject_details(reject: &mut SpokeReject) -> Option<SpokeReject> {
+    let details = reject.details.as_mut()?;
+    let adopted_revision = details.get_mut("adopted_revision")?;
+    if !revision_in_domain(adopted_revision) {
+        let mut fault_details = Map::new();
+        fault_details.insert("kind".into(), Value::String("transport".into()));
+        return Some(SpokeReject {
+            code: SpokeRejectCode::InternalError,
+            message:
+                "adoption provider returned an error details.adopted_revision outside [0, 2^53]"
+                    .into(),
+            details: Some(fault_details),
+        });
+    }
+    if let Some(rounded) = exact_revision_u64(adopted_revision) {
+        *adopted_revision = json!(rounded);
+    }
+    None
+}
+
 /// Revision-domain rule shared by the served-bound checks: the bound is
 /// evaluated on the f64 VALUE — the same number JavaScript observes —
 /// not the wire token, so an integer spelling between `u64` and its f64
 /// rounding (`9007199254740993` ≡ `9007199254740992.0`) admits or
 /// refuses identically on both stacks (contract E1 / qc3 F-006).
 fn revision_in_domain(value: &Value) -> bool {
-    value.as_f64().is_some_and(|float| {
-        float.fract() == 0.0 && float >= 0.0 && float <= ADOPT_EXACT_INTEGER_BOUND as f64
-    })
+    exact_revision_u64(value).is_some()
 }
 
 /// Served-side adopt-response validation (spoke-knowledge-adoption
@@ -1437,8 +1483,8 @@ fn valid_served_adopt_result(
                     "adoption provider returned an error details.adopted_revision outside [0, 2^53]",
                 );
             }
-            if let Some(float) = adopted_revision.as_f64() {
-                *adopted_revision = json!(float as u64);
+            if let Some(rounded) = exact_revision_u64(adopted_revision) {
+                *adopted_revision = json!(rounded);
             }
         }
         return spoke_ok(emitted);
@@ -1521,15 +1567,9 @@ fn valid_served_adopt_result(
     let mut entry = entry.clone();
     {
         let normalize = |member: Option<&mut Value>| {
-            if let Some(Value::Number(number)) = member {
-                if let Some(float) = number.as_f64() {
-                    if float.fract() == 0.0
-                        && float >= 0.0
-                        && float <= ADOPT_EXACT_INTEGER_BOUND as f64
-                    {
-                        *number = serde_json::Number::from(float as u64);
-                    }
-                }
+            let Some(member) = member else { return };
+            if let Some(rounded) = exact_revision_u64(member) {
+                *member = json!(rounded);
             }
         };
         normalize(entry.get_mut("revision"));
@@ -3100,6 +3140,108 @@ mod history_tests {
             .await,
             "error.details.adopted_revision",
         );
+    }
+
+    /// qc2 QC2-21 (F-030) — the client decode path (`invoke_mapped`'s
+    /// success payload branch) accepts a served failure envelope as
+    /// `Variant1`: a wire-valid `{error, extensions?}` payload is a
+    /// successful port outcome, so the client returns it verbatim (TS
+    /// parity: `isAdoptFailurePayload` in the adapter's payload gate).
+    #[test]
+    fn served_failure_payload_decodes_on_the_client_path() {
+        let decoded = serde_json::from_value::<KnowledgeAdoptResponse>(json!({
+            "error": {
+                "code": "REVISION_CONFLICT",
+                "message": "conflict",
+                "details": { "adopted_revision": 7 },
+                "extensions": { "product": { "v": 1 } },
+            },
+            "extensions": { "transport": { "trace": "t-1" } },
+        }))
+        .expect("a wire-valid failure envelope decodes as Variant1");
+        assert!(matches!(decoded, KnowledgeAdoptResponse::Variant1 { .. }));
+    }
+
+    /// qc1 F-031 — a provider Reject receipt's `details.adopted_revision`
+    /// obeys the same `[0, 2^53]` f64-observed domain as the served
+    /// branches: an out-of-domain value settles as a provider-fault
+    /// `INTERNAL_ERROR`, an in-domain value serves (with the between-f64
+    /// spelling normalized to the identity JavaScript reads).
+    #[tokio::test]
+    async fn served_reject_receipt_enforces_the_details_revision_domain() {
+        struct RejectPort(SpokeReject);
+        #[async_trait]
+        impl AdoptionPort for RejectPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                SpokeResult::Reject(self.0.clone())
+            }
+        }
+        let admission = || admission(scope("spc_local"), principal("prn_peer-a"));
+        let payload = || {
+            let mut payload = adopt_payload(None);
+            payload["source_scope_id"] = json!("spc_local");
+            payload["destination_scope_id"] = json!("spc_local");
+            payload
+        };
+        let serve = |adopted_revision: Value| async move {
+            let mut details = Map::new();
+            details.insert("adopted_revision".into(), adopted_revision);
+            AdoptionPortService::new(
+                Arc::new(RejectPort(SpokeReject {
+                    code: SpokeRejectCode::RevisionConflict,
+                    message: "conflict".into(),
+                    details: Some(details),
+                })),
+                admission(),
+            )
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, payload())
+            .await
+        };
+
+        for (spelling, served_as, expected) in [
+            (json!(7), SpokeRejectCode::RevisionConflict, json!(7)),
+            (
+                json!(9007199254740992_u64),
+                SpokeRejectCode::RevisionConflict,
+                json!(9007199254740992_u64),
+            ),
+            (
+                json!(9007199254740993_u64),
+                SpokeRejectCode::RevisionConflict,
+                json!(9007199254740992_u64),
+            ),
+            (
+                json!(9007199254740994_u64),
+                SpokeRejectCode::InternalError,
+                // The provider fault names the domain; no receipt travels.
+                json!(null),
+            ),
+        ] {
+            let result = serve(spelling.clone()).await;
+            let SpokeResult::Reject(reject) = result else {
+                panic!("adopted_revision={spelling}: receipt must reject: {result:?}")
+            };
+            assert_eq!(reject.code, served_as, "adopted_revision={spelling}");
+            let details = reject.details.expect("details survive");
+            if served_as == SpokeRejectCode::InternalError {
+                assert_eq!(details.get("kind"), Some(&json!("transport")));
+                assert!(
+                    !details.contains_key("adopted_revision"),
+                    "a provider fault carries no receipt: {details:?}"
+                );
+            } else {
+                assert_eq!(
+                    details.get("adopted_revision"),
+                    Some(&expected),
+                    "adopted_revision={spelling}"
+                );
+            }
+        }
     }
 
     /// F-007 fixture: a lookup/record-only dedup store whose every

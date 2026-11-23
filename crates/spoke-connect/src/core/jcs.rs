@@ -20,6 +20,15 @@
 //! components already matched, so an open object (`ErrorEnvelope.details`,
 //! `Relation.metadata`) cannot borrow a component from a sibling path.
 //!
+//! Response owners are per op: a response envelope carries no `op`, so the
+//! caller supplies the request op that produced it and only that op's
+//! response set applies (own-keyed, empty fallback) — a
+//! `knowledge.adopt` response never inherits `payload.deleted` from
+//! `history.revisions.prune`. The adoption `details.adopted_revision`
+//! exception additionally follows its owning discriminator: only a
+//! `REVISION_CONFLICT` branch owns it, so a generic rejection on the same op
+//! keeps the `2^53 − 1` bound.
+//!
 //! The same identity argument covers an integral float: the peer parses
 //! `9007199254740992.0` into the same IEEE-754 number as the integer
 //! spelling, so a non-owning value at `±2^53` refuses whatever its token,
@@ -138,91 +147,214 @@ const REQUEST_REVISION_PATHS: &[(&str, &[RevisionPath])] = &[
     ),
 ];
 
-/// Response paths that own a revision integer — the union over
+/// Response paths that own a revision integer, per op — derived from
 /// `schemas/ops/*-response.schema.json` plus the bare entity payloads of the
-/// `port.*` reads. A response envelope carries no `op`, so the caller
-/// supplies the request op that produced it and the op-scoped additions come
-/// from [`RESPONSE_OP_REVISION_PATHS`]; the direction-wide set here is what
-/// every response owns.
-const RESPONSE_REVISION_PATHS: &[RevisionPath] = &[
-    &["payload", "adoption_anchor", "source_revision"],
-    &["payload", "candidate", "revision"],
-    &[
-        "payload",
-        "candidates",
-        "adoption_anchor",
-        "source_revision",
-    ],
-    &["payload", "candidates", "revision"],
-    &["payload", "chunk", "candidates", "revision"],
-    &["payload", "chunk", "grants", "revision"],
-    &["payload", "chunk", "profiles", "revision"],
-    &[
-        "payload",
-        "chunk",
-        "records",
-        "import_ref",
-        "source_revision",
-    ],
-    &["payload", "chunk", "records", "revision"],
-    &["payload", "chunk", "reflections", "revision"],
-    &["payload", "chunk", "subjects", "revision"],
-    &["payload", "deleted"],
-    &["payload", "entry", "adoption_anchor", "source_revision"],
-    &["payload", "entry", "revision"],
-    &["payload", "floor_revision"],
-    &["payload", "grants", "revision"],
-    &[
-        "payload",
-        "knowledge_entries",
-        "adoption_anchor",
-        "source_revision",
-    ],
-    &["payload", "knowledge_entries", "revision"],
-    &[
-        "payload",
-        "knowledge_entry",
-        "adoption_anchor",
-        "source_revision",
-    ],
-    &["payload", "knowledge_entry", "revision"],
-    &["payload", "profiles", "revision"],
-    &["payload", "receipt", "result", "revision"],
-    &["payload", "record", "import_ref", "source_revision"],
-    &["payload", "record", "revision"],
-    &["payload", "records", "import_ref", "source_revision"],
-    &["payload", "records", "revision"],
-    &["payload", "reflections", "revision"],
-    &["payload", "relation", "revision"],
-    &["payload", "result", "revision"],
-    &["payload", "revision"],
-    &["payload", "snapshot", "revision"],
-    &[
-        "payload",
-        "snapshot",
-        "snapshot",
-        "adoption_anchor",
-        "source_revision",
-    ],
-    &["payload", "snapshot", "snapshot", "revision"],
-    &["payload", "spaces", "revision"],
-    &["payload", "subject", "revision"],
+/// `port.*` reads and writes. A response envelope carries no `op`, so the
+/// caller supplies the request op that produced it and only that op's
+/// response set applies: no response inherits another op's exception
+/// (own-keyed, empty fallback).
+const RESPONSE_REVISION_PATHS: &[(&str, &[RevisionPath])] = &[
+    (
+        "extract",
+        &[
+            &["payload", "candidates", "adoption_anchor", "source_revision"],
+            &["payload", "candidates", "revision"],
+        ],
+    ),
+    (
+        "history.revisions.get",
+        &[
+            &["payload", "snapshot", "revision"],
+            &[
+                "payload",
+                "snapshot",
+                "snapshot",
+                "adoption_anchor",
+                "source_revision",
+            ],
+            &["payload", "snapshot", "snapshot", "revision"],
+        ],
+    ),
+    (
+        "history.revisions.prune",
+        &[&["payload", "deleted"], &["payload", "floor_revision"]],
+    ),
+    (
+        "knowledge.adopt",
+        &[
+            &["payload", "entry", "adoption_anchor", "source_revision"],
+            &["payload", "entry", "revision"],
+        ],
+    ),
+    (
+        "memory.candidates.get",
+        &[&["payload", "candidate", "revision"]],
+    ),
+    (
+        "memory.candidates.list",
+        &[&["payload", "candidates", "revision"]],
+    ),
+    (
+        "memory.exports.get",
+        &[
+            &["payload", "chunk", "candidates", "revision"],
+            &["payload", "chunk", "grants", "revision"],
+            &["payload", "chunk", "profiles", "revision"],
+            &[
+                "payload",
+                "chunk",
+                "records",
+                "import_ref",
+                "source_revision",
+            ],
+            &["payload", "chunk", "records", "revision"],
+            &["payload", "chunk", "reflections", "revision"],
+            &["payload", "chunk", "subjects", "revision"],
+        ],
+    ),
+    ("memory.grants.grant", &[&["payload", "result", "revision"]]),
+    (
+        "memory.grants.list",
+        &[&["payload", "grants", "revision"]],
+    ),
+    (
+        "memory.grants.revoke",
+        &[&["payload", "result", "revision"]],
+    ),
+    (
+        "memory.profile.get",
+        &[&["payload", "profiles", "revision"]],
+    ),
+    (
+        "memory.profile.update",
+        &[&["payload", "result", "revision"]],
+    ),
+    (
+        "memory.recall",
+        &[
+            &["payload", "records", "import_ref", "source_revision"],
+            &["payload", "records", "revision"],
+        ],
+    ),
+    (
+        "memory.receipts.get",
+        &[&["payload", "receipt", "result", "revision"]],
+    ),
+    (
+        "memory.records.create",
+        &[&["payload", "result", "revision"]],
+    ),
+    (
+        "memory.records.get",
+        &[
+            &["payload", "record", "import_ref", "source_revision"],
+            &["payload", "record", "revision"],
+        ],
+    ),
+    (
+        "memory.records.list",
+        &[
+            &["payload", "records", "import_ref", "source_revision"],
+            &["payload", "records", "revision"],
+        ],
+    ),
+    (
+        "memory.records.promote",
+        &[&["payload", "result", "revision"]],
+    ),
+    (
+        "memory.records.update",
+        &[&["payload", "result", "revision"]],
+    ),
+    (
+        "memory.reflections.list",
+        &[&["payload", "reflections", "revision"]],
+    ),
+    (
+        "memory.spaces.freeze",
+        &[&["payload", "result", "revision"]],
+    ),
+    (
+        "memory.spaces.list",
+        &[&["payload", "spaces", "revision"]],
+    ),
+    (
+        "memory.spaces.unfreeze",
+        &[&["payload", "result", "revision"]],
+    ),
+    (
+        "memory.subjects.ensure",
+        &[&["payload", "result", "revision"]],
+    ),
+    (
+        "memory.subjects.fence",
+        &[&["payload", "result", "revision"]],
+    ),
+    (
+        "memory.subjects.get",
+        &[&["payload", "subject", "revision"]],
+    ),
+    (
+        "port.knowledge.get",
+        &[
+            &["payload", "adoption_anchor", "source_revision"],
+            &["payload", "revision"],
+        ],
+    ),
+    (
+        "port.knowledge.put",
+        &[
+            &["payload", "adoption_anchor", "source_revision"],
+            &["payload", "revision"],
+        ],
+    ),
+    ("port.relation.get", &[&["payload", "revision"]]),
+    ("port.relation.put", &[&["payload", "revision"]]),
+    (
+        "port.scope.list_knowledge_entries",
+        &[
+            &["payload", "adoption_anchor", "source_revision"],
+            &["payload", "revision"],
+        ],
+    ),
+    (
+        "promote",
+        &[
+            &[
+                "payload",
+                "knowledge_entry",
+                "adoption_anchor",
+                "source_revision",
+            ],
+            &["payload", "knowledge_entry", "revision"],
+        ],
+    ),
+    ("relate", &[&["payload", "relation", "revision"]]),
+    (
+        "upsert",
+        &[
+            &[
+                "payload",
+                "knowledge_entries",
+                "adoption_anchor",
+                "source_revision",
+            ],
+            &["payload", "knowledge_entries", "revision"],
+        ],
+    ),
 ];
 
-/// Response paths that only one op owns. A response envelope carries no
-/// `op`, so the request op is supplied out-of-band: the adoption refusal
-/// vocabulary (`error.details.adopted_revision`, and the served error branch
-/// `KnowledgeAdoptResponse` carries inside `payload`) belongs to
-/// `knowledge.adopt` alone. An absent or unlisted op contributes nothing
-/// ("own-keyed, empty fallback"), so a generic `INVALID_INPUT` response with
-/// an opaque `details.adopted_revision` owns no revision slot.
-const RESPONSE_OP_REVISION_PATHS: &[(&str, &[RevisionPath])] = &[(
-    "knowledge.adopt",
-    &[
-        &["error", "details", "adopted_revision"],
-        &["payload", "error", "details", "adopted_revision"],
-    ],
-)];
+/// The adoption refusal vocabulary belongs to `REVISION_CONFLICT` alone
+/// (`.agents/specs/protocol/spoke-knowledge-adoption.md` §Refusal
+/// vocabulary): `details.adopted_revision` is that code's exact detail, so a
+/// generic rejection on the same op owns no revision slot. The two owning
+/// response branches are the transport error envelope and the served error
+/// branch `KnowledgeAdoptResponse` carries inside `payload`.
+const ADOPTION_CONFLICT_CODE: &str = "REVISION_CONFLICT";
+const ADOPTION_TRANSPORT_CONFLICT_PATH: RevisionPath =
+    &["error", "details", "adopted_revision"];
+const ADOPTION_SERVED_CONFLICT_PATH: RevisionPath =
+    &["payload", "error", "details", "adopted_revision"];
 
 /// Re-spell an integer `±2^53` as its equal `f64`; every other value keeps
 /// its token.
@@ -238,32 +370,46 @@ pub(crate) fn respell_endpoint(value: &Value) -> Option<Value> {
 }
 
 /// The revision paths of one signed object: a request selects its op's
-/// request paths, a response takes the direction-wide set plus the paths the
-/// supplying request op owns, and a session envelope owns no revision member.
+/// request paths, a response takes only the supplying request op's response
+/// paths plus the adoption `REVISION_CONFLICT` detail when that branch's
+/// discriminator matches, and a session envelope owns no revision member.
 fn revision_paths(
     signed: &Value,
     response_op: Option<&str>,
-) -> (&'static [RevisionPath], &'static [RevisionPath]) {
+) -> (&'static [RevisionPath], Vec<RevisionPath>) {
     if let Some(op) = signed.get("op").and_then(Value::as_str) {
         return (
             REQUEST_REVISION_PATHS
                 .iter()
                 .find_map(|(name, paths)| (*name == op).then_some(*paths))
                 .unwrap_or(&[]),
-            &[],
+            Vec::new(),
         );
     }
     if signed.get("payload").is_some() || signed.get("error").is_some() {
-        let op_paths = response_op
+        let paths = response_op
             .and_then(|op| {
-                RESPONSE_OP_REVISION_PATHS
+                RESPONSE_REVISION_PATHS
                     .iter()
                     .find_map(|(name, paths)| (*name == op).then_some(*paths))
             })
             .unwrap_or(&[]);
-        return (RESPONSE_REVISION_PATHS, op_paths);
+        let mut exceptions = Vec::new();
+        if response_op == Some("knowledge.adopt") {
+            if signed.pointer("/error/code").and_then(Value::as_str)
+                == Some(ADOPTION_CONFLICT_CODE)
+            {
+                exceptions.push(ADOPTION_TRANSPORT_CONFLICT_PATH);
+            }
+            if signed.pointer("/payload/error/code").and_then(Value::as_str)
+                == Some(ADOPTION_CONFLICT_CODE)
+            {
+                exceptions.push(ADOPTION_SERVED_CONFLICT_PATH);
+            }
+        }
+        return (paths, exceptions);
     }
-    (&[], &[])
+    (&[], Vec::new())
 }
 
 /// Refuse an integral float whose parsed value the peer would classify as an
@@ -395,5 +541,5 @@ where
 {
     let signed = serde_json::to_value(value)?;
     let (paths, extra) = revision_paths(&signed, response_op);
-    serde_jcs::to_vec(&respell_paths_with(signed, paths, extra)?)
+    serde_jcs::to_vec(&respell_paths_with(signed, paths, &extra)?)
 }

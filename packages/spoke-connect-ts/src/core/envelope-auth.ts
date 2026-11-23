@@ -299,69 +299,137 @@ const REQUEST_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> 
 };
 
 /**
- * note: response paths that own a revision integer — the direction-wide
- * union of the Rust `RESPONSE_REVISION_PATHS` table. A response envelope
- * carries no op, so the caller supplies the request op that produced it and
- * the op-scoped additions come from `RESPONSE_OP_REVISION_PATHS`.
+ * note: response paths that own a revision integer, per op — mirrors the
+ * Rust `RESPONSE_REVISION_PATHS` table (derived from
+ * `schemas/ops/*-response.schema.json` plus the bare entity payloads of the
+ * `port.*` reads and writes). A response envelope carries no `op`, so the
+ * caller supplies the request op that produced it and only that op's set
+ * applies — own-keyed, empty fallback — so no response inherits another
+ * op's exception.
  */
-const RESPONSE_REVISION_PATHS: readonly RevisionPath[] = [
-  ["payload", "adoption_anchor", "source_revision"],
-  ["payload", "candidate", "revision"],
-  ["payload", "candidates", "adoption_anchor", "source_revision"],
-  ["payload", "candidates", "revision"],
-  ["payload", "chunk", "candidates", "revision"],
-  ["payload", "chunk", "grants", "revision"],
-  ["payload", "chunk", "profiles", "revision"],
-  ["payload", "chunk", "records", "import_ref", "source_revision"],
-  ["payload", "chunk", "records", "revision"],
-  ["payload", "chunk", "reflections", "revision"],
-  ["payload", "chunk", "subjects", "revision"],
-  ["payload", "deleted"],
-  ["payload", "entry", "adoption_anchor", "source_revision"],
-  ["payload", "entry", "revision"],
-  ["payload", "floor_revision"],
-  ["payload", "grants", "revision"],
-  ["payload", "knowledge_entries", "adoption_anchor", "source_revision"],
-  ["payload", "knowledge_entries", "revision"],
-  ["payload", "knowledge_entry", "adoption_anchor", "source_revision"],
-  ["payload", "knowledge_entry", "revision"],
-  ["payload", "profiles", "revision"],
-  ["payload", "receipt", "result", "revision"],
-  ["payload", "record", "import_ref", "source_revision"],
-  ["payload", "record", "revision"],
-  ["payload", "records", "import_ref", "source_revision"],
-  ["payload", "records", "revision"],
-  ["payload", "reflections", "revision"],
-  ["payload", "relation", "revision"],
-  ["payload", "result", "revision"],
-  ["payload", "revision"],
-  ["payload", "snapshot", "revision"],
-  ["payload", "snapshot", "snapshot", "adoption_anchor", "source_revision"],
-  ["payload", "snapshot", "snapshot", "revision"],
-  ["payload", "spaces", "revision"],
-  ["payload", "subject", "revision"],
-];
-
-/**
- * note: response paths that only one op owns (Rust
- * `RESPONSE_OP_REVISION_PATHS`). The adoption refusal vocabulary
- * (`error.details.adopted_revision`, and the served error branch inside
- * `payload`) belongs to `knowledge.adopt` alone; an absent or unlisted op
- * contributes nothing, so a generic `INVALID_INPUT` response with an opaque
- * `details.adopted_revision` owns no revision slot.
- */
-const RESPONSE_OP_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> = {
+const RESPONSE_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> = {
+  extract: [
+    ["payload", "candidates", "adoption_anchor", "source_revision"],
+    ["payload", "candidates", "revision"],
+  ],
+  "history.revisions.get": [
+    ["payload", "snapshot", "revision"],
+    ["payload", "snapshot", "snapshot", "adoption_anchor", "source_revision"],
+    ["payload", "snapshot", "snapshot", "revision"],
+  ],
+  "history.revisions.prune": [["payload", "deleted"], ["payload", "floor_revision"]],
   "knowledge.adopt": [
-    ["error", "details", "adopted_revision"],
-    ["payload", "error", "details", "adopted_revision"],
+    ["payload", "entry", "adoption_anchor", "source_revision"],
+    ["payload", "entry", "revision"],
+  ],
+  "memory.candidates.get": [["payload", "candidate", "revision"]],
+  "memory.candidates.list": [["payload", "candidates", "revision"]],
+  "memory.exports.get": [
+    ["payload", "chunk", "candidates", "revision"],
+    ["payload", "chunk", "grants", "revision"],
+    ["payload", "chunk", "profiles", "revision"],
+    ["payload", "chunk", "records", "import_ref", "source_revision"],
+    ["payload", "chunk", "records", "revision"],
+    ["payload", "chunk", "reflections", "revision"],
+    ["payload", "chunk", "subjects", "revision"],
+  ],
+  "memory.grants.grant": [["payload", "result", "revision"]],
+  "memory.grants.list": [["payload", "grants", "revision"]],
+  "memory.grants.revoke": [["payload", "result", "revision"]],
+  "memory.profile.get": [["payload", "profiles", "revision"]],
+  "memory.profile.update": [["payload", "result", "revision"]],
+  "memory.recall": [
+    ["payload", "records", "import_ref", "source_revision"],
+    ["payload", "records", "revision"],
+  ],
+  "memory.receipts.get": [["payload", "receipt", "result", "revision"]],
+  "memory.records.create": [["payload", "result", "revision"]],
+  "memory.records.get": [
+    ["payload", "record", "import_ref", "source_revision"],
+    ["payload", "record", "revision"],
+  ],
+  "memory.records.list": [
+    ["payload", "records", "import_ref", "source_revision"],
+    ["payload", "records", "revision"],
+  ],
+  "memory.records.promote": [["payload", "result", "revision"]],
+  "memory.records.update": [["payload", "result", "revision"]],
+  "memory.reflections.list": [["payload", "reflections", "revision"]],
+  "memory.spaces.freeze": [["payload", "result", "revision"]],
+  "memory.spaces.list": [["payload", "spaces", "revision"]],
+  "memory.spaces.unfreeze": [["payload", "result", "revision"]],
+  "memory.subjects.ensure": [["payload", "result", "revision"]],
+  "memory.subjects.fence": [["payload", "result", "revision"]],
+  "memory.subjects.get": [["payload", "subject", "revision"]],
+  "port.knowledge.get": [
+    ["payload", "adoption_anchor", "source_revision"],
+    ["payload", "revision"],
+  ],
+  "port.knowledge.put": [
+    ["payload", "adoption_anchor", "source_revision"],
+    ["payload", "revision"],
+  ],
+  "port.relation.get": [["payload", "revision"]],
+  "port.relation.put": [["payload", "revision"]],
+  "port.scope.list_knowledge_entries": [
+    ["payload", "adoption_anchor", "source_revision"],
+    ["payload", "revision"],
+  ],
+  promote: [
+    ["payload", "knowledge_entry", "adoption_anchor", "source_revision"],
+    ["payload", "knowledge_entry", "revision"],
+  ],
+  relate: [["payload", "relation", "revision"]],
+  upsert: [
+    ["payload", "knowledge_entries", "adoption_anchor", "source_revision"],
+    ["payload", "knowledge_entries", "revision"],
   ],
 };
 
-/** note: the response paths the supplying request op owns — own-keyed, empty fallback. */
-function responseOpPaths(op: string | undefined): readonly RevisionPath[] {
-  return op !== undefined && Object.hasOwn(RESPONSE_OP_REVISION_PATHS, op)
-    ? RESPONSE_OP_REVISION_PATHS[op]
-    : NO_REVISION_PATHS;
+/**
+ * note: the adoption refusal vocabulary belongs to `REVISION_CONFLICT`
+ * alone (spoke-knowledge-adoption §Refusal vocabulary), so a generic
+ * rejection on the same op owns no revision slot. Mirrors the Rust
+ * `ADOPTION_*_CONFLICT_PATH` gate.
+ */
+const ADOPTION_CONFLICT_CODE = "REVISION_CONFLICT";
+const ADOPTION_TRANSPORT_CONFLICT_PATH: RevisionPath = [
+  "error",
+  "details",
+  "adopted_revision",
+];
+const ADOPTION_SERVED_CONFLICT_PATH: RevisionPath = [
+  "payload",
+  "error",
+  "details",
+  "adopted_revision",
+];
+
+/** note: the adoption conflict detail, admitted only on its owning discriminator. */
+function adoptionConflictPaths(
+  signedObject: Record<string, unknown>,
+  op: string | undefined,
+): readonly RevisionPath[] {
+  if (op !== "knowledge.adopt") {
+    return NO_REVISION_PATHS;
+  }
+  const codeOf = (value: unknown): unknown =>
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>).code
+      : undefined;
+  const paths: RevisionPath[] = [];
+  if (codeOf(signedObject.error) === ADOPTION_CONFLICT_CODE) {
+    paths.push(ADOPTION_TRANSPORT_CONFLICT_PATH);
+  }
+  const payload = signedObject.payload;
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    codeOf((payload as Record<string, unknown>).error) === ADOPTION_CONFLICT_CODE
+  ) {
+    paths.push(ADOPTION_SERVED_CONFLICT_PATH);
+  }
+  return paths;
 }
 
 /** note: the owning revision paths of one signed object (Rust `revision_paths`). */
@@ -378,10 +446,13 @@ function revisionPaths(
       : NO_REVISION_PATHS;
   }
   if ("payload" in signedObject || "error" in signedObject) {
-    const extra = responseOpPaths(op);
-    return extra.length === 0
-      ? RESPONSE_REVISION_PATHS
-      : [...RESPONSE_REVISION_PATHS, ...extra];
+    // note: own-key lookup — an absent or unlisted op owns no response path.
+    const paths =
+      op !== undefined && Object.hasOwn(RESPONSE_REVISION_PATHS, op)
+        ? RESPONSE_REVISION_PATHS[op]
+        : NO_REVISION_PATHS;
+    const exceptions = adoptionConflictPaths(signedObject, op);
+    return exceptions.length === 0 ? paths : [...paths, ...exceptions];
   }
   return [];
 }

@@ -661,20 +661,124 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
   });
 
   it("admits every owning revision path through its own prefix (D-01)", async () => {
-    const response = await authenticateInvokeResponse(EMITTER_SEED, {
-      session_id: SESSION_ID,
-      sequence: 0,
-      request_id: "req-0001",
-      payload: {
-        adoption_anchor: { source_revision: ENDPOINT },
-        snapshot: {
-          snapshot: { adoption_anchor: { source_revision: ENDPOINT } },
+    for (const [op, payload] of [
+      [
+        "port.knowledge.get",
+        {
+          revision: ENDPOINT,
+          adoption_anchor: { source_revision: ENDPOINT },
         },
-        relation: { revision: ENDPOINT },
-      },
-    });
+      ],
+      [
+        "history.revisions.get",
+        {
+          snapshot: {
+            revision: ENDPOINT,
+            snapshot: { adoption_anchor: { source_revision: ENDPOINT } },
+          },
+        },
+      ],
+      ["relate", { relation: { revision: ENDPOINT } }],
+    ] as const) {
+      const response = await authenticateInvokeResponse(
+        EMITTER_SEED,
+        {
+          session_id: SESSION_ID,
+          sequence: 0,
+          request_id: "req-0001",
+          payload,
+        },
+        {},
+        op,
+      );
+      await expect(
+        verifyInvokeResponseAuth(EMITTER_PUBKEY, response, SESSION_ID, op),
+      ).resolves.toBeUndefined();
+    }
+  });
+
+  it("refuses a generic rejection's `adopted_revision` on the adoption op (F-01)", async () => {
+    for (const code of ["INVALID_INPUT", "NOT_FOUND"]) {
+      // note: only REVISION_CONFLICT owns `details.adopted_revision`, so a
+      // generic refusal on the same op keeps the `2^53 - 1` bound in both
+      // response branches.
+      await expect(
+        authenticateInvokeResponse(
+          EMITTER_SEED,
+          {
+            session_id: SESSION_ID,
+            sequence: 0,
+            request_id: "req-0001",
+            error: {
+              code,
+              message: "a generic refusal",
+              details: { adopted_revision: ENDPOINT },
+              extensions: {},
+            },
+          },
+          {},
+          "knowledge.adopt",
+        ),
+      ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+      await expect(
+        authenticateInvokeResponse(
+          EMITTER_SEED,
+          {
+            session_id: SESSION_ID,
+            sequence: 0,
+            request_id: "req-0001",
+            payload: {
+              error: {
+                code,
+                message: "a generic refusal",
+                details: { adopted_revision: ENDPOINT },
+                extensions: {},
+              },
+              extensions: {},
+            },
+          },
+          {},
+          "knowledge.adopt",
+        ),
+      ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+    }
+  });
+
+  it("refuses an adoption response that inherits the prune exception (F-02)", async () => {
     await expect(
-      verifyInvokeResponseAuth(EMITTER_PUBKEY, response, SESSION_ID),
+      authenticateInvokeResponse(
+        EMITTER_SEED,
+        {
+          session_id: SESSION_ID,
+          sequence: 0,
+          request_id: "req-0001",
+          payload: { outcome: "adopted", entry: { revision: 1 }, deleted: ENDPOINT },
+        },
+        {},
+        "knowledge.adopt",
+      ),
+    ).rejects.toMatchObject({ kind: "envelope_auth_invalid" });
+  });
+
+  it("signs the actual prune response at the endpoint", async () => {
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        payload: { deleted: ENDPOINT, floor_revision: ENDPOINT },
+      },
+      {},
+      "history.revisions.prune",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "history.revisions.prune",
+      ),
     ).resolves.toBeUndefined();
   });
 

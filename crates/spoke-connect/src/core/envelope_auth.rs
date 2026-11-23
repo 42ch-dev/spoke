@@ -1939,21 +1939,26 @@ mod tests {
         }
 
         // Mixed prefix near miss: `payload.snapshot.adoption_anchor` carries no
-        // owning path — only `payload.snapshot.snapshot.adoption_anchor` and
-        // `payload.adoption_anchor` do — so the endpoint refuses instead of
-        // borrowing `adoption_anchor`/`source_revision` from different paths.
-        for near_miss in [
-            serde_json::json!({
-                "snapshot": { "adoption_anchor": { "source_revision": ENDPOINT } },
-            }),
+        // owning path — only `payload.snapshot.snapshot.adoption_anchor` does —
+        // so the endpoint refuses instead of borrowing
+        // `adoption_anchor`/`source_revision` from different paths.
+        for (op, near_miss) in [
+            (
+                "history.revisions.get",
+                serde_json::json!({
+                    "snapshot": { "adoption_anchor": { "source_revision": ENDPOINT } },
+                }),
+            ),
             // `payload.error.details` continues through the served adoption
-            // refusal, but `source_revision` there belongs to
-            // `payload.records.import_ref.source_revision`.
-            serde_json::json!({
-                "error": { "details": { "source_revision": ENDPOINT } },
-            }),
+            // refusal, but only `adopted_revision` terminates there.
+            (
+                "knowledge.adopt",
+                serde_json::json!({
+                    "error": { "details": { "source_revision": ENDPOINT } },
+                }),
+            ),
         ] {
-            let error = authenticate_invoke_response(
+            let error = authenticate_invoke_response_with_op(
                 &emitter_seed(),
                 &InvokeResponseSignInput::Success {
                     session_id: SESSION_ID.to_string(),
@@ -1962,6 +1967,7 @@ mod tests {
                     payload: near_miss.clone(),
                 },
                 Default::default(),
+                Some(op),
             )
             .expect_err("a spliced path owns nothing");
             assert!(
@@ -1970,37 +1976,172 @@ mod tests {
             );
         }
 
-        // The declared owners keep the endpoint, each through its own prefix.
-        let response = authenticate_invoke_response(
+        // The declared owners keep the endpoint, each through its own op's
+        // response set (F-02): a response never inherits another op's paths.
+        for (op, payload, endpoints) in [
+            (
+                "port.knowledge.get",
+                serde_json::json!({
+                    "revision": ENDPOINT,
+                    "adoption_anchor": { "source_revision": ENDPOINT },
+                }),
+                2,
+            ),
+            (
+                "history.revisions.get",
+                serde_json::json!({
+                    "snapshot": {
+                        "revision": ENDPOINT,
+                        "snapshot": { "adoption_anchor": { "source_revision": ENDPOINT } },
+                    },
+                }),
+                2,
+            ),
+            (
+                "relate",
+                serde_json::json!({ "relation": { "revision": ENDPOINT } }),
+                1,
+            ),
+        ] {
+            let response = authenticate_invoke_response_with_op(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Success {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    payload,
+                },
+                Default::default(),
+                Some(op),
+            )
+            .expect("every owning path keeps its endpoint");
+            let wire = wire_of(&response);
+            verify_invoke_response_auth_with_op(&emitter_pubkey(), &wire, SESSION_ID, Some(op))
+                .expect("both sides canonicalize the same bytes");
+            let bytes =
+                crate::core::jcs::canonical_bytes_with_op(&wire, Some(op)).expect("JCS");
+            let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+            assert_eq!(
+                jcs.matches("9007199254740992").count(),
+                endpoints,
+                "{op} owns its endpoint set: {jcs}"
+            );
+        }
+    }
+
+    /// F-01/F-02 — response revision paths are per op, and the adoption
+    /// `details.adopted_revision` exception is gated on its owning
+    /// discriminator. A generic `INVALID_INPUT` on `knowledge.adopt` owns no
+    /// revision slot; a `knowledge.adopt` response never inherits the
+    /// history-prune `payload.deleted` exception; the actual prune response
+    /// still signs.
+    #[test]
+    fn response_revision_paths_are_per_op_and_adoption_conflict_is_gated() {
+        const ENDPOINT: u64 = 9_007_199_254_740_992;
+        const ADOPT: Option<&str> = Some("knowledge.adopt");
+
+        // F-01: only the conflict code owns the endpoint detail. A generic
+        // rejection on the same op keeps the `2^53 - 1` bound in both
+        // response branches.
+        for code in ["INVALID_INPUT", "NOT_FOUND"] {
+            let mut details = serde_json::Map::new();
+            details.insert("adopted_revision".into(), serde_json::json!(ENDPOINT));
+            let error = authenticate_invoke_response_with_op(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Error {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    error: ErrorEnvelope {
+                        code: code.to_string(),
+                        details,
+                        extensions: Default::default(),
+                        message: "a generic refusal".to_string(),
+                    },
+                },
+                Default::default(),
+                ADOPT,
+            )
+            .expect_err("only REVISION_CONFLICT owns details.adopted_revision");
+            assert!(matches!(error, CoreError::Jcs(_)), "{code}: {error:?}");
+
+            let served = authenticate_invoke_response_with_op(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Success {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    payload: serde_json::json!({
+                        "error": {
+                            "code": code,
+                            "message": "a generic refusal",
+                            "details": { "adopted_revision": ENDPOINT },
+                            "extensions": {},
+                        },
+                        "extensions": {},
+                    }),
+                },
+                Default::default(),
+                ADOPT,
+            )
+            .expect_err("the served generic refusal owns no endpoint either");
+            assert!(matches!(served, CoreError::Jcs(_)), "{code}: {served:?}");
+        }
+
+        // F-02: the adoption response owns no `payload.deleted`; the prune
+        // op alone does.
+        let inherited = authenticate_invoke_response_with_op(
             &emitter_seed(),
             &InvokeResponseSignInput::Success {
                 session_id: SESSION_ID.to_string(),
                 sequence: 0,
                 request_id: "req-0001".to_string(),
                 payload: serde_json::json!({
-                    "adoption_anchor": { "source_revision": ENDPOINT },
-                    "snapshot": {
-                        "snapshot": { "adoption_anchor": { "source_revision": ENDPOINT } },
-                    },
-                    "relation": { "revision": ENDPOINT },
+                    "outcome": "adopted",
+                    "entry": { "revision": 1 },
+                    "deleted": ENDPOINT,
                 }),
             },
             Default::default(),
+            ADOPT,
         )
-        .expect("every owning path keeps its endpoint");
-        let wire = wire_of(&response);
-        verify_invoke_response_auth(&emitter_pubkey(), &wire, SESSION_ID)
-            .expect("both sides canonicalize the same bytes");
-        let bytes = crate::core::jcs::canonical_bytes(&wire).expect("JCS");
+        .expect_err("knowledge.adopt does not inherit the prune exception");
+        assert!(matches!(inherited, CoreError::Jcs(_)), "{inherited:?}");
+
+        // The actual prune response still signs and verifies at the endpoint.
+        let prune = authenticate_invoke_response_with_op(
+            &emitter_seed(),
+            &InvokeResponseSignInput::Success {
+                session_id: SESSION_ID.to_string(),
+                sequence: 0,
+                request_id: "req-0001".to_string(),
+                payload: serde_json::json!({
+                    "deleted": ENDPOINT,
+                    "floor_revision": ENDPOINT,
+                }),
+            },
+            Default::default(),
+            Some("history.revisions.prune"),
+        )
+        .expect("the prune response owns deleted and floor_revision");
+        let wire = wire_of(&prune);
+        verify_invoke_response_auth_with_op(
+            &emitter_pubkey(),
+            &wire,
+            SESSION_ID,
+            Some("history.revisions.prune"),
+        )
+        .expect("the prune response verifies");
+        let bytes = crate::core::jcs::canonical_bytes_with_op(
+            &wire,
+            Some("history.revisions.prune"),
+        )
+        .expect("JCS");
         let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
         assert_eq!(
-            jcs.matches("\"source_revision\":9007199254740992").count(),
+            jcs.matches("9007199254740992").count(),
             2,
-            "both adoption anchors own the endpoint: {jcs}"
-        );
-        assert!(
-            jcs.contains("\"revision\":9007199254740992"),
-            "the relation revision owns the endpoint: {jcs}"
+            "the prune endpoints hash as their equal f64: {jcs}"
         );
     }
 

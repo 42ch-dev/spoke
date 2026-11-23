@@ -1050,10 +1050,30 @@ function dispatchPortOp(
     case "port.relation.get":
       return ports.getRelation(payload.relation_id as string);
     case "port.relation.put":
-      return ports.putRelation(
-        payload.relation as Relation,
-        payload.expected_base_revision as number | null,
-      );
+      // note: nullable revision-typed CAS fence — validate the parsed value
+      // against the inclusive `[0, 2^53]` domain BEFORE the provider, as the
+      // knowledge put path and Rust do (qc1 F-004). An absent member decodes
+      // as `null` (create-only), never forwarded raw.
+      {
+        const expected = payload.expected_base_revision;
+        if (
+          expected !== undefined &&
+          expected !== null &&
+          !isRevisionInteger(expected)
+        ) {
+          return Promise.resolve(
+            spokeReject(
+              SpokeRejectCode.INVALID_INPUT,
+              "expected_base_revision must be a non-negative integer within [0, 2^53] or null",
+              { field: "expected_base_revision" },
+            ),
+          );
+        }
+        return ports.putRelation(
+          payload.relation as Relation,
+          (expected ?? null) as number | null,
+        );
+      }
     case "port.scope.list_timeline_events":
       return ports.listTimelineEvents(payload.scope as Scope);
     case "port.finding.put":

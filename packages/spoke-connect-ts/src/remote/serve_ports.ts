@@ -284,21 +284,36 @@ export interface RemoteHistoryService {
 const ADOPT_EXACT_INTEGER_BOUND = 9_007_199_254_740_992; // 2^53, inclusive
 const U64_RANGE_BOUND = 18_446_744_073_709_551_616; // 2^64
 
-function adoptPayloadIntegersExact(value: unknown): boolean {
+function withinExactIntegerBound(value: number, bound: number): boolean {
+  if (!Number.isInteger(value)) {
+    return true;
+  }
+  const magnitude = Math.abs(value);
+  return magnitude <= bound || magnitude >= U64_RANGE_BOUND;
+}
+
+/**
+ * `source_revision` is the sole revision-typed member of the adoption
+ * request, so only the TOP-LEVEL member takes the inclusive `2^53`
+ * endpoint. Every other integral member — product-owned `extensions`
+ * included — keeps the `2^53 - 1` ceiling: Rust hashes the request with
+ * `serde_jcs`, whose integer ceiling stops one below `2^53`, and only
+ * re-spells the top-level `source_revision` (qc2 Important 2). Non-integral
+ * and beyond-`2^64` values keep the pre-existing parsed-value behavior.
+ */
+function adoptPayloadIntegersExact(value: unknown, depth = 0): boolean {
   if (typeof value === "number") {
-    if (!Number.isInteger(value)) {
-      return true;
-    }
-    return (
-      Math.abs(value) <= ADOPT_EXACT_INTEGER_BOUND ||
-      Math.abs(value) >= U64_RANGE_BOUND
-    );
+    return withinExactIntegerBound(value, ADOPT_EXACT_INTEGER_BOUND - 1);
   }
   if (Array.isArray(value)) {
-    return value.every(adoptPayloadIntegersExact);
+    return value.every((item) => adoptPayloadIntegersExact(item, depth + 1));
   }
   if (isJsonObject(value)) {
-    return Object.values(value).every(adoptPayloadIntegersExact);
+    return Object.entries(value).every(([key, member]) =>
+      depth === 0 && key === "source_revision" && typeof member === "number"
+        ? withinExactIntegerBound(member, ADOPT_EXACT_INTEGER_BOUND)
+        : adoptPayloadIntegersExact(member, depth + 1),
+    );
   }
   return true;
 }

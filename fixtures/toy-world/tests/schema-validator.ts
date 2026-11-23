@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { Ajv, type ValidateFunction } from "ajv";
 import * as ajvFormatsModule from "ajv-formats";
 
+import { isStrictTimestamp } from "@42ch/spoke-operations";
+
 type RegisterFormats = (ajv: Ajv) => Ajv;
 
 const addFormats = ajvFormatsModule.default as unknown as RegisterFormats;
@@ -40,6 +42,15 @@ export function createSchemaValidator(): Ajv {
     validateSchema: false,
   });
   addFormats(ajv);
+  // why: the schema's `Timestamp` is the shared strict RFC 3339 grammar, not
+  // stock `ajv-formats` `date-time` — that one admits a space separator and
+  // restricts `:60` to the UTC day boundary, so the schema verdict would
+  // disagree with both runtimes (qc1 F-002 / qc3-03). The shared gate is the
+  // single source of truth; registering it after `addFormats` overrides the
+  // stock `date-time` validator.
+  ajv.addFormat("date-time", {
+    validate: (value: string) => isStrictTimestamp(value),
+  });
 
   for (const schemaPath of collectSchemaFiles(SCHEMAS_ROOT)) {
     const schema = JSON.parse(readFileSync(schemaPath, "utf8")) as {

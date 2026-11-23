@@ -15,13 +15,17 @@
  * schema package's job and is intentionally not duplicated here.
  */
 
+import { isRevisionInteger, isStrictTimestamp } from "@42ch/spoke-operations";
+
 type FieldKind =
   | "string"
   | "number"
   | "object"
   | "array"
   | "boolean"
-  | "datetime";
+  | "datetime"
+  | "schema_version"
+  | "revision";
 
 interface Field {
   name: string;
@@ -36,7 +40,7 @@ interface SuccessShape {
 }
 
 const KNOWLEDGE_ENTRY_FIELDS = [
-  { name: "schema_version", kind: "number" },
+  { name: "schema_version", kind: "schema_version" },
   { name: "entry_id", kind: "string" },
   { name: "entry_type", kind: "string" },
   { name: "canonical_name", kind: "string" },
@@ -46,7 +50,7 @@ const KNOWLEDGE_ENTRY_FIELDS = [
 ] as const satisfies readonly Field[];
 
 const RELATION_FIELDS = [
-  { name: "schema_version", kind: "number" },
+  { name: "schema_version", kind: "schema_version" },
   { name: "relation_id", kind: "string" },
   { name: "relation_type", kind: "string" },
   { name: "from_id", kind: "string" },
@@ -55,7 +59,7 @@ const RELATION_FIELDS = [
 ] as const satisfies readonly Field[];
 
 const FINDING_FIELDS = [
-  { name: "schema_version", kind: "number" },
+  { name: "schema_version", kind: "schema_version" },
   { name: "finding_id", kind: "string" },
   { name: "severity", kind: "string" },
   { name: "status", kind: "string" },
@@ -65,7 +69,7 @@ const FINDING_FIELDS = [
 ] as const satisfies readonly Field[];
 
 const RULE_FIELDS = [
-  { name: "schema_version", kind: "number" },
+  { name: "schema_version", kind: "schema_version" },
   { name: "rule_id", kind: "string" },
   { name: "canonical_name", kind: "string" },
   { name: "kind", kind: "string" },
@@ -73,14 +77,14 @@ const RULE_FIELDS = [
 ] as const satisfies readonly Field[];
 
 const TIMELINE_EVENT_FIELDS = [
-  { name: "schema_version", kind: "number" },
+  { name: "schema_version", kind: "schema_version" },
   { name: "timeline_event_id", kind: "string" },
   { name: "canonical_name", kind: "string" },
   { name: "extensions", kind: "object" },
 ] as const satisfies readonly Field[];
 
 const HOST_MANIFEST_FIELDS = [
-  { name: "schema_version", kind: "number" },
+  { name: "schema_version", kind: "schema_version" },
   { name: "host_id", kind: "string" },
   { name: "roles", kind: "array" },
   { name: "capabilities", kind: "array" },
@@ -92,7 +96,7 @@ const HOST_MANIFEST_FIELDS = [
  * pending, failed) — the base receipt envelope
  * (schemas/data/memory-receipt.schema.json). */
 const MEMORY_RECEIPT_FIELDS = [
-  { name: "schema_version", kind: "number" },
+  { name: "schema_version", kind: "schema_version" },
   { name: "receipt_id", kind: "string" },
   { name: "op", kind: "string" },
   { name: "space_id", kind: "string" },
@@ -246,7 +250,16 @@ function matchesFieldKind(value: unknown, kind: FieldKind): boolean {
     case "boolean":
       return typeof value === "boolean";
     case "datetime":
-      return isRfc3339Timestamp(value);
+      return typeof value === "string" && isStrictTimestamp(value);
+    case "schema_version":
+      // note: SchemaVersion is `[1, 2^53-1]`; `Number.isSafeInteger` is that ceiling.
+      return (
+        typeof value === "number" &&
+        Number.isSafeInteger(value) &&
+        value >= 1
+      );
+    case "revision":
+      return isRevisionInteger(value);
   }
 }
 
@@ -257,59 +270,63 @@ function matchesShape(value: Record<string, unknown>, shape: SuccessShape): bool
   );
 }
 
+/**
+ * note: shared wire scalar domains (spoke-data-model §Shared wire scalars) on
+ * every schema-owned member of an ordinary success payload, at any depth:
+ * `schema_version` `[1, 2^53-1]`, revision-typed integers `[0, 2^53]`,
+ * `created_at`/`updated_at`/`opened_at`/`occurred_at` strict RFC 3339. Rust
+ * enforces the same at typed decode, so the ordinary responses the strict
+ * history/adopt branches do not cover must not surface a wider accept-set
+ * (qc1 F-003). Product-owned bags are opaque JSON — their member names never
+ * take a wire domain (Rust parity: `serde_jcs` alone bounds their integers).
+ */
+const WIRE_SCALAR_MEMBERS: Readonly<Record<string, FieldKind>> = {
+  schema_version: "schema_version",
+  revision: "revision",
+  source_revision: "revision",
+  deleted: "revision",
+  floor_revision: "revision",
+  keep: "revision",
+  expected_base_revision: "revision",
+  created_at: "datetime",
+  updated_at: "datetime",
+  opened_at: "datetime",
+  occurred_at: "datetime",
+};
+
+const OPAQUE_PRODUCT_MEMBERS: Readonly<Record<string, true>> = {
+  extensions: true,
+  metadata: true,
+  state: true,
+  computable: true,
+  modules: true,
+};
+
+function matchesWireScalarDomains(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.every(matchesWireScalarDomains);
+  }
+  if (!isRecord(value)) {
+    return true;
+  }
+  for (const [key, member] of Object.entries(value)) {
+    if (OPAQUE_PRODUCT_MEMBERS[key] === true) {
+      continue;
+    }
+    const kind = WIRE_SCALAR_MEMBERS[key];
+    if (kind !== undefined && !matchesFieldKind(member, kind)) {
+      return false;
+    }
+    if (!matchesWireScalarDomains(member)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 const EXTRACT_RESPONSE_WIRE_KEYS = new Set(["candidates", "run", "extensions"]);
 
 const EXTRACTION_RUN_WIRE_KEYS = new Set(["run_id", "method", "coverage_hint"]);
-
-/** note: chrono `DateTime<Utc>` serde parity — RFC 3339 (`date-time`):
- * full date, `T`/`t` separator (chrono's serde impl accepts both cases),
- * seconds, optional fractional seconds, `Z`/`z` or ±hh:mm offset.
- * `Date.parse` (NaN rejects) covers the ±23:59 offset ceiling; calendar
- * days and clock fields are range-checked here because `Date.parse`
- * normalizes `2026-02-30` and `24:00:00` into valid dates while chrono
- * rejects them, and `Date.parse` rejects second `:60` while chrono
- * accepts leap seconds. */
-const RFC3339_PATTERN =
-  /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
-
-const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
-function isRfc3339Timestamp(value: unknown): value is string {
-  if (typeof value !== "string") {
-    return false;
-  }
-  const match = RFC3339_PATTERN.exec(value);
-  if (match === null) {
-    return false;
-  }
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const hour = Number(match[4]);
-  const minute = Number(match[5]);
-  const second = Number(match[6]);
-  if (hour > 23 || minute > 59 || second > 60) {
-    return false;
-  }
-  // `Date.parse` normalizes out-of-range calendar days (`2026-02-30`
-  // rolls into March) while chrono rejects them, so bound the day here.
-  const daysInMonth =
-    month === 2 && year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
-      ? 29
-      : (MONTH_DAYS[month - 1] ?? 0);
-  if (day < 1 || day > daysInMonth) {
-    return false;
-  }
-  const offset = /([+-])(\d{2}):(\d{2})$/.exec(value);
-  if (offset !== null && (Number(offset[2]) > 23 || Number(offset[3]) > 59)) {
-    return false;
-  }
-  // `:60` leap second is accepted by chrono but NaN in `Date.parse`;
-  // parse the clock one second earlier to reuse the remaining checks.
-  const normalized =
-    second === 60 ? `${value.slice(0, 17)}59${value.slice(19)}` : value;
-  return !Number.isNaN(Date.parse(normalized));
-}
 
 const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
@@ -415,19 +432,11 @@ function isValidExtractSuccessPayload(value: unknown): boolean {
 /**
  * note: every revision-typed wire integer (`revision`, `deleted`,
  * `floor_revision`, `keep`, `expected_base_revision`, `source_revision`,
- * adopted-revision details) is an exact integer in `[0, 2^53]` — the ceiling
- * is `2^53` inclusive, one step beyond `Number.isSafeInteger`
+ * adopted-revision details) shares the operations-layer `[0, 2^53]` gate
  * (spoke-data-model §Shared wire scalars). `sequence` is not a revision
  * integer and keeps its own `2^53-1` bound.
  */
-export function isRevisionInteger(value: unknown): value is number {
-  return (
-    typeof value === "number" &&
-    Number.isInteger(value) &&
-    value >= 0 &&
-    value <= 9_007_199_254_740_992 // 2^53, inclusive
-  );
-}
+export { isRevisionInteger } from "@42ch/spoke-operations";
 
 /**
  * note: strict `RevisionSnapshot` decode (spoke-history contract
@@ -539,7 +548,7 @@ const RELATION_SHAPE: SuccessShape = {
 const KNOWLEDGE_ENTRY_OPTIONAL_FIELDS = [
   { name: "source_anchor", kind: "object" },
   { name: "adoption_anchor", kind: "object" },
-  { name: "revision", kind: "number" },
+  { name: "revision", kind: "revision" },
   { name: "created_at", kind: "datetime" },
   { name: "updated_at", kind: "datetime" },
   { name: "modules", kind: "object" },
@@ -550,13 +559,13 @@ const KNOWLEDGE_ENTRY_OPTIONAL_FIELDS = [
 const RELATION_OPTIONAL_FIELDS = [
   { name: "label", kind: "string" },
   { name: "metadata", kind: "object" },
-  { name: "revision", kind: "number" },
+  { name: "revision", kind: "revision" },
   { name: "created_at", kind: "datetime" },
   { name: "updated_at", kind: "datetime" },
 ] as const satisfies readonly Field[];
 
 const SOURCE_ANCHOR_REQUIRED_FIELDS = [
-  { name: "schema_version", kind: "number" },
+  { name: "schema_version", kind: "schema_version" },
   { name: "source_id", kind: "string" },
   { name: "extensions", kind: "object" },
 ] as const satisfies readonly Field[];
@@ -992,10 +1001,19 @@ export function isValidSuccessPayload(op: string, value: unknown): boolean {
     return isValidExtractSuccessPayload(value);
   }
   if (shape.kind === "object") {
-    return isRecord(value) && matchesShape(value, shape);
+    return (
+      isRecord(value) &&
+      matchesShape(value, shape) &&
+      matchesWireScalarDomains(value)
+    );
   }
   return (
     Array.isArray(value) &&
-    value.every((element) => isRecord(element) && matchesShape(element, shape))
+    value.every(
+      (element) =>
+        isRecord(element) &&
+        matchesShape(element, shape) &&
+        matchesWireScalarDomains(element),
+    )
   );
 }

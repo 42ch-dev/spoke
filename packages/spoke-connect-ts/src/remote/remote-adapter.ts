@@ -112,6 +112,7 @@ import type {
 } from "@42ch/spoke-schemas";
 import {
   fromErrorEnvelope,
+  isStrictTimestamp,
   parseToolCapabilityId,
   SpokeRejectCode,
   spokeOk,
@@ -1958,6 +1959,16 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       }
       if (sessionDoc.initial_sequence !== 0) {
         throw new Error("session snapshot initial_sequence must be 0");
+      }
+      // why: the session snapshot's `opened_at` is a shared wire Timestamp —
+      // the strict RFC 3339 grammar (mandatory offset) is the one contract
+      // (spoke-connect contract §Session snapshot / spoke-data-model §Shared
+      // wire scalars). The shape guard above checks presence only, so an
+      // offsetless spelling must fail the dial before a session exists.
+      if (!isStrictTimestamp(sessionDoc.opened_at)) {
+        throw new Error(
+          `session snapshot opened_at must be a strict RFC 3339 timestamp with an explicit offset (got ${sessionDoc.opened_at})`,
+        );
       }
 
       adapter.#establish(

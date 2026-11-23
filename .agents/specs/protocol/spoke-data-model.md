@@ -481,7 +481,7 @@ Authoritative current values remain in the holder KnowledgeEntry cognition and m
 
 ### Shared wire scalars (normative)
 
-`schemas/common/common.schema.json` owns three scalar domains shared by every wire family: `SchemaVersion`, `Timestamp` and the revision integers. Each is one closed accept-set. The schema validator, the generated types and the runtime validators of both stacks (`spoke-schemas` / `spoke-operations` in TypeScript and Rust) MUST give the same verdict for every value: what one accepts, none refuses, and the other way round.
+`schemas/common/common.schema.json` owns two scalar definitions shared by every wire family: `SchemaVersion` and `Timestamp`. Each is one closed accept-set. The schema validator, the generated types and the runtime validators of both stacks (`spoke-schemas` / `spoke-operations` in TypeScript and Rust) MUST give the same verdict for every value: what one accepts, none refuses, and the other way round. Revision integers are not a common-schema definition: their bounds are carried by the schema of the member that bears them or, for a member with no JSON Schema, by its port contract (§Revision integers).
 
 **`SchemaVersion`.** `common.SchemaVersion` is an integer in the closed interval `[1, 2^53-1]`: at least `1` and at most `9007199254740991`. `9007199254740992` (`2^53`) and every larger value, `0`, negatives and non-integers are refused. Every member named `schema_version` has this type.
 
@@ -520,7 +520,7 @@ Every member typed `Timestamp` — the `created_at` / `updated_at` envelopes, `C
 | `expected_base_revision` | The compare-and-swap fence of a conditional `knowledge.put` / `relation.put` |
 | `source_revision` | The `knowledge.adopt` request and `AdoptionAnchor` |
 
-Other members named `revision` — the per-object optimistic-concurrency counters of the `spoke-memory` objects and the revision pins of `Judgment` evidence references — sit inside the same interval. A member's own schema may narrow the interval (for example `minimum: 1`); it can never widen it. A nullable member (`floor_revision`, `expected_base_revision`) carries the interval whenever it is present.
+Other members named `revision` — the per-object optimistic-concurrency counters of the `spoke-memory` objects, `Judgment.evidence[].revision` and `Judgment.target.revision` (`schemas/data/judgment.schema.json`) — sit inside the same interval. The two `Judgment` members are narrowed to the closed interval `[1, 2^53-1]`: `Judgment.evidence[].revision` is required, `Judgment.target.revision` is optional and carries that interval whenever it is present. A member's own schema may narrow the interval (for example `minimum: 1`); it can never widen it. A nullable member (`floor_revision`, `expected_base_revision`) carries the interval whenever it is present.
 
 ---
 

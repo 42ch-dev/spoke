@@ -181,7 +181,7 @@ Six envelopes — all `type: object`, `additionalProperties: false`, required `e
 | `session_id` | yes | string, minLength 1 | Opaque session id (UUID recommended; not schema-enforced). |
 | `initiator_peer_id` | yes | string, minLength 1 | Peer that dialed / sent first hello. |
 | `responder_peer_id` | yes | string, minLength 1 | Peer that accepted. |
-| `opened_at` | yes | Timestamp (RFC 3339) | Session open time (UTC). |
+| `opened_at` | yes | Timestamp | Session open time, typed `common.Timestamp` (§Shared wire scalars in [`spoke-data-model.md`](../protocol/spoke-data-model.md)): an RFC 3339 `date-time` with its offset present, and any explicit offset the shared grammar admits is valid (`Z`, `+08:00`, `-00:00` alike). |
 | `negotiated_capabilities` | yes | string[], minItems 1, uniqueItems | Intersection (or agreed subset) of both hosts' `capabilities[]`; MUST include `spoke-connect` when both declare it. |
 | `initial_sequence` | yes | integer, minimum 0, **const 0** for protocol versions 1 and 2 | First invoke request uses `sequence = initial_sequence` (i.e. **0**). Runtime validators MUST enforce the `const 0` rule at the wire boundary; generated Rust types do not encode it. |
 | `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-session-jcs-v1`). |

@@ -19,10 +19,10 @@ The repository is the single source of truth: hand-written JSON Schemas, generat
 
 ## What you get
 
-- **One wire dialect** — 11 data objects and 5 baseline op families, with 114 committed JSON Schemas as the source of truth.
+- **One wire dialect** — 14 data objects and 5 baseline op families, with 123 committed JSON Schemas as the source of truth.
 - **Typed clients on both sides** — `@42ch/spoke-schemas` on npm and `spoke-schemas` on crates.io, generated from the same schemas.
 - **Protocol behavior as a library** — `@42ch/spoke-operations` / `spoke-operations` ship pure validators, capability-sliced adapter ports, and `orchestrate*` entrypoints.
-- **Optional capability families** — computable body state, forks, cognition, cross-product modules, extraction, ownership, memory, and signed cross-process connect.
+- **Optional capability families** — computable body state, forks, cognition, cross-product modules, extraction, ownership, memory, signed cross-process connect, revision history, knowledge adoption, and judgment.
 - **A working reference** — `ToyWorldAdapter` in [`fixtures/toy-world/`](fixtures/toy-world/) passes the conformance harness in TypeScript and Rust.
 
 ## Install

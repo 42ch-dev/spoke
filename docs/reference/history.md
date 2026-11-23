@@ -87,15 +87,17 @@ The Connect serving face is `RemoteHistoryService` over a provider `HistoryPort`
 | `HISTORY_TRUNCATED` | The requested revision is below the current retained floor and its checkpoint history was discarded | `{ "floor_revision": integer ≥ 0 }` |
 | `HISTORY_ENTITY_UNSUPPORTED` | Connect admitted the operation but the host does not serve the requested `entity_kind` | `{ "entity_kind": string }` with the exact requested kind |
 | `HISTORY_NOT_RETAINED` | The requested revision is at or above the floor but cannot be reconstructed because of an implementation-declared retention gap | `{ "retention_reason": string }` — provider-supplied, human-readable; the stable code remains authoritative |
-| `capability_missing` | `spoke-history` is absent from the negotiated set (no capability row, or row present but not negotiated) | None; the refusal precedes the handler with no side effects |
-| `op_unsupported` | `spoke-history` is negotiated but the host exposes no history serving face | None; the refusal precedes the handler with no side effects |
+| `capability_missing` | `spoke-history` is absent from the negotiated set, or the request declares a `scope.cognition` requirement while `spoke-cognition` is absent from it; either deny precedes the history face probe | None; the refusal precedes the handler with no side effects |
+| `op_unsupported` | `spoke-history` is negotiated but the host exposes no history serving face (`HistoryPort` service) | None; the refusal precedes the handler with no side effects |
+| `invalid_input` | The request's negotiated `scope.cognition` requirement is unsupported or invalid — an unknown predicate, an unimplemented view/dimension/metric, or an unavailable `recorded_at` view; refused at the dispatch boundary with this lowercase code, distinct from the serving decoder's `INVALID_INPUT` | `{ "reason": "unsupported_cognition_requirement", "field": string }`; `field` is the carrier-relative path, for example `scope.cognition.view` |
 | `INVALID_INPUT` | Malformed request; an absent `idempotency_key` on prune; a `revision` or `keep` value outside the receiving runtime's exact-integer range | `{ "op": string }`; the decoder diagnostic is carried in `message` and callers branch on the code |
 | `NOT_FOUND` | The entity is missing or non-disclosable, or the request `scope` differs from the peer's admitted scope on `history.revisions.get` | None beyond the shared envelope |
 | Entity authorization outcome | A prune caller lacks the selected entity's write permission, or the request `scope` differs from the admitted scope on prune | The entity's existing write-authorization refusal |
 | `STORED_REVISION_STALE` | A conditional entity put names an `expected_base_revision` that does not equal the current row revision; history floor state plays no part | The entity's existing stale-revision details, for example `{ "expectedBaseRevision": 1, "storeRevision": 5 }` |
 | `IDEMPOTENCY_CONFLICT` | A prune retry reuses the same key with a different payload digest | None |
 | `RECEIPT_EXPIRED` | A prune retry replays a key whose recorded outcome was evicted | None |
-| `OUTCOME_UNCERTAIN` | The serve wait exceeds the local budget after invocation, or the service fails after invocation; the provider outcome is unknown | `{ "retry_class": "uncertain", "kind": "timeout" \| "panic" }` |
+| `INTERNAL_ERROR` | A zero serve budget refuses before the history service is invoked; the provider was never called | `{ "kind": "timeout" }` |
+| `OUTCOME_UNCERTAIN` | A non-zero serve budget expires after invocation, or the service fails after invocation; the provider outcome is unknown | `{ "retry_class": "uncertain", "kind": "timeout" \| "panic" }` |
 
 `HISTORY_TRUNCATED`, `HISTORY_ENTITY_UNSUPPORTED`, and `HISTORY_NOT_RETAINED` are new `SpokeRejectCode` members; the remaining codes keep their established meanings.
 

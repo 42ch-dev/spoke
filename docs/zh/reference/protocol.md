@@ -55,7 +55,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 `spoke-cognition` 是单一能力标志。主机只有在实际提供的表面上实现全部强制规则后，才在 `HostCapabilityManifest.capabilities` 中列出它：仅提供 KnowledgeEntry 的主机实现认知模块、`modules.observation` 与 `Scope.cognition` 过滤/投影，无需记忆；同时提供 KnowledgeEntry 与记忆的主机还要满足记忆认知行（记录时点内容校验、过滤的 list/recall、反思依据、传输摘要、擦除）。manifest 字符串本身不是合规证据。
 
-协商复用既有的签名握手交集：仅当两端 manifest 都声明时，`negotiatedCapabilities(local, remote)` 才授予 `spoke-cognition`。基线操作仍要求 `spoke-baseline`；载荷相关的门禁只在被派发的请求携带其声明载体时加入认知要求（`check`、`assemble`、`port.scope.list_knowledge_entries`、`port.scope.list_timeline_events`、`port.fork.list_timeline_events` 上的 `scope.cognition`；`memory.recall`、`memory.records.list` 与三个 `memory.reflections.*` 读取上的 `cognition_filter`）。协商集合缺少该族时，需要它的请求走既有 `capability_missing` 分支且无处理器副作用。未携带可选认知字段的记录仍是普通的缺失数据，不产生错误。
+协商复用既有的签名握手交集：仅当两端 manifest 都声明时，`negotiatedCapabilities(local, remote)` 才授予 `spoke-cognition`。基线操作仍要求 `spoke-baseline`；载荷相关的门禁只在被派发的请求携带其声明载体时加入认知要求（`check`、`assemble`、`port.scope.list_knowledge_entries`、`port.scope.list_timeline_events`、`port.fork.list_timeline_events`、`history.revisions.get` 与 `history.revisions.prune` 上的 `scope.cognition`；`memory.recall`、`memory.records.list` 与三个 `memory.reflections.*` 读取上的 `cognition_filter`）。协商集合缺少该族时，需要它的请求走既有 `capability_missing` 分支且无处理器副作用。未携带可选认知字段的记录仍是普通的缺失数据，不产生错误。
 
 schema 解码后，未知谓词、已知但未实现的视图/维度/指标过滤，或在 KnowledgeEntry 载体上请求记录时点视图，都会通过既有错误信封拒绝整个请求：`code: "invalid_input"`、`message: "Unsupported cognition requirement"`、`details.reason: "unsupported_cognition_requirement"`，`details.field` 指出该要求的载体相对路径。响应中不做静默剥离、不忽略合取、不返回部分结果，也不回退到未过滤输出。
 

@@ -87,15 +87,17 @@ Connect 服务面是 `RemoteHistoryService`，经 `HistoryPortService` 适配提
 | `HISTORY_TRUNCATED` | 所请求修订低于当前保留地板，其检查点历史已被丢弃 | `{ "floor_revision": integer ≥ 0 }` |
 | `HISTORY_ENTITY_UNSUPPORTED` | Connect 已准入该操作，但主机不服务所请求的 `entity_kind` | `{ "entity_kind": string }`，含所请求的确切种类 |
 | `HISTORY_NOT_RETAINED` | 所请求修订位于地板或其上，但因实现声明的保留缺口无法重建 | `{ "retention_reason": string }` —— 提供方给出的可读原因；稳定代码仍是权威 |
-| `capability_missing` | `spoke-history` 不在协商集中（无能力行，或行存在但未协商） | 无；拒绝先于处理方执行且无副作用 |
-| `op_unsupported` | `spoke-history` 已协商，但主机未提供服务历史面 | 无；拒绝先于处理方执行且无副作用 |
+| `capability_missing` | `spoke-history` 不在协商集中，或请求声明了 `scope.cognition` 要求而 `spoke-cognition` 不在协商集中；两种拒绝都先于历史服务面探测 | 无；拒绝先于处理方执行且无副作用 |
+| `op_unsupported` | `spoke-history` 已协商，但主机未提供服务历史面（`HistoryPort` 服务） | 无；拒绝先于处理方执行且无副作用 |
+| `invalid_input` | 请求已协商的 `scope.cognition` 要求不受支持或无效 —— 未知谓词、未实现的视图/维度/指标，或 `recorded_at` 这类不可用的视图；在分派边界以该小写代码拒绝，区别于服务解码器的 `INVALID_INPUT` | `{ "reason": "unsupported_cognition_requirement", "field": string }`；`field` 为载体相对路径，例如 `scope.cognition.view` |
 | `INVALID_INPUT` | 请求畸形；裁剪缺 `idempotency_key`；`revision` 或 `keep` 超出接收运行时的精确整数范围 | `{ "op": string }`；解码器诊断放在 `message` 中，调用方按代码分支 |
 | `NOT_FOUND` | 实体缺失或不可披露，或 `history.revisions.get` 的请求 `scope` 与对等节点准入作用域不一致 | 共享信封之外无额外成员 |
 | 实体授权结果 | 裁剪调用方缺少所选实体的写权限，或裁剪请求 `scope` 与准入作用域不一致 | 实体既有的写授权拒绝 |
 | `STORED_REVISION_STALE` | 条件实体 put 的 `expected_base_revision` 不等于当前行修订；历史地板状态不参与 | 实体既有的过期修订细节，例如 `{ "expectedBaseRevision": 1, "storeRevision": 5 }` |
 | `IDEMPOTENCY_CONFLICT` | 裁剪重试复用同一键但载荷摘要不同 | 无 |
 | `RECEIPT_EXPIRED` | 裁剪重试重放其记录结果已被逐出的键 | 无 |
-| `OUTCOME_UNCERTAIN` | 调用后服务等待超出本地预算，或调用后服务失败；提供方结果未知 | `{ "retry_class": "uncertain", "kind": "timeout" \| "panic" }` |
+| `INTERNAL_ERROR` | serve 预算为零，响应方在调用历史服务之前拒绝；提供方从未被调用 | `{ "kind": "timeout" }` |
+| `OUTCOME_UNCERTAIN` | 非零 serve 等待在调用后超出本地预算，或调用后服务失败；提供方结果未知 | `{ "retry_class": "uncertain", "kind": "timeout" \| "panic" }` |
 
 `HISTORY_TRUNCATED`、`HISTORY_ENTITY_UNSUPPORTED` 与 `HISTORY_NOT_RETAINED` 是新增的 `SpokeRejectCode` 成员；其余代码保持既有含义。
 

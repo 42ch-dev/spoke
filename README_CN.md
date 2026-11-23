@@ -19,10 +19,10 @@
 
 ## 你能得到什么
 
-- **一套线上方言** —— 11 个数据对象与 5 个基线 op 族，以 114 个已提交的 JSON Schema 为唯一事实来源。
+- **一套线上方言** —— 14 个数据对象与 5 个基线 op 族，以 123 个已提交的 JSON Schema 为唯一事实来源。
 - **两侧的类型化客户端** —— npm 上的 `@42ch/spoke-schemas` 与 crates.io 上的 `spoke-schemas`，由同一份 schema 生成。
 - **作为库的协议行为** —— `@42ch/spoke-operations` / `spoke-operations` 提供纯校验器、按能力切片的 adapter port，以及 `orchestrate*` 入口。
-- **可选能力族** —— 可计算 body 状态、分支、认知、跨产品模块、抽取、归属、记忆，以及签名的跨进程 connect。
+- **可选能力族** —— 可计算 body 状态、分支、认知、跨产品模块、抽取、归属、记忆、签名的跨进程 connect、修订历史、知识采纳，以及判定。
 - **可运行参考实现** —— [`fixtures/toy-world/`](fixtures/toy-world/) 中的 `ToyWorldAdapter` 通过 TypeScript 与 Rust 一致性测试。
 
 ## 安装

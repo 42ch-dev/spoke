@@ -378,9 +378,9 @@ mod tests {
         .is_reject());
     }
 
-    /// The provenance anchors carry their own `schema_version` members;
-    /// the entry's SchemaVersion ceiling binds them — `2^53` refuses,
-    /// `2^53-1` is accepted.
+    /// The provenance anchors carry their own `schema_version` members; the
+    /// entry's SchemaVersion ceiling binds them — `2^53` is refused by the
+    /// generated carrier decode, `2^53-1` is accepted.
     #[test]
     fn enforces_nested_anchor_schema_version_ceiling() {
         for field in ["source_anchor", "adoption_anchor"] {
@@ -398,29 +398,21 @@ mod tests {
                     "extensions": {},
                 }),
             };
-            let candidate = |version: u64| {
+            let decode = |version: u64| {
                 let mut wire = serde_json::to_value(make_knowledge_entry(|entry| {
                     entry.entry_id = "kb_new".into();
                 }))
                 .expect("serializable");
                 wire[field] = anchor(version);
-                serde_json::from_value::<KnowledgeEntry>(wire).expect("decodes")
+                serde_json::from_value::<KnowledgeEntry>(wire)
             };
             assert!(
-                validate_upsert_knowledge_entry(
-                    &candidate(MAX_SCHEMA_VERSION),
-                    ValidateUpsertKnowledgeEntryContext::default()
-                )
-                .is_ok(),
-                "{field} schema_version 2^53-1 must be accepted"
+                decode(MAX_SCHEMA_VERSION).is_ok(),
+                "{field} schema_version 2^53-1 must decode"
             );
             assert!(
-                validate_upsert_knowledge_entry(
-                    &candidate(MAX_SCHEMA_VERSION + 1),
-                    ValidateUpsertKnowledgeEntryContext::default()
-                )
-                .is_reject(),
-                "{field} schema_version 2^53 must be refused"
+                decode(MAX_SCHEMA_VERSION + 1).is_err(),
+                "{field} schema_version 2^53 must be refused at decode"
             );
         }
     }

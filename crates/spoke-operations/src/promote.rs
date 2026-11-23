@@ -393,6 +393,25 @@ mod tests {
         }
     }
 
+    /// The revision domain is asserted on the parsed value: an integral-float
+    /// spelling is admitted, while an exact integer past `2^53` refuses
+    /// instead of rounding back into the domain (qc3-05).
+    #[test]
+    fn revision_gate_accepts_integral_floats_and_refuses_exact_overflow() {
+        for accepted in [json!(3.0), json!(9_007_199_254_740_992.0)] {
+            let wire = candidate_wire(|candidate| {
+                candidate.insert("revision".into(), accepted.clone());
+            });
+            assert!(validate_promote_request_wire(&wire).is_ok(), "{accepted}");
+        }
+        for refused in [json!(9007199254740993_u64), json!(1.5)] {
+            let wire = candidate_wire(|candidate| {
+                candidate.insert("revision".into(), refused.clone());
+            });
+            assert!(validate_promote_request_wire(&wire).is_reject(), "{refused}");
+        }
+    }
+
     #[test]
     fn promotes_provisional_candidate_to_confirmed() {
         let result = apply_promote_acceptance(&make_request(|_| {}));

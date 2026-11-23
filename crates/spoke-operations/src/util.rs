@@ -92,7 +92,9 @@ pub(crate) const MAX_REVISION: u64 = 1 << 53;
 
 /// Validate wire `revision` per promote rules (TS `validateRevision`):
 /// omitted or `null` is fine, otherwise a non-negative integer in the
-/// inclusive `[0, 2^53]` revision domain.
+/// inclusive `[0, 2^53]` revision domain. An exact integer token is
+/// compared as itself (an exact `2^53 + 1` refuses); only an integral float
+/// spelling falls back to its parsed value.
 pub(crate) fn validate_revision_wire(revision: Option<&Value>) -> SpokeResult<()> {
     let Some(value) = revision else {
         return spoke_ok_unit();
@@ -102,9 +104,12 @@ pub(crate) fn validate_revision_wire(revision: Option<&Value>) -> SpokeResult<()
         return spoke_ok_unit();
     }
 
-    let in_domain = value
-        .as_u64()
-        .is_some_and(|revision| revision <= MAX_REVISION);
+    let in_domain = match value.as_u64() {
+        Some(revision) => revision <= MAX_REVISION,
+        None => value.as_f64().is_some_and(|revision| {
+            revision.fract() == 0.0 && (0.0..=MAX_REVISION as f64).contains(&revision)
+        }),
+    };
 
     if in_domain {
         return spoke_ok_unit();

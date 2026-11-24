@@ -425,7 +425,7 @@ jobs:
           SOURCE_REVISION="$(git log -1 --format=%H -- \
             Cargo.toml Cargo.lock .cargo rust-toolchain rust-toolchain.toml \
             crates/spoke-connect crates/spoke-schemas crates/spoke-operations \
-            Package.swift "${EXCLUDES[@]}" || true)"
+            "${EXCLUDES[@]}" || true)"
           RECIPE_REVISION="$(git log -1 --format=%H -- \
             tooling/connect/build-swift-xcframework.sh \
             tooling/connect/xcframework-manifest.sh \

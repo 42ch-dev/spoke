@@ -6,6 +6,95 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.18.1] - 2026-11-24
+
+
+### Changed
+
+- **wire:** Pin the TS and AJV boundary verdicts for the closed domains
+
+
+### Documentation
+
+- **specs:** Close the SchemaVersion, Timestamp and revision integer domains
+
+- **specs:** Resolve Timestamp offset wording and revision ownership
+
+- **specs:** State the host representability limit for revision integers
+
+- **specs:** Qualify the Connect revision bound by parsed value
+
+- **knowledge:** Capture the wire scalar boundary closure pattern
+
+
+### Fixed
+
+- **schemas:** Enforce the strict Timestamp grammar and exact integer bounds
+
+- **consumers:** Enforce SchemaVersion ceiling and leap-second parity
+
+- **codegen:** Detect chrono DateTime newtypes independent of path spelling
+
+- **consumers:** Strict timestamps and closed integer domains in Rust
+
+- **wire:** Accept keep=2^53 at the prune digest and gate nested schema versions
+
+- **wire:** Normalize the adoption 2^53 digest and scope the prune endpoint admission
+
+- **wire:** Scope adoption 2^53 digest widening to source_revision
+
+- **wire:** Enforce version and revision ceilings in generated Rust
+
+- **connect:** Canonicalize the revision endpoint through signed envelopes and exact gates
+
+- **wire:** Enable TS Connect and operations with the closed wire scalar domains
+
+- **wire:** Follow owning shapes for wire scalars and refuse malformed relation payloads
+
+- **schemas:** Decode revision integers by their parsed value
+
+- **connect:** Compare revision slots exactly and gate the signed endpoint
+
+- **operations:** Admit integral-float revisions on the promote gate
+
+- **connect:** Canonicalize only owning revision wire paths
+
+- **connect-ts:** Gate signed revision members and bound export chunk scalars
+
+- **connect:** Carry only matched revision path prefixes and refuse opaque endpoint floats
+
+- **connect-ts:** Match revision paths by prefix and own keys
+
+- **connect:** Refuse prune digest normalization errors as INVALID_INPUT
+
+- **connect:** Scope adoption response revision paths to their op
+
+- **connect:** Scope response revision paths per op and gate adoption to REVISION_CONFLICT
+
+- **connect:** Keep prune digest opaque numeric domain
+
+- **connect:** Select response revision paths by variant
+
+- **connect:** Admit Finding.text_position, memory record scalars and reverse-invoke revisions
+
+- **connect:** Serve response revision paths under the reverse-invoke wrapper
+
+- **wire:** Single ceiling source, one revision decode owner, leap-day pin
+
+- **connect:** Refresh C++ native provenance and carriers
+
+
+### Internal
+
+- **connect:** Align xcframework producer and freshness path sets
+
+- **connect:** Drop Package.swift from the xcframework freshness source set
+
+
+### build
+
+- **connect:** Refresh xcframework provenance from run 45297296580
+
 ## [0.18.0] - 2026-11-23
 
 

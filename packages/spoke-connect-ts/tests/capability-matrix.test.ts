@@ -29,6 +29,21 @@ const MATRIX = JSON.parse(
   readFileSync(fileURLToPath(new URL("./fixtures/capability-matrix.json", import.meta.url)), "utf8"),
 ) as { schema_version: number; cases: CapabilityCase[] };
 
+// note: both harnesses read these exact bytes — Rust embeds the SSOT with
+// `include_str!`, this copy is byte-checked against it here (the sync gate
+// enforces the same rule outside the test run).
+const TS_FIXTURE_BYTES = readFileSync(
+  fileURLToPath(new URL("./fixtures/capability-matrix.json", import.meta.url)),
+);
+const RUST_FIXTURE_BYTES = readFileSync(
+  fileURLToPath(
+    new URL(
+      "../../../crates/spoke-connect/tests/fixtures/capability-matrix.json",
+      import.meta.url,
+    ),
+  ),
+);
+
 function tableRequirement(row: CapabilityCase): string | undefined {
   return row.table === "core"
     ? requiredCapability(row.op)
@@ -62,6 +77,10 @@ function candidate(negotiated: string[]): SelectablePeer {
 }
 
 describe("shared capability matrix", () => {
+  it("is byte-identical to the Rust fixture", () => {
+    expect(TS_FIXTURE_BYTES.equals(RUST_FIXTURE_BYTES)).toBe(true);
+  });
+
   it("carries schema_version 1 rows", () => {
     expect(MATRIX.schema_version).toBe(1);
     expect(MATRIX.cases.length).toBeGreaterThan(0);

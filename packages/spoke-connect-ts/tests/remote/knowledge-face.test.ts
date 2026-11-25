@@ -23,6 +23,7 @@ import {
   capabilitySatisfies,
   CAPABILITY_SPOKE_BASELINE,
   CAPABILITY_SPOKE_KNOWLEDGE,
+  CAPABILITY_SPOKE_KNOWLEDGE_SCOPED,
 } from "../../src/core/dispatch.js";
 import {
   connectMultiPeerRouter,
@@ -211,6 +212,9 @@ async function dialKnowledgeOnlyHost(options: {
   admission: (peerId: string, scopeId?: string) => SpokeResult<Scope>;
   clientSeed: Uint8Array;
   clientCapabilities: string[];
+  hostCapabilities?: string[];
+  /** When set, every client->host frame that is an invoke request is pushed here. */
+  sentRequests?: Array<{ op: string; payload?: unknown }>;
   storeCalls?: string[];
   storeGate?: Promise<void>;
   storeRejectOn?: "put" | "get";
@@ -223,10 +227,28 @@ async function dialKnowledgeOnlyHost(options: {
   const clientPubkey = getPublicKeyEd25519(options.clientSeed);
   const clientPeerId = derivePeerIdFromEd25519Pubkey(clientPubkey);
   const pair = loopbackTransportPair();
+  const sent = options.sentRequests;
+  const clientTransport: Transport =
+    sent === undefined
+      ? pair.client
+      : {
+          send: (envelope) => {
+            const frame = decodeJsonMessage(envelope) as Record<string, unknown>;
+            if (typeof frame.op === "string") {
+              sent.push({ op: frame.op, payload: frame.payload });
+            }
+            return pair.client.send(envelope);
+          },
+          recv: () => pair.client.recv(),
+          close: () => pair.client.close(),
+        };
   const host = await connectResponder({
     transport: pair.server,
     identity: { seed: hostSeed },
-    manifest: manifest("knowledge-host", ["spoke-knowledge"]),
+    manifest: manifest(
+      "knowledge-host",
+      options.hostCapabilities ?? ["spoke-knowledge"],
+    ),
     allowlist: [clientPeerId],
     peerKeys: { [clientPeerId]: clientPubkey },
     ports: knowledgeOnlyServePorts(
@@ -241,7 +263,7 @@ async function dialKnowledgeOnlyHost(options: {
     invokeTimeoutMs: options.invokeTimeoutMs,
   });
   const client = await connectRemoteAdapter({
-    transport: pair.client,
+    transport: clientTransport,
     localIdentity: { seed: options.clientSeed },
     localManifest: manifest("client", options.clientCapabilities),
     remotePubkey: hostPubkey,
@@ -848,7 +870,10 @@ describe("knowledge-only responder", () => {
 });
 
 describe("knowledge dispatch pre-validation and refusals", () => {
-  async function dialRawKnowledgeHost(ports: unknown): Promise<{
+  async function dialRawKnowledgeHost(
+    ports: unknown,
+    capabilities: string[] = ["spoke-knowledge"],
+  ): Promise<{
     responder: ConnectResponder;
     clientEnd: Transport;
     sessionId: string;
@@ -868,7 +893,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
     const responder = await connectResponder({
       transport: pair.server,
       identity: { seed: hostSeed },
-      manifest: manifest("knowledge-host", ["spoke-knowledge"]),
+      manifest: manifest("knowledge-host", capabilities),
       allowlist: [clientPeerId],
       peerKeys: { [clientPeerId]: clientPubkey },
       ports: ports as RemoteServePorts | undefined,
@@ -881,7 +906,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
           await signHelloEd25519(
             clientSeed,
             nonce,
-            manifest("client", ["spoke-knowledge"]),
+            manifest("client", capabilities),
           ),
         ),
       ),
@@ -913,7 +938,9 @@ describe("knowledge dispatch pre-validation and refusals", () => {
     requestId: string,
     op: string,
     payload: Record<string, unknown>,
-  ): Promise<{ error?: { code?: string; details?: Record<string, unknown> } }> {
+  ): Promise<{
+    error?: { code?: string; message?: string; details?: Record<string, unknown> };
+  }> {
     const request = await authenticateInvokeRequest(clientSeed, {
       session_id: sessionId,
       sequence,
@@ -923,7 +950,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
     });
     await clientEnd.send(textEncoder.encode(encodeJsonMessage(request)));
     return decodeJsonMessage(await clientEnd.recv()) as {
-      error?: { code?: string; details?: Record<string, unknown> };
+      error?: { code?: string; message?: string; details?: Record<string, unknown> };
     };
   }
 
@@ -1335,6 +1362,243 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(baselineDenied.error?.code).toBe("op_unsupported");
       expect(admissionCalls).toHaveLength(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("refuses an unnegotiated scope with op_unsupported, and a malformed one is INVALID_INPUT first (A2-D3)", async () => {
+    const malformedCognition = {
+      scope_id: "scope_a",
+      cognition: { bogus: 1 },
+    };
+    const wellFormedCognition = {
+      scope_id: "scope_a",
+      cognition: { view: "recorded_at", filter: {} },
+    };
+
+    // No marker negotiated: the shape check still answers first.
+    const admissionCalls: string[] = [];
+    const storeCalls: string[] = [];
+    const face = scopedStoreFace(
+      (peerId) => {
+        admissionCalls.push(peerId);
+        return spokeOk(SCOPE_A);
+      },
+      storeCalls,
+    );
+    const host = await dialRawKnowledgeHost(knowledgeOnlyServePorts(face));
+    try {
+      for (const [sequence, payload] of [
+        [0, { entry_id: "kb_a", scope: null }],
+        [1, { entry_id: "kb_a", scope: malformedCognition }],
+      ] as const) {
+        const invalid = await rawInvoke(
+          host.clientEnd,
+          seed(0x10),
+          host.sessionId,
+          sequence,
+          `scoped-shape-${sequence}`,
+          "port.knowledge.get",
+          payload,
+        );
+        expect(invalid.error?.code).toBe("INVALID_INPUT");
+      }
+      const refused = await rawInvoke(
+        host.clientEnd,
+        seed(0x10),
+        host.sessionId,
+        2,
+        "scoped-marker-absent",
+        "port.knowledge.get",
+        { entry_id: "kb_a", scope: { scope_id: "scope_a" } },
+      );
+      expect(refused.error?.code).toBe("op_unsupported");
+      expect(refused.error?.message).toContain("spoke-knowledge-scoped");
+      expect(admissionCalls).toHaveLength(0);
+      expect(storeCalls).toHaveLength(0);
+    } finally {
+      host.close();
+    }
+
+    // Marker negotiated: a malformed cognition subtree stays an input failure,
+    // while a well-formed but unavailable requirement keeps its §2.2 diagnosis.
+    const scoped = await dialRawKnowledgeHost(knowledgeOnlyServePorts(face), [
+      "spoke-knowledge",
+      "spoke-knowledge-scoped",
+    ]);
+    try {
+      const invalid = await rawInvoke(
+        scoped.clientEnd,
+        seed(0x10),
+        scoped.sessionId,
+        0,
+        "scoped-malformed-cognition",
+        "port.knowledge.get",
+        { entry_id: "kb_a", scope: malformedCognition },
+      );
+      expect(invalid.error?.code).toBe("INVALID_INPUT");
+
+      const unavailable = await rawInvoke(
+        scoped.clientEnd,
+        seed(0x10),
+        scoped.sessionId,
+        1,
+        "scoped-unavailable-view",
+        "port.knowledge.get",
+        { entry_id: "kb_a", scope: wellFormedCognition },
+      );
+      // note: no `spoke-cognition` family negotiated — the family refusal owns
+      // a well-formed requirement, and the shape still owned the malformed one.
+      expect(unavailable.error?.code).toBe("capability_missing");
+      expect(admissionCalls).toHaveLength(0);
+    } finally {
+      scoped.close();
+    }
+  });
+});
+
+describe("scoped knowledge get/put (A2)", () => {
+  const SCOPED = ["spoke-knowledge", CAPABILITY_SPOKE_KNOWLEDGE_SCOPED];
+
+  it("sends the declared scope when negotiated and passes its selector to admission", async () => {
+    const sent: Array<{ op: string; payload?: unknown }> = [];
+    const seen: Array<string | undefined> = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: (_peerId, scopeId) => {
+        seen.push(scopeId);
+        return spokeOk(SCOPE_A);
+      },
+      clientSeed: seed(0x10),
+      clientCapabilities: SCOPED,
+      hostCapabilities: SCOPED,
+      sentRequests: sent,
+    });
+    try {
+      const put = await client.putKnowledgeEntryInScope(
+        entry("kb_scope"),
+        null,
+        SCOPE_A,
+      );
+      expect(put.ok).toBe(true);
+      const got = await client.getKnowledgeEntryInScope("kb_scope", SCOPE_A);
+      expect(got.ok).toBe(true);
+
+      // The admission saw the declared selector and the wire carried the
+      // member — no silent drop on either side.
+      expect(seen).toEqual(["scope_a", "scope_a"]);
+      expect(sent.map((frame) => frame.op)).toEqual([
+        "port.knowledge.put",
+        "port.knowledge.get",
+      ]);
+      for (const frame of sent) {
+        const payload = frame.payload;
+        const scope =
+          typeof payload === "object" && payload !== null && "scope" in payload
+            ? payload.scope
+            : undefined;
+        expect(scope, frame.op).toMatchObject({ scope_id: "scope_a" });
+      }
+    } finally {
+      close();
+    }
+  });
+
+  it("an absent scope keeps the 0.18.1 payload", async () => {
+    const sent: Array<{ op: string; payload?: unknown }> = [];
+    const seen: Array<string | undefined> = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: (_peerId, scopeId) => {
+        seen.push(scopeId);
+        return spokeOk(SCOPE_A);
+      },
+      clientSeed: seed(0x10),
+      clientCapabilities: SCOPED,
+      hostCapabilities: SCOPED,
+      sentRequests: sent,
+    });
+    try {
+      expect(
+        (await client.putKnowledgeEntryInScope(entry("kb_plain"), null, null))
+          .ok,
+      ).toBe(true);
+      expect((await client.getKnowledgeEntryInScope("kb_plain", null)).ok).toBe(
+        true,
+      );
+      expect(seen).toEqual([undefined, undefined]);
+      for (const frame of sent) {
+        const payload = frame.payload;
+        expect(
+          typeof payload === "object" && payload !== null && "scope" in payload,
+          frame.op,
+        ).toBe(false);
+      }
+    } finally {
+      close();
+    }
+  });
+
+  it("a mismatched scope is NOT_AUTHORIZED before the store", async () => {
+    const seen: Array<string | undefined> = [];
+    const storeCalls: string[] = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: (_peerId, scopeId) => {
+        seen.push(scopeId);
+        return spokeOk(SCOPE_A);
+      },
+      clientSeed: seed(0x10),
+      clientCapabilities: SCOPED,
+      hostCapabilities: SCOPED,
+      storeCalls,
+    });
+    try {
+      for (const result of [
+        await client.getKnowledgeEntryInScope("kb_other", SCOPE_B),
+        await client.putKnowledgeEntryInScope(entry("kb_other"), null, SCOPE_B),
+      ]) {
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.code).toBe("NOT_AUTHORIZED");
+          expect(result.message).toBe("knowledge scope not authorized");
+        }
+      }
+      expect(storeCalls).toHaveLength(0);
+      expect(seen).toEqual(["scope_b", "scope_b"]);
+    } finally {
+      close();
+    }
+  });
+
+  it("a caller-named scope without the marker refuses locally without sending", async () => {
+    const sent: Array<{ op: string; payload?: unknown }> = [];
+    const seen: Array<string | undefined> = [];
+    const storeCalls: string[] = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: (_peerId, scopeId) => {
+        seen.push(scopeId);
+        return spokeOk(SCOPE_A);
+      },
+      clientSeed: seed(0x10),
+      clientCapabilities: ["spoke-knowledge"],
+      sentRequests: sent,
+      storeCalls,
+    });
+    try {
+      for (const result of [
+        await client.getKnowledgeEntryInScope("kb_local", SCOPE_A),
+        await client.putKnowledgeEntryInScope(entry("kb_local"), null, SCOPE_A),
+      ]) {
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.code).toBe("CAPABILITY_PORT_MISSING");
+          expect(result.message).toContain(CAPABILITY_SPOKE_KNOWLEDGE_SCOPED);
+          expect(result.details?.wire_code).toBe("op_unsupported");
+        }
+      }
+      // Nothing reached the wire or the host: the refusal is local.
+      expect(sent).toHaveLength(0);
+      expect(seen).toHaveLength(0);
+      expect(storeCalls).toHaveLength(0);
     } finally {
       close();
     }

@@ -147,11 +147,12 @@ pub fn required_capability(op: &str) -> Option<&str> {
         "upsert" | "promote" | "relate" | "check" | "assemble" => Some(CAPABILITY_SPOKE_BASELINE),
         "project" | "compute" => Some(CAPABILITY_L2_COMPUTABLE),
         "extract" => Some(CAPABILITY_KE_EXTRACTION),
-        // Memory family (SPOKE memory protocol §4.1/§13): 33 rows, each
+        // Memory family (SPOKE memory protocol §4.1/§13): 34 rows, each
         // mapping its op to the flag that gates it. Sub-flag rows stay
         // literal — negotiating a sub-flag never authorizes core ops.
         "memory.describe"
         | "memory.spaces.list"
+        | "memory.spaces.create"
         | "memory.spaces.freeze"
         | "memory.spaces.unfreeze"
         | "memory.subjects.ensure"
@@ -490,9 +491,10 @@ mod tests {
     // disjoint op groups; the gate evaluates negotiated capabilities only.
     // Parity twin: TS `tests/dispatch.test.ts` "memory family" block.
 
-    const MEMORY_CORE_OPS: [&str; 25] = [
+    const MEMORY_CORE_OPS: [&str; 26] = [
         "memory.describe",
         "memory.spaces.list",
+        "memory.spaces.create",
         "memory.spaces.freeze",
         "memory.spaces.unfreeze",
         "memory.subjects.ensure",

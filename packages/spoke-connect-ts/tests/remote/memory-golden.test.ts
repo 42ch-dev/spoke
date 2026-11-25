@@ -6,7 +6,7 @@
  * vectors are additionally round-tripped through the generated Rust request /
  * response types. Here they pin the TypeScript side of the contract:
  *
- * - the adapter's `MEMORY_OPS` table is the complete 33-row op catalogue and
+ * - the adapter's `MEMORY_OPS` table is the complete 34-row op catalogue and
  *   matches each vector's `method` → `op` row;
  * - every vector op has a dispatch row in the core table (Task 1 parity);
  * - each payload is a plain request/response object (no wrapper), which is the
@@ -21,8 +21,8 @@ import { MEMORY_OPS } from "@42ch/spoke-connect/remote";
 
 import { requiredCapability } from "../../src/core/dispatch.js";
 
-/** note: Ops in the memory family (protocol §7) — 25 core + 3 reflection + 5 transfer. */
-const MEMORY_OP_COUNT = 33;
+/** note: Ops in the memory family (protocol §7) — 26 core + 3 reflection + 5 transfer. */
+const MEMORY_OP_COUNT = 34;
 
 interface Vector {
   op: string;

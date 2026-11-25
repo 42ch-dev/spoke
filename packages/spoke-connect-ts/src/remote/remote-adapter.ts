@@ -89,6 +89,8 @@ import type {
   MemoryReflectionsListResponse,
   MemoryReflectionsStateRequest,
   MemoryReflectionsStateResponse,
+  MemorySpacesCreateRequest,
+  MemorySpacesCreateResponse,
   MemorySpacesFreezeRequest,
   MemorySpacesFreezeResponse,
   MemorySpacesListRequest,
@@ -337,6 +339,7 @@ export type RemoteAdapterState =
 export const MEMORY_OPS = {
   describe: "memory.describe",
   listSpaces: "memory.spaces.list",
+  createSpace: "memory.spaces.create",
   freezeSpace: "memory.spaces.freeze",
   unfreezeSpace: "memory.spaces.unfreeze",
   ensureSubject: "memory.subjects.ensure",
@@ -695,6 +698,16 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     return this.#invokeMapped<MemorySpacesListResponse>(MEMORY_OPS.listSpaces, {
       ...request,
     });
+  }
+
+  async createSpace(
+    _principal: Principal,
+    request: MemorySpacesCreateRequest,
+  ): Promise<SpokeResult<MemorySpacesCreateResponse>> {
+    return this.#invokeMapped<MemorySpacesCreateResponse>(
+      MEMORY_OPS.createSpace,
+      { ...request },
+    );
   }
 
   async freezeSpace(

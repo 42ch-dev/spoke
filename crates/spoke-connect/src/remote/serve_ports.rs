@@ -75,7 +75,7 @@ pub trait RemoteExtractService: Send + Sync {
 /// into a `Principal` (MEM-R003: never payload-asserted), and the mapping of
 /// each op onto its typed port call.
 ///
-/// One callable serves every `memory.*` op instead of a second 33-method
+/// One callable serves every `memory.*` op instead of a second 34-method
 /// trait: `MemoryPort` already owns the typed per-op contract. `payload` is
 /// the op's request object and the returned value is its response object
 /// (same no-wrapper rule as `extract`).
@@ -113,7 +113,7 @@ pub struct RemoteKnowledgeFace {
     pub admission: KnowledgeAdmission,
 }
 
-/// [`RemoteMemoryService`] over a provider [`MemoryPort`]: the 33 `memory.*`
+/// [`RemoteMemoryService`] over a provider [`MemoryPort`]: the 34 `memory.*`
 /// op names map onto their typed port methods, so a host attaches an existing
 /// provider with
 /// `RemoteServePortsComposite::new(..).with_memory(Arc::new(MemoryPortService::new(port, admission)))`
@@ -147,6 +147,9 @@ impl RemoteMemoryService for MemoryPortService {
             "memory.describe" => serve(payload, |request| port.describe(&principal, request)).await,
             "memory.spaces.list" => {
                 serve(payload, |request| port.list_spaces(&principal, request)).await
+            }
+            "memory.spaces.create" => {
+                serve(payload, |request| port.create_space(&principal, request)).await
             }
             "memory.spaces.freeze" => {
                 serve(payload, |request| port.freeze_space(&principal, request)).await

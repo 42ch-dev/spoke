@@ -6,6 +6,108 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.19.0] - 2026-11-25
+
+
+### Added
+
+- **connect:** Let knowledge, history and adoption admission see the request's scope selector
+
+- **connect:** Accept an optional scope on knowledge get/put
+
+- **connect:** Mirror the optional knowledge request scope in TypeScript
+
+- **connect:** Forward memory.spaces.create and complete the MemoryPort impls
+
+- **connect:** Dispatch and serve memory.spaces.create
+
+- **schemas:** Admit the memory.spaces.create receipt in receipts.get
+
+- **connect:** Accept an optional scope on knowledge get/put
+
+- **connect:** Mirror the optional knowledge request scope in TypeScript
+
+
+### Breaking
+
+- **operations:** Add memory.spaces.create schemas and MemoryPort.create_space
+
+
+### Changed
+
+- **connect:** Execute the shared request-scope matrix on both stacks
+
+- **connect:** Assert the create row instead of a catalogue length
+
+- **connect:** Assert memory.spaces.create in the conformance corpus
+
+- **connect:** Compare the whole replayed receipt, not just its id
+
+- **connect:** Assert the created space's complete subject state
+
+- **connect:** Execute the shared request-scope matrix on both stacks
+
+
+### Documentation
+
+- **specs:** State declared knowledge scope and protocol space creation
+
+- Sync memory op and schema counts across entry docs
+
+- **knowledge:** Refresh schema and generated-tree counts
+
+- Correct scoped dialer signatures and create receipt wording
+
+
+### Fixed
+
+- **connect:** Probe the peer-only knowledge face only when the scoped face is absent
+
+- **connect-ts:** Decode the history request before admission so malformed input keeps INVALID_INPUT
+
+- **connect:** Run the scoped history/adoption admission on the blocking pool
+
+- **connect:** Keep a scoped admission join error off the wire
+
+- **connect:** Gate the scoped-knowledge marker on the raw scope member
+
+- **connect:** Keep a malformed get/put scope ahead of the capability gates
+
+- **connect:** Keep the knowledge payload shape ahead of the marker and face probe
+
+- **connect:** Keep the 0.18.1 order for a knowledge payload without a scope
+
+- **connect:** Decode the no-scope knowledge payload before the face probe
+
+- **schemas:** Require the idempotency key echo on failed memory.spaces.create receipts
+
+- **connect:** Own the memory.spaces.create receipt revision on both stacks
+
+- **schemas:** Keep the subject status enum separate from the space status
+
+- **connect:** Answer a create replay without writing state
+
+- **connect:** Answer a create replay inside the write lock
+
+- **connect:** Gate the scoped-knowledge marker on the raw scope member
+
+- **connect:** Keep a malformed get/put scope ahead of the capability gates
+
+- **connect:** Keep the knowledge payload shape ahead of the marker and face probe
+
+- **connect:** Keep the 0.18.1 order for a knowledge payload without a scope
+
+- **connect:** Decode the no-scope knowledge payload before the face probe
+
+- **connect:** Refuse a non-object payload on every scope-bearing op
+
+- **connect:** Keep probe-then-decode for a non-object knowledge payload
+
+
+### Internal
+
+- **ci:** Retrigger the inspector review
+
 ## [0.18.1] - 2026-11-24
 
 

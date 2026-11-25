@@ -306,7 +306,8 @@ function decodeEnvelope(bytes: EnvelopeBytes): unknown {
 
 /** note: starts a responder WITHOUT dialing — raw-wire tests drive the wire. */
 async function startRawResponder(options: {
-  ports?: BaselinePorts;
+  /** note: `null` = port-less host (no `ports` face configured). */
+  ports?: BaselinePorts | null;
   manifest?: HostCapabilityManifest;
   /** note: responder serve budget + reverse-invoke waiter deadline, ms. */
   invokeTimeoutMs?: number;
@@ -331,7 +332,12 @@ async function startRawResponder(options: {
     manifest: options.manifest ?? toolManifest("test-responder"),
     allowlist: [peerIdClient],
     peerKeys: { [peerIdClient]: pubkeyClient },
-    ports: toServePorts(options.ports ?? ToyWorldAdapter.withCommittedFixtures()),
+    ports:
+      options.ports === null
+        ? undefined
+        : toServePorts(
+            options.ports ?? ToyWorldAdapter.withCommittedFixtures(),
+          ),
     invokeTimeoutMs: options.invokeTimeoutMs,
   });
   return {
@@ -2375,6 +2381,183 @@ describe("ke remote", () => {
       pair.server.close();
     }
   });
+});
+
+describe("scope-bearing ops refuse a non-object payload", () => {
+  const REQUIRED_SCOPE_OPS = [
+    "port.scope.list_knowledge_entries",
+    "port.scope.list_timeline_events",
+    "port.fork.list_timeline_events",
+  ];
+  const KNOWLEDGE_SCOPE_OPS = ["port.knowledge.get", "port.knowledge.put"];
+  const NON_OBJECT_PAYLOADS: unknown[] = [null, "payload", 7, []];
+
+  /** note: counts the provider method behind every scope-bearing op. */
+  function spyPorts(): { ports: BaselinePorts; calls: string[] } {
+    const calls: string[] = [];
+    const base = ToyWorldAdapter.withCommittedFixtures();
+    const ports: BaselinePorts & {
+      listForkTimelineEvents: (scope: Scope & { fork_id: ForkId }) => Promise<
+        SpokeResult<unknown>
+      >;
+    } = {
+      ...asBaselineOnly(base),
+      listTimelineEvents: (scope) => {
+        calls.push("listTimelineEvents");
+        return base.listTimelineEvents(scope);
+      },
+      listForkTimelineEvents: (scope) => {
+        calls.push("listForkTimelineEvents");
+        return base.listForkTimelineEvents(scope);
+      },
+      getKnowledgeEntry: (entryId) => {
+        calls.push("getKnowledgeEntry");
+        return base.getKnowledgeEntry(entryId);
+      },
+      putKnowledgeEntry: (entry, expectedBaseRevision) => {
+        calls.push("putKnowledgeEntry");
+        return base.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+      listKnowledgeEntries: (scope) => {
+        calls.push("listKnowledgeEntries");
+        return base.listKnowledgeEntries(scope);
+      },
+    };
+    return { ports, calls };
+  }
+
+  /** note: both hellos must negotiate `l5-fork` for the fork op's gate. */
+  function withFork(hostId: string): HostCapabilityManifest {
+    const base = toolManifest(hostId);
+    return { ...base, capabilities: [...base.capabilities, "l5-fork"] };
+  }
+
+  async function dialRaw(ports: BaselinePorts | null): Promise<{
+    responder: ConnectResponder;
+    clientEnd: Transport;
+    seedClient: Uint8Array;
+    sessionId: string;
+    sequence: { next: number };
+  }> {
+    const host = await startRawResponder({
+      ports,
+      manifest: withFork("test-responder"),
+    });
+    const { session_id: sessionId } = await rawHandshake(host.clientEnd, {
+      seed: host.seedClient,
+      manifest: withFork("test-client"),
+      pubkeyResponder: host.pubkeyResponder,
+      peerIdResponder: host.peerIdResponder,
+    });
+    return {
+      responder: host.responder,
+      clientEnd: host.clientEnd,
+      seedClient: host.seedClient,
+      sessionId,
+      sequence: { next: 0 },
+    };
+  }
+
+  async function rawErrorCode(
+    clientEnd: Transport,
+    seedClient: Uint8Array,
+    sessionId: string,
+    sequence: { next: number },
+    op: string,
+    payload: unknown,
+  ): Promise<string | undefined> {
+    const request = await signInvokeRequest(seedClient, {
+      session_id: sessionId,
+      sequence: sequence.next,
+      request_id: `${op}-${sequence.next}`,
+      op,
+      payload,
+    });
+    sequence.next += 1;
+    await clientEnd.send(encodeEnvelope(request));
+    const response = decodeEnvelope(await clientEnd.recv()) as {
+      error?: { code?: string };
+    };
+    return response.error?.code;
+  }
+
+  it("refuses a non-object payload on the required-scope ops before the provider", async () => {
+    const { ports, calls } = spyPorts();
+    const { responder, clientEnd, seedClient, sessionId, sequence } =
+      await dialRaw(ports);
+    try {
+      for (const op of REQUIRED_SCOPE_OPS) {
+        for (const payload of NON_OBJECT_PAYLOADS) {
+          expect(
+            await rawErrorCode(
+              clientEnd,
+              seedClient,
+              sessionId,
+              sequence,
+              op,
+              payload,
+            ),
+            `${op} with payload ${JSON.stringify(payload)}`,
+          ).toBe(SpokeRejectCode.INVALID_INPUT);
+        }
+      }
+      expect(calls).toEqual([]);
+      expect(responder.state).toBe("Established");
+    } finally {
+      responder.close();
+    }
+  }, 15000);
+
+  it("keeps probe-then-decode for a non-object payload on knowledge get/put", async () => {
+    // no ports face: the `0.18.1` order answers the dispatch-deny branch.
+    const portless = await dialRaw(null);
+    try {
+      for (const op of KNOWLEDGE_SCOPE_OPS) {
+        for (const payload of NON_OBJECT_PAYLOADS) {
+          expect(
+            await rawErrorCode(
+              portless.clientEnd,
+              portless.seedClient,
+              portless.sessionId,
+              portless.sequence,
+              op,
+              payload,
+            ),
+            `${op} with payload ${JSON.stringify(payload)} (no ports)`,
+          ).toBe("op_unsupported");
+        }
+      }
+      expect(portless.responder.state).toBe("Established");
+    } finally {
+      portless.responder.close();
+    }
+
+    // ports present: the payload decode answers INVALID_INPUT, no provider call.
+    const { ports, calls } = spyPorts();
+    const { responder, clientEnd, seedClient, sessionId, sequence } =
+      await dialRaw(ports);
+    try {
+      for (const op of KNOWLEDGE_SCOPE_OPS) {
+        for (const payload of NON_OBJECT_PAYLOADS) {
+          expect(
+            await rawErrorCode(
+              clientEnd,
+              seedClient,
+              sessionId,
+              sequence,
+              op,
+              payload,
+            ),
+            `${op} with payload ${JSON.stringify(payload)}`,
+          ).toBe(SpokeRejectCode.INVALID_INPUT);
+        }
+      }
+      expect(calls).toEqual([]);
+      expect(responder.state).toBe("Established");
+    } finally {
+      responder.close();
+    }
+  }, 15000);
 });
 
 /** note: a promise plus the externally driven settle handles for a parked provider. */

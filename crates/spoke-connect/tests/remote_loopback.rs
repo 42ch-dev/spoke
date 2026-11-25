@@ -5356,6 +5356,53 @@ async fn start_raw_ke_responder(
     start_raw_ke_responder_with_budget(ports, capabilities, None).await
 }
 
+/// [`start_raw_ke_responder`] with baseline ports only (no knowledge face), so
+/// a raw request can prove the no-scope payload decode precedes the
+/// knowledge-face probe.
+async fn start_raw_responder_with_baseline_ports(
+    capabilities: &[&str],
+) -> (Arc<ConnectResponder>, LoopbackTransportPair, [u8; 32]) {
+    let pair = loopback_transport_pair();
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(RemoteServePortsComposite::new(
+        Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+        None,
+        None,
+    ));
+    let responder = connect_responder(ConnectResponderOptions {
+        transport: Arc::new(pair.server.clone()),
+        identity: RemoteIdentity { seed: seed_host() },
+        manifest: ke_remote_manifest("test-responder", capabilities),
+        allowlist: vec![peer_id_client.clone()],
+        peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
+        ports: Some(ports),
+        invoke_timeout_ms: None,
+    })
+    .await;
+    (responder, pair, seed_client())
+}
+
+/// [`start_raw_ke_responder`] with no ports face configured, so a raw request
+/// can prove the knowledge payload decode still precedes the absent-ports
+/// probe.
+async fn start_raw_responder_without_ports(
+    capabilities: &[&str],
+) -> (Arc<ConnectResponder>, LoopbackTransportPair, [u8; 32]) {
+    let pair = loopback_transport_pair();
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let responder = connect_responder(ConnectResponderOptions {
+        transport: Arc::new(pair.server.clone()),
+        identity: RemoteIdentity { seed: seed_host() },
+        manifest: ke_remote_manifest("test-responder", capabilities),
+        allowlist: vec![peer_id_client.clone()],
+        peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
+        ports: None,
+        invoke_timeout_ms: None,
+    })
+    .await;
+    (responder, pair, seed_client())
+}
+
 /// [`start_raw_ke_responder`] with an explicit local serve-wait budget, so a
 /// serve-bound witness can drive a raw request the typed adapter cannot
 /// express against a zero/short budget.
@@ -7560,8 +7607,8 @@ async fn scoped_knowledge_face_receives_the_requests_declared_selector() {
         SpokeResult::Reject(reject) => panic!("scoped list must serve: {reject:?}"),
     }
 
-    // A1-D5: the list op declares its scope; get/put carry none until A2
-    // supplies the request scope.
+    // The plain get/put port methods send no scope (`0.18.1`); only the
+    // list op declares one here.
     assert_eq!(
         *seen.lock().expect("seen"),
         vec![None, None, Some("scope-a".to_owned())]
@@ -7569,6 +7616,606 @@ async fn scoped_knowledge_face_receives_the_requests_declared_selector() {
 
     client.close();
     responder.close();
+}
+
+/// Knowledge ports serving the request-scoped face, which admits `admitted`
+/// for every peer and records the scope selector it saw.
+fn scoped_knowledge_ports(
+    store: &Arc<ScopedKnowledgeStore>,
+    admitted: Scope,
+    seen: &Arc<Mutex<Vec<Option<String>>>>,
+) -> Arc<dyn RemoteServePorts + Send + Sync> {
+    let recorded = Arc::clone(seen);
+    let store_port: Arc<dyn ScopedKnowledgePort + Send + Sync> =
+        Arc::<ScopedKnowledgeStore>::clone(store);
+    let face = Arc::new(RemoteScopedKnowledgeFace {
+        store: store_port,
+        admission: Arc::new(move |_peer, selector| {
+            recorded
+                .lock()
+                .expect("seen")
+                .push(selector.map(str::to_owned));
+            spoke_ok(admitted.clone())
+        }),
+    });
+    Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_scoped_knowledge(face),
+    )
+}
+
+#[tokio::test]
+async fn scoped_knowledge_get_put_send_and_honour_the_declared_scope() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    store.seed(&scope, scoped_entry("ke-knowledge-a", "alpha"));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope.clone(), &seen);
+    let (responder, client, sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge", "spoke-knowledge-scoped"],
+        responder_capabilities: vec!["spoke-knowledge", "spoke-knowledge-scoped"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    match client
+        .get_knowledge_entry_in_scope("ke-knowledge-a", Some(&scope))
+        .await
+    {
+        SpokeResult::Ok(entry) => assert_eq!(entry.entry_id.as_str(), "ke-knowledge-a"),
+        SpokeResult::Reject(reject) => panic!("scoped get must serve: {reject:?}"),
+    }
+    match client
+        .put_knowledge_entry_in_scope(scoped_entry("ke-new", "created"), None, Some(&scope))
+        .await
+    {
+        SpokeResult::Ok(entry) => assert_eq!(entry.revision, Some(1)),
+        SpokeResult::Reject(reject) => panic!("scoped put must serve: {reject:?}"),
+    }
+
+    // The admission saw the declared selector for both ops, and the wire
+    // carried the member — no silent drop on either side.
+    assert_eq!(
+        *seen.lock().expect("seen"),
+        vec![Some("scope-a".to_owned()), Some("scope-a".to_owned())]
+    );
+    for op in ["port.knowledge.get", "port.knowledge.put"] {
+        assert_eq!(
+            captured_request_payload(&sent, op)["scope"]["scope_id"],
+            json!("scope-a"),
+            "{op}: the payload carries the declared scope"
+        );
+    }
+    // The store served inside the declared scope (put also runs its OCC
+    // pre-read).
+    assert_eq!(store.calls(), vec!["get", "get", "put"]);
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn scoped_knowledge_get_put_absent_scope_keeps_the_0_18_1_payload() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    store.seed(&scope, scoped_entry("ke-knowledge-a", "alpha"));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope.clone(), &seen);
+    let (responder, client, sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge", "spoke-knowledge-scoped"],
+        responder_capabilities: vec!["spoke-knowledge", "spoke-knowledge-scoped"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    match client.get_knowledge_entry_in_scope("ke-knowledge-a", None).await {
+        SpokeResult::Ok(entry) => assert_eq!(entry.entry_id.as_str(), "ke-knowledge-a"),
+        SpokeResult::Reject(reject) => panic!("a scope-less get must serve: {reject:?}"),
+    }
+    match client
+        .put_knowledge_entry_in_scope(scoped_entry("ke-new", "created"), None, None)
+        .await
+    {
+        SpokeResult::Ok(entry) => assert_eq!(entry.revision, Some(1)),
+        SpokeResult::Reject(reject) => panic!("a scope-less put must serve: {reject:?}"),
+    }
+
+    // Absent scope: exactly the `0.18.1` payload (no member) and the plain
+    // admitted-scope admission.
+    for op in ["port.knowledge.get", "port.knowledge.put"] {
+        assert!(
+            captured_request_payload(&sent, op).get("scope").is_none(),
+            "{op}: an absent scope must not appear on the wire"
+        );
+    }
+    assert_eq!(*seen.lock().expect("seen"), vec![None, None]);
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn scoped_knowledge_get_put_mismatched_scope_is_not_authorized() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let admitted = scope_of("scope-a");
+    store.seed(&admitted, scoped_entry("ke-knowledge-a", "alpha"));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, admitted, &seen);
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge", "spoke-knowledge-scoped"],
+        responder_capabilities: vec!["spoke-knowledge", "spoke-knowledge-scoped"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let other = scope_of("scope-b");
+    let refusal = |reject: spoke_operations::SpokeReject| {
+        assert_eq!(reject.code, SpokeRejectCode::NotAuthorized, "{reject:?}");
+        assert_eq!(reject.message, "knowledge scope not authorized");
+        assert!(reject.details.is_none(), "no existence detail: {reject:?}");
+    };
+    match client
+        .get_knowledge_entry_in_scope("ke-knowledge-a", Some(&other))
+        .await
+    {
+        SpokeResult::Reject(reject) => refusal(reject),
+        SpokeResult::Ok(entry) => panic!("a mismatched scope must not serve: {entry:?}"),
+    }
+    match client
+        .put_knowledge_entry_in_scope(scoped_entry("ke-new", "created"), None, Some(&other))
+        .await
+    {
+        SpokeResult::Reject(reject) => refusal(reject),
+        SpokeResult::Ok(entry) => panic!("a mismatched scope must not serve: {entry:?}"),
+    }
+    assert!(
+        store.calls().is_empty(),
+        "a mismatched scope must never reach the store: {:?}",
+        store.calls()
+    );
+    // Admission did see each declared selector before the equality refusal.
+    assert_eq!(
+        *seen.lock().expect("seen"),
+        vec![Some("scope-b".to_owned()), Some("scope-b".to_owned())]
+    );
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn scoped_knowledge_scope_without_the_marker_is_refused_on_both_ends() {
+    // Dialer: the session did not negotiate the marker, so a caller-named
+    // scope refuses locally — nothing reaches the wire.
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    store.seed(&scope, scoped_entry("ke-knowledge-a", "alpha"));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope.clone(), &seen);
+    let (responder, client, sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge"],
+        responder_capabilities: vec!["spoke-knowledge"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    match client
+        .get_knowledge_entry_in_scope("ke-knowledge-a", Some(&scope))
+        .await
+    {
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert!(
+                reject.message.contains("spoke-knowledge-scoped"),
+                "the denial names the missing capability: {}",
+                reject.message
+            );
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(Value::as_str),
+                Some("op_unsupported")
+            );
+        }
+        SpokeResult::Ok(entry) => panic!("a local refusal must not serve: {entry:?}"),
+    }
+    assert!(
+        !captured_request_ops(&sent)
+            .iter()
+            .any(|op| op == "port.knowledge.get"),
+        "the refusal happens before sending"
+    );
+    assert!(store.calls().is_empty());
+    client.close();
+    responder.close();
+
+    // Responder: a peer that puts the member on the wire without the marker
+    // is answered `op_unsupported`, not served under the admitted scope.
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope.clone(), &seen);
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &["spoke-knowledge"]).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        0,
+        "scoped-unnegotiated-get",
+        "port.knowledge.get",
+        json!({ "entry_id": "ke-knowledge-a", "scope": { "scope_id": "scope-a" } }),
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "op_unsupported", "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("spoke-knowledge-scoped"),
+        "the deny names the missing marker: {response}"
+    );
+    assert!(seen.lock().expect("seen").is_empty());
+    assert!(store.calls().is_empty());
+
+    responder.close();
+}
+
+#[tokio::test]
+async fn scoped_knowledge_get_put_malformed_scope_is_invalid_input() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope_of("scope-a"), &seen);
+    let capabilities = ["spoke-knowledge", "spoke-knowledge-scoped"];
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &capabilities).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &capabilities),
+    )
+    .await;
+
+    let entry = raw_knowledge_entry(scoped_entry("ke-new", "created"));
+    for (sequence, op, payload) in [
+        (
+            0_i64,
+            "port.knowledge.get",
+            json!({ "entry_id": "ke-knowledge-a", "scope": null }),
+        ),
+        (
+            1,
+            "port.knowledge.get",
+            json!({ "entry_id": "ke-knowledge-a", "scope": "not-an-object" }),
+        ),
+        (
+            2,
+            "port.knowledge.put",
+            json!({ "entry": entry, "expected_base_revision": null, "scope": { "scope_id": 3 } }),
+        ),
+        (
+            3,
+            "port.knowledge.put",
+            json!({ "entry": entry, "expected_base_revision": null, "scope": { "scope_id": "s", "bogus": 1 } }),
+        ),
+    ] {
+        let response = raw_invoke(
+            &pair.client,
+            seed,
+            &session,
+            sequence,
+            &format!("scoped-malformed-{sequence}"),
+            op,
+            payload,
+        )
+        .await;
+        assert_eq!(response["error"]["code"], "INVALID_INPUT", "{response}");
+    }
+    assert!(seen.lock().expect("seen").is_empty());
+    assert!(store.calls().is_empty());
+
+    responder.close();
+}
+
+#[tokio::test]
+async fn scoped_knowledge_malformed_scope_wins_over_the_marker_and_cognition_gates() {
+    // A2-D3 shape-first: for the optional-scope knowledge ops a present
+    // `scope` that fails the typed decode — including an invalid cognition
+    // subtree — answers INVALID_INPUT before the marker, ownership and
+    // cognition gates (the required-scope query ops keep their deferred
+    // diagnosis). A well-formed wire cognition selection does decode, so the
+    // cognition gate still owns those cases.
+    let malformed = json!({
+        "entry_id": "ke-knowledge-a",
+        "scope": { "scope_id": "scope-a", "cognition": { "bogus": 1 } },
+    });
+
+    // No marker negotiated: a malformed scope is still an input failure, not
+    // the marker refusal.
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope_of("scope-a"), &seen);
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &["spoke-knowledge"]).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        0,
+        "scoped-shape-first-marker-absent",
+        "port.knowledge.get",
+        malformed.clone(),
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "INVALID_INPUT", "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("invalid port.knowledge.get payload"),
+        "the baseline scope decode owns the message: {response}"
+    );
+    // A well-formed scope without the marker still takes the marker refusal.
+    let unnegotiated = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        1,
+        "scoped-shape-valid-marker-absent",
+        "port.knowledge.get",
+        json!({
+            "entry_id": "ke-knowledge-a",
+            "scope": {
+                "scope_id": "scope-a",
+                "cognition": {
+                    "view": "current",
+                    "filter": {},
+                    "selection_policy": { "policy_id": "policy_t3", "policy_version": "v1" },
+                },
+            },
+        }),
+    )
+    .await;
+    assert_eq!(unnegotiated["error"]["code"], "op_unsupported", "{unnegotiated}");
+    assert!(
+        unnegotiated["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("spoke-knowledge-scoped"),
+        "the deny is the marker refusal: {unnegotiated}"
+    );
+    assert!(seen.lock().expect("seen").is_empty());
+    assert!(store.calls().is_empty());
+    responder.close();
+
+    // Marker negotiated, cognition family absent: the malformed subtree is
+    // still INVALID_INPUT, never `capability_missing`; a well-formed
+    // cognition selection takes the family refusal.
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope_of("scope-a"), &seen);
+    let capabilities = ["spoke-knowledge", "spoke-knowledge-scoped"];
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &capabilities).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &capabilities),
+    )
+    .await;
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        0,
+        "scoped-shape-first-cognition-family-absent",
+        "port.knowledge.get",
+        malformed.clone(),
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "INVALID_INPUT", "{response}");
+    let cognition = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        1,
+        "scoped-shape-valid-cognition-family-absent",
+        "port.knowledge.get",
+        json!({
+            "entry_id": "ke-knowledge-a",
+            "scope": {
+                "scope_id": "scope-a",
+                "cognition": {
+                    "view": "current",
+                    "filter": {},
+                    "selection_policy": { "policy_id": "policy_t3", "policy_version": "v1" },
+                },
+            },
+        }),
+    )
+    .await;
+    assert_eq!(cognition["error"]["code"], "capability_missing", "{cognition}");
+    assert!(
+        cognition["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("spoke-cognition"),
+        "the deny names the cognition family: {cognition}"
+    );
+    assert!(seen.lock().expect("seen").is_empty());
+    assert!(store.calls().is_empty());
+    responder.close();
+
+    // Both gates pass: the malformed subtree is still an input failure, while
+    // a well-formed but unavailable requirement keeps its §2.2 diagnosis.
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope_of("scope-a"), &seen);
+    let capabilities = [
+        "spoke-knowledge",
+        "spoke-knowledge-scoped",
+        "spoke-cognition",
+    ];
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &capabilities).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &capabilities),
+    )
+    .await;
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        0,
+        "scoped-shape-first-all-gates",
+        "port.knowledge.get",
+        malformed,
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "INVALID_INPUT", "{response}");
+    let unavailable = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        1,
+        "scoped-shape-valid-unavailable-view",
+        "port.knowledge.get",
+        json!({
+            "entry_id": "ke-knowledge-a",
+            "scope": {
+                "scope_id": "scope-a",
+                "cognition": { "view": "recorded_at", "filter": {} },
+            },
+        }),
+    )
+    .await;
+    assert_eq!(unavailable["error"]["code"], "invalid_input", "{unavailable}");
+    assert_eq!(
+        unavailable["error"]["details"]["reason"],
+        json!("unsupported_cognition_requirement"),
+        "the existing cognition diagnosis owns a well-formed requirement: {unavailable}"
+    );
+    assert!(seen.lock().expect("seen").is_empty());
+    assert!(store.calls().is_empty());
+    responder.close();
+}
+
+/// The shared request-scope matrix, executed through the real responder
+/// dispatch: one fresh knowledge host per case, the case's negotiated
+/// capabilities in both hellos, the case's declared payload on the wire, and
+/// the case's admitted scope from the admission callback. The fixture is the
+/// same file the TypeScript harness executes (`packages/spoke-connect-ts`
+/// holds a byte-identical copy).
+#[tokio::test]
+async fn the_shared_request_scope_matrix_matches_the_responder_verdicts() {
+    const FIXTURE: &str = include_str!("fixtures/capability-matrix.json");
+    let matrix: Value = serde_json::from_str(FIXTURE).expect("capability matrix is valid JSON");
+    let cases = matrix["request_scope_cases"]
+        .as_array()
+        .expect("request_scope_cases is an array");
+    assert!(!cases.is_empty(), "the matrix must carry request-scope cases");
+
+    for (index, case) in cases.iter().enumerate() {
+        let name = case["name"].as_str().expect("name is a string");
+        let op = case["op"].as_str().expect("op is a string");
+        let payload = case["payload"].clone();
+        let negotiated: Vec<String> = case["negotiated"]
+            .as_array()
+            .expect("negotiated is an array")
+            .iter()
+            .map(|cap| cap.as_str().expect("capabilities are strings").to_owned())
+            .collect();
+        let capabilities: Vec<&str> = negotiated.iter().map(String::as_str).collect();
+        let admitted: Scope = serde_json::from_value(case["admitted_scope"].clone())
+            .expect("admitted_scope is a Scope");
+        let expected = &case["expected"];
+
+        let store = Arc::new(ScopedKnowledgeStore::default());
+        store.seed(&admitted, scoped_entry("ke-knowledge-a", "alpha"));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let ports = scoped_knowledge_ports(&store, admitted.clone(), &seen);
+        let absence = case.get("ports").and_then(Value::as_str);
+        let (responder, pair, seed) = match absence {
+            Some("absent") => start_raw_responder_without_ports(&capabilities).await,
+            Some("baseline-only") => {
+                start_raw_responder_with_baseline_ports(&capabilities).await
+            }
+            _ => start_raw_ke_responder(ports, &capabilities).await,
+        };
+        let session_id = raw_handshake(
+            &pair.client,
+            seed,
+            &ke_remote_manifest("test-client", &capabilities),
+        )
+        .await;
+        let response = raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            0,
+            &format!("scope-matrix-{index}"),
+            op,
+            payload,
+        )
+        .await;
+        responder.close();
+
+        match expected.get("allowed").and_then(Value::as_bool) {
+            Some(true) => assert!(
+                response.get("error").is_none(),
+                "case {index} ({name}): expected a served response, got {response}"
+            ),
+            None => {
+                let code = expected["code"]
+                    .as_str()
+                    .expect("a refusal case carries `expected.code`");
+                assert_eq!(
+                    response["error"]["code"].as_str(),
+                    Some(code),
+                    "case {index} ({name}): {response}"
+                );
+                if let Some(message) = expected.get("message").and_then(Value::as_str) {
+                    assert_eq!(
+                        response["error"]["message"].as_str(),
+                        Some(message),
+                        "case {index} ({name}): {response}"
+                    );
+                }
+                if let Some(needle) = expected.get("message_contains").and_then(Value::as_str) {
+                    assert!(
+                        response["error"]["message"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .contains(needle),
+                        "case {index} ({name}): the deny must contain {needle}: {response}"
+                    );
+                }
+                assert!(
+                    store.calls().is_empty(),
+                    "case {index} ({name}): a refusal must not reach the store"
+                );
+            }
+            Some(false) => panic!("case {index} ({name}): `allowed` is a claim, not a false flag"),
+        }
+    }
 }
 
 #[tokio::test]

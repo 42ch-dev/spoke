@@ -59,6 +59,34 @@
       "allowed": false
     },
     {
+      "op": "port.knowledge.get",
+      "table": "product",
+      "negotiated": ["spoke-knowledge-scoped"],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.knowledge.get",
+      "table": "product",
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "required": "spoke-knowledge",
+      "allowed": true
+    },
+    {
+      "op": "port.knowledge.put",
+      "table": "product",
+      "negotiated": ["spoke-knowledge-scoped"],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.knowledge.put",
+      "table": "product",
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "required": "spoke-knowledge",
+      "allowed": true
+    },
+    {
       "op": "port.scope.list_knowledge_entries",
       "table": "product",
       "negotiated": ["spoke-knowledge"],
@@ -113,6 +141,255 @@
       "negotiated": ["spoke-knowledge"],
       "required": "spoke-baseline",
       "allowed": false
+    }
+  ],
+  "request_scope_cases": [
+    {
+      "name": "get with an absent scope keeps the 0.18.1 payload",
+      "op": "port.knowledge.get",
+      "payload": { "entry_id": "ke-knowledge-a" },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "get with a matching scope and the negotiated marker serves",
+      "op": "port.knowledge.get",
+      "payload": { "entry_id": "ke-knowledge-a", "scope": { "scope_id": "scope_a" } },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "get with a scope but no negotiated marker is op_unsupported",
+      "op": "port.knowledge.get",
+      "payload": { "entry_id": "ke-knowledge-a", "scope": { "scope_id": "scope_a" } },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "op_unsupported", "message_contains": "spoke-knowledge-scoped" }
+    },
+    {
+      "name": "get with a mismatched scope is not authorized",
+      "op": "port.knowledge.get",
+      "payload": { "entry_id": "ke-knowledge-a", "scope": { "scope_id": "scope_b" } },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "NOT_AUTHORIZED", "message": "knowledge scope not authorized" }
+    },
+    {
+      "name": "get with a null scope is invalid input",
+      "op": "port.knowledge.get",
+      "payload": { "entry_id": "ke-knowledge-a", "scope": null },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a mistyped scope_id is invalid input",
+      "op": "port.knowledge.get",
+      "payload": { "entry_id": "ke-knowledge-a", "scope": { "scope_id": 3 } },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a malformed cognition subtree beats the marker",
+      "op": "port.knowledge.get",
+      "payload": {
+        "entry_id": "ke-knowledge-a",
+        "scope": { "scope_id": "scope_a", "cognition": { "bogus": 1 } }
+      },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a malformed cognition subtree beats the cognition gate",
+      "op": "port.knowledge.get",
+      "payload": {
+        "entry_id": "ke-knowledge-a",
+        "scope": { "scope_id": "scope_a", "cognition": { "bogus": 1 } }
+      },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a null cognition subtree beats the marker",
+      "op": "port.knowledge.get",
+      "payload": {
+        "entry_id": "ke-knowledge-a",
+        "scope": { "scope_id": "scope_a", "cognition": null }
+      },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a null cognition subtree beats the cognition gate",
+      "op": "port.knowledge.get",
+      "payload": {
+        "entry_id": "ke-knowledge-a",
+        "scope": { "scope_id": "scope_a", "cognition": null }
+      },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a well-formed cognition selection keeps the family gate",
+      "op": "port.knowledge.get",
+      "payload": {
+        "entry_id": "ke-knowledge-a",
+        "scope": { "scope_id": "scope_a", "cognition": { "view": "recorded_at", "filter": {} } }
+      },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "capability_missing", "message_contains": "spoke-cognition" }
+    },
+    {
+      "name": "put with an absent scope keeps the 0.18.1 payload",
+      "op": "port.knowledge.put",
+      "payload": {
+        "entry": {
+          "schema_version": 1,
+          "entry_id": "ke-new",
+          "entry_type": "note",
+          "canonical_name": "created",
+          "status": "confirmed",
+          "body": { "summary": "created" },
+          "extensions": {}
+        },
+        "expected_base_revision": null
+      },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "put with a matching scope and the negotiated marker serves",
+      "op": "port.knowledge.put",
+      "payload": {
+        "entry": {
+          "schema_version": 1,
+          "entry_id": "ke-new",
+          "entry_type": "note",
+          "canonical_name": "created",
+          "status": "confirmed",
+          "body": { "summary": "created" },
+          "extensions": {}
+        },
+        "expected_base_revision": null,
+        "scope": { "scope_id": "scope_a" }
+      },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "put with a scope but no negotiated marker is op_unsupported",
+      "op": "port.knowledge.put",
+      "payload": {
+        "entry": {
+          "schema_version": 1,
+          "entry_id": "ke-new",
+          "entry_type": "note",
+          "canonical_name": "created",
+          "status": "confirmed",
+          "body": { "summary": "created" },
+          "extensions": {}
+        },
+        "expected_base_revision": null,
+        "scope": { "scope_id": "scope_a" }
+      },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "op_unsupported", "message_contains": "spoke-knowledge-scoped" }
+    },
+    {
+      "name": "put with a mismatched scope is not authorized",
+      "op": "port.knowledge.put",
+      "payload": {
+        "entry": {
+          "schema_version": 1,
+          "entry_id": "ke-new",
+          "entry_type": "note",
+          "canonical_name": "created",
+          "status": "confirmed",
+          "body": { "summary": "created" },
+          "extensions": {}
+        },
+        "expected_base_revision": null,
+        "scope": { "scope_id": "scope_b" }
+      },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "NOT_AUTHORIZED", "message": "knowledge scope not authorized" }
+    },
+    {
+      "name": "put with a null scope is invalid input",
+      "op": "port.knowledge.put",
+      "payload": {
+        "entry": {
+          "schema_version": 1,
+          "entry_id": "ke-new",
+          "entry_type": "note",
+          "canonical_name": "created",
+          "status": "confirmed",
+          "body": { "summary": "created" },
+          "extensions": {}
+        },
+        "expected_base_revision": null,
+        "scope": null
+      },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a malformed payload answers INVALID_INPUT without any ports face",
+      "op": "port.knowledge.get",
+      "ports": "absent",
+      "payload": { "entry_id": 42, "scope": { "scope_id": "scope_a" } },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a well-formed scoped payload answers op_unsupported without any ports face",
+      "op": "port.knowledge.get",
+      "ports": "absent",
+      "payload": { "entry_id": "ke-knowledge-a", "scope": { "scope_id": "scope_a" } },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "op_unsupported", "message_contains": "no ports face" }
+    },
+    {
+      "name": "get without a scope keeps the legacy op_unsupported without any ports face",
+      "op": "port.knowledge.get",
+      "ports": "absent",
+      "payload": { "entry_id": 42 },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "op_unsupported", "message_contains": "no ports face" }
+    },
+    {
+      "name": "get without a scope validates before the knowledge-face probe",
+      "op": "port.knowledge.get",
+      "ports": "baseline-only",
+      "payload": { "entry_id": 42 },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a scope validates before the knowledge-face probe",
+      "op": "port.knowledge.get",
+      "ports": "baseline-only",
+      "payload": { "entry_id": 42, "scope": { "scope_id": "scope_a" } },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
     }
   ]
 }

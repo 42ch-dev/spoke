@@ -97,6 +97,7 @@ import {
 import {
   CAPABILITY_SPOKE_COGNITION,
   CAPABILITY_SPOKE_KNOWLEDGE,
+  CAPABILITY_SPOKE_KNOWLEDGE_SCOPED,
   capabilitySatisfies,
   cognitionRequirementField,
   cognitionRequirementPresent,
@@ -290,22 +291,39 @@ export function portDispatchAllowed(
 /** Capability required when a Scope-bearing remote op carries viewpoint. */
 export const CAPABILITY_KE_OWNERSHIP = "ke-ownership";
 
-const SCOPE_OWNERSHIP_OPS = new Set([
+const SCOPE_BEARING_OPS = new Set([
+  "port.scope.list_knowledge_entries",
+  "port.scope.list_timeline_events",
+  "port.fork.list_timeline_events",
+  "port.knowledge.get",
+  "port.knowledge.put",
+]);
+
+/** The subset whose wire request requires `scope`; the rest accept it optionally. */
+const REQUIRED_SCOPE_OPS = new Set([
   "port.scope.list_knowledge_entries",
   "port.scope.list_timeline_events",
   "port.fork.list_timeline_events",
 ]);
 
+/** Whether `op` accepts an optional declared `Scope` (the A2 knowledge ops). */
+function optionalScopeOp(op: string): boolean {
+  return SCOPE_BEARING_OPS.has(op) && !REQUIRED_SCOPE_OPS.has(op);
+}
+
 /**
  * Whether `op` + `payload` require `ke-ownership` in the negotiated set (F2).
  * Malformed Scope payloads return false here — `validateScopeOpPayload` rejects
- * them with `INVALID_INPUT` before provider calls.
+ * them with `INVALID_INPUT` before provider calls. A non-object payload has no
+ * declared viewpoint: the optional-scope knowledge ops still reach this
+ * probe (their input failure is answered after the ports presence check), so
+ * the read is structural, never a member access on a scalar/`null`.
  */
 export function scopeOpRequiresOwnershipCapability(
   op: string,
   payload: Record<string, unknown>,
 ): boolean {
-  if (!SCOPE_OWNERSHIP_OPS.has(op)) {
+  if (!SCOPE_BEARING_OPS.has(op) || !isJsonObject(payload)) {
     return false;
   }
   const scope = payload.scope;
@@ -537,16 +555,32 @@ export function validateDeclaredScope(scope: Record<string, unknown>): string | 
   return null;
 }
 
-/** Scope validation for the three remote catalogue ops (F2 malformed rows). */
+/** Scope validation for the five remote catalogue ops (F2 malformed rows). */
 export function validateScopeOpPayload(
   op: string,
   payload: Record<string, unknown>,
 ): SpokeReject | null {
-  if (!SCOPE_OWNERSHIP_OPS.has(op)) {
+  if (!SCOPE_BEARING_OPS.has(op)) {
     return null;
   }
+  // note: a non-object payload carries no `scope` member, so the required-scope
+  // ops have no declared selector at all: refuse them HERE — the earliest
+  // gate — before the marker/ownership/cognition conjuncts and before any
+  // provider call, never forwarding an absent scope (which would read as the
+  // admitted authority). The optional-scope knowledge ops keep the `0.18.1`
+  // probe-then-decode order (Rust `validate_scope_declaration` answers
+  // `Ok(None)` for a non-object payload), so a port-less host still answers
+  // `op_unsupported` and `validateKnowledgeOpPayload` owns the input failure
+  // once the ports face exists.
+  if (!isJsonObject(payload)) {
+    return REQUIRED_SCOPE_OPS.has(op)
+      ? scopePayloadReject(op, "payload must be an object")
+      : null;
+  }
   if (!("scope" in payload)) {
-    return scopePayloadReject(op, "missing scope");
+    return REQUIRED_SCOPE_OPS.has(op)
+      ? scopePayloadReject(op, "missing scope")
+      : null;
   }
   const scope = payload.scope;
   if (!isJsonObject(scope)) {
@@ -564,6 +598,17 @@ export function validateScopeOpPayload(
   const scopeError = validateDeclaredScope(scope);
   if (scopeError !== null) {
     return scopePayloadReject(op, scopeError);
+  }
+  // note: A2-D3 shape-first for the optional-scope knowledge ops — Rust
+  // decodes the whole `Scope` (cognition subtree included) before the marker
+  // and cognition gates, so a malformed selection is `INVALID_INPUT`, never
+  // the marker or family refusal. The required-scope query ops keep their
+  // deferred §2.2 diagnosis.
+  if (optionalScopeOp(op) && "cognition" in scope) {
+    const selection = validateCognitionSelection(scope.cognition);
+    if (!selection.ok) {
+      return scopePayloadReject(op, selection.message);
+    }
   }
   return null;
 }
@@ -2303,6 +2348,25 @@ export class ConnectResponder {
       await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(scopeReject));
       return;
     }
+    // note: A2-D3 marker conjunct — a present `scope` on an optional-scope
+    // knowledge op demands `spoke-knowledge-scoped`. Checked on the raw
+    // member (a deferred/dropped decode still counts) after the shape check
+    // and before the ownership/cognition conjuncts: a session that did not
+    // negotiate the marker must never be served a scope it would silently
+    // drop.
+    if (
+      optionalScopeOp(doc.op) &&
+      isJsonObject(payload) &&
+      "scope" in payload &&
+      !negotiated.includes(CAPABILITY_SPOKE_KNOWLEDGE_SCOPED)
+    ) {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "op_unsupported",
+        message: `op ${doc.op} requires capability ${CAPABILITY_SPOKE_KNOWLEDGE_SCOPED} for its declared scope`,
+        extensions: {},
+      });
+      return;
+    }
     // note: F2 ownership conjunct next — the original first-denial wins over a
     // delivered cognition requirement, and the router filters the same way
     // before it considers the family.
@@ -2330,6 +2394,19 @@ export class ConnectResponder {
     ) {
       return;
     }
+    // note: A2-D3 step 6 for a request that declares a scope — the knowledge
+    // payload decode runs before the face probe, so a malformed scoped payload
+    // answers INVALID_INPUT even when no ports face is configured. A payload
+    // without `scope` keeps the `0.18.1` order (probe first, then decode), so
+    // a port-less host still answers the legacy `op_unsupported`.
+    const declaresScope = isJsonObject(payload) && "scope" in payload;
+    const knowledgePayloadReject = KNOWLEDGE_OPS[doc.op]
+      ? validateKnowledgeOpPayload(doc.op, payload)
+      : null;
+    if (declaresScope && knowledgePayloadReject !== null) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(knowledgePayloadReject));
+      return;
+    }
     const ports = this.#ports;
     if (ports === undefined) {
       // note: absent `ports` (documented) — the capability gate passes but there
@@ -2341,19 +2418,18 @@ export class ConnectResponder {
       });
       return;
     }
+    // note: B2 — a payload without a declared `scope` keeps the `0.18.1`
+    // order: the ports presence check ran above, its decode failure answers
+    // here, and the knowledge-face probe follows only for a decodable payload.
+    if (knowledgePayloadReject !== null) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(knowledgePayloadReject));
+      return;
+    }
     // note: knowledge ops (three-row catalogue) — served only through the
     // knowledge face. Absent face → CAPABILITY_PORT_MISSING (gate → probe
     // → serve/deny); the admitted scope comes from the face's admission
     // callback keyed by the authenticated peer id, never from the wire.
     if (KNOWLEDGE_OPS[doc.op]) {
-      // note: B2 — mirror Rust decode_knowledge_call; a malformed get/put payload
-      // answers INVALID_INPUT before the face probe, admission, and any
-      // store call. The list op's Scope shape validated earlier.
-      const payloadReject = validateKnowledgeOpPayload(doc.op, payload);
-      if (payloadReject !== null) {
-        await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(payloadReject));
-        return;
-      }
       const face = ports.knowledge;
       if (face === undefined) {
         // note: B4 — an absent knowledge face is the dispatch-deny branch; the
@@ -2379,15 +2455,14 @@ export class ConnectResponder {
         });
         return;
       }
-      const requestedScope = payload.scope as Scope | undefined;
-      // note: the declared scope selector — the list op names its scope; get/put
-      // carry none (Rust parity: `Some(scope.scope_id)` / `None`, A1-D5).
-      const declaredScopeId =
-        doc.op === "port.scope.list_knowledge_entries" &&
-        isJsonObject(requestedScope) &&
-        typeof requestedScope.scope_id === "string"
-          ? requestedScope.scope_id
-          : undefined;
+      const requestedScope = isJsonObject(payload.scope)
+        ? // members and viewpoint already validated by `validateScopeOpPayload`
+          (payload.scope as unknown as Scope)
+        : undefined;
+      // note: the declared scope selector — the three ops name one whenever the
+      // request carries a well-formed `scope` (required for the list, optional
+      // for get/put), so admission sees exactly what the caller declared.
+      const declaredScopeId = requestedScope?.scope_id;
       // note: one deadline per knowledge op — admission spends part of the local
       // budget, so the store call only gets what remains of it.
       const deadlineMs = Date.now() + this.#invokeTimeoutMs;
@@ -2401,26 +2476,22 @@ export class ConnectResponder {
         });
         return;
       }
-      if (
-        doc.op === "port.scope.list_knowledge_entries" &&
-        (requestedScope === undefined ||
-          !isJsonObject(requestedScope) ||
-          !scopeMatchesAdmission(requestedScope, admitted.value))
-      ) {
-        // note: list requires an exact scope match; get/put carry no wire scope.
-        await this.#sendReverseErrorEnvelope(doc, {
-          code: SpokeRejectCode.NOT_AUTHORIZED,
-          message: "knowledge scope not authorized",
-          extensions: {},
-        });
-        return;
-      }
-      // note: the admitted scope owns scope_id/viewpoint and bounds every other
-      // constraint; a request naming a scalar the admission does not grant
-      // refuses here, before the store.
-      let listedScope: Scope = admitted.value;
-      if (doc.op === "port.scope.list_knowledge_entries") {
-        const effective = effectiveScope(requestedScope as Scope, admitted.value);
+      // note: a declared scope (required for the list, optional for get/put)
+      // must equal the admitted one, and its effective form is the admitted
+      // authority intersected with the request (A2-D4 — the same two checks
+      // the list op has always used). Both refusals land before the store call
+      // so a request cannot widen the query.
+      let servedScope: Scope | undefined;
+      if (requestedScope !== undefined) {
+        if (!scopeMatchesAdmission(requestedScope, admitted.value)) {
+          await this.#sendReverseErrorEnvelope(doc, {
+            code: SpokeRejectCode.NOT_AUTHORIZED,
+            message: "knowledge scope not authorized",
+            extensions: {},
+          });
+          return;
+        }
+        const effective = effectiveScope(requestedScope, admitted.value);
         if (effective === null) {
           await this.#sendReverseErrorEnvelope(doc, {
             code: SpokeRejectCode.NOT_AUTHORIZED,
@@ -2429,8 +2500,10 @@ export class ConnectResponder {
           });
           return;
         }
-        listedScope = effective;
+        servedScope = effective;
       }
+      // An absent scope keeps the admitted one (the `0.18.1` get/put path).
+      const storeScope = servedScope ?? admitted.value;
       // why: only a put mutates — an expiry after the store was invoked may have
       // applied it, so that expiry reports an unknown outcome (matching
       // Rust's `knowledge_uncertain_reject`). Reads have no store effect to
@@ -2452,7 +2525,7 @@ export class ConnectResponder {
             switch (doc.op) {
               case "port.knowledge.get":
                 return face.store.getScopedKnowledgeEntry(
-                  admitted.value,
+                  storeScope,
                   payload.entry_id as string,
                 );
               case "port.knowledge.put":
@@ -2467,7 +2540,7 @@ export class ConnectResponder {
                 return (async (): Promise<SpokeResult<unknown>> => {
                   const candidate = payload.entry as KnowledgeEntry;
                   const storedResult = await face.store.getScopedKnowledgeEntry(
-                    admitted.value,
+                    storeScope,
                     candidate.entry_id,
                   );
                   let stored: KnowledgeEntry | undefined;
@@ -2533,13 +2606,13 @@ export class ConnectResponder {
                     return gate;
                   }
                   return face.store.putScopedKnowledgeEntry(
-                    admitted.value,
+                    storeScope,
                     candidate,
                     callerBase,
                   );
                 })();
               default:
-                return face.store.listScopedKnowledgeEntries(listedScope);
+                return face.store.listScopedKnowledgeEntries(storeScope);
             }
           },
           knowledgeUncertainOnExpiry,

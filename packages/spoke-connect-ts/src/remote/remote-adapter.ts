@@ -147,7 +147,10 @@ import {
   verifySessionAuth,
   type InvokeRequestSignInput,
 } from "../core/envelope-auth.js";
-import { WIRE_INVALID_INPUT } from "../core/dispatch.js";
+import {
+  CAPABILITY_SPOKE_KNOWLEDGE_SCOPED,
+  WIRE_INVALID_INPUT,
+} from "../core/dispatch.js";
 import { CoreError } from "../core/error.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../core/hello.js";
 import { generateNonce, NonceStore } from "../core/nonce.js";
@@ -552,6 +555,79 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       entry,
       expected_base_revision: expectedBaseRevision,
     });
+  }
+
+  /**
+   * Remote `port.knowledge.get` naming the scope to read in (A2). The member
+   * is sent only when both sides negotiated `spoke-knowledge-scoped`; a
+   * caller-named scope without the marker is refused locally without
+   * sending, so a scope is never silently dropped (A2-D5). A `null` scope
+   * keeps the `0.18.1` payload.
+   */
+  async getKnowledgeEntryInScope(
+    entryId: string,
+    scope: Scope | null,
+  ): Promise<SpokeResult<KnowledgeEntry>> {
+    const payload = this.#scopedKnowledgePayload(
+      PORT_OPS.getKnowledgeEntry,
+      { entry_id: entryId },
+      scope,
+    );
+    if (!payload.ok) {
+      return payload;
+    }
+    return this.#invokeMapped<KnowledgeEntry>(
+      PORT_OPS.getKnowledgeEntry,
+      payload.value,
+    );
+  }
+
+  /** Remote `port.knowledge.put` naming the scope to write in (A2) — the same marker rule and local refusal as {@link getKnowledgeEntryInScope}. */
+  async putKnowledgeEntryInScope(
+    entry: KnowledgeEntry,
+    expectedBaseRevision: number | null,
+    scope: Scope | null,
+  ): Promise<SpokeResult<KnowledgeEntry>> {
+    const payload = this.#scopedKnowledgePayload(
+      PORT_OPS.putKnowledgeEntry,
+      { entry, expected_base_revision: expectedBaseRevision },
+      scope,
+    );
+    if (!payload.ok) {
+      return payload;
+    }
+    return this.#invokeMapped<KnowledgeEntry>(
+      PORT_OPS.putKnowledgeEntry,
+      payload.value,
+    );
+  }
+
+  /**
+   * Attach `scope` to a knowledge payload only when the session negotiated
+   * the marker; otherwise refuse locally with the dispatch-deny class the
+   * responder would answer (`op_unsupported` → `CAPABILITY_PORT_MISSING`),
+   * never sending a scope the peer would ignore (A2-D5).
+   */
+  #scopedKnowledgePayload(
+    op: string,
+    payload: Record<string, unknown>,
+    scope: Scope | null,
+  ): SpokeResult<Record<string, unknown>> {
+    if (scope === null) {
+      return spokeOk(payload);
+    }
+    const negotiated =
+      this.#session?.negotiated_capabilities.includes(
+        CAPABILITY_SPOKE_KNOWLEDGE_SCOPED,
+      ) ?? false;
+    if (!negotiated) {
+      return spokeReject(
+        SpokeRejectCode.CAPABILITY_PORT_MISSING,
+        `op ${op} requires capability ${CAPABILITY_SPOKE_KNOWLEDGE_SCOPED} for its declared scope`,
+        { wire_code: "op_unsupported" },
+      );
+    }
+    return spokeOk({ ...payload, scope });
   }
 
   async getRelation(relationId: string): Promise<SpokeResult<Relation>> {

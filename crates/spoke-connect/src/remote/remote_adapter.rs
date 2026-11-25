@@ -78,7 +78,7 @@ use crate::core::{
     check_response_correlation, derive_peer_id_from_ed25519_pubkey, dispatch_allowed,
     is_allowlisted, sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, CoreError,
     Correlation, EnvelopeAuthError, EnvelopeAuthErrorKind, InboundSequence, NonceStore,
-    OutboundSequence,
+    OutboundSequence, CAPABILITY_SPOKE_KNOWLEDGE_SCOPED,
 };
 use crate::hello::generate_nonce;
 use crate::remote::transport::{Transport, TransportError};
@@ -1453,6 +1453,89 @@ impl RemoteAdapter {
     /// identical to the port-method declares.
     pub async fn extract(&self, request: ExtractRequest) -> SpokeResult<ExtractResponse> {
         self.invoke_mapped("extract", json!(request)).await
+    }
+
+    /// Remote `port.knowledge.get` naming the scope to read in (A2). The
+    /// member is sent only when both sides negotiated
+    /// `spoke-knowledge-scoped`; a caller-named scope without the marker is
+    /// refused locally without sending, so a scope is never silently
+    /// dropped (A2-D5). `None` keeps the `0.18.1` payload.
+    pub async fn get_knowledge_entry_in_scope(
+        &self,
+        entry_id: &str,
+        scope: Option<&Scope>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        let payload = match self.scoped_knowledge_payload(
+            "port.knowledge.get",
+            json!({ "entry_id": entry_id }),
+            scope,
+        ) {
+            SpokeResult::Ok(payload) => payload,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        self.invoke_mapped("port.knowledge.get", payload).await
+    }
+
+    /// Remote `port.knowledge.put` naming the scope to write in (A2) — the
+    /// same marker rule and local refusal as
+    /// [`RemoteAdapter::get_knowledge_entry_in_scope`].
+    pub async fn put_knowledge_entry_in_scope(
+        &self,
+        entry: KnowledgeEntry,
+        expected_base_revision: Option<u64>,
+        scope: Option<&Scope>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        let payload = match self.scoped_knowledge_payload(
+            "port.knowledge.put",
+            json!({
+                "entry": entry,
+                "expected_base_revision": expected_base_revision,
+            }),
+            scope,
+        ) {
+            SpokeResult::Ok(payload) => payload,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        self.invoke_mapped("port.knowledge.put", payload).await
+    }
+
+    /// Whether the established session negotiated `capability` (the
+    /// both-hello intersection).
+    fn negotiates(&self, capability: &str) -> bool {
+        self.session
+            .lock()
+            .expect("session lock")
+            .as_ref()
+            .is_some_and(|session| session.negotiated_capabilities.iter().any(|c| c == capability))
+    }
+
+    /// Attach `scope` to a knowledge payload only when the session
+    /// negotiated the marker; otherwise refuse locally with the dispatch-deny
+    /// class the responder would answer (`op_unsupported` →
+    /// `CAPABILITY_PORT_MISSING`), never sending a scope the peer would
+    /// ignore (A2-D5).
+    fn scoped_knowledge_payload(
+        &self,
+        op: &str,
+        mut payload: Value,
+        scope: Option<&Scope>,
+    ) -> SpokeResult<Value> {
+        let Some(scope) = scope else {
+            return spoke_ok(payload);
+        };
+        if !self.negotiates(CAPABILITY_SPOKE_KNOWLEDGE_SCOPED) {
+            let mut details = Map::new();
+            details.insert("wire_code".into(), Value::String("op_unsupported".into()));
+            return SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::CapabilityPortMissing,
+                message: format!(
+                    "op {op} requires capability {CAPABILITY_SPOKE_KNOWLEDGE_SCOPED} for its declared scope"
+                ),
+                details: Some(details),
+            });
+        }
+        payload["scope"] = serde_json::to_value(scope).expect("Scope serializes");
+        spoke_ok(payload)
     }
 }
 

@@ -123,7 +123,7 @@ describe("selectPeerForOp knowledge rows", () => {
 });
 
 function scopedStoreFace(
-  admission: (peerId: string) => SpokeResult<Scope>,
+  admission: (peerId: string, scopeId?: string) => SpokeResult<Scope>,
   storeCalls: string[] = [],
   storeGate?: Promise<void>,
   storeRejectOn?: "put" | "get",
@@ -208,7 +208,7 @@ interface DialedKnowledgeHost {
 }
 
 async function dialKnowledgeOnlyHost(options: {
-  admission: (peerId: string) => SpokeResult<Scope>;
+  admission: (peerId: string, scopeId?: string) => SpokeResult<Scope>;
   clientSeed: Uint8Array;
   clientCapabilities: string[];
   storeCalls?: string[];
@@ -287,6 +287,29 @@ describe("knowledge-only responder", () => {
       }
 
       // note: core op denial is covered by the raw-wire probe below.
+    } finally {
+      close();
+    }
+  });
+  it("passes the declared scope selector to admission: the list's scope, none for get/put", async () => {
+    const seen: Array<string | undefined> = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: (_peerId, scopeId) => {
+        seen.push(scopeId);
+        return spokeOk(SCOPE_A);
+      },
+      clientSeed: seed(0x10),
+      clientCapabilities: ["spoke-knowledge"],
+    });
+    try {
+      expect((await client.putKnowledgeEntry(entry("kb_sel"), null)).ok).toBe(
+        true,
+      );
+      expect((await client.getKnowledgeEntry("kb_sel")).ok).toBe(true);
+      expect((await client.listKnowledgeEntries(SCOPE_A)).ok).toBe(true);
+      // Rust parity: `Some(scope.scope_id)` for the list op, `None` for
+      // get/put until the request scope lands (A1-D5).
+      expect(seen).toEqual([undefined, undefined, "scope_a"]);
     } finally {
       close();
     }

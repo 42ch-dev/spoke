@@ -55,8 +55,9 @@ pub use serve_ports::{
     HistoryDedupRecord, HistoryDedupStore, HistoryPortService, InMemoryHistoryDedupStore,
     KnowledgeAdmission, MemoryAdmission, MemoryPortService, RemoteAdoptionService,
     RemoteExtractService, RemoteHistoryService, RemoteKnowledgeFace, RemoteMemoryService,
-    RemoteServePorts, RemoteServePortsComposite, HISTORY_OP_GET, HISTORY_OP_PRUNE,
-    KNOWLEDGE_OP_ADOPT,
+    RemoteScopedKnowledgeFace, RemoteServePorts, RemoteServePortsComposite,
+    ScopedAdoptionAdmission, ScopedHistoryAdmission, ScopedKnowledgeAdmission, HISTORY_OP_GET,
+    HISTORY_OP_PRUNE, KNOWLEDGE_OP_ADOPT,
 };
 pub use transport::{
     loopback_transport_pair, LoopbackTransport, LoopbackTransportPair, Transport, TransportError,

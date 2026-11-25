@@ -34,7 +34,7 @@ use minimal_responder::*;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -50,18 +50,19 @@ use spoke_connect::core::{
 use spoke_connect::remote::{
     connect_multi_peer_router, connect_remote_adapter, connect_responder, loopback_transport_pair,
     reset_accepted_server_hellos_for_test, ConnectResponder, ConnectResponderOptions,
-    LoopbackTransport, LoopbackTransportPair, MultiPeerRouterOptions, RemoteAdapter,
-    RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState, RemoteExtractService,
-    RemoteIdentity, RemoteKnowledgeFace, RemoteServePorts, RemoteServePortsComposite, ToolHandler,
-    Transport, TransportError,
+    HistoryPortService, LoopbackTransport, LoopbackTransportPair, MultiPeerRouterOptions,
+    RemoteAdapter, RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState,
+    RemoteExtractService, RemoteIdentity, RemoteKnowledgeFace, RemoteScopedKnowledgeFace,
+    RemoteServePorts, RemoteServePortsComposite, ToolHandler, Transport, TransportError,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
     assert_revision_match, orchestrate_check, orchestrate_extract, orchestrate_upsert,
     parse_tool_capability_id, spoke_ok, spoke_reject, BaselinePorts, CheckRunInput, ComputablePort,
     ExtractRunInput, ExtractionPort, ExtractionResult, FindingPort, ForkTimelineQueryPort,
-    HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort,
-    ScopeQueryPort, ScopedKnowledgePort, SpokeReject, SpokeRejectCode, SpokeResult,
+    HistoryPort, HistoryPruneResult, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort,
+    RelationPort, RuleQueryPort, ScopeQueryPort, ScopedKnowledgePort, SpokeReject, SpokeRejectCode,
+    SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -70,8 +71,8 @@ use spoke_schemas::connect::ConnectSession;
 use spoke_schemas::host_capability_manifest::ExtensionKey;
 use spoke_schemas::{
     CheckRequest, ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
-    HostCapabilityManifest, KnowledgeEntry, ProjectRequest, ProjectResponse, Relation, Rule, Scope,
-    TimelineEvent, UpsertRequest,
+    HostCapabilityManifest, KnowledgeEntry, Principal, ProjectRequest, ProjectResponse, Relation,
+    RevisionSnapshot, Rule, Scope, TimelineEvent, UpsertRequest,
 };
 use tokio::sync::Notify;
 
@@ -7501,6 +7502,452 @@ async fn knowledge_face_serves_get_put_and_list_on_a_knowledge_only_host() {
             wire_ops.iter().any(|wire_op| wire_op == op),
             "{op} on the wire"
         );
+    }
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn scoped_knowledge_face_receives_the_requests_declared_selector() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    store.seed(&scope, scoped_entry("ke-knowledge-a", "alpha"));
+    let seen: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&seen);
+    let admitted = scope.clone();
+    let store_port: Arc<dyn ScopedKnowledgePort + Send + Sync> =
+        Arc::<ScopedKnowledgeStore>::clone(&store);
+    let face = Arc::new(RemoteScopedKnowledgeFace {
+        store: store_port,
+        admission: Arc::new(move |_peer, selector| {
+            recorded
+                .lock()
+                .expect("seen")
+                .push(selector.map(str::to_owned));
+            spoke_ok(admitted.clone())
+        }),
+    });
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_scoped_knowledge(face));
+
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge"],
+        responder_capabilities: vec!["spoke-knowledge"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    match client.get_knowledge_entry("ke-knowledge-a").await {
+        SpokeResult::Ok(entry) => assert_eq!(entry.entry_id.as_str(), "ke-knowledge-a"),
+        SpokeResult::Reject(reject) => panic!("scoped get must serve: {reject:?}"),
+    }
+    match client
+        .put_knowledge_entry(scoped_entry("ke-new", "created"), None)
+        .await
+    {
+        SpokeResult::Ok(entry) => assert_eq!(entry.revision, Some(1)),
+        SpokeResult::Reject(reject) => panic!("scoped create must serve: {reject:?}"),
+    }
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Ok(entries) => assert_eq!(entries.len(), 2),
+        SpokeResult::Reject(reject) => panic!("scoped list must serve: {reject:?}"),
+    }
+
+    // A1-D5: the list op declares its scope; get/put carry none until A2
+    // supplies the request scope.
+    assert_eq!(
+        *seen.lock().expect("seen"),
+        vec![None, None, Some("scope-a".to_owned())]
+    );
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn scoped_knowledge_admission_refusal_keeps_the_0_18_1_answer() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    store.seed(&scope, scoped_entry("ke-knowledge-a", "alpha"));
+    let store_port: Arc<dyn ScopedKnowledgePort + Send + Sync> =
+        Arc::<ScopedKnowledgeStore>::clone(&store);
+    let face = Arc::new(RemoteScopedKnowledgeFace {
+        store: store_port,
+        admission: Arc::new(|_peer, _selector| {
+            spoke_reject(SpokeRejectCode::NotAuthorized, "no scope for this peer", None)
+        }),
+    });
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_scoped_knowledge(face));
+
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge"],
+        responder_capabilities: vec!["spoke-knowledge"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    // The existing refusal shape: no existence detail, the store untouched.
+    let refusal = |reject: SpokeReject| {
+        assert_eq!(reject.code, SpokeRejectCode::NotAuthorized, "{reject:?}");
+        assert_eq!(reject.message, "knowledge scope not authorized");
+        assert!(reject.details.is_none(), "no existence detail: {reject:?}");
+    };
+    match client.get_knowledge_entry("ke-knowledge-a").await {
+        SpokeResult::Reject(reject) => refusal(reject),
+        SpokeResult::Ok(entry) => panic!("a refusing admission must not serve: {entry:?}"),
+    }
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Reject(reject) => refusal(reject),
+        SpokeResult::Ok(entries) => {
+            panic!("a refusing admission must not serve: {entries:?}")
+        }
+    }
+    assert!(
+        store.calls().is_empty(),
+        "a refusal must never reach the store: {:?}",
+        store.calls()
+    );
+
+    client.close();
+    responder.close();
+}
+
+/// A host whose knowledge serving face is the request-scoped one only: the
+/// peer-only probe is observable, so a scoped probe that still fell through
+/// to it would be caught here.
+struct ScopedKnowledgeOnlyPorts {
+    face: Arc<RemoteScopedKnowledgeFace>,
+    peer_only_probes: AtomicUsize,
+}
+
+impl RemoteServePorts for ScopedKnowledgeOnlyPorts {
+    fn as_scoped_knowledge(&self) -> Option<Arc<RemoteScopedKnowledgeFace>> {
+        Some(Arc::clone(&self.face))
+    }
+
+    fn as_knowledge(&self) -> Option<Arc<RemoteKnowledgeFace>> {
+        self.peer_only_probes
+            .fetch_add(1, Ordering::SeqCst);
+        None
+    }
+}
+
+#[tokio::test]
+async fn scoped_knowledge_face_never_invokes_the_peer_only_probe() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    store.seed(&scope, scoped_entry("ke-knowledge-a", "alpha"));
+    let admitted = scope.clone();
+    let store_port: Arc<dyn ScopedKnowledgePort + Send + Sync> =
+        Arc::<ScopedKnowledgeStore>::clone(&store);
+    let ports = Arc::new(ScopedKnowledgeOnlyPorts {
+        face: Arc::new(RemoteScopedKnowledgeFace {
+            store: store_port,
+            admission: Arc::new(move |_peer, _selector| spoke_ok(admitted.clone())),
+        }),
+        peer_only_probes: AtomicUsize::new(0),
+    });
+
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge"],
+        responder_capabilities: vec!["spoke-knowledge"],
+        ports: Some(Arc::<ScopedKnowledgeOnlyPorts>::clone(&ports)),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    match client.get_knowledge_entry("ke-knowledge-a").await {
+        SpokeResult::Ok(entry) => assert_eq!(entry.entry_id.as_str(), "ke-knowledge-a"),
+        SpokeResult::Reject(reject) => panic!("scoped get must serve: {reject:?}"),
+    }
+    match client
+        .put_knowledge_entry(scoped_entry("ke-new", "created"), None)
+        .await
+    {
+        SpokeResult::Ok(entry) => assert_eq!(entry.revision, Some(1)),
+        SpokeResult::Reject(reject) => panic!("scoped create must serve: {reject:?}"),
+    }
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Ok(entries) => assert_eq!(entries.len(), 2),
+        SpokeResult::Reject(reject) => panic!("scoped list must serve: {reject:?}"),
+    }
+
+    // The fallback probe is lazy: a host that supplies the scoped face never
+    // has its peer-only probe called.
+    assert_eq!(
+        ports.peer_only_probes.load(Ordering::SeqCst),
+        0,
+        "the peer-only probe must not run when the scoped face exists"
+    );
+
+    client.close();
+    responder.close();
+}
+
+/// A history provider that the gated-admission witness must never reach: its
+/// scoped admission never returns before the serve budget expires.
+struct UnreachedHistoryPort;
+
+#[async_trait]
+impl HistoryPort for UnreachedHistoryPort {
+    async fn get_history_snapshot(
+        &self,
+        _principal: &Principal,
+        _scope: &Scope,
+        _entity_kind: &str,
+        _entity_id: &str,
+        _revision: u64,
+    ) -> SpokeResult<RevisionSnapshot> {
+        spoke_reject(SpokeRejectCode::InternalError, "never admitted", None)
+    }
+
+    async fn prune_history(
+        &self,
+        _principal: &Principal,
+        _scope: &Scope,
+        _entity_kind: &str,
+        _entity_id: &str,
+        _keep: u64,
+    ) -> SpokeResult<HistoryPruneResult> {
+        spoke_reject(SpokeRejectCode::InternalError, "never admitted", None)
+    }
+}
+
+/// A1 blocking-pool requirement: a request-scoped admission is host work that
+/// may block, so it runs off the async worker. On a CURRENT-THREAD runtime a
+/// gated scoped admission must not stop the responder from answering its serve
+/// wait — with the callback on the async worker, the single worker would be
+/// stuck inside the resolver and no timeout could be polled.
+#[tokio::test(flavor = "current_thread")]
+async fn a_gated_scoped_history_admission_still_answers_the_serve_timeout() {
+    let scope = scope_of("scope-a");
+    let admitted = scope.clone();
+    let principal: Principal = serde_json::from_value(json!({
+        "principal_id": "prn-peer",
+        "extensions": {},
+    }))
+    .expect("valid Principal");
+    let entered = Arc::new(AtomicBool::new(false));
+    let released = Arc::new(AtomicBool::new(false));
+    // A condvar gate, not a sleep: the admission parks until the witness has
+    // the response in hand.
+    let gate: Arc<(Mutex<bool>, Condvar)> = Arc::new((Mutex::new(false), Condvar::new()));
+    // Fallback only: if the implementation blocks the async worker, its
+    // response can only arrive after this opens the gate — the witness then
+    // fails on its assertions instead of hanging. An independent thread, so
+    // the blocked runtime cannot delay it.
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    let watchdog_gate = Arc::clone(&gate);
+    let watchdog_released = Arc::clone(&released);
+    let watchdog = std::thread::spawn(move || {
+        let _ = done_rx.recv_timeout(Duration::from_secs(5));
+        watchdog_released.store(true, Ordering::SeqCst);
+        let (open, wake) = &*watchdog_gate;
+        *open.lock().expect("gate lock") = true;
+        wake.notify_all();
+    });
+    let entered_flag = Arc::clone(&entered);
+    let admission_gate = Arc::clone(&gate);
+    let scoped = Arc::new(move |_peer: &str, _selector: Option<&str>| {
+        entered_flag.store(true, Ordering::SeqCst);
+        let (open, wake) = &*admission_gate;
+        let mut admitted_gate = open.lock().expect("gate lock");
+        while !*admitted_gate {
+            admitted_gate = wake.wait(admitted_gate).expect("gate wait");
+        }
+        spoke_ok((principal.clone(), admitted.clone()))
+    });
+    let service = HistoryPortService::new(
+        Arc::new(UnreachedHistoryPort),
+        Arc::new(|_peer: &str| {
+            spoke_reject(SpokeRejectCode::NotAuthorized, "no peer-only admission", None)
+        }),
+    )
+    .with_scoped_admission(scoped);
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_history(Arc::new(service)),
+    );
+    let (responder, pair, seed) =
+        start_raw_ke_responder_with_budget(ports, &["spoke-history"], Some(50)).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-history"]),
+    )
+    .await;
+
+    // The gate is open only when this witness has already observed the
+    // response — an implementation that blocks the async worker can only
+    // answer after the watchdog fires (and then fails the `released`
+    // assertion instead of hanging).
+    let response = tokio::time::timeout(
+        Duration::from_secs(10),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session,
+            0,
+            "gated-scoped-admission",
+            "history.revisions.get",
+            json!({
+                "entity_kind": "knowledge_entry",
+                "entity_id": "e1",
+                "revision": 1,
+                "scope": { "scope_id": "scope-a", "extensions": {} },
+            }),
+        ),
+    )
+    .await
+    .expect("the serve budget answers while the scoped admission is still gated");
+
+    assert_eq!(response["error"]["code"], "OUTCOME_UNCERTAIN", "{response}");
+    assert_eq!(
+        response["error"]["details"]["retry_class"], "uncertain",
+        "{response}"
+    );
+    assert!(
+        entered.load(Ordering::SeqCst),
+        "the scoped admission really ran"
+    );
+    assert!(
+        !released.load(Ordering::SeqCst),
+        "the timeout answered before the gate was released — the admission left the async worker"
+    );
+
+    // Release the parked admission, then let the watchdog exit.
+    released.store(true, Ordering::SeqCst);
+    let (open, wake) = &*gate;
+    *open.lock().expect("gate lock") = true;
+    wake.notify_all();
+    let _ = done_tx.send(());
+    watchdog.join().expect("watchdog thread");
+    responder.close();
+}
+
+/// QC2-02: a scoped admission that panics is contained, and the join payload —
+/// which carries the callback's panic text — never reaches the wire.
+#[tokio::test]
+async fn a_panicking_scoped_history_admission_answers_a_fixed_internal_error() {
+    let scoped = Arc::new(
+        |_peer: &str, _selector: Option<&str>| -> SpokeResult<(Principal, Scope)> {
+            panic!("host panic text SECRET-ADMISSION-DETAIL");
+        },
+    );
+    let service = HistoryPortService::new(
+        Arc::new(UnreachedHistoryPort),
+        Arc::new(|_peer: &str| {
+            spoke_reject(SpokeRejectCode::NotAuthorized, "no peer-only admission", None)
+        }),
+    )
+    .with_scoped_admission(scoped);
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_history(Arc::new(service)),
+    );
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &["spoke-history"]).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-history"]),
+    )
+    .await;
+
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        0,
+        "panicking-scoped-admission",
+        "history.revisions.get",
+        json!({
+            "entity_kind": "knowledge_entry",
+            "entity_id": "e1",
+            "revision": 1,
+            "scope": { "scope_id": "scope-a", "extensions": {} },
+        }),
+    )
+    .await;
+
+    assert_eq!(response["error"]["code"], "INTERNAL_ERROR", "{response}");
+    assert_eq!(
+        response["error"]["message"], "scoped admission failed",
+        "the message is fixed: {response}"
+    );
+    assert!(
+        !response.to_string().contains("SECRET-ADMISSION-DETAIL"),
+        "the callback's panic text must stay host-side: {response}"
+    );
+
+    responder.close();
+}
+
+/// QC2-02 on the knowledge arm: the same containment, with its own fixed
+/// message and no join text.
+#[tokio::test]
+async fn a_panicking_scoped_knowledge_admission_answers_a_fixed_internal_error() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let store_port: Arc<dyn ScopedKnowledgePort + Send + Sync> =
+        Arc::<ScopedKnowledgeStore>::clone(&store);
+    let face = Arc::new(RemoteScopedKnowledgeFace {
+        store: store_port,
+        admission: Arc::new(
+            |_peer: &str, _selector: Option<&str>| -> SpokeResult<Scope> {
+                panic!("host panic text SECRET-ADMISSION-DETAIL");
+            },
+        ),
+    });
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_scoped_knowledge(face),
+    );
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge"],
+        responder_capabilities: vec!["spoke-knowledge"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    match client.get_knowledge_entry("ke-missing").await {
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::InternalError, "{reject:?}");
+            assert_eq!(
+                reject.message, "knowledge admission failed",
+                "the message is fixed: {reject:?}"
+            );
+            assert!(
+                !reject.message.contains("SECRET-ADMISSION-DETAIL"),
+                "the callback's panic text must stay host-side: {reject:?}"
+            );
+        }
+        SpokeResult::Ok(entry) => panic!("a panicking admission must not serve: {entry:?}"),
     }
 
     client.close();

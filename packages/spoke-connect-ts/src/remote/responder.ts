@@ -838,14 +838,17 @@ export type {
 
 /**
  * The knowledge serving face: a scoped store plus per-peer admission.
- * `admission(peerId)` returns the peer's admitted `Scope` or rejects —
+ * `admission(peerId, scopeId)` returns the peer's admitted `Scope` or rejects —
  * the responder then serves only inside that admitted scope; the wire
  * request never carries a scope for the get/put ops and the list op's
- * scope must match the admission exactly.
+ * scope must match the admission exactly. `scopeId` is the scope selector the
+ * request declares (`undefined` for an op that names none) and is advisory,
+ * never an authorization grant; a one-argument callback stays assignable
+ * (Rust parity: `ScopedKnowledgeAdmission`).
  */
 export interface RemoteKnowledgeFace {
   store: ScopedKnowledgePort;
-  admission: (peerId: string) => SpokeResult<Scope>;
+  admission: (peerId: string, scopeId?: string) => SpokeResult<Scope>;
 }
 
 /**
@@ -2376,10 +2379,19 @@ export class ConnectResponder {
         });
         return;
       }
+      const requestedScope = payload.scope as Scope | undefined;
+      // note: the declared scope selector — the list op names its scope; get/put
+      // carry none (Rust parity: `Some(scope.scope_id)` / `None`, A1-D5).
+      const declaredScopeId =
+        doc.op === "port.scope.list_knowledge_entries" &&
+        isJsonObject(requestedScope) &&
+        typeof requestedScope.scope_id === "string"
+          ? requestedScope.scope_id
+          : undefined;
       // note: one deadline per knowledge op — admission spends part of the local
       // budget, so the store call only gets what remains of it.
       const deadlineMs = Date.now() + this.#invokeTimeoutMs;
-      const admitted = face.admission(peerId);
+      const admitted = face.admission(peerId, declaredScopeId);
       if (!admitted.ok) {
         // note: no existence detail — the refusal names only the scope verdict.
         await this.#sendReverseErrorEnvelope(doc, {
@@ -2389,7 +2401,6 @@ export class ConnectResponder {
         });
         return;
       }
-      const requestedScope = payload.scope as Scope | undefined;
       if (
         doc.op === "port.scope.list_knowledge_entries" &&
         (requestedScope === undefined ||

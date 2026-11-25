@@ -104,6 +104,13 @@ pub type MemoryAdmission = Arc<dyn Fn(&str) -> SpokeResult<Principal> + Send + S
 /// forced stop) is what the caller is guaranteed.
 pub type KnowledgeAdmission = Arc<dyn Fn(&str) -> SpokeResult<Scope> + Send + Sync>;
 
+/// Scoped admission context: [`KnowledgeAdmission`] plus the scope selector
+/// the request declares — `Some` for an op whose wire request names a scope,
+/// `None` otherwise. The selector is what the request asked for, never an
+/// authorization grant: the admission still answers the admitted scope.
+pub type ScopedKnowledgeAdmission =
+    Arc<dyn Fn(&str, Option<&str>) -> SpokeResult<Scope> + Send + Sync>;
+
 /// Knowledge serving face: a scoped store plus per-peer admission. The three
 /// knowledge ops are served only inside the admitted scope; `get`/`put`
 /// carry no wire scope, and the list op's wire scope must match the
@@ -111,6 +118,16 @@ pub type KnowledgeAdmission = Arc<dyn Fn(&str) -> SpokeResult<Scope> + Send + Sy
 pub struct RemoteKnowledgeFace {
     pub store: Arc<dyn ScopedKnowledgePort + Send + Sync>,
     pub admission: KnowledgeAdmission,
+}
+
+/// Knowledge serving face whose admission also sees the request's declared
+/// scope selector. Probed through
+/// [`RemoteServePorts::as_scoped_knowledge`] before the peer-only
+/// [`RemoteKnowledgeFace`], so a host that adopts nothing keeps the peer-only
+/// answer.
+pub struct RemoteScopedKnowledgeFace {
+    pub store: Arc<dyn ScopedKnowledgePort + Send + Sync>,
+    pub admission: ScopedKnowledgeAdmission,
 }
 
 /// [`RemoteMemoryService`] over a provider [`MemoryPort`]: the 33 `memory.*`
@@ -280,6 +297,56 @@ impl RemoteMemoryService for MemoryPortService {
 /// calls it inside the local serve-wait budget: a host resolver MUST return
 /// within that budget on its own (same bound as [`KnowledgeAdmission`]).
 pub type HistoryAdmission = Arc<dyn Fn(&str) -> SpokeResult<(Principal, Scope)> + Send + Sync>;
+
+/// Scoped admission context: [`HistoryAdmission`] plus the scope selector the
+/// request declares — `Some` when the wire request names a scope, `None`
+/// otherwise. Advisory like [`ScopedKnowledgeAdmission`]: the admission still
+/// answers the admitted scope, and the existing equality checks still refuse
+/// a request scope that contradicts it.
+pub type ScopedHistoryAdmission =
+    Arc<dyn Fn(&str, Option<&str>) -> SpokeResult<(Principal, Scope)> + Send + Sync>;
+
+/// The admission a history/adoption serving face holds: the peer-only
+/// callback a `0.18.1` host supplies, or the request-scoped one. Both answer
+/// from the authenticated peer; a peer-only admission ignores the selector,
+/// so it keeps its existing answer.
+enum PeerOrScopedAdmission {
+    PeerOnly(HistoryAdmission),
+    Scoped(ScopedHistoryAdmission),
+}
+
+impl PeerOrScopedAdmission {
+    /// Resolve the admitted principal + scope. The peer-only callback keeps
+    /// its synchronous call (the `0.18.1` behaviour). A request-scoped
+    /// callback is host work that may block, so it runs on the blocking pool
+    /// — a blocked resolver must not occupy an async worker (A1 blocking-pool
+    /// requirement), and a panic is contained as `INTERNAL_ERROR`.
+    async fn admit(&self, peer_id: &str, selector: Option<&str>) -> SpokeResult<(Principal, Scope)> {
+        match self {
+            Self::PeerOnly(admission) => admission(peer_id),
+            Self::Scoped(admission) => {
+                let admission = Arc::clone(admission);
+                let peer_id = peer_id.to_owned();
+                let selector = selector.map(str::to_owned);
+                match tokio::task::spawn_blocking(move || {
+                    admission(&peer_id, selector.as_deref())
+                })
+                .await
+                {
+                    Ok(result) => result,
+                    // The join payload carries the callback's panic text
+                    // (its pinned `Display`); it stays host-side and never
+                    // reaches the wire.
+                    Err(_join) => spoke_reject(
+                        SpokeRejectCode::InternalError,
+                        "scoped admission failed",
+                        None,
+                    ),
+                }
+            }
+        }
+    }
+}
 
 /// `history.revisions.get` wire op.
 pub const HISTORY_OP_GET: &str = "history.revisions.get";
@@ -978,7 +1045,7 @@ fn valid_served_prune_result(result: HistoryPruneResult) -> SpokeResult<Value> {
 /// emitting them.
 pub struct HistoryPortService {
     port: Arc<dyn HistoryPort + Send + Sync>,
-    admission: HistoryAdmission,
+    admission: PeerOrScopedAdmission,
     /// Owns same-key single-flight via [`HistoryDedupStore::claim_key`]:
     /// two concurrent same-key prunes cannot both observe `Unseen` and
     /// double-execute, while unrelated keys proceed concurrently.
@@ -992,9 +1059,17 @@ impl HistoryPortService {
     pub fn new(port: Arc<dyn HistoryPort + Send + Sync>, admission: HistoryAdmission) -> Self {
         Self {
             port,
-            admission,
+            admission: PeerOrScopedAdmission::PeerOnly(admission),
             dedup: Arc::new(InMemoryHistoryDedupStore::new()),
         }
+    }
+
+    /// Replace the peer-only admission with a request-scoped one that also
+    /// sees the scope selector each request declares.
+    #[must_use]
+    pub fn with_scoped_admission(mut self, admission: ScopedHistoryAdmission) -> Self {
+        self.admission = PeerOrScopedAdmission::Scoped(admission);
+        self
     }
 
     /// Inject a durable dedup store (spoke-history contract §9.1: the
@@ -1067,13 +1142,18 @@ impl RemoteHistoryService for HistoryPortService {
             SpokeResult::Ok(call) => call,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
-        let (principal, admitted_scope) = match (self.admission)(peer_id) {
-            SpokeResult::Ok(admitted) => admitted,
-            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
-        };
         let (requested_scope, is_get) = match &call {
             HistoryCall::Get { scope, .. } => (scope, true),
             HistoryCall::Prune { scope, .. } => (scope, false),
+        };
+        // The selector the request declares — history names its scope on both
+        // ops, so a scoped admission sees it (A1-D5).
+        let selector = requested_scope
+            .as_ref()
+            .map(|scope| scope.scope_id.as_str());
+        let (principal, admitted_scope) = match self.admission.admit(peer_id, selector).await {
+            SpokeResult::Ok(admitted) => admitted,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
         // A present request scope MUST equal the admitted scope; absent,
         // the admitted scope is the effective scope (contract §Connect
@@ -1234,6 +1314,11 @@ pub const KNOWLEDGE_OP_ADOPT: &str = "knowledge.adopt";
 /// owner-private absence).
 pub type AdoptionAdmission = HistoryAdmission;
 
+/// Scoped admission context for the adoption face — the same shape as
+/// [`ScopedHistoryAdmission`]. The selector is the request's declared
+/// destination scope.
+pub type ScopedAdoptionAdmission = ScopedHistoryAdmission;
+
 /// Connect-owned service face for the `spoke-knowledge-adoption` family
 /// (`knowledge.*`, spoke-knowledge-adoption contract §Connect operation):
 /// the serving host owns the provider — the
@@ -1277,7 +1362,7 @@ pub trait RemoteAdoptionService: Send + Sync {
 /// single-flight through [`HistoryDedupStore::claim_key`].
 pub struct AdoptionPortService {
     port: Arc<dyn AdoptionPort + Send + Sync>,
-    admission: AdoptionAdmission,
+    admission: PeerOrScopedAdmission,
     dedup: Arc<dyn HistoryDedupStore>,
 }
 
@@ -1288,9 +1373,17 @@ impl AdoptionPortService {
     pub fn new(port: Arc<dyn AdoptionPort + Send + Sync>, admission: AdoptionAdmission) -> Self {
         Self {
             port,
-            admission,
+            admission: PeerOrScopedAdmission::PeerOnly(admission),
             dedup: Arc::new(InMemoryHistoryDedupStore::new()),
         }
+    }
+
+    /// Replace the peer-only admission with a request-scoped one that also
+    /// sees the request's destination scope selector.
+    #[must_use]
+    pub fn with_scoped_admission(mut self, admission: ScopedAdoptionAdmission) -> Self {
+        self.admission = PeerOrScopedAdmission::Scoped(admission);
+        self
     }
 
     /// Inject a durable dedup store (entries MUST outlive a Connect
@@ -1357,7 +1450,11 @@ impl RemoteAdoptionService for AdoptionPortService {
             SpokeResult::Ok(request) => request,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
-        let (principal, effective_scope) = match (self.admission)(peer_id) {
+        let (principal, effective_scope) = match self
+            .admission
+            .admit(peer_id, Some(request.destination_scope_id.as_str()))
+            .await
+        {
             SpokeResult::Ok(admitted) => admitted,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
@@ -1824,6 +1921,13 @@ pub trait RemoteServePorts: Send + Sync {
         None
     }
 
+    /// Optional request-scoped knowledge serving face, when provided. The
+    /// responder probes it before [`RemoteServePorts::as_knowledge`], so a
+    /// host that does not adopt it keeps the peer-only answer.
+    fn as_scoped_knowledge(&self) -> Option<Arc<RemoteScopedKnowledgeFace>> {
+        None
+    }
+
     /// Optional l2-computable face (project / compute), when provided.
     fn as_computable(&self) -> Option<&dyn ComputablePort> {
         None
@@ -1903,11 +2007,14 @@ where
 /// Composite responder ports face: each family is optional and independent.
 /// Baseline-only and mixed hosts compose via [`RemoteServePortsComposite::new`]
 /// without manual trait impls; a knowledge-only host composes with
-/// [`RemoteServePortsComposite::knowledge_only`]; extraction, memory,
+/// [`RemoteServePortsComposite::knowledge_only`]; a host whose admission sees
+/// the request's scope selector adds
+/// [`RemoteServePortsComposite::with_scoped_knowledge`]; extraction, memory,
 /// history and adoption are added with the consuming builders.
 pub struct RemoteServePortsComposite {
     baseline: Option<Arc<dyn BaselinePorts + Send + Sync>>,
     knowledge: Option<Arc<RemoteKnowledgeFace>>,
+    scoped_knowledge: Option<Arc<RemoteScopedKnowledgeFace>>,
     computable: Option<Arc<dyn ComputablePort + Send + Sync>>,
     fork: Option<Arc<dyn ForkTimelineQueryPort + Send + Sync>>,
     extract: Option<Arc<dyn RemoteExtractService>>,
@@ -1941,6 +2048,7 @@ impl RemoteServePortsComposite {
         Self {
             baseline,
             knowledge: None,
+            scoped_knowledge: None,
             computable,
             fork,
             extract: None,
@@ -1963,6 +2071,15 @@ impl RemoteServePortsComposite {
     #[must_use]
     pub fn with_knowledge(mut self, knowledge: Arc<RemoteKnowledgeFace>) -> Self {
         self.knowledge = Some(knowledge);
+        self
+    }
+
+    /// Attach the request-scoped knowledge serving face (consuming builder).
+    /// The responder probes it before [`RemoteServePortsComposite::with_knowledge`]'s
+    /// face.
+    #[must_use]
+    pub fn with_scoped_knowledge(mut self, knowledge: Arc<RemoteScopedKnowledgeFace>) -> Self {
+        self.scoped_knowledge = Some(knowledge);
         self
     }
 
@@ -2006,6 +2123,10 @@ impl RemoteServePorts for RemoteServePortsComposite {
 
     fn as_knowledge(&self) -> Option<Arc<RemoteKnowledgeFace>> {
         self.knowledge.clone()
+    }
+
+    fn as_scoped_knowledge(&self) -> Option<Arc<RemoteScopedKnowledgeFace>> {
+        self.scoped_knowledge.clone()
     }
 
     fn as_computable(&self) -> Option<&dyn ComputablePort> {
@@ -4316,5 +4437,98 @@ mod history_tests {
         let result = retry.await.expect("task completes");
         assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
         assert_eq!(port.calls.load(AtomicOrdering::SeqCst), 2);
+    }
+
+    /// A1-D5: a scoped admission sees the scope selector each history request
+    /// declares — the wire scope's id, or `None` when the request names none.
+    #[tokio::test]
+    async fn scoped_history_admission_receives_the_declared_selector() {
+        let port = Arc::new(StubHistoryPort::new());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&seen);
+        let scoped: ScopedHistoryAdmission = Arc::new(move |_peer, selector| {
+            recorded
+                .lock()
+                .expect("seen")
+                .push(selector.map(str::to_owned));
+            spoke_ok((principal("peer-p"), scope("s1")))
+        });
+        let service =
+            HistoryPortService::new(port.clone(), admission(scope("s1"), principal("peer-p")))
+                .with_scoped_admission(scoped);
+
+        let with_scope = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_GET,
+                json!({
+                    "entity_kind": "knowledge_entry",
+                    "entity_id": "e1",
+                    "revision": 7,
+                    "scope": {"scope_id": "s1", "extensions": {}}
+                }),
+            )
+            .await;
+        assert!(matches!(with_scope, SpokeResult::Ok(_)), "{with_scope:?}");
+        let without_scope = service
+            .invoke(
+                "peer-a",
+                HISTORY_OP_GET,
+                json!({
+                    "entity_kind": "knowledge_entry",
+                    "entity_id": "e1",
+                    "revision": 7
+                }),
+            )
+            .await;
+        assert!(
+            matches!(without_scope, SpokeResult::Ok(_)),
+            "{without_scope:?}"
+        );
+        assert_eq!(
+            *seen.lock().expect("seen"),
+            vec![Some("s1".to_owned()), None]
+        );
+    }
+
+    /// A1-D5: the adoption admission sees the request's declared destination
+    /// scope selector.
+    #[tokio::test]
+    async fn scoped_adoption_admission_receives_the_destination_selector() {
+        struct RefusingPort;
+        #[async_trait]
+        impl AdoptionPort for RefusingPort {
+            async fn adopt_knowledge_entry(
+                &self,
+                _principal: &Principal,
+                _scope: &Scope,
+                _request: &KnowledgeAdoptRequest,
+            ) -> SpokeResult<KnowledgeAdoptResponse> {
+                spoke_reject(SpokeRejectCode::InvalidInput, "unused", None)
+            }
+        }
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&seen);
+        let scoped: ScopedAdoptionAdmission = Arc::new(move |_peer, selector| {
+            recorded
+                .lock()
+                .expect("seen")
+                .push(selector.map(str::to_owned));
+            spoke_ok((principal("prn_peer-a"), scope("dst-scope")))
+        });
+        let service = AdoptionPortService::new(
+            Arc::new(RefusingPort),
+            admission(scope("dst-scope"), principal("prn_peer-a")),
+        )
+        .with_scoped_admission(scoped);
+
+        let result = service
+            .invoke("peer-a", KNOWLEDGE_OP_ADOPT, adopt_payload(None))
+            .await;
+        assert!(matches!(result, SpokeResult::Reject(_)), "{result:?}");
+        assert_eq!(
+            *seen.lock().expect("seen"),
+            vec![Some("dst-scope".to_owned())]
+        );
     }
 }

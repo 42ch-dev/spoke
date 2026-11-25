@@ -69,7 +69,8 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     assert_adoption_anchor_preserved, from_error_envelope, parse_tool_capability_id, spoke_ok,
-    spoke_reject, to_error_envelope, BaselinePorts, SpokeReject, SpokeRejectCode, SpokeResult,
+    spoke_reject, to_error_envelope, BaselinePorts, ScopedKnowledgePort, SpokeReject,
+    SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ConnectInvokeResponse;
@@ -300,6 +301,23 @@ enum KnowledgeCall<'a> {
     GetKnowledgeEntry(String),
     PutKnowledgeEntry(KnowledgeEntry, Option<u64>),
     ListKnowledgeEntries(&'a Scope),
+}
+
+/// The knowledge face a host provides: the request-scoped face probed first
+/// (A1-D5), or the peer-only `0.18.1` face it falls back to. Both serve the
+/// same store; only the admission signature differs.
+enum KnowledgeServingFace {
+    Scoped(Arc<crate::remote::RemoteScopedKnowledgeFace>),
+    PeerOnly(Arc<crate::remote::RemoteKnowledgeFace>),
+}
+
+impl KnowledgeServingFace {
+    fn store(&self) -> Arc<dyn ScopedKnowledgePort + Send + Sync> {
+        match self {
+            Self::Scoped(face) => Arc::clone(&face.store),
+            Self::PeerOnly(face) => Arc::clone(&face.store),
+        }
+    }
 }
 
 /// One decoded `port.*` dispatch: the catalogue arm's validated arguments,
@@ -657,13 +675,13 @@ fn effective_scope(requested: &Scope, admitted: &Scope) -> Option<Scope> {
 /// present exactly when the call lists.
 async fn call_knowledge_op(
     call: KnowledgeCall<'_>,
-    face: &crate::remote::RemoteKnowledgeFace,
+    store: &(dyn ScopedKnowledgePort + Send + Sync),
     admitted: &Scope,
     list_scope: Option<&Scope>,
 ) -> SpokeResult<Value> {
     match call {
         KnowledgeCall::GetKnowledgeEntry(entry_id) => map_result(
-            face.store
+            store
                 .get_scoped_knowledge_entry(admitted, &entry_id)
                 .await,
         ),
@@ -675,8 +693,7 @@ async fn call_knowledge_op(
             // byte-identically or the write refuses
             // `ADOPTION_ANCHOR_IMMUTABLE` with `details.entry_id` —
             // before the put, never after.
-            let stored = match face
-                .store
+            let stored = match store
                 .get_scoped_knowledge_entry(admitted, &entry.entry_id)
                 .await
             {
@@ -747,14 +764,14 @@ async fn call_knowledge_op(
             // a verified `Some` is the stored revision itself and a
             // `None` fence stays a create-only CAS against absence.
             map_result(
-                face.store
+                store
                     .put_scoped_knowledge_entry(admitted, entry, expected_base_revision)
                     .await,
             )
         }
         KnowledgeCall::ListKnowledgeEntries(_) => {
             let scope = list_scope.expect("a list call carries its effective scope");
-            map_result(face.store.list_scoped_knowledge_entries(scope).await)
+            map_result(store.list_scoped_knowledge_entries(scope).await)
         }
     }
 }
@@ -2492,8 +2509,9 @@ impl ConnectResponder {
     ///
     /// Gate order: decode → face probe → admission (exactly once, keyed by
     /// the authenticated peer) → list scope equality/intersection → store
-    /// call. Admission and the store share ONE deadline; `Ok(None)` means a
-    /// refusal envelope was already sent and the store was never called — a
+    /// call. The request-scoped face is probed before the peer-only face
+    /// (A1-D5). Admission and the store share ONE deadline; `Ok(None)` means
+    /// a refusal envelope was already sent and the store was never called — a
     /// refusal discloses nothing, not even whether the entry exists.
     async fn serve_knowledge_op(
         &self,
@@ -2518,17 +2536,28 @@ impl ConnectResponder {
         };
         // Gate → probe → serve/deny: a declared `spoke-knowledge` without the
         // serving face is the same dispatch-deny branch as an absent
-        // baseline face, never a baseline fallback (D7 wire code).
-        let Some(face) = ports.as_knowledge() else {
-            self.send_reverse_error_envelope(
-                doc,
-                "op_unsupported",
-                &format!("no knowledge face configured for port op {op}"),
-                None,
-            )
-            .await?;
-            return Ok(None);
+        // baseline face, never a baseline fallback (D7 wire code). The
+        // request-scoped face wins, and the peer-only probe runs only when it
+        // is absent — a host that supplies the scoped face never sees the
+        // fallback probe (it may panic or do work); a host that adopts
+        // nothing keeps the peer-only face and its `0.18.1` answer.
+        let face = match ports.as_scoped_knowledge() {
+            Some(scoped) => KnowledgeServingFace::Scoped(scoped),
+            None => match ports.as_knowledge() {
+                Some(peer_only) => KnowledgeServingFace::PeerOnly(peer_only),
+                None => {
+                    self.send_reverse_error_envelope(
+                        doc,
+                        "op_unsupported",
+                        &format!("no knowledge face configured for port op {op}"),
+                        None,
+                    )
+                    .await?;
+                    return Ok(None);
+                }
+            },
         };
+        let store = face.store();
         // The admitted scope derives from the authenticated session peer,
         // never from the payload. One refusal shape for an unbound peer and
         // for a rejecting admission: no existence detail.
@@ -2547,13 +2576,34 @@ impl ConnectResponder {
         // One deadline for the whole op: admission and the store call share the
         // local budget, so a slow admission cannot buy a second full timeout.
         let deadline = std::time::Instant::now() + self.invoke_timeout;
-        let admission = Arc::clone(&face.admission);
-        let admitted = match tokio::time::timeout(
-            deadline.saturating_duration_since(std::time::Instant::now()),
-            tokio::task::spawn_blocking(move || admission(&peer_id)),
-        )
-        .await
-        {
+        let wait = deadline.saturating_duration_since(std::time::Instant::now());
+        let admission = match &face {
+            KnowledgeServingFace::Scoped(face) => {
+                // The selector the request declares: the list op names one;
+                // get/put carry no wire scope until A2 supplies the request
+                // scope (A1-D5). Only the scoped closure captures it, so the
+                // peer-only path never copies it.
+                let selector = match &call {
+                    KnowledgeCall::ListKnowledgeEntries(scope) => Some(scope.scope_id.clone()),
+                    _ => None,
+                };
+                let admission = Arc::clone(&face.admission);
+                tokio::time::timeout(
+                    wait,
+                    tokio::task::spawn_blocking(move || admission(&peer_id, selector.as_deref())),
+                )
+                .await
+            }
+            KnowledgeServingFace::PeerOnly(face) => {
+                let admission = Arc::clone(&face.admission);
+                tokio::time::timeout(
+                    wait,
+                    tokio::task::spawn_blocking(move || admission(&peer_id)),
+                )
+                .await
+            }
+        };
+        let admitted = match admission {
             Ok(Ok(SpokeResult::Ok(scope))) => scope,
             Ok(Ok(SpokeResult::Reject(_))) => {
                 self.deny_knowledge_scope(doc).await?;
@@ -2561,12 +2611,14 @@ impl ConnectResponder {
             }
             // A panicking admission is contained, exactly like a foreign
             // resolver panic: nothing reached the store, so this is a clean
-            // internal error, not an uncertain outcome.
-            Ok(Err(join)) => {
+            // internal error, not an uncertain outcome. The join payload
+            // carries the callback's panic text; it stays host-side and never
+            // reaches the wire.
+            Ok(Err(_join)) => {
                 self.send_reverse_error_envelope(
                     doc,
                     SpokeRejectCode::InternalError.as_str(),
-                    &format!("knowledge admission failed for port op {op}: {join}"),
+                    "knowledge admission failed",
                     None,
                 )
                 .await?;
@@ -2611,7 +2663,7 @@ impl ConnectResponder {
         let mutates = matches!(&call, KnowledgeCall::PutKnowledgeEntry(..));
         let result = match tokio::time::timeout(
             remaining,
-            call_knowledge_op(call, face.as_ref(), &admitted, list_scope.as_ref()),
+            call_knowledge_op(call, store.as_ref(), &admitted, list_scope.as_ref()),
         )
         .await
         {
@@ -3965,15 +4017,6 @@ mod tests {
         }
     }
 
-    fn put_face(store: Arc<ScopedPutStore>) -> crate::remote::RemoteKnowledgeFace {
-        crate::remote::RemoteKnowledgeFace {
-            store,
-            admission: Arc::new(|_peer| {
-                spoke_reject(SpokeRejectCode::InternalError, "unused", None)
-            }),
-        }
-    }
-
     fn put_entry(entry_id: &str, anchor: Option<Value>) -> KnowledgeEntry {
         let mut entry = json!({
             "schema_version": 1,
@@ -4017,10 +4060,9 @@ mod tests {
             get_code: SpokeRejectCode::KnowledgeEntryNotFound,
             cas_bases: Mutex::new(Vec::new()),
         });
-        let face = put_face(store.clone());
         let result = call_knowledge_op(
             KnowledgeCall::PutKnowledgeEntry(put_entry("new-entry", None), None),
-            &face,
+            store.as_ref(),
             &put_scope(),
             None,
         )
@@ -4038,7 +4080,7 @@ mod tests {
         // An update fence on an absent entry refuses before any write.
         let stale = call_knowledge_op(
             KnowledgeCall::PutKnowledgeEntry(put_entry("absent-entry", None), Some(7)),
-            &face,
+            store.as_ref(),
             &put_scope(),
             None,
         )
@@ -4076,7 +4118,6 @@ mod tests {
             get_code: SpokeRejectCode::KnowledgeEntryNotFound,
             cas_bases: Mutex::new(Vec::new()),
         });
-        let face = put_face(store.clone());
         // Anchor preserved byte-identically + a stale wire base: the put
         // refuses before any store write.
         let stale = call_knowledge_op(
@@ -4084,7 +4125,7 @@ mod tests {
                 put_entry("anchored-entry", Some(put_anchor())),
                 Some(2),
             ),
-            &face,
+            store.as_ref(),
             &put_scope(),
             None,
         )
@@ -4107,7 +4148,7 @@ mod tests {
         // A create-only request cannot replace the occupied slot.
         let create = call_knowledge_op(
             KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", Some(put_anchor())), None),
-            &face,
+            store.as_ref(),
             &put_scope(),
             None,
         )
@@ -4130,7 +4171,7 @@ mod tests {
         // check on the same snapshot, matching the TS responder.
         let create_removing_anchor = call_knowledge_op(
             KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", None), None),
-            &face,
+            store.as_ref(),
             &put_scope(),
             None,
         )
@@ -4157,7 +4198,7 @@ mod tests {
                 put_entry("anchored-entry", Some(put_anchor())),
                 Some(5),
             ),
-            &face,
+            store.as_ref(),
             &put_scope(),
             None,
         )
@@ -4173,7 +4214,7 @@ mod tests {
         // any store write.
         let mutated = call_knowledge_op(
             KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", None), Some(5)),
-            &face,
+            store.as_ref(),
             &put_scope(),
             None,
         )

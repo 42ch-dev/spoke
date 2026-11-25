@@ -2754,12 +2754,16 @@ impl ConnectResponder {
                 }
             }
         };
-        // A2-D3: the marker is a conjunct on the declared scope, checked
-        // after its shape (a malformed member keeps `INVALID_INPUT`) and
-        // before the ownership/cognition conjuncts. A session that did not
-        // negotiate it must never be served a scope it would silently drop.
-        if declared_scope.is_some()
-            && optional_scope_op(op)
+        // A2-D3: the marker is a conjunct on the raw declared `scope` member —
+        // checked after the baseline shape (a malformed baseline scope answers
+        // `INVALID_INPUT` above) and before the ownership/cognition conjuncts.
+        // Presence is read from the payload, not the decoded value: a payload
+        // whose cognition subtree deferred to its own diagnosis still has
+        // `declared_scope == None`, and it must take the marker refusal, not
+        // the cognition branch. A session that did not negotiate the marker
+        // must never be served a scope it would silently drop.
+        if optional_scope_op(op)
+            && payload.get("scope").is_some()
             && !negotiated
                 .iter()
                 .any(|cap| cap == CAPABILITY_SPOKE_KNOWLEDGE_SCOPED)

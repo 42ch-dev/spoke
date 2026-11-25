@@ -334,9 +334,12 @@ impl PeerOrScopedAdmission {
                 .await
                 {
                     Ok(result) => result,
-                    Err(join) => spoke_reject(
+                    // The join payload carries the callback's panic text
+                    // (its pinned `Display`); it stays host-side and never
+                    // reaches the wire.
+                    Err(_join) => spoke_reject(
                         SpokeRejectCode::InternalError,
-                        format!("scoped admission failed: {join}"),
+                        "scoped admission failed",
                         None,
                     ),
                 }

@@ -2611,12 +2611,14 @@ impl ConnectResponder {
             }
             // A panicking admission is contained, exactly like a foreign
             // resolver panic: nothing reached the store, so this is a clean
-            // internal error, not an uncertain outcome.
-            Ok(Err(join)) => {
+            // internal error, not an uncertain outcome. The join payload
+            // carries the callback's panic text; it stays host-side and never
+            // reaches the wire.
+            Ok(Err(_join)) => {
                 self.send_reverse_error_envelope(
                     doc,
                     SpokeRejectCode::InternalError.as_str(),
-                    &format!("knowledge admission failed for port op {op}: {join}"),
+                    "knowledge admission failed",
                     None,
                 )
                 .await?;

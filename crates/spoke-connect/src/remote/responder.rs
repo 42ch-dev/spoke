@@ -88,7 +88,7 @@ use crate::core::{
     verify_invoke_request_auth, verify_invoke_response_auth_with_op, Correlation,
     EnvelopeAuthError, InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput,
     NonceStore, OutboundSequence, SessionSignInput, CAPABILITY_KE_OWNERSHIP,
-    CAPABILITY_SPOKE_COGNITION,
+    CAPABILITY_SPOKE_COGNITION, CAPABILITY_SPOKE_KNOWLEDGE_SCOPED,
 };
 use crate::hello::generate_nonce;
 use crate::remote::remote_adapter::{
@@ -101,8 +101,8 @@ use crate::remote::serve_ports::{
 };
 use crate::remote::transport::Transport;
 use crate::remote::{
-    baseline_scope_shape, port_dispatch_allowed, requires_ownership_capability,
-    validate_scope_declaration,
+    baseline_scope_shape, optional_scope_op, port_dispatch_allowed,
+    requires_ownership_capability, validate_scope_declaration,
 };
 use crate::runtime::generate_request_id;
 
@@ -297,10 +297,10 @@ fn memory_panic_uncertain_reject() -> SpokeReject {
 /// One decoded knowledge op: the catalogue arm's validated arguments,
 /// produced before the serve bound starts. The three knowledge ops are
 /// served through the knowledge face, never through the baseline provider.
-enum KnowledgeCall<'a> {
+enum KnowledgeCall {
     GetKnowledgeEntry(String),
     PutKnowledgeEntry(KnowledgeEntry, Option<u64>),
-    ListKnowledgeEntries(&'a Scope),
+    ListKnowledgeEntries,
 }
 
 /// The knowledge face a host provides: the request-scoped face probed first
@@ -344,14 +344,15 @@ fn is_knowledge_op(op: &str) -> bool {
     )
 }
 
-/// Decode and validate one knowledge op payload. The wire request carries no
-/// scope for get/put; the list op's declared scope is the one the responder
+/// Decode and validate one knowledge op payload. Get and put accept an
+/// optional declared scope (validated by the responder gate, applied after
+/// admission); the list op's declared scope is required and is the one the
 /// gate already decoded and validated.
-fn decode_knowledge_call<'a>(
+fn decode_knowledge_call(
     op: &str,
     payload: &Value,
-    declared_scope: Option<&'a Scope>,
-) -> SpokeResult<KnowledgeCall<'a>> {
+    declared_scope: Option<&Scope>,
+) -> SpokeResult<KnowledgeCall> {
     match op {
         // TS twin (`validateKnowledgeOpPayload`) rejects a non-string or empty
         // `entry_id` with INVALID_INPUT before admission; the store never sees
@@ -572,7 +573,7 @@ fn decode_knowledge_call<'a>(
             spoke_ok(KnowledgeCall::PutKnowledgeEntry(entry, expected))
         }
         "port.scope.list_knowledge_entries" => match declared_scope {
-            Some(scope) => spoke_ok(KnowledgeCall::ListKnowledgeEntries(scope)),
+            Some(_) => spoke_ok(KnowledgeCall::ListKnowledgeEntries),
             None => SpokeResult::Reject(missing_declared_scope(op)),
         },
         _ => SpokeResult::Reject(SpokeReject {
@@ -669,20 +670,20 @@ fn effective_scope(requested: &Scope, admitted: &Scope) -> Option<Scope> {
     Some(scope)
 }
 
-/// Serve one decoded [`KnowledgeCall`] against the admitted scope. Runs
-/// inside the serve bound; admission and the list scope intersection ran
+/// Serve one decoded [`KnowledgeCall`] against the served scope. Runs
+/// inside the serve bound; admission and the declared-scope intersection ran
 /// before it, so a refusal never reaches the store and `list_scope` is
 /// present exactly when the call lists.
 async fn call_knowledge_op(
-    call: KnowledgeCall<'_>,
+    call: KnowledgeCall,
     store: &(dyn ScopedKnowledgePort + Send + Sync),
-    admitted: &Scope,
+    served_scope: &Scope,
     list_scope: Option<&Scope>,
 ) -> SpokeResult<Value> {
     match call {
         KnowledgeCall::GetKnowledgeEntry(entry_id) => map_result(
             store
-                .get_scoped_knowledge_entry(admitted, &entry_id)
+                .get_scoped_knowledge_entry(served_scope, &entry_id)
                 .await,
         ),
         KnowledgeCall::PutKnowledgeEntry(entry, expected_base_revision) => {
@@ -694,7 +695,7 @@ async fn call_knowledge_op(
             // `ADOPTION_ANCHOR_IMMUTABLE` with `details.entry_id` —
             // before the put, never after.
             let stored = match store
-                .get_scoped_knowledge_entry(admitted, &entry.entry_id)
+                .get_scoped_knowledge_entry(served_scope, &entry.entry_id)
                 .await
             {
                 SpokeResult::Ok(stored) => Some(stored),
@@ -765,11 +766,11 @@ async fn call_knowledge_op(
             // `None` fence stays a create-only CAS against absence.
             map_result(
                 store
-                    .put_scoped_knowledge_entry(admitted, entry, expected_base_revision)
+                    .put_scoped_knowledge_entry(served_scope, entry, expected_base_revision)
                     .await,
             )
         }
-        KnowledgeCall::ListKnowledgeEntries(_) => {
+        KnowledgeCall::ListKnowledgeEntries => {
             let scope = list_scope.expect("a list call carries its effective scope");
             map_result(store.list_scoped_knowledge_entries(scope).await)
         }
@@ -2508,8 +2509,10 @@ impl ConnectResponder {
     /// Serve one of the three knowledge ops through the knowledge face.
     ///
     /// Gate order: decode → face probe → admission (exactly once, keyed by
-    /// the authenticated peer) → list scope equality/intersection → store
-    /// call. The request-scoped face is probed before the peer-only face
+    /// the authenticated peer, with the declared scope selector when there is
+    /// one) → declared scope equality/intersection → store call. A list
+    /// always declares a scope; get/put may (A2). The request-scoped face is
+    /// probed before the peer-only face
     /// (A1-D5). Admission and the store share ONE deadline; `Ok(None)` means
     /// a refusal envelope was already sent and the store was never called — a
     /// refusal discloses nothing, not even whether the entry exists.
@@ -2579,14 +2582,10 @@ impl ConnectResponder {
         let wait = deadline.saturating_duration_since(std::time::Instant::now());
         let admission = match &face {
             KnowledgeServingFace::Scoped(face) => {
-                // The selector the request declares: the list op names one;
-                // get/put carry no wire scope until A2 supplies the request
-                // scope (A1-D5). Only the scoped closure captures it, so the
-                // peer-only path never copies it.
-                let selector = match &call {
-                    KnowledgeCall::ListKnowledgeEntries(scope) => Some(scope.scope_id.clone()),
-                    _ => None,
-                };
+                // The selector the request declares: the list op names one
+                // and get/put may (A2). Only the scoped closure captures it,
+                // so the peer-only path never copies it.
+                let selector = declared_scope.map(|scope| scope.scope_id.clone());
                 let admission = Arc::clone(&face.admission);
                 tokio::time::timeout(
                     wait,
@@ -2629,11 +2628,13 @@ impl ConnectResponder {
                 return Ok(None);
             }
         };
-        // A list must name exactly the admitted scope, then its effective scope
-        // is the admitted authority intersected with the request. Both refusals
-        // land before the store call so a request cannot widen the query.
-        let list_scope = match &call {
-            KnowledgeCall::ListKnowledgeEntries(requested) => {
+        // A declared scope (always for the list op, optionally for get/put)
+        // must equal the admitted one, and its effective form is the admitted
+        // authority intersected with the request (A2-D4 — the same two
+        // checks). Both refusals land before the store call so a request
+        // cannot widen the query.
+        let served_scope = match declared_scope {
+            Some(requested) => {
                 if !scope_matches_admission(requested, &admitted) {
                     self.deny_knowledge_scope(doc).await?;
                     return Ok(None);
@@ -2646,8 +2647,10 @@ impl ConnectResponder {
                     }
                 }
             }
-            _ => None,
+            None => None,
         };
+        // An absent scope keeps the admitted one (the `0.18.1` get/put path).
+        let store_scope = served_scope.as_ref().unwrap_or(&admitted);
         // The store call runs under what is left of the same deadline. A budget
         // already spent on admission answers the signed timeout without
         // reaching the store, so a caller that timed out cannot still mutate.
@@ -2663,7 +2666,7 @@ impl ConnectResponder {
         let mutates = matches!(&call, KnowledgeCall::PutKnowledgeEntry(..));
         let result = match tokio::time::timeout(
             remaining,
-            call_knowledge_op(call, store.as_ref(), &admitted, list_scope.as_ref()),
+            call_knowledge_op(call, store.as_ref(), store_scope, served_scope.as_ref()),
         )
         .await
         {
@@ -2751,6 +2754,27 @@ impl ConnectResponder {
                 }
             }
         };
+        // A2-D3: the marker is a conjunct on the declared scope, checked
+        // after its shape (a malformed member keeps `INVALID_INPUT`) and
+        // before the ownership/cognition conjuncts. A session that did not
+        // negotiate it must never be served a scope it would silently drop.
+        if declared_scope.is_some()
+            && optional_scope_op(op)
+            && !negotiated
+                .iter()
+                .any(|cap| cap == CAPABILITY_SPOKE_KNOWLEDGE_SCOPED)
+        {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!(
+                    "op {op} requires capability {CAPABILITY_SPOKE_KNOWLEDGE_SCOPED} for its declared scope"
+                ),
+                None,
+            )
+            .await?;
+            return Ok(());
+        }
         if requires_ownership_capability(op, payload)
             && !negotiated.iter().any(|cap| cap == CAPABILITY_KE_OWNERSHIP)
         {
@@ -3435,7 +3459,7 @@ mod tests {
         })
     }
 
-    fn decode_put(entry: Value) -> SpokeResult<KnowledgeCall<'static>> {
+    fn decode_put(entry: Value) -> SpokeResult<KnowledgeCall> {
         decode_knowledge_call(
             "port.knowledge.put",
             &json!({ "entry": entry, "expected_base_revision": Value::Null }),

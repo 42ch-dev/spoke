@@ -137,18 +137,41 @@ pub(crate) fn port_dispatch_allowed(op: &str, negotiated: &[String]) -> bool {
 // op-only table (see `core::dispatch`), so the payload-dependent rule lives
 // here at the remote product boundary.
 
-/// The three existing Scope-bearing remote ops. Only these declare the
-/// `payload.scope` location the ownership predicate reads — `extract` and
-/// the `tools.*` family carry no Scope and are never ownership-gated.
-pub(crate) const SCOPE_BEARING_OPS: [&str; 3] = [
+/// The remote ops that may declare `payload.scope` — the location the
+/// ownership predicate and the declared-Scope validation read. Only these
+/// carry a Scope; `extract` and the `tools.*` family never are
+/// ownership-gated.
+///
+/// The three list/query ops require the member; `port.knowledge.get` / `put`
+/// accept it optionally (A2-D6). Every entry still takes the `ke-ownership`
+/// and `spoke-cognition` conjuncts when it declares the corresponding Scope
+/// members.
+pub(crate) const SCOPE_BEARING_OPS: [&str; 5] = [
+    "port.scope.list_knowledge_entries",
+    "port.scope.list_timeline_events",
+    "port.fork.list_timeline_events",
+    "port.knowledge.get",
+    "port.knowledge.put",
+];
+
+/// The subset of [`SCOPE_BEARING_OPS`] whose wire request requires `scope`;
+/// the remainder accept it optionally (a present scope is still validated).
+const REQUIRED_SCOPE_OPS: [&str; 3] = [
     "port.scope.list_knowledge_entries",
     "port.scope.list_timeline_events",
     "port.fork.list_timeline_events",
 ];
 
-/// Whether a request requires the `ke-ownership` capability: it targets one
-/// of [`SCOPE_BEARING_OPS`] **and** declares a non-empty string viewpoint at
-/// `payload.scope.viewpoint`.
+/// Whether `op` accepts an **optional** declared `Scope` (the A2 knowledge
+/// ops). Such a present scope demands the negotiated
+/// `spoke-knowledge-scoped` marker; the required-scope ops keep their
+/// `0.18.1` behaviour untouched.
+pub(crate) fn optional_scope_op(op: &str) -> bool {
+    SCOPE_BEARING_OPS.contains(&op) && !REQUIRED_SCOPE_OPS.contains(&op)
+}
+
+/// Whether a request targets one of [`SCOPE_BEARING_OPS`] **and** declares a
+/// non-empty string viewpoint at `payload.scope.viewpoint`.
 ///
 /// Declared-location predicate only — no trimming, normalization, holder
 /// lookup, owner comparison or recursive search, and no audience expansion.
@@ -173,9 +196,10 @@ pub(crate) fn requires_ownership_capability(op: &str, payload: &Value) -> bool {
 /// `Scope` decodes it as an absent viewpoint — the "no viewpoint" reading
 /// belongs to the key being absent.
 ///
-/// Runs at the responder before the provider probe and any host call, so a
-/// malformed Scope is an input failure rather than a silent baseline
-/// success. Non-Scope-bearing ops are untouched.
+/// The three list/query ops require the member; `port.knowledge.get` / `put`
+/// accept an absent one (A2-D6). Runs at the responder before the provider
+/// probe and any host call, so a malformed Scope is an input failure rather
+/// than a silent baseline success. Non-Scope-bearing ops are untouched.
 ///
 /// Returns the decoded `Scope` for the ops that carry one, so the dispatch
 /// catalogue serves that value instead of decoding the same JSON a second
@@ -193,7 +217,11 @@ pub(crate) fn validate_scope_declaration(
         details: None,
     };
     let Some(scope) = payload.get("scope") else {
-        return Err(invalid("missing scope".to_owned()));
+        return if REQUIRED_SCOPE_OPS.contains(&op) {
+            Err(invalid("missing scope".to_owned()))
+        } else {
+            Ok(None)
+        };
     };
     if let Some(viewpoint) = scope.as_object().and_then(|scope| scope.get("viewpoint")) {
         if !matches!(viewpoint, Value::String(value) if !value.is_empty()) {
@@ -394,5 +422,55 @@ mod capability_matrix {
             port_dispatch_allowed("port.relation.get", &negotiated),
             "port.relation.get: the product map still applies outside reserved families"
         );
+    }
+}
+
+#[cfg(test)]
+mod scope_declaration {
+    use super::{optional_scope_op, validate_scope_declaration};
+    use serde_json::json;
+
+    const REQUIRED_SCOPE_OPS: [&str; 3] = [
+        "port.scope.list_knowledge_entries",
+        "port.scope.list_timeline_events",
+        "port.fork.list_timeline_events",
+    ];
+
+    #[test]
+    fn get_and_put_accept_an_absent_scope_while_the_query_ops_require_one() {
+        for op in REQUIRED_SCOPE_OPS {
+            assert!(!optional_scope_op(op));
+            assert!(
+                validate_scope_declaration(op, &json!({})).is_err(),
+                "{op}: a missing scope is an input failure"
+            );
+        }
+        for op in ["port.knowledge.get", "port.knowledge.put"] {
+            assert!(optional_scope_op(op));
+            assert!(
+                matches!(
+                    validate_scope_declaration(op, &json!({ "entry_id": "e" })),
+                    Ok(None)
+                ),
+                "{op}: an absent scope keeps 0.18.1 behaviour"
+            );
+            match validate_scope_declaration(op, &json!({ "scope": { "scope_id": "s" } })) {
+                Ok(Some(scope)) => assert_eq!(scope.scope_id.as_str(), "s"),
+                other => panic!("{op}: a well-formed scope must decode, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_present_null_scope_is_malformed_on_every_scope_bearing_op() {
+        for op in REQUIRED_SCOPE_OPS
+            .into_iter()
+            .chain(["port.knowledge.get", "port.knowledge.put"])
+        {
+            assert!(
+                validate_scope_declaration(op, &json!({ "scope": null })).is_err(),
+                "{op}: a present null scope is never read as absent"
+            );
+        }
     }
 }

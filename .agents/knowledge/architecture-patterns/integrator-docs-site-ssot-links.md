@@ -64,7 +64,7 @@ When consolidating fragmented conceptual content (e.g., merging the old 7-page `
 
 1. **Binding package coordinates** — inline on the native-bindings how-to (NuGet `42ch.Spoke.Connect`, Maven `dev.42ch:spoke-connect`, SPM `SpokeConnect`, Go module path, PyPI `spoke-connect`). Do not leave coordinates behind a spec link.
 2. **Domain Profile open-string vocabulary tables** — per-profile vocabulary (beat types, activation fields, pack dialect keys, placement hints) on the consolidated `explanation/domain-profiles.md`. Full mapping matrices remain agent SSOT in specs.
-3. **Schema inventory count + codegen verify posture** — explicit subsection on `reference/protocol.md` (123 committed `*.schema.json` files, mirrored by `tooling/codegen/assert-schema-count.mjs`; `verify-codegen` regeneration posture).
+3. **Schema inventory count + codegen verify posture** — explicit subsection on `reference/protocol.md` (125 committed `*.schema.json` files, mirrored by `tooling/codegen/assert-schema-count.mjs`; `verify-codegen` regeneration posture).
 4. **Discovery / peering boundary** (explicit peering as the discovery path) — affirmative paragraph on `reference/connect.md`.
 5. **Operations purity boundary** (no I/O, storage, LLM, HTTP, ranking, retrieval, silent auto-promote) — affirmative form on `reference/ops.md` and `how-to/orchestrate-ops.md`.
 

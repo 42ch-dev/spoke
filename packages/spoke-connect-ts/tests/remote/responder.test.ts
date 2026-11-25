@@ -2377,6 +2377,94 @@ describe("ke remote", () => {
   });
 });
 
+describe("scope-bearing ops refuse a non-object payload", () => {
+  const SCOPE_BEARING_OPS = [
+    "port.scope.list_knowledge_entries",
+    "port.scope.list_timeline_events",
+    "port.fork.list_timeline_events",
+    "port.knowledge.get",
+    "port.knowledge.put",
+  ];
+  const NON_OBJECT_PAYLOADS: unknown[] = [null, "payload", 7, []];
+
+  /** note: counts the provider method behind every scope-bearing op. */
+  function spyPorts(): { ports: BaselinePorts; calls: string[] } {
+    const calls: string[] = [];
+    const base = ToyWorldAdapter.withCommittedFixtures();
+    const ports: BaselinePorts & {
+      listForkTimelineEvents: (scope: Scope & { fork_id: ForkId }) => Promise<
+        SpokeResult<unknown>
+      >;
+    } = {
+      ...asBaselineOnly(base),
+      listTimelineEvents: (scope) => {
+        calls.push("listTimelineEvents");
+        return base.listTimelineEvents(scope);
+      },
+      listForkTimelineEvents: (scope) => {
+        calls.push("listForkTimelineEvents");
+        return base.listForkTimelineEvents(scope);
+      },
+      getKnowledgeEntry: (entryId) => {
+        calls.push("getKnowledgeEntry");
+        return base.getKnowledgeEntry(entryId);
+      },
+      putKnowledgeEntry: (entry, expectedBaseRevision) => {
+        calls.push("putKnowledgeEntry");
+        return base.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+      listKnowledgeEntries: (scope) => {
+        calls.push("listKnowledgeEntries");
+        return base.listKnowledgeEntries(scope);
+      },
+    };
+    return { ports, calls };
+  }
+
+  it("answers INVALID_INPUT for a null/string/number/array payload before the provider", async () => {
+    const { ports, calls } = spyPorts();
+    const withFork = (hostId: string): HostCapabilityManifest => {
+      const base = toolManifest(hostId);
+      return { ...base, capabilities: [...base.capabilities, "l5-fork"] };
+    };
+    const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =
+      await startRawResponder({ ports, manifest: withFork("test-responder") });
+    try {
+      const { session_id: sessionId } = await rawHandshake(clientEnd, {
+        seed: seedClient,
+        manifest: withFork("test-client"),
+        pubkeyResponder,
+        peerIdResponder,
+      });
+      let sequence = 0;
+      for (const op of SCOPE_BEARING_OPS) {
+        for (const payload of NON_OBJECT_PAYLOADS) {
+          const request = await signInvokeRequest(seedClient, {
+            session_id: sessionId,
+            sequence: sequence,
+            request_id: `${op}-${sequence}`,
+            op,
+            payload,
+          });
+          sequence += 1;
+          await clientEnd.send(encodeEnvelope(request));
+          const response = decodeEnvelope(await clientEnd.recv()) as {
+            error?: { code?: string };
+          };
+          expect(
+            response.error?.code,
+            `${op} with payload ${JSON.stringify(payload)}`,
+          ).toBe(SpokeRejectCode.INVALID_INPUT);
+        }
+      }
+      expect(calls).toEqual([]);
+      expect(responder.state).toBe("Established");
+    } finally {
+      responder.close();
+    }
+  }, 15000);
+});
+
 /** note: a promise plus the externally driven settle handles for a parked provider. */
 function parkingGate(): {
   promise: Promise<void>;

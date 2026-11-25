@@ -560,10 +560,13 @@ export function validateScopeOpPayload(
   if (!SCOPE_BEARING_OPS.has(op)) {
     return null;
   }
-  // note: a non-object payload carries no well-formed scope; the knowledge and
-  // baseline decoders own that input failure.
+  // note: a non-object payload carries no well-formed scope on any
+  // scope-bearing op, so it is refused HERE — the earliest gate — before the
+  // marker/ownership/cognition conjuncts and before any provider call. Never
+  // forwarded as an absent scope (a missing member would read as the
+  // admitted authority for the baseline queries).
   if (!isJsonObject(payload)) {
-    return null;
+    return scopePayloadReject(op, "payload must be an object");
   }
   if (!("scope" in payload)) {
     return REQUIRED_SCOPE_OPS.has(op)

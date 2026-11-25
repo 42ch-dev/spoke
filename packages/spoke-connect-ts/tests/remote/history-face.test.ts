@@ -346,6 +346,27 @@ describe("HistoryPortService — admission + scope", () => {
       { principal: PRINCIPAL_A, scope: SCOPE_A },
     ]);
   });
+
+  it("passes the request's declared scope selector to admission", async () => {
+    const seen: Array<string | undefined> = [];
+    const { port } = countingPort({});
+    const service = new HistoryPortService(port, (_peerId, scopeId) => {
+      seen.push(scopeId);
+      return spokeOk({ principal: PRINCIPAL_A, scope: SCOPE_A });
+    });
+    const request = {
+      entity_kind: "knowledge_entry",
+      entity_id: "ke_1",
+      revision: 1,
+    };
+    await service.invoke("peer-a", "history.revisions.get", {
+      ...request,
+      scope: { scope_id: "scope_a" },
+    });
+    // absent scope names no selector (Rust parity: `None`).
+    await service.invoke("peer-a", "history.revisions.get", request);
+    expect(seen).toEqual(["scope_a", undefined]);
+  });
 });
 
 describe("HistoryPortService — prune dedup", () => {

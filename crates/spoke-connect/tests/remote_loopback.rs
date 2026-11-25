@@ -52,8 +52,8 @@ use spoke_connect::remote::{
     reset_accepted_server_hellos_for_test, ConnectResponder, ConnectResponderOptions,
     LoopbackTransport, LoopbackTransportPair, MultiPeerRouterOptions, RemoteAdapter,
     RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState, RemoteExtractService,
-    RemoteIdentity, RemoteKnowledgeFace, RemoteServePorts, RemoteServePortsComposite, ToolHandler,
-    Transport, TransportError,
+    RemoteIdentity, RemoteKnowledgeFace, RemoteScopedKnowledgeFace, RemoteServePorts,
+    RemoteServePortsComposite, ToolHandler, Transport, TransportError,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
@@ -7502,6 +7502,124 @@ async fn knowledge_face_serves_get_put_and_list_on_a_knowledge_only_host() {
             "{op} on the wire"
         );
     }
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn scoped_knowledge_face_receives_the_requests_declared_selector() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    store.seed(&scope, scoped_entry("ke-knowledge-a", "alpha"));
+    let seen: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&seen);
+    let admitted = scope.clone();
+    let store_port: Arc<dyn ScopedKnowledgePort + Send + Sync> =
+        Arc::<ScopedKnowledgeStore>::clone(&store);
+    let face = Arc::new(RemoteScopedKnowledgeFace {
+        store: store_port,
+        admission: Arc::new(move |_peer, selector| {
+            recorded
+                .lock()
+                .expect("seen")
+                .push(selector.map(str::to_owned));
+            spoke_ok(admitted.clone())
+        }),
+    });
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_scoped_knowledge(face));
+
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge"],
+        responder_capabilities: vec!["spoke-knowledge"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    match client.get_knowledge_entry("ke-knowledge-a").await {
+        SpokeResult::Ok(entry) => assert_eq!(entry.entry_id.as_str(), "ke-knowledge-a"),
+        SpokeResult::Reject(reject) => panic!("scoped get must serve: {reject:?}"),
+    }
+    match client
+        .put_knowledge_entry(scoped_entry("ke-new", "created"), None)
+        .await
+    {
+        SpokeResult::Ok(entry) => assert_eq!(entry.revision, Some(1)),
+        SpokeResult::Reject(reject) => panic!("scoped create must serve: {reject:?}"),
+    }
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Ok(entries) => assert_eq!(entries.len(), 2),
+        SpokeResult::Reject(reject) => panic!("scoped list must serve: {reject:?}"),
+    }
+
+    // A1-D5: the list op declares its scope; get/put carry none until A2
+    // supplies the request scope.
+    assert_eq!(
+        *seen.lock().expect("seen"),
+        vec![None, None, Some("scope-a".to_owned())]
+    );
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn scoped_knowledge_admission_refusal_keeps_the_0_18_1_answer() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    store.seed(&scope, scoped_entry("ke-knowledge-a", "alpha"));
+    let store_port: Arc<dyn ScopedKnowledgePort + Send + Sync> =
+        Arc::<ScopedKnowledgeStore>::clone(&store);
+    let face = Arc::new(RemoteScopedKnowledgeFace {
+        store: store_port,
+        admission: Arc::new(|_peer, _selector| {
+            spoke_reject(SpokeRejectCode::NotAuthorized, "no scope for this peer", None)
+        }),
+    });
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_scoped_knowledge(face));
+
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge"],
+        responder_capabilities: vec!["spoke-knowledge"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    // The existing refusal shape: no existence detail, the store untouched.
+    let refusal = |reject: SpokeReject| {
+        assert_eq!(reject.code, SpokeRejectCode::NotAuthorized, "{reject:?}");
+        assert_eq!(reject.message, "knowledge scope not authorized");
+        assert!(reject.details.is_none(), "no existence detail: {reject:?}");
+    };
+    match client.get_knowledge_entry("ke-knowledge-a").await {
+        SpokeResult::Reject(reject) => refusal(reject),
+        SpokeResult::Ok(entry) => panic!("a refusing admission must not serve: {entry:?}"),
+    }
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Reject(reject) => refusal(reject),
+        SpokeResult::Ok(entries) => {
+            panic!("a refusing admission must not serve: {entries:?}")
+        }
+    }
+    assert!(
+        store.calls().is_empty(),
+        "a refusal must never reach the store: {:?}",
+        store.calls()
+    );
 
     client.close();
     responder.close();

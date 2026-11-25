@@ -52,11 +52,31 @@ import {
  * admission context, never from the payload (MEM-R003; spoke-history
  * contract §Authorization). The responder calls it inside the local
  * serve-wait budget: a host resolver MUST settle within that budget on its
- * own.
+ * own. `scopeId` is the scope selector the request declares (`undefined` when
+ * it names none); it is advisory, never an authorization grant, and a
+ * one-argument callback stays assignable (Rust parity:
+ * `ScopedHistoryAdmission`).
  */
 export type HistoryAdmission = (
   peerId: string,
+  scopeId?: string,
 ) => SpokeResult<{ principal: Principal; scope: Scope }>;
+
+/**
+ * note: the scope selector a `history.*` request declares on the wire, or
+ * `undefined` when it names none. Read from the raw payload because admission
+ * runs before the typed decode.
+ */
+function declaredScopeId(payload: unknown): string | undefined {
+  if (!isJsonObject(payload)) {
+    return undefined;
+  }
+  const scope = payload.scope;
+  if (!isJsonObject(scope) || typeof scope.scope_id !== "string") {
+    return undefined;
+  }
+  return scope.scope_id;
+}
 
 /** note: `history.revisions.get` wire op. */
 export const HISTORY_OP_GET = "history.revisions.get";
@@ -538,7 +558,7 @@ export class HistoryPortService implements RemoteHistoryService {
     op: string,
     payload: unknown,
   ): Promise<SpokeResult<unknown>> {
-    const admitted = this.#admission(peerId);
+    const admitted = this.#admission(peerId, declaredScopeId(payload));
     if (!admitted.ok) {
       return admitted;
     }
@@ -759,12 +779,15 @@ function validServedPruneResult(value: unknown): SpokeResult<unknown> {
  * Admission context: maps the authenticated connect peer to the
  * `Principal` and the `Scope` the provider admits for source visibility
  * and destination authorization (MEM-R003 parity; contract
- * §Standalone `AdoptionPort`). Both come from the host's admission
+ * configured `AdoptionPort`. Both come from the host's admission
  * context, never from the payload — the request carries scope ids, not a
- * declared `Scope`.
+ * declared `Scope`. `scopeId` is the request's declared destination scope;
+ * it is advisory, never an authorization grant, and a one-argument callback
+ * stays assignable (Rust parity: `ScopedAdoptionAdmission`).
  */
 export type AdoptionAdmission = (
   peerId: string,
+  scopeId?: string,
 ) => SpokeResult<{ principal: Principal; scope: Scope }>;
 
 /** note: `knowledge.adopt` wire op. */
@@ -973,7 +996,7 @@ export class AdoptionPortService implements RemoteAdoptionService {
     if (!digestResult.ok) {
       return digestResult;
     }
-    const admitted = this.#admission(peerId);
+    const admitted = this.#admission(peerId, request.destination_scope_id);
     if (!admitted.ok) {
       return admitted;
     }

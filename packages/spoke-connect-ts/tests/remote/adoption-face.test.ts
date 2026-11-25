@@ -1000,6 +1000,27 @@ function adoptedResponse(): KnowledgeAdoptResponse & JsonObject {
 }
 
 describe("adoption dedup single-flight (contract §Repeat and idempotency)", () => {
+  it("passes the request's declared destination scope selector to admission", async () => {
+    const seen: Array<string | undefined> = [];
+    const port: AdoptionPort = {
+      adoptKnowledgeEntry: async () => spokeOk(adoptedResponse()),
+    };
+    const service = new AdoptionPortService(port, (_peerId, scopeId) => {
+      seen.push(scopeId);
+      return spokeOk({
+        principal: PRINCIPAL,
+        scope: { scope_id: DESTINATION_SCOPE, extensions: {} },
+      });
+    });
+    const result = await service.invoke(
+      "prn_client",
+      "knowledge.adopt",
+      adoptPayload("selector-k1"),
+    );
+    expect(result.ok).toBe(true);
+    expect(seen).toEqual([DESTINATION_SCOPE]);
+  });
+
   it("one store shared by two services yields at most one in-flight invocation per retry identity; unrelated keys stay independent", async () => {
     const shared = new InMemoryHistoryDedupStore();
     const calls: string[] = [];

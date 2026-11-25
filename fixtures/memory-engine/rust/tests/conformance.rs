@@ -1166,6 +1166,26 @@ fn conformance_corpus_is_well_formed() {
                             );
                         }
                     }
+                    if let Some(check) = case.get("provider_state_check") {
+                        // Closed two-field directive: provider rows the wire
+                        // cannot enumerate are asserted by the wire runner.
+                        let fields = check.as_object().unwrap_or_else(|| {
+                            panic!("case {id}: provider_state_check must be an object")
+                        });
+                        assert_eq!(
+                            fields.len(),
+                            2,
+                            "case {id}: provider_state_check takes only space_id and subjects"
+                        );
+                        assert!(
+                            check["space_id"].as_str().is_some_and(|value| !value.is_empty()),
+                            "case {id}: provider_state_check.space_id"
+                        );
+                        assert!(
+                            check["subjects"].as_u64().is_some(),
+                            "case {id}: provider_state_check.subjects"
+                        );
+                    }
                     if let Some(stage_from) = case.get("stage_from") {
                         validate_stage_from(id, stage_from);
                     }

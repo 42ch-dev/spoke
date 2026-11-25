@@ -5,8 +5,9 @@
 //! provider and the loopback `MemoryHost` (`tests/support/memory_host.rs`,
 //! serving transfer). Each leg records one terminal outcome per case (pass /
 //! documented inconclusive / fail); both columns print and the test asserts
-//! both are terminal — SQLite 44/44 pass, the loopback column pass or
-//! documented inconclusive with its gap reason, never fail.
+//! both are terminal — the SQLite reference column passes every wire case, and
+//! the loopback column is pass or documented inconclusive with its gap reason,
+//! never fail.
 //!
 //! One `invoke(op, payload) -> Value` driver: over Connect an invoke carries JSON,
 //! so the interpreter needs no typed per-op dispatch. The expect vocabulary,
@@ -289,6 +290,15 @@ impl Provider {
         match self {
             Provider::Sqlite(provider) => provider.run_worker(),
             Provider::Loopback(_store) => {}
+        }
+    }
+
+    /// Complete subject rows of a space, for `provider_state_check`; `None`
+    /// when the active provider exposes no subject surface.
+    fn subject_count(&self, space_id: &str) -> Option<usize> {
+        match self {
+            Provider::Sqlite(provider) => Some(provider.subject_count(space_id)),
+            Provider::Loopback(_store) => None,
         }
     }
 }
@@ -952,6 +962,13 @@ fn print_column(label: &str, report: &Report) {
 
 #[test]
 fn corpus_interpreter_runs_against_both_memory_providers() {
+    // Both columns must execute every wire case the corpus carries; the count
+    // is derived so adding a vector cannot silently shrink a column.
+    let wire_cases = load_scenarios()
+        .iter()
+        .flat_map(|scenario| scenario.cases.iter())
+        .filter(|case| case["surface"] == "wire")
+        .count();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1005,15 +1022,15 @@ fn corpus_interpreter_runs_against_both_memory_providers() {
     print_column("sqlite", &sqlite);
     print_column("loopback", &loopback);
 
-    assert_eq!(sqlite.rows.len(), 44, "all wire cases are executed");
+    assert_eq!(sqlite.rows.len(), wire_cases, "all wire cases are executed");
     let sqlite_passed = sqlite
         .rows
         .iter()
         .filter(|(_, _, outcome)| *outcome == Outcome::Pass)
         .count();
     assert_eq!(
-        sqlite_passed, 44,
-        "the SQLite reference column passes 44/44"
+        sqlite_passed, wire_cases,
+        "the SQLite reference column passes every wire case"
     );
     let sqlite_failed = sqlite
         .rows
@@ -1027,7 +1044,7 @@ fn corpus_interpreter_runs_against_both_memory_providers() {
 
     assert_eq!(
         loopback.rows.len(),
-        44,
+        wire_cases,
         "the loopback column runs every wire case to a terminal outcome"
     );
     let loopback_failed = loopback
@@ -1386,6 +1403,25 @@ async fn run_case(
     }
     if let Err(failure) = check_expect(&op_response, &case["expect"], &responses) {
         return Outcome::Inconclusive(format!("{scenario}/{case_id}: {failure}"));
+    }
+    if let Some(check) = case.get("provider_state_check") {
+        // Provider-level invariants the wire cannot express (no op enumerates
+        // subjects). A wrong count is a product failure, not a harness gap.
+        let space_id = check["space_id"].as_str().unwrap_or_default();
+        let expected = check["subjects"].as_u64().unwrap_or_default() as usize;
+        match wire.provider.subject_count(space_id) {
+            Some(actual) if actual == expected => {}
+            Some(actual) => {
+                return Outcome::Fail(format!(
+                    "{scenario}/{case_id}: provider_state_check {space_id}: {actual} subjects, expected {expected}"
+                ))
+            }
+            None => {
+                return Outcome::Inconclusive(format!(
+                    "{scenario}/{case_id}: provider_state_check: the active provider exposes no subject state"
+                ))
+            }
+        }
     }
     if let Some(outcome) = check_policy_directives(wire, case, &responses, &op_request).await {
         return outcome;
@@ -1785,6 +1821,66 @@ async fn wire_over(face: Arc<dyn RemoteMemoryService>) -> (Wire, Arc<ConnectResp
 }
 
 #[test]
+fn replay_expectation_compares_the_whole_receipt_not_just_its_id() {
+    // Regression: a replay used to be graded on `receipt_id` alone, so a
+    // provider could answer the same id with a changed digest, clock, requester
+    // or result and still pass.
+    let mut responses = BTreeMap::new();
+    responses.insert(
+        "setup.0".to_string(),
+        json!({ "payload": {
+            "receipt_id": "rcpt_1",
+            "status": "committed",
+            "payload_digest": "aa",
+            "requester_principal_id": "prn_1",
+        }}),
+    );
+    let expect = json!({ "same_receipt_as": "setup.0" });
+
+    let identical = json!({ "payload": {
+        "receipt_id": "rcpt_1",
+        "status": "committed",
+        "payload_digest": "aa",
+        "requester_principal_id": "prn_1",
+    }});
+    assert!(
+        check_expect(&identical, &expect, &responses).is_ok(),
+        "an identical receipt is a replay"
+    );
+
+    let drifted = json!({ "payload": {
+        "receipt_id": "rcpt_1",
+        "status": "committed",
+        "payload_digest": "bb",
+        "requester_principal_id": "prn_1",
+    }});
+    assert!(
+        check_expect(&drifted, &expect, &responses).is_err(),
+        "the same id with a changed field is not a replay"
+    );
+
+    // The polled shape nests the receipt under `payload.receipt`; both sides are
+    // normalized to the receipt object before comparing.
+    responses.insert(
+        "setup.1".to_string(),
+        json!({ "payload": { "receipt": { "receipt_id": "rcpt_2", "status": "committed" } } }),
+    );
+    let polled_expect = json!({ "same_receipt_as": "setup.1" });
+    assert!(check_expect(
+        &json!({ "payload": { "receipt_id": "rcpt_2", "status": "committed" } }),
+        &polled_expect,
+        &responses
+    )
+    .is_ok());
+    assert!(check_expect(
+        &json!({ "payload": { "receipt_id": "rcpt_2", "status": "pending" } }),
+        &polled_expect,
+        &responses
+    )
+    .is_err());
+}
+
+#[test]
 fn response_error_reads_both_branches_and_never_a_clean_payload() {
     assert!(
         response_error(&json!({ "error": { "code": "INTERNAL" } })).is_some(),
@@ -2048,12 +2144,24 @@ fn check_expect(
         } else {
             body
         };
-        let original = responses
-            .get(target)
-            .map(|value| value["payload"]["receipt_id"].clone())
-            .unwrap_or(Value::Null);
-        if receipt["receipt_id"] != original {
-            return failed(format!("expected receipt {original}, got {body}"));
+        // A replay must return the ORIGINAL receipt whole: a changed digest,
+        // clock, requester or result under the same id is not a replay.
+        let original = responses.get(target).map(|value| {
+            let payload = &value["payload"];
+            if payload.get("receipt").is_some() {
+                &payload["receipt"]
+            } else {
+                payload
+            }
+        });
+        match original {
+            Some(original) if receipt == original => {}
+            Some(original) => {
+                return failed(format!(
+                    "replayed receipt differs from {target}: expected {original}, got {receipt}"
+                ))
+            }
+            None => return failed(format!("expected a receipt from {target}, got {body}")),
         }
     }
     if let Some(details) = expect.get("details").and_then(Value::as_object) {

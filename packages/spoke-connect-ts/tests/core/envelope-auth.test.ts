@@ -650,6 +650,81 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
     expect(jcs).toContain('"revision":9007199254740992');
   });
 
+  it("signs a `memory.spaces.create` receipt `result.revision` at the endpoint", async () => {
+    // why: A3-D4 gives the create receipt the `memory.subjects.ensure` result
+    // shape, so its revision is a declared response revision path.
+    const payload = {
+      result: { space_id: "spc_0001", status: "active", created: true, revision: ENDPOINT },
+    };
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        payload,
+      },
+      {},
+      "memory.spaces.create",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "memory.spaces.create",
+      ),
+    ).resolves.toBeUndefined();
+    const jcs = canonicalize({
+      session_id: response.session_id,
+      sequence: response.sequence,
+      request_id: response.request_id,
+      payload,
+    });
+    expect(jcs).toContain('"revision":9007199254740992');
+  });
+
+  it("signs a reverse-invoke `memory.spaces.create` receipt revision at the endpoint", async () => {
+    // why: the wrapped served value puts the same receipt one level deeper
+    // (`payload.result.result.revision`), so the wrapper branch owns it too.
+    const payload = {
+      result: {
+        result: {
+          space_id: "spc_0001",
+          status: "active",
+          created: true,
+          revision: ENDPOINT,
+        },
+      },
+    };
+    const response = await authenticateInvokeResponse(
+      EMITTER_SEED,
+      {
+        session_id: SESSION_ID,
+        sequence: 0,
+        request_id: "req-0001",
+        payload,
+      },
+      {},
+      "memory.spaces.create",
+    );
+    await expect(
+      verifyInvokeResponseAuth(
+        EMITTER_PUBKEY,
+        response,
+        SESSION_ID,
+        "memory.spaces.create",
+      ),
+    ).resolves.toBeUndefined();
+    const jcs = canonicalize({
+      session_id: response.session_id,
+      sequence: response.sequence,
+      request_id: response.request_id,
+      payload,
+    });
+    expect(jcs).toContain('"revision":9007199254740992');
+  });
+
   it("refuses a served adoption payload carrying both `entry` and `error` (GH-01)", async () => {
     // note: the adoption response carries one variant — the mixed malformed
     // payload cannot borrow the success variant's `entry.revision` endpoint.

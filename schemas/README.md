@@ -59,6 +59,7 @@ schemas/
     └── extract-response.schema.json      # ke-extraction — provisional candidates + run
     ├── memory-describe-request.schema.json   # spoke-memory memory.describe
     ├── memory-spaces-list-request.schema.json   # spoke-memory memory.spaces.list
+    ├── memory-spaces-create-request.schema.json   # spoke-memory memory.spaces.create
     ├── memory-spaces-freeze-request.schema.json   # spoke-memory memory.spaces.freeze
     ├── memory-spaces-unfreeze-request.schema.json   # spoke-memory memory.spaces.unfreeze
     ├── memory-subjects-ensure-request.schema.json   # spoke-memory memory.subjects.ensure
@@ -92,6 +93,7 @@ schemas/
     ├── memory-imports-discard-request.schema.json   # spoke-memory memory.imports.discard
     ├── memory-describe-response.schema.json  # spoke-memory memory.describe
     ├── memory-spaces-list-response.schema.json  # spoke-memory memory.spaces.list
+    ├── memory-spaces-create-response.schema.json  # spoke-memory memory.spaces.create
     ├── memory-spaces-freeze-response.schema.json  # spoke-memory memory.spaces.freeze
     ├── memory-spaces-unfreeze-response.schema.json  # spoke-memory memory.spaces.unfreeze
     ├── memory-subjects-ensure-response.schema.json  # spoke-memory memory.subjects.ensure
@@ -143,7 +145,7 @@ connect/
 └── connect-auth-response.schema.json  # method-specific proof
 ```
 
-**Total:** **123** hand-authored schema files (2 common + 27 data + 88 ops + 6 connect). 79 `spoke-memory` schemas (13 data + 66 ops); 5 `spoke-history` schemas (1 data + 4 ops); 3 `spoke-knowledge-adoption` schemas (1 data + 2 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `cognition` and `mind-state` under the opt-in `spoke-cognition` capability; `judgment` under the opt-in `spoke-judgment` capability; connect envelopes under the opt-in `spoke-connect` capability; history ops under the opt-in `spoke-history` capability; `adoption-anchor` and the `knowledge.adopt` ops under the opt-in `spoke-knowledge-adoption` capability (with mandatory `spoke-knowledge` co-capability). See [`spoke-protocol.md`](../.agents/specs/protocol/spoke-protocol.md).
+**Total:** **125** hand-authored schema files (2 common + 27 data + 90 ops + 6 connect). 81 `spoke-memory` schemas (13 data + 68 ops); 5 `spoke-history` schemas (1 data + 4 ops); 3 `spoke-knowledge-adoption` schemas (1 data + 2 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `cognition` and `mind-state` under the opt-in `spoke-cognition` capability; `judgment` under the opt-in `spoke-judgment` capability; connect envelopes under the opt-in `spoke-connect` capability; history ops under the opt-in `spoke-history` capability; `adoption-anchor` and the `knowledge.adopt` ops under the opt-in `spoke-knowledge-adoption` capability (with mandatory `spoke-knowledge` co-capability). See [`spoke-protocol.md`](../.agents/specs/protocol/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -315,5 +317,7 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 121 | `data/adoption-anchor.schema.json` | done |
 | 122 | `ops/knowledge-adopt-request.schema.json` | done |
 | 123 | `ops/knowledge-adopt-response.schema.json` | done |
+| 124 | `ops/memory-spaces-create-request.schema.json` | done |
+| 125 | `ops/memory-spaces-create-response.schema.json` | done |
 
-**Total:** 123 schema files (35 pre-existing + 79 spoke-memory: 13 data models + 33 op request/response pairs + 5 spoke-history: 1 data model + 2 op request/response pairs + 1 spoke-judgment data model + 3 spoke-knowledge-adoption: 1 data model + 1 op request/response pair).
+**Total:** 125 schema files (35 pre-existing + 81 spoke-memory: 13 data models + 34 op request/response pairs + 5 spoke-history: 1 data model + 2 op request/response pairs + 1 spoke-judgment data model + 3 spoke-knowledge-adoption: 1 data model + 1 op request/response pair).

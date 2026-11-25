@@ -31,7 +31,8 @@ use spoke_schemas::{
     MemoryRecordsPromoteResponse, MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse,
     MemoryReflectionsGenerateRequest, MemoryReflectionsGenerateResponse,
     MemoryReflectionsListRequest, MemoryReflectionsListResponse, MemoryReflectionsStateRequest,
-    MemoryReflectionsStateResponse, MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
+    MemoryReflectionsStateResponse, MemorySpacesCreateRequest, MemorySpacesCreateResponse,
+    MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
     MemorySpacesListRequest, MemorySpacesListResponse, MemorySpacesUnfreezeRequest,
     MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
     MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
@@ -278,7 +279,7 @@ pub struct ExtractionResult {
 ///
 /// Standalone like [`ExtractionPort`]: `MemoryPort` is NOT part of
 /// [`BaselinePorts`] / [`FullPorts`] or the adapter aliases. One method per op
-/// (33); every method takes the authenticated [`Principal`] as an explicit
+/// (34); every method takes the authenticated [`Principal`] as an explicit
 /// admission-context parameter — it is never payload-asserted (MEM-R003). The
 /// library contains no memory storage or enforcement; providers implement the
 /// port and own storage, transactions, and every enforcement duty.
@@ -307,6 +308,33 @@ pub trait MemoryPort {
         principal: &Principal,
         request: MemorySpacesListRequest,
     ) -> SpokeResult<MemorySpacesListResponse>;
+
+    /// `memory.spaces.create` — create a space (a Mind) with a caller-named
+    /// `space_id`; establishes no subject. **Grant:** none for a new id
+    /// (authenticated principal only, MEM-R003); on an existing space the
+    /// requester MUST hold `admin` or the call fails `NOT_AUTHORIZED` — never
+    /// `NOT_FOUND`, and the refusal carries no existence detail. A caller that
+    /// does hold `admin` still learns that its own create succeeded; the
+    /// promise covers the refusal, not the caller's own outcome.
+    ///
+    /// Idempotency key required (§7.0.5) over `(space_id,
+    /// requester_principal_id, op, idempotency_key)` and checked before the
+    /// grant and freeze steps: replaying the same key and payload returns the
+    /// receipt recorded under it (or `RECEIPT_EXPIRED` once its body is
+    /// evicted); the same key with a different payload is
+    /// `IDEMPOTENCY_CONFLICT`.
+    ///
+    /// The first create atomically writes the space row, its knowledge binding,
+    /// carrier and the creator's default grant row, plus the committed receipt.
+    /// A repeat create by an admin under a fresh key changes no space, grant or
+    /// revision, but still records its own receipt and answers `created: false`
+    /// with the current status and revision. A frozen space answers
+    /// `SPACE_FROZEN`.
+    async fn create_space(
+        &self,
+        principal: &Principal,
+        request: MemorySpacesCreateRequest,
+    ) -> SpokeResult<MemorySpacesCreateResponse>;
 
     /// §7.3 `memory.spaces.freeze` — freeze a space (§8.2 maintenance
     /// allowlist applies). **Grant:** `admin`. Idempotency key required.

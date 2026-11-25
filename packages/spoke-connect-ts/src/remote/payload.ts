@@ -408,6 +408,7 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   },
   // note: every mutating memory op answers with a receipt whose envelope
   // fields are pinned above (committed and pending alike).
+  "memory.spaces.create": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   "memory.spaces.freeze": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   "memory.spaces.unfreeze": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   "memory.subjects.ensure": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },

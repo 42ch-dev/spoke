@@ -78,6 +78,29 @@ const FAILED_CAPTURE: &str = r#"{
   "extensions": {}
 }"#;
 
+/// Committed `memory.spaces.create` receipt (`created: true`, revision 1) —
+/// the wire document a provider stores, and the one `memory.receipts.get`
+/// returns when the create receipt is polled.
+const COMMITTED_CREATE: &str = r#"{
+  "schema_version": 1,
+  "receipt_id": "rcpt_01J9A0B1C2EXAMPLE0000201",
+  "op": "memory.spaces.create",
+  "space_id": "spc_cli_created",
+  "requester_principal_id": "prn_nexus_cli_operator",
+  "idempotency_key": "spc-create-0001",
+  "payload_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "status": "committed",
+  "result": {
+    "space_id": "spc_cli_created",
+    "status": "active",
+    "created": true,
+    "revision": 1
+  },
+  "created_at": "2026-10-28T09:20:01Z",
+  "completed_at": "2026-10-28T09:20:01Z",
+  "extensions": {}
+}"#;
+
 fn value(fixture: &str) -> Value {
     serde_json::from_str(fixture).expect("fixture is valid JSON")
 }
@@ -214,9 +237,9 @@ fn failed_capture_receipt_round_trips() {
 }
 
 /// `memory.receipts.get` polls one receipt whose shape is pinned per emitting
-/// op. The poll union used to collapse all 19 branches into a single generated
+/// op. The poll union used to collapse all 20 branches into a single generated
 /// type (they shared the title `OneOf`), so a capture receipt could not decode.
-/// Distinct per-op titles now give 19 distinct variants; two different ops
+/// Distinct per-op titles now give 20 distinct variants; two different ops
 /// decoding through the same response type is the behavioural proof. All three
 /// receipt statuses poll, so the untagged decode order is exercised end to end.
 #[test]
@@ -244,4 +267,75 @@ fn receipts_get_polls_committed_pending_and_failed_receipts() {
         serde_json::to_value(&parsed).expect("polled receipt serializes"),
         failed_poll
     );
+}
+
+/// `memory.spaces.create` polls through the same union, and its branch stays
+/// pinned: a receipt whose `result` is not the create summary, or whose `op`
+/// no branch emits, still fails to decode.
+#[test]
+fn receipts_get_admits_the_spaces_create_receipt() {
+    let create_poll = json!({ "receipt": value(COMMITTED_CREATE) });
+    let parsed: spoke_schemas::MemoryReceiptsGetResponse =
+        serde_json::from_value(create_poll.clone()).expect("a spaces.create receipt polls");
+    assert_eq!(
+        serde_json::to_value(&parsed).expect("polled create receipt serializes"),
+        create_poll
+    );
+
+    let mut wrong_result = create_poll.clone();
+    wrong_result["receipt"]["result"]["created"] = json!("yes");
+    assert!(
+        serde_json::from_value::<spoke_schemas::MemoryReceiptsGetResponse>(wrong_result).is_err(),
+        "the create branch pins its result shape"
+    );
+
+    let mut foreign_op = create_poll;
+    foreign_op["receipt"]["op"] = json!("memory.spaces.rename");
+    assert!(
+        serde_json::from_value::<spoke_schemas::MemoryReceiptsGetResponse>(foreign_op).is_err(),
+        "a receipt whose op no branch emits does not poll"
+    );
+}
+
+/// The create result's `active|frozen` status is its own type: a subject
+/// receipt still polls with `fenced` or `archived`, and the space-only
+/// `frozen` does not satisfy a subject result.
+#[test]
+fn receipts_get_keeps_subject_status_distinct_from_the_space_status() {
+    for (status, polls) in [("fenced", true), ("archived", true), ("frozen", false)] {
+        let poll = json!({ "receipt": {
+            "schema_version": 1,
+            "receipt_id": "rcpt_01J9A0B1C2EXAMPLE0000301",
+            "op": "memory.subjects.fence",
+            "space_id": "spc_cli_created",
+            "requester_principal_id": "prn_nexus_cli_operator",
+            "idempotency_key": "fence-subject-0001",
+            "payload_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+            "status": "committed",
+            "result": {
+                "subject_id": "subj_cli_mira",
+                "status": status,
+                "fenced_contexts": ["ctx_cli_harbor"],
+                "revision": 2
+            },
+            "created_at": "2026-10-28T09:20:01Z",
+            "completed_at": "2026-10-28T09:20:01Z",
+            "extensions": {}
+        }});
+        let parsed: Result<spoke_schemas::MemoryReceiptsGetResponse, _> =
+            serde_json::from_value(poll.clone());
+        if !polls {
+            assert!(
+                parsed.is_err(),
+                "the space-only status {status} does not satisfy a subject result"
+            );
+            continue;
+        }
+        let parsed =
+            parsed.unwrap_or_else(|error| panic!("a {status} subject receipt polls: {error}"));
+        assert_eq!(
+            serde_json::to_value(&parsed).expect("polled subject receipt serializes"),
+            poll
+        );
+    }
 }

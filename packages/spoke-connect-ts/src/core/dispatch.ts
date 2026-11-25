@@ -126,11 +126,12 @@ export function requiredCapability(op: string): string | undefined {
       return CAPABILITY_L2_COMPUTABLE;
     case "extract":
       return CAPABILITY_KE_EXTRACTION;
-    // note: memory family (SPOKE memory protocol §4.1/§13): 33 rows, each mapping
+    // note: memory family (SPOKE memory protocol §4.1/§13): 34 rows, each mapping
     // its op to the flag that gates it. Sub-flag rows stay literal —
     // negotiating a sub-flag never authorizes core ops.
     case "memory.describe":
     case "memory.spaces.list":
+    case "memory.spaces.create":
     case "memory.spaces.freeze":
     case "memory.spaces.unfreeze":
     case "memory.subjects.ensure":

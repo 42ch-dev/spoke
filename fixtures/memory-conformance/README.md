@@ -29,6 +29,7 @@ namespaces) is asserted separately.
 | `candidate-consumption.json` | 4 | 1 | 3 | 0 |
 | `grant-coverage.json` | 12 | 0 | 12 | 0 |
 | `space-freeze.json` | 12 | 8 | 4 | 0 |
+| `space-create.json` | 11 | 0 | 11 | 0 |
 | `subject-fencing.json` | 5 | 2 | 3 | 0 |
 | `cursor-invalidation.json` | 2 | 0 | 2 | 0 |
 | `transfer-chunks.json` | 8 | 4 | 4 | 0 |
@@ -38,7 +39,16 @@ namespaces) is asserted separately.
 | `classification.json` | 8 | 7 | 1 | 8 |
 | `recall-budget.json` | 6 | 5 | 1 | 6 |
 
-Totals: 78 cases — 34 engine, 44 wire, 14 variable.
+Totals: 89 cases — 34 engine, 55 wire, 14 variable.
+
+`space-create.json` is the executable contract for `memory.spaces.create`
+(§7.0.6): the caller-named `space_id`, the one-transaction space row plus the
+creator's space-wide default grant, the no-op repeat (`created: false`, no
+space/grant/revision write, its own receipt still recorded), the refusal order
+(shape → replay → admin on an existing space → freeze), the absence of a
+subject and of any existence detail on a refused create, and the create
+receipt polled through `memory.receipts.get` after a later freeze returning
+the original `created: true` receipt.
 
 `assets/tw-minimal-export.json` is a sealed `MemoryExportBundle` (real JCS
 `digest`) shared by the transfer, staging and import-staleness scenarios. It
@@ -151,7 +161,9 @@ test rejects un-namespaced references anywhere in a request payload or directive
     (for example `{"reason": "space_not_drained"}`).
   - `success` — the op returns a success payload.
   - `receipt_status` — `committed` | `pending` | `failed` on the returned receipt.
-  - `same_receipt_as` — bare step reference; the receipt id must equal that step's.
+  - `same_receipt_as` — bare step reference; the returned receipt must equal that
+    step's receipt **whole** (every field, not just `receipt_id`): a replay may
+    not change the payload digest, the clocks, the requester or the result.
   - `state` — `{ "path": "dotted.path[0]", "equals": <json> }` equality
     assertions against the op-under-test response.
   - `absent` / `present` — dotted paths that must not / must exist.
@@ -266,6 +278,13 @@ test rejects un-namespaced references anywhere in a request payload or directive
   named response value is an empty array, the case is recorded `inconclusive`
   and its remaining assertions are not counted. Used only where the protocol
   explicitly permits an empty outcome (for example a zero-candidate capture).
+- `provider_state_check` — `{ "space_id": "...", "subjects": <int> }`: exact
+  count of the provider's own subject rows in that space, asserted after the op
+  under test. No wire op enumerates subjects, so an invariant like "creation
+  establishes no subject" cannot be proven by probing ids: one named probe
+  leaves every other id open, this count closes them all. A wrong count is a
+  product failure, not a harness gap; a provider exposing no subject surface
+  records the case `inconclusive`.
 - `harness.save_snapshot` / `harness.restore_snapshot` — **harness capability
   steps**, not protocol ops:
   `{ "op": "harness.save_snapshot" | "harness.restore_snapshot", "request": { "space_id": … } }`.

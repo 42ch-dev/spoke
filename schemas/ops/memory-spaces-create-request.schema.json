@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-spaces-create-request.schema.json",
+  "title": "MemorySpacesCreateRequest",
+  "description": "Create a space (a Mind) with a caller-named space_id. Any authenticated principal the provider's admission maps may call it when the space does not exist (MEM-R003); on an existing space it requires `admin` (A3-D1). The first create writes the space row, its knowledge binding, carrier and the creator's default grant row in one transaction. A repeat create by an admin under a fresh idempotency key changes no space, grant or revision, but still records its own receipt and answers created: false with the current status and revision; a frozen space answers SPACE_FROZEN. Replaying the same key and payload returns the receipt recorded under it (checked before the grant and freeze steps); the same key with a different payload is IDEMPOTENCY_CONFLICT. The refusal carries no existence detail, so a caller without `admin` cannot learn whether the id belongs to another principal. No grant row, subject or other space metadata is carried beyond the optional display_name, which is set on creation only (the memory.subjects.ensure kind precedent, §7.5). Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "idempotency_key"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Caller-named space identifier; it is also the first component of the idempotency dedup namespace (§7.0.5).",
+      "title": "SpaceId"
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Optional human label; absence = unnamed. Set only on creation — a repeat create never changes it."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+      "title": "IdempotencyKey"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

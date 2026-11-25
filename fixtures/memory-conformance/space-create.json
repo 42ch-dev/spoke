@@ -1,0 +1,656 @@
+{
+  "id": "space-create",
+  "title": "Caller-named space creation: one-transaction bootstrap, no-op repeat, and the refusal order",
+  "protocol_refs": [
+    "\u00a77.0.6",
+    "\u00a77.0.5",
+    "\u00a78.2",
+    "\u00a76.5",
+    "MEM-R007",
+    "MEM-R008",
+    "MEM-R021",
+    "MEM-R023"
+  ],
+  "cases": [
+    {
+      "id": "create-commits-the-space-and-its-default-grant",
+      "invariant": "MEM-R007",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a first create commits the space row, the creator's space-wide default grant and a committed receipt reporting revision 1",
+      "requires": [
+        "the acting principal is admitted by the provider's MemoryAdmission and no space with the caller-named id exists yet"
+      ],
+      "op": "memory.spaces.create",
+      "request": {
+        "space_id": "spc_tw_mind_created",
+        "display_name": "The Created Mind",
+        "idempotency_key": "spc-create-tw-0001"
+      },
+      "expect": {
+        "success": true,
+        "receipt_status": "committed",
+        "state": [
+          {
+            "path": "op",
+            "equals": "memory.spaces.create"
+          },
+          {
+            "path": "idempotency_key",
+            "equals": "spc-create-tw-0001"
+          },
+          {
+            "path": "result.space_id",
+            "equals": "spc_tw_mind_created"
+          },
+          {
+            "path": "result.status",
+            "equals": "active"
+          },
+          {
+            "path": "result.created",
+            "equals": true
+          },
+          {
+            "path": "result.revision",
+            "equals": 1
+          }
+        ],
+        "absent": [
+          "result.subject_id",
+          "result.display_name"
+        ]
+      },
+      "then": [
+        {
+          "op": "memory.spaces.list",
+          "request": {
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "contains": [
+              {
+                "path": "spaces",
+                "match": {
+                  "space_id": "spc_tw_mind_created",
+                  "display_name": "The Created Mind",
+                  "status": "active",
+                  "revision": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "op": "memory.grants.list",
+          "request": {
+            "space_id": "spc_tw_mind_created",
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "sizes": [
+              {
+                "path": "grants",
+                "equals": 1
+              }
+            ],
+            "absent": [
+              "grants.0.subject_id",
+              "grants.0.context_ids",
+              "grants.0.expires_at"
+            ],
+            "state": [
+              {
+                "path": "grants.0.principal_id",
+                "equals": "prn_tw_host_primary"
+              },
+              {
+                "path": "grants.0.capabilities",
+                "equals": [
+                  "recall",
+                  "capture",
+                  "review",
+                  "records_write",
+                  "knowledge_read",
+                  "knowledge_write",
+                  "admin"
+                ]
+              },
+              {
+                "path": "grants.0.revision",
+                "equals": 1
+              }
+            ]
+          }
+        }
+      ],
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "repeat-create-writes-nothing-but-its-receipt",
+      "invariant": "MEM-R007",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a repeat create with a fresh key is a no-op success: no space, grant or revision write, while the no-op's own receipt is recorded and replayable",
+      "setup": [
+        {
+          "op": "memory.spaces.create",
+          "request": {
+            "space_id": "spc_tw_mind_repeat",
+            "display_name": "Repeat Mind",
+            "idempotency_key": "spc-create-tw-0010"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.spaces.list",
+          "request": {
+            "limit": 10
+          },
+          "expect": {
+            "success": true
+          }
+        },
+        {
+          "op": "memory.grants.list",
+          "request": {
+            "space_id": "spc_tw_mind_repeat",
+            "limit": 10
+          },
+          "expect": {
+            "success": true
+          }
+        }
+      ],
+      "op": "memory.spaces.create",
+      "request": {
+        "space_id": "spc_tw_mind_repeat",
+        "idempotency_key": "spc-create-tw-0011"
+      },
+      "expect": {
+        "success": true,
+        "receipt_status": "committed",
+        "state": [
+          {
+            "path": "result.space_id",
+            "equals": "spc_tw_mind_repeat"
+          },
+          {
+            "path": "result.created",
+            "equals": false
+          },
+          {
+            "path": "result.status",
+            "equals": "active"
+          },
+          {
+            "path": "result.revision",
+            "equals": 1
+          }
+        ]
+      },
+      "then": [
+        {
+          "op": "memory.spaces.list",
+          "request": {
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "unchanged": [
+              {
+                "path": "spaces",
+                "from": "setup.1",
+                "from_path": "spaces"
+              }
+            ]
+          }
+        },
+        {
+          "op": "memory.grants.list",
+          "request": {
+            "space_id": "spc_tw_mind_repeat",
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "unchanged": [
+              {
+                "path": "grants",
+                "from": "setup.2",
+                "from_path": "grants"
+              }
+            ]
+          }
+        },
+        {
+          "op": "memory.spaces.create",
+          "request": {
+            "space_id": "spc_tw_mind_repeat",
+            "idempotency_key": "spc-create-tw-0011"
+          },
+          "expect": {
+            "success": true,
+            "receipt_status": "committed",
+            "same_receipt_as": "op",
+            "state": [
+              {
+                "path": "result.created",
+                "equals": false
+              }
+            ]
+          }
+        }
+      ],
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "create-against-a-foreign-existing-space-is-not-an-oracle",
+      "invariant": "MEM-R006",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "creating over another principal's existing space answers NOT_AUTHORIZED with no details — the same answer a non-admin member gets, never an existence verdict",
+      "requires": [
+        "prn_tw_expired_reader holds only an expired grant in spc_tw_harbor, so it holds no live coverage there"
+      ],
+      "op": "memory.spaces.create",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "idempotency_key": "spc-create-tw-0020"
+      },
+      "expect": {
+        "error_code": "NOT_AUTHORIZED",
+        "absent": [
+          "error.details"
+        ]
+      },
+      "principal": "prn_tw_expired_reader"
+    },
+    {
+      "id": "non-admin-member-repeat-create-denied",
+      "invariant": "MEM-R006",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a member without admin in the existing space gets the same NOT_AUTHORIZED answer and no existence detail",
+      "requires": [
+        "prn_tw_peer_reader holds a restricted, non-admin grant in spc_tw_harbor"
+      ],
+      "op": "memory.spaces.create",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "idempotency_key": "spc-create-tw-0030"
+      },
+      "expect": {
+        "error_code": "NOT_AUTHORIZED",
+        "absent": [
+          "error.details"
+        ]
+      },
+      "principal": "prn_tw_peer_reader"
+    },
+    {
+      "id": "repeat-create-on-a-frozen-space-is-refused",
+      "invariant": "MEM-R023",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "creating is not a maintenance op, so a repeat create on a frozen space fails even for its admin",
+      "setup": [
+        {
+          "op": "memory.spaces.create",
+          "request": {
+            "space_id": "spc_tw_mind_frozen",
+            "idempotency_key": "spc-create-tw-0040"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_mind_frozen",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-mind-frozen-0041"
+          },
+          "expect": {
+            "success": true,
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.spaces.create",
+      "request": {
+        "space_id": "spc_tw_mind_frozen",
+        "idempotency_key": "spc-create-tw-0042"
+      },
+      "expect": {
+        "error_code": "SPACE_FROZEN"
+      },
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "repeat-create-never-changes-display-name",
+      "invariant": "MEM-R007",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "display_name is set on creation only: a repeat create carrying a different one is a no-op success that changes nothing",
+      "setup": [
+        {
+          "op": "memory.spaces.create",
+          "request": {
+            "space_id": "spc_tw_mind_named",
+            "display_name": "Harbor Nine",
+            "idempotency_key": "spc-create-tw-0050"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.spaces.create",
+      "request": {
+        "space_id": "spc_tw_mind_named",
+        "display_name": "Renamed Harbor",
+        "idempotency_key": "spc-create-tw-0051"
+      },
+      "expect": {
+        "success": true,
+        "receipt_status": "committed",
+        "state": [
+          {
+            "path": "result.created",
+            "equals": false
+          },
+          {
+            "path": "result.revision",
+            "equals": 1
+          }
+        ],
+        "absent": [
+          "result.display_name"
+        ]
+      },
+      "then": [
+        {
+          "op": "memory.spaces.list",
+          "request": {
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "contains": [
+              {
+                "path": "spaces",
+                "match": {
+                  "space_id": "spc_tw_mind_named",
+                  "display_name": "Harbor Nine",
+                  "revision": 1
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "replay-after-a-later-freeze-returns-the-original-receipt",
+      "invariant": "MEM-R021",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "the same key and payload replayed after the space was frozen returns the original created: true receipt without re-evaluating the freeze",
+      "setup": [
+        {
+          "op": "memory.spaces.create",
+          "request": {
+            "space_id": "spc_tw_mind_replay",
+            "display_name": "Replay Mind",
+            "idempotency_key": "spc-create-tw-0060"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_mind_replay",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-mind-replay-0061"
+          },
+          "expect": {
+            "success": true,
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.spaces.create",
+      "request": {
+        "space_id": "spc_tw_mind_replay",
+        "display_name": "Replay Mind",
+        "idempotency_key": "spc-create-tw-0060"
+      },
+      "expect": {
+        "success": true,
+        "receipt_status": "committed",
+        "same_receipt_as": "setup.0",
+        "state": [
+          {
+            "path": "result.created",
+            "equals": true
+          },
+          {
+            "path": "result.status",
+            "equals": "active"
+          },
+          {
+            "path": "result.revision",
+            "equals": 1
+          }
+        ]
+      },
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "same-key-with-a-different-digest-is-a-conflict",
+      "invariant": "MEM-R008",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "the same key carrying a different payload digest is a conflict, not a replay",
+      "setup": [
+        {
+          "op": "memory.spaces.create",
+          "request": {
+            "space_id": "spc_tw_mind_conflict",
+            "idempotency_key": "spc-create-tw-0070"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.spaces.create",
+      "request": {
+        "space_id": "spc_tw_mind_conflict",
+        "display_name": "Conflict",
+        "idempotency_key": "spc-create-tw-0070"
+      },
+      "expect": {
+        "error_code": "IDEMPOTENCY_CONFLICT"
+      },
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "missing-idempotency-key-is-invalid-input",
+      "invariant": "MEM-R008",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "create is not exempt from the required key, and a keyless request creates nothing",
+      "op": "memory.spaces.create",
+      "request": {
+        "space_id": "spc_tw_mind_nokey"
+      },
+      "expect": {
+        "error_code": "INVALID_INPUT"
+      },
+      "then": [
+        {
+          "op": "memory.spaces.list",
+          "request": {
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "excludes": [
+              {
+                "path": "spaces",
+                "match": {
+                  "space_id": "spc_tw_mind_nokey"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "create-establishes-no-subject",
+      "invariant": "MEM-R006",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "creating a space materialises no subject row at all (the provider holds zero subjects for the new space) and no subject-scoped grant: a subject probe is NOT_FOUND and the sole grant is space-wide",
+      "op": "memory.spaces.create",
+      "request": {
+        "space_id": "spc_tw_mind_subjectless",
+        "idempotency_key": "spc-create-tw-0080"
+      },
+      "expect": {
+        "success": true,
+        "receipt_status": "committed",
+        "state": [
+          {
+            "path": "result.created",
+            "equals": true
+          }
+        ],
+        "absent": [
+          "result.subject_id"
+        ]
+      },
+      "provider_state_check": {
+        "space_id": "spc_tw_mind_subjectless",
+        "subjects": 0
+      },
+      "then": [
+        {
+          "op": "memory.subjects.get",
+          "request": {
+            "space_id": "spc_tw_mind_subjectless",
+            "subject_id": "spc_tw_mind_subjectless"
+          },
+          "expect": {
+            "error_code": "NOT_FOUND"
+          }
+        },
+        {
+          "op": "memory.grants.list",
+          "request": {
+            "space_id": "spc_tw_mind_subjectless",
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "sizes": [
+              {
+                "path": "grants",
+                "equals": 1
+              }
+            ],
+            "absent": [
+              "grants.0.subject_id",
+              "grants.0.context_ids"
+            ]
+          }
+        }
+      ],
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "polls-the-create-receipt-after-a-later-freeze",
+      "invariant": "§7.28",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "memory.receipts.get returns the create receipt whole — created: true, revision 1 — after the space was frozen by a later op",
+      "requires": [
+        "memory.receipts.get reads the stored receipt, it never re-executes the emitting op"
+      ],
+      "setup": [
+        {
+          "op": "memory.spaces.create",
+          "request": {
+            "space_id": "spc_tw_mind_poll",
+            "display_name": "Polled Mind",
+            "idempotency_key": "spc-create-tw-0090"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_mind_poll",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-mind-poll-0091"
+          },
+          "expect": {
+            "success": true,
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.receipts.get",
+      "request": {
+        "space_id": "spc_tw_mind_poll",
+        "receipt_id": "$ref:setup.0.receipt_id"
+      },
+      "expect": {
+        "success": true,
+        "receipt_status": "committed",
+        "same_receipt_as": "setup.0",
+        "state": [
+          {
+            "path": "receipt.op",
+            "equals": "memory.spaces.create"
+          },
+          {
+            "path": "receipt.idempotency_key",
+            "equals": "spc-create-tw-0090"
+          },
+          {
+            "path": "receipt.result.created",
+            "equals": true
+          },
+          {
+            "path": "receipt.result.status",
+            "equals": "active"
+          },
+          {
+            "path": "receipt.result.revision",
+            "equals": 1
+          }
+        ],
+        "absent": [
+          "receipt.result.subject_id",
+          "receipt.result.display_name"
+        ]
+      },
+      "principal": "prn_tw_host_primary"
+    }
+  ]
+}

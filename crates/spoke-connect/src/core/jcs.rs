@@ -276,6 +276,10 @@ const RESPONSE_REVISION_PATHS: &[(&str, &[RevisionPath])] = &[
         &[&["payload", "reflections", "revision"]],
     ),
     (
+        "memory.spaces.create",
+        &[&["payload", "result", "revision"]],
+    ),
+    (
         "memory.spaces.freeze",
         &[&["payload", "result", "revision"]],
     ),

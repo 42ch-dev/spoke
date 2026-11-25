@@ -29,6 +29,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -82,7 +83,8 @@ use spoke_schemas::{
     MemoryRecordsPromoteResponse, MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse,
     MemoryReflectionsGenerateRequest, MemoryReflectionsGenerateResponse,
     MemoryReflectionsListRequest, MemoryReflectionsListResponse, MemoryReflectionsStateRequest,
-    MemoryReflectionsStateResponse, MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
+    MemoryReflectionsStateResponse, MemorySpacesCreateRequest, MemorySpacesCreateResponse,
+    MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
     MemorySpacesListRequest, MemorySpacesListResponse, MemorySpacesUnfreezeRequest,
     MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
     MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
@@ -102,6 +104,10 @@ pub const EXPORT_RETENTION_SECONDS: i64 = 86_400;
 
 /// Fixed clock origin: repeated runs produce identical timestamps.
 pub const CLOCK_ORIGIN: &str = "2026-07-23T06:00:00Z";
+
+/// The single authoritative provider for spaces it creates (MEM-R001); this
+/// reference provider is the authority for every space in its document.
+pub const AUTHORITY_HOST_ID: &str = "host_sqlite_reference";
 
 fn reject<T>(code: SpokeRejectCode, message: impl Into<String>) -> SpokeResult<T> {
     spoke_reject(code, message, None)
@@ -679,6 +685,8 @@ fn decode_document(raw: &str) -> rusqlite::Result<Document> {
 /// Provider-private SQLite storage.
 struct Store {
     connection: Connection,
+    /// Durable document writes; a replay must not add one.
+    writes: AtomicUsize,
 }
 
 impl Store {
@@ -695,7 +703,10 @@ impl Store {
                  created_at TEXT NOT NULL
              );",
         )?;
-        let store = Self { connection };
+        let store = Self {
+            connection,
+            writes: AtomicUsize::new(0),
+        };
         // Decode whatever is already stored before touching it: an unsupported
         // document is an error, never an empty state to overwrite.
         if store.load()?.is_none() {
@@ -731,6 +742,7 @@ impl Store {
              ON CONFLICT(id) DO UPDATE SET document = excluded.document",
             params![raw],
         )?;
+        self.writes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -1072,6 +1084,25 @@ impl SqliteMemoryProvider {
             SpokeResult::Ok(false) => SpokeResult::Ok(()),
             SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
         }
+    }
+
+    /// Test-support accessor: the complete subject state of a space. No wire op
+    /// enumerates subjects, so a vector that claims an op materialised none has
+    /// to read the provider's own rows — a probe cannot rule out another id.
+    pub fn subject_count(&self, space_id: &str) -> usize {
+        let store = self.store.lock().expect("store lock");
+        let document = store.read().expect("read state");
+        document
+            .spaces
+            .get(space_id)
+            .map_or(0, |space| space.subjects.len())
+    }
+
+    /// Test-support accessor: durable document writes so far. A dedup replay
+    /// must not add one.
+    pub fn state_writes(&self) -> usize {
+        let store = self.store.lock().expect("store lock");
+        store.writes.load(Ordering::Relaxed)
     }
 
     /// Test-support accessor: run the worker for one receipt and return its
@@ -2149,6 +2180,38 @@ impl SqliteMemoryProvider {
         }
     }
 
+    /// Mutation helper for a keyed op: `replay` is asked under the same write
+    /// lock the effect needs, and a hit is answered from the recorded receipt
+    /// with no state write at all — an already-committed result must never be
+    /// reported uncertain because bookkeeping the replay does not need failed
+    /// to write. A miss runs `apply` and commits it.
+    fn mutate_value_unless_replayed(
+        &self,
+        replay: impl FnOnce(&Document) -> Option<SpokeResult<Value>>,
+        apply: impl FnOnce(&mut Document) -> SpokeResult<Value>,
+    ) -> SpokeResult<Value> {
+        let store = self.store.lock().expect("store lock");
+        let mut document = match store.read() {
+            Ok(document) => document,
+            Err(error) => return storage_failure("read state", error),
+        };
+        if let SpokeResult::Reject(reject) = Self::evict_receipts(&mut document) {
+            return SpokeResult::Reject(reject);
+        }
+        // Expiry was judged on the in-memory copy: a replay hit is answered
+        // from it without persisting anything.
+        if let Some(replayed) = replay(&document) {
+            return replayed;
+        }
+        match apply(&mut document) {
+            SpokeResult::Ok(value) => match store.write(&document) {
+                Ok(()) => SpokeResult::Ok(value),
+                Err(error) => uncertain_storage_failure("write state", error),
+            },
+            SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+        }
+    }
+
     fn inspect<T>(&self, answer: impl FnOnce(&Document) -> SpokeResult<T>) -> SpokeResult<T> {
         let store = self.store.lock().expect("store lock");
         let mut document = match store.read() {
@@ -2461,6 +2524,114 @@ impl MemoryPort for SqliteMemoryProvider {
             spaces.truncate(limit);
             reply(json!({ "spaces": spaces }))
         })
+    }
+
+    /// `memory.spaces.create` (§7.0.6): caller-named `space_id`, one transaction
+    /// that inserts the space row plus the creator's space-wide default grant,
+    /// or a no-op success on an existing space (MEM-R007: no revision bump).
+    /// Refusal order is shape → dedup replay → admin on an existing space →
+    /// freeze (A3-D5), so a replay survives a later freeze and an existing id
+    /// never answers with existence detail.
+    async fn create_space(
+        &self,
+        principal: &Principal,
+        request: MemorySpacesCreateRequest,
+    ) -> SpokeResult<MemorySpacesCreateResponse> {
+        const OP: &str = "memory.spaces.create";
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let key = text_field(&request_value, "idempotency_key");
+        // The caller names the id and the dedup key: both are trust-boundary
+        // input (the typed boundary enforces the schema ranges; this keeps the
+        // provider honest on its own).
+        if space_id.is_empty() || key.is_empty() {
+            return reject(
+                SpokeRejectCode::InvalidInput,
+                format!("{OP} requires a non-empty space_id and idempotency_key"),
+            );
+        }
+        let digest = tri!(request_digest(&request_value));
+        // The dedup answer and the effect share one lock: a replay that lands
+        // between them still answers the recorded receipt without a write.
+        let receipt = tri!(self.mutate_value_unless_replayed(
+            |document| {
+                let space = document.spaces.get(&space_id)?;
+                Self::replay_outcome(space, &principal_id, OP, &key, &digest)
+            },
+            |document| {
+                let now = Self::clock(document);
+                if let Some(space) = document.spaces.get_mut(&space_id) {
+                    let requirement = Self::admin_requirement();
+                    tri!(Self::require(space, now, &principal_id, &requirement, OP));
+                    if space.frozen {
+                        // §8.2: creating is not a maintenance op, so a repeat
+                        // create is refused even for the space admin.
+                        return reject(SpokeRejectCode::SpaceFrozen, "space is frozen");
+                    }
+                    // No-op success: no space, grant or revision write; the
+                    // receipt itself is still recorded (MEM-R008).
+                    let mut receipt = Self::receipt(space, now, OP, &principal_id, &digest, &key);
+                    receipt["result"] = json!({
+                        "space_id": space_id,
+                        "status": "active",
+                        "created": false,
+                        "revision": space.revision,
+                    });
+                    tri!(Self::remember(
+                        space, now, &principal_id, OP, &key, &digest, &receipt
+                    ));
+                    return SpokeResult::Ok(receipt);
+                }
+                let grant_id = "grt_sqlite_0001".to_string();
+                let mut space = Space {
+                    space_id: space_id.clone(),
+                    display_name: request_value["display_name"].as_str().map(str::to_string),
+                    authority_host_id: AUTHORITY_HOST_ID.to_string(),
+                    authority_generation: 1,
+                    revision: 1,
+                    created_at: CLOCK_ORIGIN.to_string(),
+                    state_epoch: 1,
+                    ..Space::default()
+                };
+                space.grants.insert(
+                    grant_id.clone(),
+                    json!({
+                        "schema_version": 1,
+                        "grant_id": grant_id,
+                        "space_id": space_id.clone(),
+                        "principal_id": principal_id,
+                        "capabilities": [
+                            "recall",
+                            "capture",
+                            "review",
+                            "records_write",
+                            "knowledge_read",
+                            "knowledge_write",
+                            "admin",
+                        ],
+                        "created_at": CLOCK_ORIGIN,
+                        "revision": 1,
+                        "extensions": {},
+                    }),
+                );
+                let mut receipt =
+                    Self::receipt(&mut space, now, OP, &principal_id, &digest, &key);
+                receipt["result"] = json!({
+                    "space_id": space_id.clone(),
+                    "status": "active",
+                    "created": true,
+                    "revision": 1,
+                });
+                tri!(Self::remember(
+                    &mut space, now, &principal_id, OP, &key, &digest, &receipt
+                ));
+                // Borrow, not move: the replay closure above holds `space_id`.
+                document.spaces.insert(space_id.clone(), space);
+                SpokeResult::Ok(receipt)
+            }
+        ));
+        reply(receipt)
     }
 
     async fn freeze_space(

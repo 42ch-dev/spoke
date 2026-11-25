@@ -2243,6 +2243,59 @@ mod tests {
         assert!(matches!(error, CoreError::Jcs(_)), "{error:?}");
     }
 
+    /// A3-D4 — the create receipt carries `result.revision` (the
+    /// `memory.subjects.ensure` result shape), so the plain receipt and the
+    /// reverse-invoke wrapped receipt both own the inclusive endpoint.
+    #[test]
+    fn memory_spaces_create_receipt_revision_owns_the_endpoint() {
+        const ENDPOINT: u64 = 9_007_199_254_740_992;
+        const OP: Option<&str> = Some("memory.spaces.create");
+
+        for payload in [
+            serde_json::json!({
+                "result": {
+                    "space_id": "spc_0001",
+                    "status": "active",
+                    "created": true,
+                    "revision": ENDPOINT,
+                },
+            }),
+            serde_json::json!({
+                "result": {
+                    "result": {
+                        "space_id": "spc_0001",
+                        "status": "active",
+                        "created": true,
+                        "revision": ENDPOINT,
+                    },
+                },
+            }),
+        ] {
+            let response = authenticate_invoke_response_with_op(
+                &emitter_seed(),
+                &InvokeResponseSignInput::Success {
+                    session_id: SESSION_ID.to_string(),
+                    sequence: 0,
+                    request_id: "req-0001".to_string(),
+                    payload,
+                },
+                Default::default(),
+                OP,
+            )
+            .expect("the receipt revision owns the endpoint");
+            let wire = wire_of(&response);
+            verify_invoke_response_auth_with_op(&emitter_pubkey(), &wire, SESSION_ID, OP)
+                .expect("the receipt verifies");
+            let bytes = crate::core::jcs::canonical_bytes_with_op(&wire, OP).expect("JCS");
+            let jcs = std::str::from_utf8(&bytes).expect("UTF-8 JCS");
+            assert_eq!(
+                jcs.matches("9007199254740992").count(),
+                1,
+                "the receipt endpoint hashes as its equal f64: {jcs}"
+            );
+        }
+    }
+
     /// D-QC2-01 — an integral float has the peer's parsed value, so it takes
     /// the same verdict as the integer spelling: refused everywhere except
     /// the `±2^53` endpoint of an owning revision path, where the canonical

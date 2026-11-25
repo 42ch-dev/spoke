@@ -2537,21 +2537,25 @@ impl ConnectResponder {
         // Gate → probe → serve/deny: a declared `spoke-knowledge` without the
         // serving face is the same dispatch-deny branch as an absent
         // baseline face, never a baseline fallback (D7 wire code). The
-        // request-scoped face wins; a host that adopts nothing keeps the
-        // peer-only face and its `0.18.1` answer.
-        let face = match (ports.as_scoped_knowledge(), ports.as_knowledge()) {
-            (Some(scoped), _) => KnowledgeServingFace::Scoped(scoped),
-            (None, Some(peer_only)) => KnowledgeServingFace::PeerOnly(peer_only),
-            (None, None) => {
-                self.send_reverse_error_envelope(
-                    doc,
-                    "op_unsupported",
-                    &format!("no knowledge face configured for port op {op}"),
-                    None,
-                )
-                .await?;
-                return Ok(None);
-            }
+        // request-scoped face wins, and the peer-only probe runs only when it
+        // is absent — a host that supplies the scoped face never sees the
+        // fallback probe (it may panic or do work); a host that adopts
+        // nothing keeps the peer-only face and its `0.18.1` answer.
+        let face = match ports.as_scoped_knowledge() {
+            Some(scoped) => KnowledgeServingFace::Scoped(scoped),
+            None => match ports.as_knowledge() {
+                Some(peer_only) => KnowledgeServingFace::PeerOnly(peer_only),
+                None => {
+                    self.send_reverse_error_envelope(
+                        doc,
+                        "op_unsupported",
+                        &format!("no knowledge face configured for port op {op}"),
+                        None,
+                    )
+                    .await?;
+                    return Ok(None);
+                }
+            },
         };
         let store = face.store();
         // The admitted scope derives from the authenticated session peer,

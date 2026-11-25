@@ -7625,6 +7625,78 @@ async fn scoped_knowledge_admission_refusal_keeps_the_0_18_1_answer() {
     responder.close();
 }
 
+/// A host whose knowledge serving face is the request-scoped one only: the
+/// peer-only probe is observable, so a scoped probe that still fell through
+/// to it would be caught here.
+struct ScopedKnowledgeOnlyPorts {
+    face: Arc<RemoteScopedKnowledgeFace>,
+    peer_only_probes: AtomicUsize,
+}
+
+impl RemoteServePorts for ScopedKnowledgeOnlyPorts {
+    fn as_scoped_knowledge(&self) -> Option<Arc<RemoteScopedKnowledgeFace>> {
+        Some(Arc::clone(&self.face))
+    }
+
+    fn as_knowledge(&self) -> Option<Arc<RemoteKnowledgeFace>> {
+        self.peer_only_probes
+            .fetch_add(1, Ordering::SeqCst);
+        None
+    }
+}
+
+#[tokio::test]
+async fn scoped_knowledge_face_never_invokes_the_peer_only_probe() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let scope = scope_of("scope-a");
+    store.seed(&scope, scoped_entry("ke-knowledge-a", "alpha"));
+    let admitted = scope.clone();
+    let store_port: Arc<dyn ScopedKnowledgePort + Send + Sync> =
+        Arc::<ScopedKnowledgeStore>::clone(&store);
+    let ports = Arc::new(ScopedKnowledgeOnlyPorts {
+        face: Arc::new(RemoteScopedKnowledgeFace {
+            store: store_port,
+            admission: Arc::new(move |_peer, _selector| spoke_ok(admitted.clone())),
+        }),
+        peer_only_probes: AtomicUsize::new(0),
+    });
+
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge"],
+        responder_capabilities: vec!["spoke-knowledge"],
+        ports: Some(Arc::<ScopedKnowledgeOnlyPorts>::clone(&ports)),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    match client.get_knowledge_entry("ke-knowledge-a").await {
+        SpokeResult::Ok(entry) => assert_eq!(entry.entry_id.as_str(), "ke-knowledge-a"),
+        SpokeResult::Reject(reject) => panic!("scoped get must serve: {reject:?}"),
+    }
+    match client
+        .put_knowledge_entry(scoped_entry("ke-new", "created"), None)
+        .await
+    {
+        SpokeResult::Ok(entry) => assert_eq!(entry.revision, Some(1)),
+        SpokeResult::Reject(reject) => panic!("scoped create must serve: {reject:?}"),
+    }
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Ok(entries) => assert_eq!(entries.len(), 2),
+        SpokeResult::Reject(reject) => panic!("scoped list must serve: {reject:?}"),
+    }
+
+    // The fallback probe is lazy: a host that supplies the scoped face never
+    // has its peer-only probe called.
+    assert_eq!(
+        ports.peer_only_probes.load(Ordering::SeqCst),
+        0,
+        "the peer-only probe must not run when the scoped face exists"
+    );
+
+    client.close();
+    responder.close();
+}
+
 #[tokio::test]
 async fn knowledge_face_isolates_two_peers_by_their_admitted_scope() {
     let store = Arc::new(ScopedKnowledgeStore::default());

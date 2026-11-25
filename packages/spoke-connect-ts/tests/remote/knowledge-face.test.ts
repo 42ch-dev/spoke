@@ -15,6 +15,8 @@
  *    baseline ops.
  */
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { spokeOk, spokeReject, type SpokeResult } from "@42ch/spoke-operations";
@@ -129,6 +131,7 @@ function scopedStoreFace(
   storeGate?: Promise<void>,
   storeRejectOn?: "put" | "get",
   storeGateOn?: "put" | "get",
+  seedEntries: Array<[string, KnowledgeEntry]> = [],
 ): RemoteKnowledgeFace {
   const entries = new Map<string, Map<string, KnowledgeEntry>>();
   const bucket = (scopeId: string): Map<string, KnowledgeEntry> => {
@@ -139,6 +142,9 @@ function scopedStoreFace(
     }
     return existing;
   };
+  for (const [scopeId, seeded] of seedEntries) {
+    bucket(scopeId).set(seeded.entry_id, { ...seeded });
+  }
   return {
     store: {
       async getScopedKnowledgeEntry(scope, entryId) {
@@ -1454,6 +1460,80 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       expect(admissionCalls).toHaveLength(0);
     } finally {
       scoped.close();
+    }
+  });
+
+  it("executes the shared request-scope matrix through the responder", async () => {
+    const matrix = JSON.parse(
+      readFileSync(
+        new URL("../fixtures/capability-matrix.json", import.meta.url),
+        "utf8",
+      ),
+    ) as {
+      request_scope_cases: Array<{
+        name: string;
+        op: string;
+        payload: Record<string, unknown>;
+        negotiated: string[];
+        admitted_scope: Scope;
+        expected: {
+          allowed?: boolean;
+          code?: string;
+          message?: string;
+          message_contains?: string;
+        };
+      }>;
+    };
+    const cases = matrix.request_scope_cases;
+    expect(cases.length).toBeGreaterThan(0);
+
+    // note: one fresh host per case — the negotiated set is fixed at the
+    // handshake, and the case's admitted scope comes from the admission
+    // callback. The fixture is the same file the Rust loopback harness reads.
+    for (const [index, scopeCase] of cases.entries()) {
+      const storeCalls: string[] = [];
+      const face = scopedStoreFace(
+        () => spokeOk(scopeCase.admitted_scope),
+        storeCalls,
+        undefined,
+        undefined,
+        undefined,
+        [[scopeCase.admitted_scope.scope_id, entry("ke-knowledge-a")]],
+      );
+      const host = await dialRawKnowledgeHost(
+        knowledgeOnlyServePorts(face),
+        scopeCase.negotiated,
+      );
+      try {
+        const response = await rawInvoke(
+          host.clientEnd,
+          seed(0x10),
+          host.sessionId,
+          0,
+          `scope-matrix-${index}`,
+          scopeCase.op,
+          scopeCase.payload,
+        );
+        const expected = scopeCase.expected;
+        if (expected.allowed === true) {
+          expect(response.error, scopeCase.name).toBeUndefined();
+        } else {
+          expect(response.error?.code, scopeCase.name).toBe(expected.code);
+          if (expected.message !== undefined) {
+            expect(response.error?.message, scopeCase.name).toBe(
+              expected.message,
+            );
+          }
+          if (expected.message_contains !== undefined) {
+            expect(response.error?.message, scopeCase.name).toContain(
+              expected.message_contains,
+            );
+          }
+          expect(storeCalls, scopeCase.name).toHaveLength(0);
+        }
+      } finally {
+        host.close();
+      }
     }
   });
 });

@@ -8071,6 +8071,99 @@ async fn scoped_knowledge_malformed_scope_wins_over_the_marker_and_cognition_gat
     responder.close();
 }
 
+/// The shared request-scope matrix, executed through the real responder
+/// dispatch: one fresh knowledge host per case, the case's negotiated
+/// capabilities in both hellos, the case's declared payload on the wire, and
+/// the case's admitted scope from the admission callback. The fixture is the
+/// same file the TypeScript harness executes (`packages/spoke-connect-ts`
+/// holds a byte-identical copy).
+#[tokio::test]
+async fn the_shared_request_scope_matrix_matches_the_responder_verdicts() {
+    const FIXTURE: &str = include_str!("fixtures/capability-matrix.json");
+    let matrix: Value = serde_json::from_str(FIXTURE).expect("capability matrix is valid JSON");
+    let cases = matrix["request_scope_cases"]
+        .as_array()
+        .expect("request_scope_cases is an array");
+    assert!(!cases.is_empty(), "the matrix must carry request-scope cases");
+
+    for (index, case) in cases.iter().enumerate() {
+        let name = case["name"].as_str().expect("name is a string");
+        let op = case["op"].as_str().expect("op is a string");
+        let payload = case["payload"].clone();
+        let negotiated: Vec<String> = case["negotiated"]
+            .as_array()
+            .expect("negotiated is an array")
+            .iter()
+            .map(|cap| cap.as_str().expect("capabilities are strings").to_owned())
+            .collect();
+        let capabilities: Vec<&str> = negotiated.iter().map(String::as_str).collect();
+        let admitted: Scope = serde_json::from_value(case["admitted_scope"].clone())
+            .expect("admitted_scope is a Scope");
+        let expected = &case["expected"];
+
+        let store = Arc::new(ScopedKnowledgeStore::default());
+        store.seed(&admitted, scoped_entry("ke-knowledge-a", "alpha"));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let ports = scoped_knowledge_ports(&store, admitted.clone(), &seen);
+        let (responder, pair, seed) = start_raw_ke_responder(ports, &capabilities).await;
+        let session_id = raw_handshake(
+            &pair.client,
+            seed,
+            &ke_remote_manifest("test-client", &capabilities),
+        )
+        .await;
+        let response = raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            0,
+            &format!("scope-matrix-{index}"),
+            op,
+            payload,
+        )
+        .await;
+        responder.close();
+
+        match expected.get("allowed").and_then(Value::as_bool) {
+            Some(true) => assert!(
+                response.get("error").is_none(),
+                "case {index} ({name}): expected a served response, got {response}"
+            ),
+            None => {
+                let code = expected["code"]
+                    .as_str()
+                    .expect("a refusal case carries `expected.code`");
+                assert_eq!(
+                    response["error"]["code"].as_str(),
+                    Some(code),
+                    "case {index} ({name}): {response}"
+                );
+                if let Some(message) = expected.get("message").and_then(Value::as_str) {
+                    assert_eq!(
+                        response["error"]["message"].as_str(),
+                        Some(message),
+                        "case {index} ({name}): {response}"
+                    );
+                }
+                if let Some(needle) = expected.get("message_contains").and_then(Value::as_str) {
+                    assert!(
+                        response["error"]["message"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .contains(needle),
+                        "case {index} ({name}): the deny must contain {needle}: {response}"
+                    );
+                }
+                assert!(
+                    store.calls().is_empty(),
+                    "case {index} ({name}): a refusal must not reach the store"
+                );
+            }
+            Some(false) => panic!("case {index} ({name}): `allowed` is a claim, not a false flag"),
+        }
+    }
+}
+
 #[tokio::test]
 async fn scoped_knowledge_admission_refusal_keeps_the_0_18_1_answer() {
     let store = Arc::new(ScopedKnowledgeStore::default());

@@ -2730,14 +2730,18 @@ impl ConnectResponder {
         //
         // A payload that declares the new optional cognition subtree can fail
         // the typed decode on that subtree alone (the closed grammar is
-        // `deny_unknown_fields`). Such a failure is deferred to the raw §2.2
-        // diagnosis below, where it is reported with its own requirement path;
-        // every baseline shape failure still answers first.
+        // `deny_unknown_fields`). For the required-scope query ops such a
+        // failure is deferred to the raw §2.2 diagnosis below, where it is
+        // reported with its own requirement path; every baseline shape failure
+        // still answers first. The optional-scope knowledge ops never defer:
+        // A2-D3 puts a present-and-malformed scope (`INVALID_INPUT`) before
+        // the marker and cognition gates.
         let mut deferred_scope_reject = None;
         let declared_scope = match validate_scope_declaration(op, payload) {
             Ok(scope) => scope,
             Err(reject) => {
-                if cognition_requirement_present(op, payload)
+                if !optional_scope_op(op)
+                    && cognition_requirement_present(op, payload)
                     && baseline_scope_shape(op, payload).is_ok()
                 {
                     deferred_scope_reject = Some(reject);

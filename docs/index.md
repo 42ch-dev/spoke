@@ -25,7 +25,7 @@ If you run a product that stores narrative knowledge, [implement an adapter](/ho
 
 SPOKE is a protocol of JSON Schema wire contracts for narrative knowledge: independent products exchange consistency-check and context-assembly I/O through shared data and ops shapes, so each product stops inventing local formats for the same concepts. The repository is the SSOT — hand-authored schemas, generated TypeScript and Rust wire types, and pure operations libraries.
 
-- **One wire dialect** — 27 data schemas (14 outside Memory) and five baseline ops (plus the optional `project` / `compute`, `extract`, `spoke-history`, `spoke-knowledge-adoption`, `spoke-judgment`, and 33-op `spoke-memory` families)
+- **One wire dialect** — 27 data schemas (14 outside Memory) and five baseline ops (plus the optional `project` / `compute`, `extract`, `spoke-history`, `spoke-knowledge-adoption`, `spoke-judgment`, and 34-op `spoke-memory` families)
 - **Domain Profiles over open strings** — ontology vocabulary publishes over open strings and optional `modules.*` bags
 - **Capability flags** — claim `spoke-baseline`, or declare `l2-computable`, `l5-fork`, `spoke-cognition`, `narrative-modules`, `ke-extraction`, `ke-ownership`, `spoke-knowledge`, `spoke-history`, `spoke-knowledge-adoption`, `spoke-judgment`, `spoke-connect`, `spoke-memory` explicitly
 - **Language parity** — one lockstep SemVer across npm and crates.io

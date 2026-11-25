@@ -159,11 +159,12 @@ loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>>;
 
 ```ts
 describe(principal: Principal, request: MemoryDescribeRequest): Promise<SpokeResult<MemoryDescribeResponse>>;
+createSpace(principal: Principal, request: MemorySpacesCreateRequest): Promise<SpokeResult<MemorySpacesCreateResponse>>;
 capture(principal: Principal, request: MemoryCaptureRequest): Promise<SpokeResult<MemoryCaptureResponse>>;
-// … 33 个类型化方法，每个对应一个 memory.* 操作
+// … 34 个类型化方法，每个对应一个 memory.* 操作
 ```
 
-`MemoryPort` 是按主体记忆的独立可选边界：33 个类型化方法（25 个核心、3 个反思、5 个传输），每个方法携带你的准入口径所建立的已认证 `Principal`。它与 `ExtractionPort` 一样与基线 port 族并列 —— 是 adapter 别名之外的可选接口。提供记忆时实现 `MemoryPort` 并暴露 `MemoryPorts` 探测（`asMemory()` / `MemoryPorts::as_memory()`）；其余情形保持探测为空实现，动态边界直接读到该缺失。
+`MemoryPort` 是按主体记忆的独立可选边界：34 个类型化方法（26 个核心、3 个反思、5 个传输），每个方法携带你的准入口径所建立的已认证 `Principal`。`createSpace` 是通过协议创建空间（一个 Mind）的路径：它是唯一以“创建或空操作”为结果的变更方法，因此提供方在一个事务中写入空间行、其绑定与创建方的默认授权行，重复创建返回 `created: false`。它与 `ExtractionPort` 一样与基线 port 族并列 —— 是 adapter 别名之外的可选接口。提供记忆时实现 `MemoryPort` 并暴露 `MemoryPorts` 探测（`asMemory()` / `MemoryPorts::as_memory()`）；其余情形保持探测为空实现，动态边界直接读到该缺失。
 
 提供方职责留在 adapter 的事务层：授权覆盖与非放大校验、`revision` 比较并设置（CAS）、以 `(space_id, principal, op, idempotency_key)` 为键的持久幂等、回执与去重墓碑、空间冻结与主体/上下文围栏，以及候选审核的原子性。库提供确定性辅助：请求校验器（`validateMemory*`）、授权覆盖（`grantCovers`）、冻结白名单（`isFreezeAllowlisted`）与 JCS/SHA-256 摘要（`jcsSha256Hex`）。通过 connect 提供该族，意味着暴露 connect 自有的 `RemoteMemoryService`。RemoteAdapter 消费方通过该服务代理 memory ops；Rust `spoke-connect` crate 另提供 `MemoryPortService`，用同一准入口径把 `MemoryPort` 适配到它之上。
 

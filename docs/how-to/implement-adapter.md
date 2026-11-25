@@ -159,11 +159,12 @@ Host-local source loading for the optional `extract` op: the port reads the refe
 
 ```ts
 describe(principal: Principal, request: MemoryDescribeRequest): Promise<SpokeResult<MemoryDescribeResponse>>;
+createSpace(principal: Principal, request: MemorySpacesCreateRequest): Promise<SpokeResult<MemorySpacesCreateResponse>>;
 capture(principal: Principal, request: MemoryCaptureRequest): Promise<SpokeResult<MemoryCaptureResponse>>;
-// … 33 typed methods, one per memory.* op
+// … 34 typed methods, one per memory.* op
 ```
 
-`MemoryPort` is the standalone optional boundary for per-subject memory: 33 typed methods (25 core, 3 reflection, 5 transfer), each carrying the authenticated `Principal` your admission context established. It stands alongside the baseline port families the way `ExtractionPort` does — an optional interface beside the adapter aliases. When you serve memory, implement `MemoryPort` and expose the `MemoryPorts` probe (`asMemory()` / `MemoryPorts::as_memory()`); otherwise leave the probe unimplemented and dynamic boundaries read its absence directly.
+`MemoryPort` is the standalone optional boundary for per-subject memory: 34 typed methods (26 core, 3 reflection, 5 transfer), each carrying the authenticated `Principal` your admission context established. `createSpace` is the protocol path for creating a space (a Mind): it is the only mutating method whose outcome is a create-or-no-op, so a provider writes the space row, its bindings and the creator's default grant row in one transaction and answers `created: false` on a repeat. It stands alongside the baseline port families the way `ExtractionPort` does — an optional interface beside the adapter aliases. When you serve memory, implement `MemoryPort` and expose the `MemoryPorts` probe (`asMemory()` / `MemoryPorts::as_memory()`); otherwise leave the probe unimplemented and dynamic boundaries read its absence directly.
 
 Provider duties stay in your adapter's transaction layer: grant coverage and non-amplification, `revision` compare-and-set, durable idempotency keyed on `(space_id, principal, op, idempotency_key)`, receipts and dedup tombstones, space freeze and subject/context fencing, and atomic candidate review. The library supplies the deterministic helpers — request validators (`validateMemory*`), grant coverage (`grantCovers`), the freeze allowlist (`isFreezeAllowlisted`), and JCS/SHA-256 digests (`jcsSha256Hex`). Serving the family over connect means exposing the connect-owned `RemoteMemoryService`. RemoteAdapter consumers proxy memory ops through that service; the Rust `spoke-connect` crate also ships `MemoryPortService`, which adapts a `MemoryPort` to it with the same admission context.
 

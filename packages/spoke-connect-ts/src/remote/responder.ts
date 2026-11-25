@@ -314,13 +314,16 @@ function optionalScopeOp(op: string): boolean {
 /**
  * Whether `op` + `payload` require `ke-ownership` in the negotiated set (F2).
  * Malformed Scope payloads return false here — `validateScopeOpPayload` rejects
- * them with `INVALID_INPUT` before provider calls.
+ * them with `INVALID_INPUT` before provider calls. A non-object payload has no
+ * declared viewpoint: the optional-scope knowledge ops still reach this
+ * probe (their input failure is answered after the ports presence check), so
+ * the read is structural, never a member access on a scalar/`null`.
  */
 export function scopeOpRequiresOwnershipCapability(
   op: string,
   payload: Record<string, unknown>,
 ): boolean {
-  if (!SCOPE_BEARING_OPS.has(op)) {
+  if (!SCOPE_BEARING_OPS.has(op) || !isJsonObject(payload)) {
     return false;
   }
   const scope = payload.scope;
@@ -560,10 +563,19 @@ export function validateScopeOpPayload(
   if (!SCOPE_BEARING_OPS.has(op)) {
     return null;
   }
-  // note: a non-object payload carries no well-formed scope; the knowledge and
-  // baseline decoders own that input failure.
+  // note: a non-object payload carries no `scope` member, so the required-scope
+  // ops have no declared selector at all: refuse them HERE — the earliest
+  // gate — before the marker/ownership/cognition conjuncts and before any
+  // provider call, never forwarding an absent scope (which would read as the
+  // admitted authority). The optional-scope knowledge ops keep the `0.18.1`
+  // probe-then-decode order (Rust `validate_scope_declaration` answers
+  // `Ok(None)` for a non-object payload), so a port-less host still answers
+  // `op_unsupported` and `validateKnowledgeOpPayload` owns the input failure
+  // once the ports face exists.
   if (!isJsonObject(payload)) {
-    return null;
+    return REQUIRED_SCOPE_OPS.has(op)
+      ? scopePayloadReject(op, "payload must be an object")
+      : null;
   }
   if (!("scope" in payload)) {
     return REQUIRED_SCOPE_OPS.has(op)

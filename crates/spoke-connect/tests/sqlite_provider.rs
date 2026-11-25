@@ -26,8 +26,9 @@ use spoke_schemas::{
     MemoryGrantsListRequest, MemoryGrantsRevokeRequest, MemoryImportsStageRequest,
     MemoryRecallRequest, MemoryReceiptsGetRequest, MemoryReceiptsGetResponse,
     MemoryRecordsListRequest, MemoryReflectionsGenerateRequest, MemoryReflectionsListRequest,
-    MemoryReflectionsListResponse, MemoryReflectionsStateRequest, MemorySpacesFreezeRequest,
-    MemorySpacesListRequest, MemorySpacesUnfreezeRequest, MemorySubjectsEnsureRequest,
+    MemoryReflectionsListResponse, MemoryReflectionsStateRequest, MemorySpacesCreateRequest,
+    MemorySpacesFreezeRequest, MemorySpacesListRequest, MemorySpacesUnfreezeRequest,
+    MemorySubjectsEnsureRequest,
     MemorySubjectsFenceRequest, MemorySubjectsGetRequest, Principal,
 };
 use sqlite_memory::SqliteMemoryProvider;
@@ -252,6 +253,41 @@ async fn spaces_are_listed_only_for_principals_with_a_grant() {
         .as_array()
         .expect("spaces array")
         .is_empty());
+}
+
+/// A same-key replay of `memory.spaces.create` answers the recorded receipt
+/// without writing the document: an already-committed result must never become
+/// a storage uncertainty because bookkeeping the replay does not need failed.
+#[tokio::test]
+async fn create_replay_answers_the_recorded_receipt_without_writing_state() {
+    let provider = provider();
+    let create = || {
+        serde_json::from_value::<MemorySpacesCreateRequest>(json!({
+            "space_id": "spc_sqlite_created",
+            "display_name": "Created Mind",
+            "idempotency_key": "create-sqlite-0001",
+        }))
+        .expect("create request")
+    };
+
+    let committed = wire(&expect_ok(
+        provider.create_space(&principal(OPERATOR), create()).await,
+    ));
+    assert_eq!(committed["result"]["created"], json!(true));
+    let writes = provider.state_writes();
+
+    let replayed = wire(&expect_ok(
+        provider.create_space(&principal(OPERATOR), create()).await,
+    ));
+    assert_eq!(
+        replayed, committed,
+        "the replay returns the recorded receipt"
+    );
+    assert_eq!(
+        provider.state_writes(),
+        writes,
+        "the replay writes no state"
+    );
 }
 
 #[tokio::test]

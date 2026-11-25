@@ -29,6 +29,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -684,6 +685,8 @@ fn decode_document(raw: &str) -> rusqlite::Result<Document> {
 /// Provider-private SQLite storage.
 struct Store {
     connection: Connection,
+    /// Durable document writes; a replay must not add one.
+    writes: AtomicUsize,
 }
 
 impl Store {
@@ -700,7 +703,10 @@ impl Store {
                  created_at TEXT NOT NULL
              );",
         )?;
-        let store = Self { connection };
+        let store = Self {
+            connection,
+            writes: AtomicUsize::new(0),
+        };
         // Decode whatever is already stored before touching it: an unsupported
         // document is an error, never an empty state to overwrite.
         if store.load()?.is_none() {
@@ -736,6 +742,7 @@ impl Store {
              ON CONFLICT(id) DO UPDATE SET document = excluded.document",
             params![raw],
         )?;
+        self.writes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -1089,6 +1096,13 @@ impl SqliteMemoryProvider {
             .spaces
             .get(space_id)
             .map_or(0, |space| space.subjects.len())
+    }
+
+    /// Test-support accessor: durable document writes so far. A dedup replay
+    /// must not add one.
+    pub fn state_writes(&self) -> usize {
+        let store = self.store.lock().expect("store lock");
+        store.writes.load(Ordering::Relaxed)
     }
 
     /// Test-support accessor: run the worker for one receipt and return its
@@ -2166,6 +2180,33 @@ impl SqliteMemoryProvider {
         }
     }
 
+    /// §7.0.5 dedup replay resolved from read state alone: a hit answers from
+    /// the recorded receipt (or its retained evidence) without rewriting the
+    /// document, so an already-committed result can never be reported uncertain
+    /// because bookkeeping the replay does not need failed to write. `None`
+    /// means no dedup record for the key.
+    fn replay_value(
+        &self,
+        space_id: &str,
+        principal_id: &str,
+        op: &str,
+        key: &str,
+        digest: &str,
+    ) -> Option<SpokeResult<Value>> {
+        let store = self.store.lock().expect("store lock");
+        let mut document = match store.read() {
+            Ok(document) => document,
+            Err(error) => return Some(storage_failure("read state", error)),
+        };
+        // Expiry is judged on the in-memory copy: the answer is truthful either
+        // way, and persisting the eviction would be the write this path avoids.
+        if let SpokeResult::Reject(reject) = Self::evict_receipts(&mut document) {
+            return Some(SpokeResult::Reject(reject));
+        }
+        let space = document.spaces.get(space_id)?;
+        Self::replay_outcome(space, principal_id, op, key, digest)
+    }
+
     fn inspect<T>(&self, answer: impl FnOnce(&Document) -> SpokeResult<T>) -> SpokeResult<T> {
         let store = self.store.lock().expect("store lock");
         let mut document = match store.read() {
@@ -2506,6 +2547,15 @@ impl MemoryPort for SqliteMemoryProvider {
             );
         }
         let digest = tri!(request_digest(&request_value));
+        // A replay answers from read state: an already-committed result must
+        // never become an uncertainty because bookkeeping it does not need
+        // failed to write. The mutation below re-checks under the write lock.
+        if let Some(replayed) = self.replay_value(&space_id, &principal_id, OP, &key, &digest) {
+            return match replayed {
+                SpokeResult::Ok(receipt) => reply(receipt),
+                SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+            };
+        }
         let receipt = tri!(self.mutate_value(|document| {
             let now = Self::clock(document);
             if let Some(space) = document.spaces.get_mut(&space_id) {

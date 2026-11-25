@@ -313,12 +313,23 @@ pub trait MemoryPort {
     /// `space_id`; establishes no subject. **Grant:** none for a new id
     /// (authenticated principal only, MEM-R003); on an existing space the
     /// requester MUST hold `admin` or the call fails `NOT_AUTHORIZED` — never
-    /// `NOT_FOUND`, so the op is not an existence oracle. Idempotency key
-    /// required (§7.0.5) over `(space_id, requester_principal_id, op,
-    /// idempotency_key)`: a replay returns the stored receipt, and a repeat
-    /// create by an admin answers `created: false` without writing. The
-    /// adapter MUST write the space row and the creator's default grant row
-    /// in one transaction.
+    /// `NOT_FOUND`, and the refusal carries no existence detail. A caller that
+    /// does hold `admin` still learns that its own create succeeded; the
+    /// promise covers the refusal, not the caller's own outcome.
+    ///
+    /// Idempotency key required (§7.0.5) over `(space_id,
+    /// requester_principal_id, op, idempotency_key)` and checked before the
+    /// grant and freeze steps: replaying the same key and payload returns the
+    /// receipt recorded under it (or `RECEIPT_EXPIRED` once its body is
+    /// evicted); the same key with a different payload is
+    /// `IDEMPOTENCY_CONFLICT`.
+    ///
+    /// The first create atomically writes the space row, its knowledge binding,
+    /// carrier and the creator's default grant row, plus the committed receipt.
+    /// A repeat create by an admin under a fresh key changes no space, grant or
+    /// revision, but still records its own receipt and answers `created: false`
+    /// with the current status and revision. A frozen space answers
+    /// `SPACE_FROZEN`.
     async fn create_space(
         &self,
         principal: &Principal,

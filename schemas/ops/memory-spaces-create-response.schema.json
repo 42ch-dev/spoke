@@ -110,6 +110,21 @@
             },
             {
               "properties": {
+                "idempotency_key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                  "title": "IdempotencyKey"
+                }
+              },
+              "required": [
+                "idempotency_key"
+              ],
+              "title": "AllOf"
+            },
+            {
+              "properties": {
                 "status": {
                   "const": "failed",
                   "type": "string",

@@ -10,7 +10,7 @@
  * @generated
  */
 export type MemorySpacesCreateResponse = OneOf | OneOf1;
-export type OneOf = (CommittedReceipt & AllOf & AllOf1) | (FailedReceipt & AllOf2 & AllOf3);
+export type OneOf = (CommittedReceipt & AllOf & AllOf1) | (FailedReceipt & AllOf2 & AllOf3 & AllOf4);
 /**
  * Provider-assigned.
  * @generated
@@ -114,6 +114,11 @@ export type RetryClass18 = "uncertain";
 export type RetryClass19 = "retryable";
 export type RetryClass20 = "retryable" | "terminal" | "uncertain";
 export type Op3 = "memory.spaces.create";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ * @generated
+ */
+export type IdempotencyKey3 = string;
 export type Status4 = "failed";
 /**
  * Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2).
@@ -630,6 +635,10 @@ export interface AllOf2 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf3 {
+  idempotency_key: IdempotencyKey3;
+  [k: string]: unknown | undefined;
+}
+export interface AllOf4 {
   status: Status4;
   [k: string]: unknown | undefined;
 }

@@ -36,7 +36,7 @@ If a page contradicts `schemas/`, the schema wins.
 - [Protocol](https://spoke.42ch.dev/reference/protocol): Schema inventory, capability flags, extensions and modules contract.
 - [Data model](https://spoke.42ch.dev/reference/data-model): Field tables for KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, HostCapabilityManifest, Rule, TimelineEvent, cognition records, ownership governance.
 - [MindState](https://spoke.42ch.dev/reference/mind-state): Derivative L5 mental-state record and its deltas.
-- [Memory](https://spoke.42ch.dev/reference/memory): 33 `memory.*` ops, 13 data models, grants, receipts, digests.
+- [Memory](https://spoke.42ch.dev/reference/memory): 34 `memory.*` ops, 13 data models, grants, receipts, digests.
 - [Ops wire](https://spoke.42ch.dev/reference/ops): Scope, upsert, promote, relate, check, assemble, project, compute, extract envelopes.
 - [Connect](https://spoke.42ch.dev/reference/connect): Six envelopes, identity, signatures, ordering, dispatch gate, RemoteAdapter and bindings.
 - [History](https://spoke.42ch.dev/reference/history): `spoke-history` exact-revision replay and checkpoint pruning.

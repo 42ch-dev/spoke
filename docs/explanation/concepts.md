@@ -33,9 +33,9 @@ A product claims compliance at a declared capability level. **`spoke-baseline`**
 - **`narrative-modules`** — the optional `modules` bag for cross-product functional dialects.
 - **`ke-extraction`** — the optional `extract` op: referenced source material in, provisional KnowledgeEntry candidates out.
 - **`ke-ownership`** — ownership and disclosure on the KnowledgeEntry envelope, with the `Scope.viewpoint` reader selector.
-- **`spoke-knowledge`** — the three connect knowledge port ops (`port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries`) behind a standalone `ScopedKnowledgePort` and per-peer scope admission, declared explicitly in `negotiated_capabilities` — see the [Connect reference](/reference/connect).
+- **`spoke-knowledge`** — the three connect knowledge port ops (`port.knowledge.get`, `port.knowledge.put`, `port.scope.list_knowledge_entries`) behind a standalone `ScopedKnowledgePort` and per-peer scope admission, declared explicitly in `negotiated_capabilities`. `spoke-knowledge-scoped` is the companion marker for a request that names its own scope on knowledge get/put — the peer sends it only when both sides declared the marker, and a responder refuses rather than serving the wrong scope — see the [Connect reference](/reference/connect).
 - **`spoke-connect`** — the opt-in cross-process interaction envelope family.
-- **`spoke-memory`** — per-subject memory: thirteen models and 33 `memory.*` ops behind the standalone `MemoryPort`, with optional `spoke-memory-reflection` and `spoke-memory-transfer` sub-flags — see the [Memory reference](/reference/memory).
+- **`spoke-memory`** — per-subject memory: thirteen models and 34 `memory.*` ops behind the standalone `MemoryPort`, with optional `spoke-memory-reflection` and `spoke-memory-transfer` sub-flags — see the [Memory reference](/reference/memory).
 
 The connect family's session lifecycle, envelope authentication, and capability routing are explained in [Connect architecture](/explanation/connect).
 

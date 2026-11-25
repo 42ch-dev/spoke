@@ -6,7 +6,7 @@ title: 记忆（Memory）
 
 以线上族（wire family）形式提供的按主体长期记忆：空间、主体、授权、捕获、候选审核、保留记录、召回、作者画像、反思，以及带版本的导出/导入。记忆是**主观的** —— 主机为某一主体捕获的印象 —— 它作为独立的族与既定的 KnowledgeEntry 数据并列存在。每个持久记忆对象的必填字段：`schema_version`、`extensions`。
 
-该族是可选能力。主机通过在 `HostCapabilityManifest.capabilities` 中声明 `spoke-memory` 来认领它，线上契约即下面十三个模型加 33 个 `memory.*` 操作。
+该族是可选能力。主机通过在 `HostCapabilityManifest.capabilities` 中声明 `spoke-memory` 来认领它，线上契约即下面十三个模型加 34 个 `memory.*` 操作。
 
 ## 该族承载什么
 
@@ -27,7 +27,7 @@ title: 记忆（Memory）
 
 | 标志 | 门控 | 操作 |
 |------|------|------|
-| `spoke-memory` | 族核心 | 25 个核心 `memory.*` 操作 |
+| `spoke-memory` | 族核心 | 26 个核心 `memory.*` 操作 |
 | `spoke-memory-reflection` | 反思生成、状态、列举 | `memory.reflections.state`、`.list`、`.generate` |
 | `spoke-memory-transfer` | 导出/导入 | `memory.exports.create`、`.get`，`memory.imports.stage`、`.activate`、`.discard` |
 
@@ -38,6 +38,7 @@ title: 记忆（Memory）
 | 操作 | 意图 |
 |------|------|
 | `memory.describe` | 提供方自描述：协议版本、实际提供的能力标志、限额、必需画像种类、引擎策略版本 |
+| `memory.spaces.create` | 以调用方命名的 id 创建空间（一个 Mind）；返回 `created`，并在同一事务写入创建方的默认授权 |
 | `memory.spaces.list` | 调用方可见的空间，含 `pending_receipts`（排水屏障读取） |
 | `memory.spaces.freeze` | 为维护或迁移冻结空间 |
 | `memory.spaces.unfreeze` | 重新打开已冻结空间 |
@@ -114,13 +115,14 @@ import type { Principal } from "@42ch/spoke-schemas";
 const port: MemoryPort = {
   describe(principal: Principal, request: MemoryDescribeRequest) { /* … */ },
   capture(principal: Principal, request: MemoryCaptureRequest) { /* … */ },
-  // … 33 个类型化方法，每个对应一个 memory.* 操作
+  // … 34 个类型化方法，每个对应一个 memory.* 操作
 };
 ```
 
 - **可用性探测。** `MemoryPorts.asMemory()`（TS）/ `MemoryPorts::as_memory()`（Rust）报告 adapter 是否提供该族。`MemoryPort` 与基线 port 族并列，是独立的可选接口：提供记忆的产品实现它，其余产品保持该探测为空实现。
+- **空间创建。** `memory.spaces.create` 在一个事务中写入空间行与创建方的默认授权行 —— `recall`、`capture`、`review`、`records_write`、`knowledge_read`、`knowledge_write`、`admin`，空间范围、放置不受限、无到期 —— 且仅在创建时接受可选的 `display_name`。重复创建返回 `created: false` 与当前状态和修订号，且不写入任何内容；调用方不管理的既有空间返回 `NOT_AUTHORIZED`，不透露是否存在；冻结空间返回 `SPACE_FROZEN`。未以此方式创建的空间仍走运维预置路径。
 - **提供方职责留在提供方。** 授权与非放大校验、`revision` CAS、以 `(space_id, principal, op, idempotency_key)` 为键的持久幂等、回执与去重墓碑、空间冻结与主体/上下文围栏、候选审核原子性，全部位于提供方自己的事务层。
-- **通过 connect 提供服务。** 服务侧主机暴露 connect 自有的 `RemoteMemoryService` 接缝；`MemoryPortService` 在提供方 `MemoryPort` 之上实现它，并带一个把已认证 peer 映射为 `Principal` 的准入口径。一个可调用点服务整个族，33 个类型化操作构成解码面。
+- **通过 connect 提供服务。** 服务侧主机暴露 connect 自有的 `RemoteMemoryService` 接缝；`MemoryPortService` 在提供方 `MemoryPort` 之上实现它，并带一个把已认证 peer 映射为 `Principal` 的准入口径。一个可调用点服务整个族，34 个类型化操作构成解码面。
 - **算法策略可分离。** `fixtures/memory-engine/rust` 处的 `spoke-fixture-memory-engine` Rust crate 是仓库内未发布的 fixture，承载确定性的无 I/O 策略（候选分类、召回排序与预算、反思组装与陈旧性判定、传输分块/摘要/映射）。产品不依赖它：提供方直接实现 `MemoryPort`，可以运行该 fixture 引擎的策略、自有策略或完全不运行，仍保持线上兼容。
 - **画像是作者的，记录是捕获的。** 画像内容为受信作者材料，其本身不授予任何授权；记录与候选内容是不受信数据。只有当提供方声明的 `required_profile_kinds` 齐备时才允许生成反思，缺失非必需种类则返回诚实空结果。
 

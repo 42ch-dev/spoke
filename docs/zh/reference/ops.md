@@ -19,7 +19,7 @@ title: 操作线上参考（Ops wire）
 | `check` | `CheckRequest` | `CheckResponse` | 在一个 `Scope` 上运行检查器；返回 `Finding[]`（规则经 `rule_refs` 和/或内嵌 `rules[]`） |
 | `assemble` | `AssembleRequest` | `AssembleResponse` | 为 `Scope` 返回 `AssemblePacket`（仅结构） |
 
-每个操作都有配对的请求与响应 schema。可选族各自增加配对：`l2-computable` 下的 `project` / `compute`、`ke-extraction` 下的 `extract`，以及 33 个操作的 `spoke-memory` 族。
+每个操作都有配对的请求与响应 schema。可选族各自增加配对：`l2-computable` 下的 `project` / `compute`、`ke-extraction` 下的 `extract`，以及 34 个操作的 `spoke-memory` 族。
 
 ## 单一失败方言
 
@@ -166,11 +166,11 @@ title: 操作线上参考（Ops wire）
 
 ## 可选族（`spoke-memory`）
 
-面向按主体记忆的 33 个操作，分属三个能力标志。每个操作都有配对的请求/响应 schema，命名为 `memory-<segments>-{request,response}.schema.json` —— `memory.records.promote` 对应 `memory-records-promote-request.schema.json` / `memory-records-promote-response.schema.json`。
+面向按主体记忆的 34 个操作，分属三个能力标志。每个操作都有配对的请求/响应 schema，命名为 `memory-<segments>-{request,response}.schema.json` —— `memory.records.promote` 对应 `memory-records-promote-request.schema.json` / `memory-records-promote-response.schema.json`。
 
 | 能力 | 操作 |
 |------|------|
-| `spoke-memory` | 25 个核心操作：`memory.describe`、`memory.spaces.list` / `.freeze` / `.unfreeze`、`memory.subjects.ensure` / `.get` / `.fence`、`memory.grants.list` / `.grant` / `.revoke`、`memory.capture`、`memory.candidates.list` / `.get` / `.dismiss` / `.review`、`memory.records.create` / `.get` / `.update` / `.delete` / `.list` / `.promote`、`memory.recall`、`memory.profile.get` / `.update`、`memory.receipts.get` |
+| `spoke-memory` | 26 个核心操作：`memory.describe`、`memory.spaces.create` / `.list` / `.freeze` / `.unfreeze`、`memory.subjects.ensure` / `.get` / `.fence`、`memory.grants.list` / `.grant` / `.revoke`、`memory.capture`、`memory.candidates.list` / `.get` / `.dismiss` / `.review`、`memory.records.create` / `.get` / `.update` / `.delete` / `.list` / `.promote`、`memory.recall`、`memory.profile.get` / `.update`、`memory.receipts.get` |
 | `spoke-memory-reflection` | `memory.reflections.state`、`.list`、`.generate` |
 | `spoke-memory-transfer` | `memory.exports.create`、`.get`，`memory.imports.stage`、`.activate`、`.discard` |
 
@@ -189,4 +189,4 @@ title: 操作线上参考（Ops wire）
 - [数据模型参考](/zh/reference/data-model) —— 这些信封携带的对象。
 - [认知记录](/zh/reference/data-model#cognition-spoke-cognition) —— 记录形状、`q`、封闭过滤语法与投影。
 - [connect 参考](/zh/reference/connect) —— ops 信封作为不透明 invoke 载荷被包装。
-- [记忆参考](/zh/reference/memory) —— 可选 `spoke-memory` 族的 33 个操作、能力划分与提供方指引。
+- [记忆参考](/zh/reference/memory) —— 可选 `spoke-memory` 族的 34 个操作、能力划分与提供方指引。

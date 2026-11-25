@@ -10,7 +10,7 @@
 
 ## Scope
 
-This page specifies the optional `spoke-memory` capability family: per-subject long-term memory covering spaces, subjects, capture, candidate review, retained records, recall, authored profiles, reflections, grants, write fencing and versioned export/import, together with the single `MemoryPort` replacement boundary and the reusable algorithm engine. It fixes the wire shapes, the 33-operation contract, errors, lifecycle semantics and transfer rules. It does not define physical storage, provider identity provisioning, transport beyond the mapping onto the existing Connect envelope, distributed or offline multi-master behavior, or mandated ranking and reflection algorithms (those are engine-versioned).
+This page specifies the optional `spoke-memory` capability family: per-subject long-term memory covering spaces, subjects, capture, candidate review, retained records, recall, authored profiles, reflections, grants, write fencing and versioned export/import, together with the single `MemoryPort` replacement boundary and the reusable algorithm engine. It fixes the wire shapes, the 34-operation contract, errors, lifecycle semantics and transfer rules. It does not define physical storage, provider identity provisioning, transport beyond the mapping onto the existing Connect envelope, distributed or offline multi-master behavior, or mandated ranking and reflection algorithms (those are engine-versioned).
 
 ## Current state
 
@@ -63,7 +63,6 @@ The key words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** in this document a
 - Distributed exactly-once delivery, cross-provider or cross-space atomic transactions, CRDT, offline multi-master replication, federated recall, and silent local fallback. One `MemorySpace` has exactly one authoritative provider (`MEM-R001`).
 - Transport definition beyond mapping onto the existing Connect envelope (§13). No HTTP routes, headers, or methods appear in this family.
 - Mandated identical ranking, summarization, or reflection algorithms across providers (§9, §17). Algorithm policy is engine-versioned, not protocol-versioned.
-- A space-creation or provider-bootstrap op: spaces and initial administrator grants are provider-operator provisioned out of band (§7.0.6).
 - A product identity model: `Subject` is a stable opaque ID with optional namespaced `kind` metadata; equal subject IDs across systems never auto-link identities (`MEM-R002`).
 - Changes to `BaselinePorts`, the six baseline port families, the core op table (`upsert` / `promote` / `relate` / `check` / `assemble` / `project` / `compute` / `extract`), or the `port.*` catalogue, except the additive extension points in §13.
 - Storage shape. Physical storage of records, profiles, reflections, and staged imports is provider-owned; the protocol prescribes wire shapes only.
@@ -184,7 +183,7 @@ Schema: [`memory-space.schema.json`](../../../schemas/data/memory-space.schema.j
 | Field | Type | Null/Omission | Semantics |
 |-------|------|---------------|-----------|
 | `schema_version` | int | — | |
-| `space_id` | string | — | Provider-assigned at operator provisioning. |
+| `space_id` | string | — | Caller-named on `memory.spaces.create` (§7.34); operator-assigned when a space is provisioned out of band. |
 | `display_name` | string | optional | Human label; absence = unnamed. |
 | `authority_host_id` | string | — | `host_id` of the single authoritative provider (`MEM-R001`). |
 | `authority_generation` | int ≥ 1 | — | Increments on each cutover (import activation into the space) and on each operator re-open after rollback. Client bindings pin `(authority_host_id, authority_generation)` (§12.5). |
@@ -419,11 +418,12 @@ Reassembly concatenates the slices in ordinal order and field order; verificatio
 
 ### 7. Operations
 
-The family defines 33 ops: 25 core (`spoke-memory`), 3 reflection (`spoke-memory-reflection`), and 5 transfer (`spoke-memory-transfer`). Each op has a committed request and response schema pair under `schemas/ops/`, named `memory-<segments>-{request,response}.schema.json` (dots in the op name become dashes).
+The family defines 34 ops: 26 core (`spoke-memory`), 3 reflection (`spoke-memory-reflection`), and 5 transfer (`spoke-memory-transfer`). Each op has a committed request and response schema pair under `schemas/ops/`, named `memory-<segments>-{request,response}.schema.json` (dots in the op name become dashes).
 
 | Op | Capability | Required grant | Schema stem | Mutates | `idempotency_key` |
 |----|-----------|----------------|-------------|---------|-------------------|
 | `memory.describe` | `spoke-memory` | none (authenticated principal) | `memory-describe` | no | — |
+| `memory.spaces.create` | `spoke-memory` | none for an absent space; `admin` on an existing space | `memory-spaces-create` | yes (no-op on a repeat) | required |
 | `memory.spaces.list` | `spoke-memory` | any valid grant in the space, or provider-configured visibility | `memory-spaces-list` | no | — |
 | `memory.spaces.freeze` | `spoke-memory` | `admin` | `memory-spaces-freeze` | yes | required |
 | `memory.spaces.unfreeze` | `spoke-memory` | `admin` | `memory-spaces-unfreeze` | yes | required |
@@ -472,7 +472,7 @@ The family defines 33 ops: 25 core (`spoke-memory`), 3 reflection (`spoke-memory
 
 **7.0.5 Idempotency and replay (`MEM-R008` / `MEM-R021`).** Every mutating op except `memory.subjects.ensure` REQUIRES `idempotency_key` (absent → `INVALID_INPUT`). `memory.subjects.ensure` is the sole exception: get-or-create is naturally idempotent and its outcome is recoverable through `memory.subjects.get`. The dedup namespace is `(space_id, requester_principal_id, op, idempotency_key)`; reconnects and retries share the authenticated principal, so logical identity is stable across connections. Replay (same namespace + same `payload_digest`) returns the stored receipt without re-executing and without re-evaluating the original CAS/fence preconditions. Replay with the same key and a different digest fails `IDEMPOTENCY_CONFLICT`. Replay against an evicted receipt fails `RECEIPT_EXPIRED`, never a silent re-execution.
 
-**7.0.6 Bootstrap.** Spaces and the initial administrator grants are created by provider-operator provisioning (host-local configuration), not by any protocol op. There is no uncallable grant cycle: the operator assigns the first `admin` grant directly in provider storage; all further grants flow through `memory.grants.grant` under the §6.5 non-amplification rule. Clients discover provisioned spaces through `memory.describe` / `memory.spaces.list`.
+**7.0.6 Bootstrap.** `memory.spaces.create` (§7.34) creates a space through the protocol. Its first create writes the space row and the creating principal's default grant row in one transaction — a provider that binds a space to its knowledge collection and cognition carrier writes those bindings in the same transaction — and establishes no subject. The default grant is space-wide with unrestricted placement, never expires, and carries `recall`, `capture`, `review`, `records_write`, `knowledge_read`, `knowledge_write` and `admin`. Provider-operator provisioning (host-local configuration) remains valid for spaces not created this way, and every grant beyond that first row flows through `memory.grants.grant` under the §6.5 non-amplification rule. Clients discover spaces through `memory.describe` / `memory.spaces.list`.
 
 **7.0.7 Pagination.** List and recall ops accept `cursor` + `limit` (≤ `max_page_size`) and return `next_cursor` (absent = end). Cursors bind principal + space + subject + selection/filter + canonical cognition filter + snapshot marker + `engine_policy_version`; any state or grant change invalidates them with `CURSOR_INVALID`, so pages never silently re-filter mid-pagination (`MEM-R026`).
 
@@ -760,6 +760,16 @@ Capability `spoke-memory-transfer`. **Grant:** `transfer` + `admin`.
 - Explicit pre-activation rollback: removes all staged data. Valid only before activation; after activation it fails `IMPORT_CONFLICT` — post-activation rollback is §12.4, never compensating-only deletion.
 - Errors: `IMPORT_CONFLICT`, `NOT_FOUND`, `NOT_AUTHORIZED`.
 
+#### 7.34 `memory.spaces.create`
+
+Create a space (a Mind). **Grant:** none for an absent space — any authenticated principal the provider's admission maps; `admin` on an existing space.
+
+- Request: `{ "space_id", "display_name"?, "idempotency_key" }`. `space_id` is caller-named, non-empty, and the first component of the dedup namespace (§7.0.5). `display_name` is optional and set only on creation; a repeat create never changes it, and it is the only space metadata the op accepts.
+- Result: `{ "space_id", "status", "created", "revision" }`. On creation: `status: "active"`, `created: true`, `revision: 1`. On a repeat create under a fresh key: `created: false` with the space's current status and revision, and no space, grant or revision write — the repeat still records its own receipt. A frozen space refuses `SPACE_FROZEN` before this branch.
+- One transaction: the space row, the creator's default grant row (§7.0.6) and any provider bindings land together, or none do. The response carries no grant row, subject or `display_name`, and the op establishes no subject.
+- Refusal order, first refusal wins: request shape (§7.0.1, including a non-empty `space_id` and the key) → idempotent replay (§7.0.5, checked before the grant and freeze steps, so a replay after a later freeze still answers the original receipt) → `admin` when the space exists → freeze. An existing space the caller does not administer — another principal's space, or a member without `admin` — answers `NOT_AUTHORIZED` with no existence detail, so the op is never an existence oracle; a frozen space answers `SPACE_FROZEN` even for its admin, because creating is not a §8.2 maintenance op.
+- Errors: `INVALID_INPUT`, `NOT_AUTHORIZED`, `SPACE_FROZEN`, `IDEMPOTENCY_CONFLICT`, `RECEIPT_EXPIRED`.
+
 ### 8. Lifecycle and state transitions
 
 #### 8.1 Candidate FSM
@@ -768,7 +778,7 @@ Capability `spoke-memory-transfer`. **Grant:** `transfer` + `admin`.
 
 #### 8.2 Space FSM and freeze maintenance allowlist
 
-`active ⇄ frozen` through `memory.spaces.freeze` / `memory.spaces.unfreeze`. While `frozen`, the space admits **exactly**: all read-only ops (`MEM-R011` list), `memory.spaces.unfreeze`, `memory.grants.revoke`, and the transfer ops `memory.exports.create`, `memory.exports.get`, `memory.imports.stage`, `memory.imports.activate`, `memory.imports.discard`. One no-op sits beside the allowlist: `memory.spaces.freeze` against an already-frozen space with the current `expected_revision` is a genuine no-op success (§7.0.4, §7.3) — it is admitted, answers success without incrementing `revision`, and never carries the `SPACE_FROZEN` verdict; same-key replay semantics (§7.0.5) are unchanged. All other mutations fail `SPACE_FROZEN`. Already-admitted ops complete (`MEM-R018`); the drain barrier is `pending_receipts == 0`, observable through `memory.spaces.list` (`MEM-R023`). Freeze is durable across provider restart.
+`active ⇄ frozen` through `memory.spaces.freeze` / `memory.spaces.unfreeze`. While `frozen`, the space admits **exactly**: all read-only ops (`MEM-R011` list), `memory.spaces.unfreeze`, `memory.grants.revoke`, and the transfer ops `memory.exports.create`, `memory.exports.get`, `memory.imports.stage`, `memory.imports.activate`, `memory.imports.discard`. `memory.spaces.create` against an existing space is not on the allowlist either: a frozen space answers `SPACE_FROZEN` even to its admin (§7.34). One no-op sits beside the allowlist: `memory.spaces.freeze` against an already-frozen space with the current `expected_revision` is a genuine no-op success (§7.0.4, §7.3) — it is admitted, answers success without incrementing `revision`, and never carries the `SPACE_FROZEN` verdict; same-key replay semantics (§7.0.5) are unchanged. All other mutations fail `SPACE_FROZEN`. Already-admitted ops complete (`MEM-R018`); the drain barrier is `pending_receipts == 0`, observable through `memory.spaces.list` (`MEM-R023`). Freeze is durable across provider restart.
 
 #### 8.3 Subject and context fence FSM
 
@@ -850,7 +860,7 @@ Cutover is an operator-coordinated procedure, not a local configuration edit: al
 - **Oversized single element (§6.13 exception).** An element larger than `export_chunk_bytes` occupies its own chunk; that chunk's `bytes` — and therefore the serialized chunk — exceeds the limit, and the element is never split or dropped.
 - The Connect invoke envelope wrapping any payload (op string, correlation identity, and other envelope fields) is outside every limit above, and transfer correctness does not depend on an envelope size ceiling: each chunk digest and the reassembled `bundle_digest` are verified on receipt (§6.13, `fixtures/memory-engine/rust/src/transfer.rs`).
 - **Dispatch gate:** every `memory.*` op has a `required_capability` row mapping it to `spoke-memory` or the sub-flag per §4.1 (`crates/spoke-connect/src/core/dispatch.rs`, mirrored in the TypeScript dispatch tests). Unknown ops keep failing closed with `op_unsupported`; unnegotiated memory ops fail `capability_missing` before any handler runs, with zero side effects.
-- **Serving seam:** `RemoteMemoryService` in `crates/spoke-connect/src/remote/serve_ports.rs`; `MemoryPortService` adapts a provider `MemoryPort` to it, mapping the authenticated connect peer to a `Principal` through an admission context (`MemoryAdmission`). One callable serves every `memory.*` op — the typed per-op contract already lives on `MemoryPort`, so no second 33-method serving trait exists.
+- **Serving seam:** `RemoteMemoryService` in `crates/spoke-connect/src/remote/serve_ports.rs`; `MemoryPortService` adapts a provider `MemoryPort` to it, mapping the authenticated connect peer to a `Principal` through an admission context (`MemoryAdmission`). One callable serves every `memory.*` op — the typed per-op contract already lives on `MemoryPort`, so no second 34-method serving trait exists.
 - **Client seam:** remote adapters map each `MemoryPort` method to its `memory.*` op — Rust `crates/spoke-connect/src/remote/remote_adapter.rs`, TypeScript `packages/spoke-connect-ts/src/remote/remote-adapter.ts` (method → op table exported for parity tests).
 - **Chunk header carrier:** a chunked transfer transmits the logical bundle's `extensions` through `MemoryExportChunk.header.extensions` on `chunk_ordinal = 0` (§6.13); reassembly writes it back before digest verification, so a valid bundle round-trips losslessly.
 - **Fallback prohibition (`MEM-R019`):** absent the negotiated capability, there is no emulation path through baseline objects — including `KnowledgeEntry`, `modules.*`, `Scope.viewpoint`, or `port.*`. `Scope.viewpoint` / `ke-ownership` semantics are never consulted for memory ops (`MEM-R020`).
@@ -972,7 +982,7 @@ Personality = basis + experiences + synthesis. No layer is authority for another
 
 ### 17. Conformance anchors
 
-Conformance scenarios cite at least one `MEM-R###` anchor from §5 or the precise §6/§7 contract they exercise (section-level citations name the exact op or model section). Identical-outcome expectations apply to: admission/authorization results (including `shared_access` and `subject_all` coverage), CAS conflicts, idempotent replays and dedup-tombstone behavior, candidate consumption atomicity and placement inheritance, fencing rejections (space, subject, context), freeze allowlist and drain barrier, cursor invalidation, export digest verification, staged-report contents, profile admission three-state distinguishability, profile-update ⇒ reflection-stale, and grant non-amplification.
+Conformance scenarios cite at least one `MEM-R###` anchor from §5 or the precise §6/§7 contract they exercise (section-level citations name the exact op or model section). Identical-outcome expectations apply to: admission/authorization results (including `shared_access` and `subject_all` coverage), space create and its repeat and replay outcomes (the `created` flag, receipt stability across a later freeze, and no existence detail for another principal's space or a non-admin member), CAS conflicts, idempotent replays and dedup-tombstone behavior, candidate consumption atomicity and placement inheritance, fencing rejections (space, subject, context), freeze allowlist and drain barrier, cursor invalidation, export digest verification, staged-report contents, profile admission three-state distinguishability, profile-update ⇒ reflection-stale, and grant non-amplification.
 
 Algorithm-variable expectations apply to: candidate classification dispositions, recall ranking order, reflection body text, and any provider scoring signal. Two conforming providers MAY disagree on those and still be conformant under equal `memory_protocol_version`.
 
@@ -985,8 +995,8 @@ This section states what this repository contains today for the family. Normativ
 #### 18.1 Wire and schemas
 
 - **13 data schemas:** `schemas/data/` — `memory-space`, `subject`, `principal`, `memory-grant`, `retained-record`, `memory-candidate`, `profile-document`, `reflection`, `memory-receipt`, `read-selection`, `provenance-filter`, `memory-export-bundle`, `memory-export-chunk`.
-- **66 op schemas:** 33 request + 33 response pairs named `memory-<segments>-{request,response}.schema.json` under `schemas/ops/`.
-- **79 family schema files**, counted by `EXPECTED_SCHEMA_COUNT` in [`tooling/codegen/assert-schema-count.mjs`](../../../tooling/codegen/assert-schema-count.mjs) alongside the rest of the inventory (123 committed `*.schema.json` files in total). [`schemas/README.md`](../../../schemas/README.md) lists the family.
+- **68 op schemas:** 34 request + 34 response pairs named `memory-<segments>-{request,response}.schema.json` under `schemas/ops/`.
+- **81 family schema files**, counted by `EXPECTED_SCHEMA_COUNT` in [`tooling/codegen/assert-schema-count.mjs`](../../../tooling/codegen/assert-schema-count.mjs) alongside the rest of the inventory (125 committed `*.schema.json` files in total). [`schemas/README.md`](../../../schemas/README.md) lists the family.
 - **Generated packages:** TypeScript `packages/spoke-schemas/src/generated/{data,ops}/` and Rust `crates/spoke-schemas/src/generated/{data,ops}/`; drift fails `pnpm run verify-codegen`.
 
 #### 18.2 Operations library
@@ -1001,7 +1011,7 @@ This section states what this repository contains today for the family. Normativ
 
 #### 18.4 Connect surface
 
-- Dispatch rows for all 33 ops under the three flags (`crates/spoke-connect/src/core/dispatch.rs`), with TypeScript parity (`packages/spoke-connect-ts/tests/dispatch.test.ts`).
+- Dispatch rows for all 34 ops under the three flags (`crates/spoke-connect/src/core/dispatch.rs`), with TypeScript parity (`packages/spoke-connect-ts/tests/dispatch.test.ts`).
 - `RemoteMemoryService` + `MemoryPortService` + `MemoryAdmission` (`crates/spoke-connect/src/remote/serve_ports.rs`), optionally composed through `RemoteServePortsComposite::with_memory`.
 - Client method → op mapping in the Rust remote adapter and `packages/spoke-connect-ts/src/remote/remote-adapter.ts`; deny classifications and uncertain-timeout semantics follow §14.
 
@@ -1044,7 +1054,7 @@ Author Memory is standardized as the optional `spoke-memory` capability family d
 ## Where it lives
 
 - Wire data: the thirteen `schemas/data/memory-*.schema.json` files — `memory-space`, `subject`, `principal`, `memory-grant`, `retained-record`, `memory-candidate`, `profile-document`, `reflection`, `memory-receipt`, `read-selection`, `provenance-filter`, `memory-export-bundle`, `memory-export-chunk`.
-- Operation wire: 66 files under `schemas/ops/` named `memory-<segments>-{request,response}.schema.json` (33 pairs).
+- Operation wire: 68 files under `schemas/ops/` named `memory-<segments>-{request,response}.schema.json` (34 pairs).
 - Generated packages: `packages/spoke-schemas/src/generated/{data,ops}/`, `crates/spoke-schemas/src/generated/{data,ops}/`; inventory gate `tooling/codegen/assert-schema-count.mjs`, run via `pnpm run verify-codegen`.
 - Port and purity boundary: `MemoryPort` in `packages/spoke-operations/src/adapter/ports.ts` and `crates/spoke-operations/src/adapter/ports.rs`; helpers in `packages/spoke-operations/src/memory/{validate,grants,digests}.ts` and `crates/spoke-operations/src/memory/{validate,grants,digests}.rs`.
 - Algorithm engine: `fixtures/memory-engine/rust/src/{lib,classify,recall,reflect,transfer}.rs` (unpublished fixture crate `spoke-fixture-memory-engine`, `ENGINE_POLICY_VERSION`).

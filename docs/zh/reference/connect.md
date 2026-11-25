@@ -176,6 +176,7 @@ RemoteAdapter（TypeScript `./remote` 子路径、Rust `remote-adapter` feature�
 | `project`、`compute`（以及 `port.computable.*`） | `l2-computable` |
 | `listForkTimelineEvents`（以及 `port.fork.*`） | `l5-fork` |
 | 携带非空 `scope.viewpoint` 的 `port.scope.list_knowledge_entries`、`port.scope.list_timeline_events`、`port.fork.list_timeline_events` | 该行能力**外加** `ke-ownership` |
+| 声明 `scope` 的 `port.knowledge.get`、`port.knowledge.put` | 该行能力**外加** `spoke-knowledge-scoped` |
 | 产品自定义操作 | 产品文档化的能力 |
 
 `assemble` 被 capability gate 分类为 `spoke-baseline`，但响应方没有 `assemble` 服务分支。组装由本地 `orchestrateAssemble` 执行；基线分类用于能力检查，不代表远程 op 服务。
@@ -188,8 +189,8 @@ RemoteAdapter 把每个 `BaselinePorts` 方法代理为一个 connect invoke，�
 
 | 方法 | `op` | 请求 `payload` | 成功 `payload` |
 |------|------|----------------|----------------|
-| `getKnowledgeEntry` | `port.knowledge.get` | `{ "entry_id": string }` | `KnowledgeEntry` |
-| `putKnowledgeEntry` | `port.knowledge.put` | `{ "entry": KnowledgeEntry, "expected_base_revision": number \| null }` | `KnowledgeEntry` |
+| `getKnowledgeEntry` | `port.knowledge.get` | `{ "entry_id": string, "scope"?: Scope }` | `KnowledgeEntry` |
+| `putKnowledgeEntry` | `port.knowledge.put` | `{ "entry": KnowledgeEntry, "expected_base_revision": number \| null, "scope"?: Scope }` | `KnowledgeEntry` |
 | `getRelation` | `port.relation.get` | `{ "relation_id": string }` | `Relation` |
 | `putRelation` | `port.relation.put` | `{ "relation": Relation, "expected_base_revision": number \| null }` | `Relation` |
 | `listKnowledgeEntries` | `port.scope.list_knowledge_entries` | `{ "scope": Scope }` | `KnowledgeEntry[]` |
@@ -252,7 +253,15 @@ Provider 面是 operations crate 的契约（`@42ch/spoke-operations`）；组�
 
 `RemoteKnowledgeFace` 由 `ScopedKnowledgePort` 存储与 `admission(peerId)`（Rust：`KnowledgeAdmission`）组成。响应方依次检查分派能力、Scope 归属/认知要求与声明，解码请求，探测知识面，然后准入已认证对等节点。准入拒绝与列表作用域不匹配返回 `NOT_AUTHORIZED`，且不透露条目是否存在。
 
-知识列表时，请求的 `scope_id` 与 `viewpoint` 等于准入值。请求的 `entry_ids` 与 `timeline_event_ids` 会与对应准入集合求交集，交集传给存储；交集为空时不返回结果。这些 id 过滤器绝不会扩大准入范围，也不会因 id 不在准入集合中而拒绝。请求的 `entry_types` 可以是准入集合的子集；标量约束（`source_id`、`timeline_scale`、`fork_id`）存在时必须等于准入值。只有这些约束中出现准入集合外的值时，才在访问存储前拒绝 `NOT_AUTHORIZED`。知识 get 与 put 直接接收准入的 Scope。提供这些操作的基线主机必须显式声明 `spoke-knowledge` 并挂载知识面；仅知识主机只声明其实际服务的能力，并只挂载该面。
+知识列表时，请求的 `scope_id` 与 `viewpoint` 等于准入值。请求的 `entry_ids` 与 `timeline_event_ids` 会与对应准入集合求交集，交集传给存储；交集为空时不返回结果。这些 id 过滤器绝不会扩大准入范围，也不会因 id 不在准入集合中而拒绝。请求的 `entry_types` 可以是准入集合的子集；标量约束（`source_id`、`timeline_scale`、`fork_id`）存在时必须等于准入值。只有这些约束中出现准入集合外的值时，才在访问存储前拒绝 `NOT_AUTHORIZED`。知识 get 与 put 在请求未声明作用域时直接使用准入的 Scope：可选的 `scope` 成员必须等于准入作用域，因此对等节点无法通过已准入的知识面读写另一个 Mind 的集合。提供这些操作的基线主机必须显式声明 `spoke-knowledge` 并挂载知识面；仅知识主机只声明其实际服务的能力，并只挂载该面。
+
+#### 可选请求作用域（`spoke-knowledge-scoped`）
+
+`getKnowledgeEntry` 与 `putKnowledgeEntry` 接受可选的 `scope: Scope`，与查询操作使用同一载体。声明的作用域必须得到双方支持：主机声明 `spoke-knowledge-scoped`，会话的 `negotiated_capabilities` 必须包含它，而未协商该标志的对等节点在任何存储调用之前得到分派拒绝 `op_unsupported`。声明的作用域绝不会被静默丢弃 —— 响应方要么服务它，要么拒绝它。
+
+两个操作在声明作用域时的服务顺序：作用域形状（畸形，包括 JSON `null`，返回 `INVALID_INPUT`）→ 标志（未协商返回 `op_unsupported`）→ 带 `viewpoint` 作用域的 `ke-ownership` 合取 → 带认知选择时的 `spoke-cognition` 合取 → 载荷解码 → 知识面探测 → 以声明选择器为准的准入 → 声明值与准入值相等性校验（不相等返回 `NOT_AUTHORIZED`，消息 `knowledge scope not authorized`，不透露条目是否存在）→ 存储。省略 `scope` 的请求保持准入作用域与既有顺序。
+
+adapter 显式命名作用域：`getKnowledgeEntryInScope(entryId, scope?)` / `putKnowledgeEntryInScope(entry, expectedBaseRevision, scope?)`（Rust `get_knowledge_entry_in_scope` / `put_knowledge_entry_in_scope`）。仅在标志已协商时附带该成员，否则在本地以 `CAPABILITY_PORT_MISSING` 与 `details.wire_code = "op_unsupported"` 拒绝且不发送，因此任何一侧都无法静默地在错误的 Mind 上服务。
 
 ### 驱动（adapter）
 

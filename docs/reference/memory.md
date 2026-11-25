@@ -6,7 +6,7 @@ title: Memory
 
 Per-subject long-term memory as a wire family: spaces, subjects, grants, capture, candidate review, retained records, recall, author profiles, reflections, and versioned export/import. Memory is **subjective** — an impression the host captured for one subject — and it lives beside canonical KnowledgeEntry data as a separate family. Required on every durable memory object: `schema_version`, `extensions`.
 
-The family is optional. A host claims it by declaring `spoke-memory` in `HostCapabilityManifest.capabilities`, and the wire contract is the thirteen models plus 33 `memory.*` operations below.
+The family is optional. A host claims it by declaring `spoke-memory` in `HostCapabilityManifest.capabilities`, and the wire contract is the thirteen models plus 34 `memory.*` operations below.
 
 ## What the family carries
 
@@ -27,7 +27,7 @@ The family is optional. A host claims it by declaring `spoke-memory` in `HostCap
 
 | Flag | Gates | Ops |
 |------|-------|-----|
-| `spoke-memory` | Family core | 25 core `memory.*` ops |
+| `spoke-memory` | Family core | 26 core `memory.*` ops |
 | `spoke-memory-reflection` | Reflection generation, state, listing | `memory.reflections.state`, `.list`, `.generate` |
 | `spoke-memory-transfer` | Export/import | `memory.exports.create`, `.get`, `memory.imports.stage`, `.activate`, `.discard` |
 
@@ -38,6 +38,7 @@ A host declaring a sub-flag also declares `spoke-memory`; a host serving only `s
 | Op | Intent |
 |----|--------|
 | `memory.describe` | Provider self-description: protocol version, served flags, limits, required profile kinds, engine policy version |
+| `memory.spaces.create` | Create a space (a Mind) with a caller-named id; returns `created` and writes the creator's default grant in one transaction |
 | `memory.spaces.list` | Spaces visible to the caller, with `pending_receipts` (the drain-barrier read) |
 | `memory.spaces.freeze` | Freeze a space for maintenance or migration |
 | `memory.spaces.unfreeze` | Re-open a frozen space |
@@ -114,13 +115,14 @@ import type { Principal } from "@42ch/spoke-schemas";
 const port: MemoryPort = {
   describe(principal: Principal, request: MemoryDescribeRequest) { /* … */ },
   capture(principal: Principal, request: MemoryCaptureRequest) { /* … */ },
-  // … 33 typed methods, one per memory.* op
+  // … 34 typed methods, one per memory.* op
 };
 ```
 
 - **Availability probe.** `MemoryPorts.asMemory()` (TS) / `MemoryPorts::as_memory()` (Rust) reports whether an adapter serves the family. `MemoryPort` stands alongside the baseline port families as an independent optional interface: products that serve memory implement it, and all others leave the probe unimplemented.
+- **Space creation.** `memory.spaces.create` writes the space row and the creating principal's default grant row — `recall`, `capture`, `review`, `records_write`, `knowledge_read`, `knowledge_write`, `admin`, space-wide with unrestricted placement and no expiry — in one transaction, and accepts an optional `display_name` on creation only. A repeat create answers `created: false` with the current status and revision and writes nothing; an existing space the caller does not administer answers `NOT_AUTHORIZED` with no existence detail, and a frozen space answers `SPACE_FROZEN`. Operator provisioning remains the path for spaces not created this way.
 - **Provider duties stay in the provider.** Grants and non-amplification, `revision` CAS, durable idempotency keyed on `(space_id, principal, op, idempotency_key)`, receipts and dedup tombstones, space freeze and subject/context fencing, and atomic candidate review all live in the provider's own transaction layer.
-- **Serving over connect.** The serving host exposes the connect-owned `RemoteMemoryService` seam; `MemoryPortService` implements it over a provider `MemoryPort` plus an admission context that maps the authenticated peer to a `Principal`. One callable serves the whole family, with the 33 typed operations as the decode surface.
+- **Serving over connect.** The serving host exposes the connect-owned `RemoteMemoryService` seam; `MemoryPortService` implements it over a provider `MemoryPort` plus an admission context that maps the authenticated peer to a `Principal`. One callable serves the whole family, with the 34 typed operations as the decode surface.
 - **Algorithm policy is separable.** The `spoke-fixture-memory-engine` Rust crate at `fixtures/memory-engine/rust` is an unpublished in-repo fixture holding deterministic, I/O-free policy (candidate classification, recall ranking and budget, reflection assembly and staleness, transfer partitioning/digests/translation). Products do not depend on it: providers implement `MemoryPort` directly and may run this fixture engine's policy, their own policy, or none, and stay wire-compatible.
 - **Profiles are authored, records are captured.** Profile content is trusted author material and grants no authorization by itself; record and candidate content is untrusted data. Reflection generation is admitted only when the provider's `required_profile_kinds` are present, and an absent non-required kind is an honest-empty result.
 

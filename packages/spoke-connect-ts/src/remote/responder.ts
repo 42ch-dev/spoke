@@ -2382,15 +2382,18 @@ export class ConnectResponder {
     ) {
       return;
     }
-    // note: A2-D3 step 6 before step 7 — the knowledge payload decode runs
-    // before the face probe, so a malformed payload answers INVALID_INPUT even
-    // when no ports face is configured (the absent-ports branch is the probe).
-    if (KNOWLEDGE_OPS[doc.op]) {
-      const payloadReject = validateKnowledgeOpPayload(doc.op, payload);
-      if (payloadReject !== null) {
-        await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(payloadReject));
-        return;
-      }
+    // note: A2-D3 step 6 for a request that declares a scope — the knowledge
+    // payload decode runs before the face probe, so a malformed scoped payload
+    // answers INVALID_INPUT even when no ports face is configured. A payload
+    // without `scope` keeps the `0.18.1` order (probe first, then decode), so
+    // a port-less host still answers the legacy `op_unsupported`.
+    const declaresScope = isJsonObject(payload) && "scope" in payload;
+    const knowledgePayloadReject = KNOWLEDGE_OPS[doc.op]
+      ? validateKnowledgeOpPayload(doc.op, payload)
+      : null;
+    if (declaresScope && knowledgePayloadReject !== null) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(knowledgePayloadReject));
+      return;
     }
     const ports = this.#ports;
     if (ports === undefined) {
@@ -2408,8 +2411,6 @@ export class ConnectResponder {
     // → serve/deny); the admitted scope comes from the face's admission
     // callback keyed by the authenticated peer id, never from the wire.
     if (KNOWLEDGE_OPS[doc.op]) {
-      // note: B2 — the payload decode already ran before the face probe;
-      // admission and any store call still follow it.
       const face = ports.knowledge;
       if (face === undefined) {
         // note: B4 — an absent knowledge face is the dispatch-deny branch; the
@@ -2421,6 +2422,13 @@ export class ConnectResponder {
           message: `no knowledge face configured for port op ${doc.op}`,
           extensions: {},
         });
+        return;
+      }
+      // note: B2 — a payload without a declared `scope` keeps the `0.18.1`
+      // order: the face probe above ran before this decode, so a refusal never
+      // reaches admission or the store.
+      if (knowledgePayloadReject !== null) {
+        await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(knowledgePayloadReject));
         return;
       }
       // note: B3 — an empty authenticated peer id (session not established) refuses

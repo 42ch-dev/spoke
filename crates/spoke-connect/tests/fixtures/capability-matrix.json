@@ -356,10 +356,19 @@
       "expected": { "code": "INVALID_INPUT" }
     },
     {
-      "name": "get with a well-formed payload answers op_unsupported without any ports face",
+      "name": "get with a well-formed scoped payload answers op_unsupported without any ports face",
       "op": "port.knowledge.get",
       "ports": "absent",
-      "payload": { "entry_id": "ke-knowledge-a" },
+      "payload": { "entry_id": "ke-knowledge-a", "scope": { "scope_id": "scope_a" } },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "op_unsupported", "message_contains": "no ports face" }
+    },
+    {
+      "name": "get without a scope keeps the legacy op_unsupported without any ports face",
+      "op": "port.knowledge.get",
+      "ports": "absent",
+      "payload": { "entry_id": 42 },
       "negotiated": ["spoke-knowledge"],
       "admitted_scope": { "scope_id": "scope_a" },
       "expected": { "code": "op_unsupported", "message_contains": "no ports face" }

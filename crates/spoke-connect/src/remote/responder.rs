@@ -2520,7 +2520,7 @@ impl ConnectResponder {
         &self,
         doc: &Value,
         op: &str,
-        call: KnowledgeCall,
+        decoded: SpokeResult<KnowledgeCall>,
         declared_scope: Option<&Scope>,
         ports: &(dyn RemoteServePorts + Send + Sync),
     ) -> Result<Option<SpokeResult<Value>>, ResponderError> {
@@ -2546,6 +2546,21 @@ impl ConnectResponder {
                     return Ok(None);
                 }
             },
+        };
+        // A payload that declares no `scope` keeps the `0.18.1` order: the
+        // face probe above ran before its decode failure answers here.
+        let call = match decoded {
+            SpokeResult::Ok(call) => call,
+            SpokeResult::Reject(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+                return Ok(None);
+            }
         };
         let store = face.store();
         // The admitted scope derives from the authenticated session peer,
@@ -2809,14 +2824,15 @@ impl ConnectResponder {
             .await?;
             return Ok(());
         }
-        // A2-D3 step 6 before step 7: decode the knowledge payload before the
-        // face probe, so a malformed payload answers INVALID_INPUT even on a
-        // host with no ports face configured (the absent-ports branch is the
-        // probe).
-        let knowledge_call = if is_knowledge_op(op) {
-            match decode_knowledge_call(op, payload, declared_scope.as_ref()) {
-                SpokeResult::Ok(call) => Some(call),
-                SpokeResult::Reject(reject) => {
+        // A2-D3 step 6 for a request that declares a scope: decode before the
+        // face probe, so a malformed scoped payload answers INVALID_INPUT even
+        // on a host with no ports face configured. A payload WITHOUT `scope`
+        // keeps the `0.18.1` order — the probe first, then the decode — so a
+        // port-less host still answers the legacy `op_unsupported`.
+        let knowledge_decode = if is_knowledge_op(op) {
+            let decoded = decode_knowledge_call(op, payload, declared_scope.as_ref());
+            if payload.get("scope").is_some() {
+                if let SpokeResult::Reject(reject) = &decoded {
                     self.send_reverse_error_envelope(
                         doc,
                         reject.code.as_str(),
@@ -2827,6 +2843,7 @@ impl ConnectResponder {
                     return Ok(());
                 }
             }
+            Some(decoded)
         } else {
             None
         };
@@ -2846,9 +2863,9 @@ impl ConnectResponder {
                 return Ok(());
             }
         };
-        let result = if let Some(call) = knowledge_call {
+        let result = if let Some(decoded) = knowledge_decode {
             match self
-                .serve_knowledge_op(doc, op, call, declared_scope.as_ref(), ports.as_ref())
+                .serve_knowledge_op(doc, op, decoded, declared_scope.as_ref(), ports.as_ref())
                 .await?
             {
                 Some(result) => result,

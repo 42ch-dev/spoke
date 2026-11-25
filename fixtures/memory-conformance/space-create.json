@@ -579,6 +579,78 @@
         }
       ],
       "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "polls-the-create-receipt-after-a-later-freeze",
+      "invariant": "§7.28",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "memory.receipts.get returns the create receipt whole — created: true, revision 1 — after the space was frozen by a later op",
+      "requires": [
+        "memory.receipts.get reads the stored receipt, it never re-executes the emitting op"
+      ],
+      "setup": [
+        {
+          "op": "memory.spaces.create",
+          "request": {
+            "space_id": "spc_tw_mind_poll",
+            "display_name": "Polled Mind",
+            "idempotency_key": "spc-create-tw-0090"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_mind_poll",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-mind-poll-0091"
+          },
+          "expect": {
+            "success": true,
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.receipts.get",
+      "request": {
+        "space_id": "spc_tw_mind_poll",
+        "receipt_id": "$ref:setup.0.receipt_id"
+      },
+      "expect": {
+        "success": true,
+        "receipt_status": "committed",
+        "same_receipt_as": "setup.0",
+        "state": [
+          {
+            "path": "receipt.op",
+            "equals": "memory.spaces.create"
+          },
+          {
+            "path": "receipt.idempotency_key",
+            "equals": "spc-create-tw-0090"
+          },
+          {
+            "path": "receipt.result.created",
+            "equals": true
+          },
+          {
+            "path": "receipt.result.status",
+            "equals": "active"
+          },
+          {
+            "path": "receipt.result.revision",
+            "equals": 1
+          }
+        ],
+        "absent": [
+          "receipt.result.subject_id",
+          "receipt.result.display_name"
+        ]
+      },
+      "principal": "prn_tw_host_primary"
     }
   ]
 }

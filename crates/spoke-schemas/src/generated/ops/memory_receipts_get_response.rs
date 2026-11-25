@@ -6042,6 +6042,7 @@ impl ::std::convert::TryFrom<::std::string::String> for ProfileUpdatePollBranchV
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum Receipt {
+    SpacesCreatePollBranch(SpacesCreatePollBranch),
     SpacesFreezePollBranch(SpacesFreezePollBranch),
     SpacesUnfreezePollBranch(SpacesUnfreezePollBranch),
     SubjectsEnsurePollBranch(SubjectsEnsurePollBranch),
@@ -6061,6 +6062,11 @@ pub enum Receipt {
     ImportsStagePollBranch(ImportsStagePollBranch),
     ImportsActivatePollBranch(ImportsActivatePollBranch),
     ImportsDiscardPollBranch(ImportsDiscardPollBranch),
+}
+impl ::std::convert::From<SpacesCreatePollBranch> for Receipt {
+    fn from(value: SpacesCreatePollBranch) -> Self {
+        Self::SpacesCreatePollBranch(value)
+    }
 }
 impl ::std::convert::From<SpacesFreezePollBranch> for Receipt {
     fn from(value: SpacesFreezePollBranch) -> Self {
@@ -9928,6 +9934,365 @@ impl<'de> ::serde::Deserialize<'de> for SpaceId {
             })
     }
 }
+#[doc = "`SpacesCreatePollBranch`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum SpacesCreatePollBranch {
+    Variant0 {
+        completed_at: Shared1,
+        created_at: Shared1,
+        extensions: Shared2,
+        idempotency_key: SpacesCreatePollBranchVariant0IdempotencyKey,
+        op: SpacesCreatePollBranchVariant0Op,
+        #[doc = "SHA-256 over the JCS canonicalization of the request payload object (MEM-R008)."]
+        payload_digest: PayloadDigest,
+        #[doc = "Provider-assigned."]
+        receipt_id: ReceiptId,
+        #[doc = "Requester identity for receipt-read authorization."]
+        requester_principal_id: RequesterPrincipalId,
+        result: SpacesCreatePollBranchVariant0Result,
+        schema_version: Shared0,
+        space_id: SpaceId,
+        status: SpacesCreatePollBranchVariant0Status,
+    },
+    Variant1 {
+        completed_at: Shared1,
+        #[doc = "RFC 3339 UTC datetime string."]
+        #[serde(deserialize_with = "crate::timestamp::deserialize_strict")]
+        created_at: ::chrono::DateTime<::chrono::offset::Utc>,
+        #[doc = "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."]
+        error: Shared3,
+        #[doc = "Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip."]
+        extensions: ::std::collections::HashMap<
+            ExtensionKey,
+            ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+        >,
+        idempotency_key: SpacesCreatePollBranchVariant1IdempotencyKey,
+        op: SpacesCreatePollBranchVariant1Op,
+        payload_digest: PayloadDigest,
+        #[doc = "Provider-assigned."]
+        receipt_id: ReceiptId,
+        requester_principal_id: RequesterPrincipalId,
+        #[doc = "Wire schema version (integer >= 1)."]
+        #[serde(deserialize_with = "crate::integers::deserialize_schema_version")]
+        schema_version: ::std::num::NonZeroU64,
+        space_id: SpaceId,
+        status: SpacesCreatePollBranchVariant1Status,
+    },
+}
+#[doc = "`SpacesCreatePollBranchVariant0IdempotencyKey`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SpacesCreatePollBranchVariant0IdempotencyKey(::std::string::String);
+impl ::std::ops::Deref for SpacesCreatePollBranchVariant0IdempotencyKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SpacesCreatePollBranchVariant0IdempotencyKey> for ::std::string::String {
+    fn from(value: SpacesCreatePollBranchVariant0IdempotencyKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SpacesCreatePollBranchVariant0IdempotencyKey {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpacesCreatePollBranchVariant0IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String>
+    for SpacesCreatePollBranchVariant0IdempotencyKey
+{
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SpacesCreatePollBranchVariant0IdempotencyKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`SpacesCreatePollBranchVariant0Op`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SpacesCreatePollBranchVariant0Op {
+    #[serde(rename = "memory.spaces.create")]
+    MemorySpacesCreate,
+}
+impl ::std::fmt::Display for SpacesCreatePollBranchVariant0Op {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::MemorySpacesCreate => f.write_str("memory.spaces.create"),
+        }
+    }
+}
+impl ::std::str::FromStr for SpacesCreatePollBranchVariant0Op {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "memory.spaces.create" => Ok(Self::MemorySpacesCreate),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpacesCreatePollBranchVariant0Op {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SpacesCreatePollBranchVariant0Op {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`SpacesCreatePollBranchVariant0Result`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SpacesCreatePollBranchVariant0Result {
+    #[doc = "true on creation, false on a repeat create."]
+    pub created: bool,
+    #[serde(deserialize_with = "crate::integers::deserialize_positive_revision")]
+    pub revision: ::std::num::NonZeroU64,
+    pub space_id: SpaceId,
+    #[doc = "The space's current status (§8.2); \"active\" on creation."]
+    pub status: Status,
+}
+impl SpacesCreatePollBranchVariant0Result {
+    pub fn builder() -> builder::SpacesCreatePollBranchVariant0Result {
+        Default::default()
+    }
+}
+#[doc = "`SpacesCreatePollBranchVariant0Status`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SpacesCreatePollBranchVariant0Status {
+    #[serde(rename = "committed")]
+    Committed,
+}
+impl ::std::fmt::Display for SpacesCreatePollBranchVariant0Status {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Committed => f.write_str("committed"),
+        }
+    }
+}
+impl ::std::str::FromStr for SpacesCreatePollBranchVariant0Status {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "committed" => Ok(Self::Committed),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpacesCreatePollBranchVariant0Status {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SpacesCreatePollBranchVariant0Status {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`SpacesCreatePollBranchVariant1IdempotencyKey`"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SpacesCreatePollBranchVariant1IdempotencyKey(::std::string::String);
+impl ::std::ops::Deref for SpacesCreatePollBranchVariant1IdempotencyKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SpacesCreatePollBranchVariant1IdempotencyKey> for ::std::string::String {
+    fn from(value: SpacesCreatePollBranchVariant1IdempotencyKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SpacesCreatePollBranchVariant1IdempotencyKey {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpacesCreatePollBranchVariant1IdempotencyKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String>
+    for SpacesCreatePollBranchVariant1IdempotencyKey
+{
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SpacesCreatePollBranchVariant1IdempotencyKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(::std::string::String::deserialize(deserializer)?)
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`SpacesCreatePollBranchVariant1Op`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SpacesCreatePollBranchVariant1Op {
+    #[serde(rename = "memory.spaces.create")]
+    MemorySpacesCreate,
+}
+impl ::std::fmt::Display for SpacesCreatePollBranchVariant1Op {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::MemorySpacesCreate => f.write_str("memory.spaces.create"),
+        }
+    }
+}
+impl ::std::str::FromStr for SpacesCreatePollBranchVariant1Op {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "memory.spaces.create" => Ok(Self::MemorySpacesCreate),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpacesCreatePollBranchVariant1Op {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SpacesCreatePollBranchVariant1Op {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`SpacesCreatePollBranchVariant1Status`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SpacesCreatePollBranchVariant1Status {
+    #[serde(rename = "failed")]
+    Failed,
+}
+impl ::std::fmt::Display for SpacesCreatePollBranchVariant1Status {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Failed => f.write_str("failed"),
+        }
+    }
+}
+impl ::std::str::FromStr for SpacesCreatePollBranchVariant1Status {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "failed" => Ok(Self::Failed),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpacesCreatePollBranchVariant1Status {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SpacesCreatePollBranchVariant1Status {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 #[doc = "`SpacesFreezePollBranch`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(untagged, deny_unknown_fields)]
@@ -10664,7 +11029,7 @@ impl StagedReport {
         Default::default()
     }
 }
-#[doc = "`Status`"]
+#[doc = "The space's current status (§8.2); \"active\" on creation."]
 #[derive(
     :: serde :: Deserialize,
     :: serde :: Serialize,
@@ -10680,17 +11045,14 @@ impl StagedReport {
 pub enum Status {
     #[serde(rename = "active")]
     Active,
-    #[serde(rename = "fenced")]
-    Fenced,
-    #[serde(rename = "archived")]
-    Archived,
+    #[serde(rename = "frozen")]
+    Frozen,
 }
 impl ::std::fmt::Display for Status {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Active => f.write_str("active"),
-            Self::Fenced => f.write_str("fenced"),
-            Self::Archived => f.write_str("archived"),
+            Self::Frozen => f.write_str("frozen"),
         }
     }
 }
@@ -10699,8 +11061,7 @@ impl ::std::str::FromStr for Status {
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
             "active" => Ok(Self::Active),
-            "fenced" => Ok(Self::Fenced),
-            "archived" => Ok(Self::Archived),
+            "frozen" => Ok(Self::Frozen),
             _ => Err("invalid value".into()),
         }
     }
@@ -15107,6 +15468,92 @@ pub mod builder {
                 details: Ok(value.details),
                 extensions: Ok(value.extensions),
                 message: Ok(value.message),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct SpacesCreatePollBranchVariant0Result {
+        created: ::std::result::Result<bool, ::std::string::String>,
+        revision: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
+        space_id: ::std::result::Result<super::SpaceId, ::std::string::String>,
+        status: ::std::result::Result<super::Status, ::std::string::String>,
+    }
+    impl ::std::default::Default for SpacesCreatePollBranchVariant0Result {
+        fn default() -> Self {
+            Self {
+                created: Err("no value supplied for created".to_string()),
+                revision: Err("no value supplied for revision".to_string()),
+                space_id: Err("no value supplied for space_id".to_string()),
+                status: Err("no value supplied for status".to_string()),
+            }
+        }
+    }
+    impl SpacesCreatePollBranchVariant0Result {
+        pub fn created<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.created = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for created: {e}"));
+            self
+        }
+        pub fn revision<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::num::NonZeroU64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.revision = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for revision: {e}"));
+            self
+        }
+        pub fn space_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::SpaceId>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.space_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for space_id: {e}"));
+            self
+        }
+        pub fn status<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Status>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.status = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for status: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SpacesCreatePollBranchVariant0Result>
+        for super::SpacesCreatePollBranchVariant0Result
+    {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SpacesCreatePollBranchVariant0Result,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                created: value.created?,
+                revision: value.revision?,
+                space_id: value.space_id?,
+                status: value.status?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SpacesCreatePollBranchVariant0Result>
+        for SpacesCreatePollBranchVariant0Result
+    {
+        fn from(value: super::SpacesCreatePollBranchVariant0Result) -> Self {
+            Self {
+                created: Ok(value.created),
+                revision: Ok(value.revision),
+                space_id: Ok(value.space_id),
+                status: Ok(value.status),
             }
         }
     }

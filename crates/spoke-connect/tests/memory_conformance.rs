@@ -1793,6 +1793,66 @@ async fn wire_over(face: Arc<dyn RemoteMemoryService>) -> (Wire, Arc<ConnectResp
 }
 
 #[test]
+fn replay_expectation_compares_the_whole_receipt_not_just_its_id() {
+    // Regression: a replay used to be graded on `receipt_id` alone, so a
+    // provider could answer the same id with a changed digest, clock, requester
+    // or result and still pass.
+    let mut responses = BTreeMap::new();
+    responses.insert(
+        "setup.0".to_string(),
+        json!({ "payload": {
+            "receipt_id": "rcpt_1",
+            "status": "committed",
+            "payload_digest": "aa",
+            "requester_principal_id": "prn_1",
+        }}),
+    );
+    let expect = json!({ "same_receipt_as": "setup.0" });
+
+    let identical = json!({ "payload": {
+        "receipt_id": "rcpt_1",
+        "status": "committed",
+        "payload_digest": "aa",
+        "requester_principal_id": "prn_1",
+    }});
+    assert!(
+        check_expect(&identical, &expect, &responses).is_ok(),
+        "an identical receipt is a replay"
+    );
+
+    let drifted = json!({ "payload": {
+        "receipt_id": "rcpt_1",
+        "status": "committed",
+        "payload_digest": "bb",
+        "requester_principal_id": "prn_1",
+    }});
+    assert!(
+        check_expect(&drifted, &expect, &responses).is_err(),
+        "the same id with a changed field is not a replay"
+    );
+
+    // The polled shape nests the receipt under `payload.receipt`; both sides are
+    // normalized to the receipt object before comparing.
+    responses.insert(
+        "setup.1".to_string(),
+        json!({ "payload": { "receipt": { "receipt_id": "rcpt_2", "status": "committed" } } }),
+    );
+    let polled_expect = json!({ "same_receipt_as": "setup.1" });
+    assert!(check_expect(
+        &json!({ "payload": { "receipt_id": "rcpt_2", "status": "committed" } }),
+        &polled_expect,
+        &responses
+    )
+    .is_ok());
+    assert!(check_expect(
+        &json!({ "payload": { "receipt_id": "rcpt_2", "status": "pending" } }),
+        &polled_expect,
+        &responses
+    )
+    .is_err());
+}
+
+#[test]
 fn response_error_reads_both_branches_and_never_a_clean_payload() {
     assert!(
         response_error(&json!({ "error": { "code": "INTERNAL" } })).is_some(),
@@ -2056,12 +2116,24 @@ fn check_expect(
         } else {
             body
         };
-        let original = responses
-            .get(target)
-            .map(|value| value["payload"]["receipt_id"].clone())
-            .unwrap_or(Value::Null);
-        if receipt["receipt_id"] != original {
-            return failed(format!("expected receipt {original}, got {body}"));
+        // A replay must return the ORIGINAL receipt whole: a changed digest,
+        // clock, requester or result under the same id is not a replay.
+        let original = responses.get(target).map(|value| {
+            let payload = &value["payload"];
+            if payload.get("receipt").is_some() {
+                &payload["receipt"]
+            } else {
+                payload
+            }
+        });
+        match original {
+            Some(original) if receipt == original => {}
+            Some(original) => {
+                return failed(format!(
+                    "replayed receipt differs from {target}: expected {original}, got {receipt}"
+                ))
+            }
+            None => return failed(format!("expected a receipt from {target}, got {body}")),
         }
     }
     if let Some(details) = expect.get("details").and_then(Value::as_object) {

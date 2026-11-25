@@ -159,7 +159,9 @@ test rejects un-namespaced references anywhere in a request payload or directive
     (for example `{"reason": "space_not_drained"}`).
   - `success` — the op returns a success payload.
   - `receipt_status` — `committed` | `pending` | `failed` on the returned receipt.
-  - `same_receipt_as` — bare step reference; the receipt id must equal that step's.
+  - `same_receipt_as` — bare step reference; the returned receipt must equal that
+    step's receipt **whole** (every field, not just `receipt_id`): a replay may
+    not change the payload digest, the clocks, the requester or the result.
   - `state` — `{ "path": "dotted.path[0]", "equals": <json> }` equality
     assertions against the op-under-test response.
   - `absent` / `present` — dotted paths that must not / must exist.

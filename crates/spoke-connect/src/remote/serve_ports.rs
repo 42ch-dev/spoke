@@ -316,10 +316,31 @@ enum PeerOrScopedAdmission {
 }
 
 impl PeerOrScopedAdmission {
-    fn admit(&self, peer_id: &str, selector: Option<&str>) -> SpokeResult<(Principal, Scope)> {
+    /// Resolve the admitted principal + scope. The peer-only callback keeps
+    /// its synchronous call (the `0.18.1` behaviour). A request-scoped
+    /// callback is host work that may block, so it runs on the blocking pool
+    /// — a blocked resolver must not occupy an async worker (A1 blocking-pool
+    /// requirement), and a panic is contained as `INTERNAL_ERROR`.
+    async fn admit(&self, peer_id: &str, selector: Option<&str>) -> SpokeResult<(Principal, Scope)> {
         match self {
             Self::PeerOnly(admission) => admission(peer_id),
-            Self::Scoped(admission) => admission(peer_id, selector),
+            Self::Scoped(admission) => {
+                let admission = Arc::clone(admission);
+                let peer_id = peer_id.to_owned();
+                let selector = selector.map(str::to_owned);
+                match tokio::task::spawn_blocking(move || {
+                    admission(&peer_id, selector.as_deref())
+                })
+                .await
+                {
+                    Ok(result) => result,
+                    Err(join) => spoke_reject(
+                        SpokeRejectCode::InternalError,
+                        format!("scoped admission failed: {join}"),
+                        None,
+                    ),
+                }
+            }
         }
     }
 }
@@ -1127,7 +1148,7 @@ impl RemoteHistoryService for HistoryPortService {
         let selector = requested_scope
             .as_ref()
             .map(|scope| scope.scope_id.as_str());
-        let (principal, admitted_scope) = match self.admission.admit(peer_id, selector) {
+        let (principal, admitted_scope) = match self.admission.admit(peer_id, selector).await {
             SpokeResult::Ok(admitted) => admitted,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
@@ -1429,6 +1450,7 @@ impl RemoteAdoptionService for AdoptionPortService {
         let (principal, effective_scope) = match self
             .admission
             .admit(peer_id, Some(request.destination_scope_id.as_str()))
+            .await
         {
             SpokeResult::Ok(admitted) => admitted,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),

@@ -50,18 +50,19 @@ use spoke_connect::core::{
 use spoke_connect::remote::{
     connect_multi_peer_router, connect_remote_adapter, connect_responder, loopback_transport_pair,
     reset_accepted_server_hellos_for_test, ConnectResponder, ConnectResponderOptions,
-    LoopbackTransport, LoopbackTransportPair, MultiPeerRouterOptions, RemoteAdapter,
-    RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState, RemoteExtractService,
-    RemoteIdentity, RemoteKnowledgeFace, RemoteScopedKnowledgeFace, RemoteServePorts,
-    RemoteServePortsComposite, ToolHandler, Transport, TransportError,
+    HistoryPortService, LoopbackTransport, LoopbackTransportPair, MultiPeerRouterOptions,
+    RemoteAdapter, RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState,
+    RemoteExtractService, RemoteIdentity, RemoteKnowledgeFace, RemoteScopedKnowledgeFace,
+    RemoteServePorts, RemoteServePortsComposite, ToolHandler, Transport, TransportError,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
     assert_revision_match, orchestrate_check, orchestrate_extract, orchestrate_upsert,
     parse_tool_capability_id, spoke_ok, spoke_reject, BaselinePorts, CheckRunInput, ComputablePort,
     ExtractRunInput, ExtractionPort, ExtractionResult, FindingPort, ForkTimelineQueryPort,
-    HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort, RelationPort, RuleQueryPort,
-    ScopeQueryPort, ScopedKnowledgePort, SpokeReject, SpokeRejectCode, SpokeResult,
+    HistoryPort, HistoryPruneResult, HostManifestPort, KnowledgeEntryPort, KnowledgeQueryPort,
+    RelationPort, RuleQueryPort, ScopeQueryPort, ScopedKnowledgePort, SpokeReject, SpokeRejectCode,
+    SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -70,8 +71,8 @@ use spoke_schemas::connect::ConnectSession;
 use spoke_schemas::host_capability_manifest::ExtensionKey;
 use spoke_schemas::{
     CheckRequest, ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
-    HostCapabilityManifest, KnowledgeEntry, ProjectRequest, ProjectResponse, Relation, Rule, Scope,
-    TimelineEvent, UpsertRequest,
+    HostCapabilityManifest, KnowledgeEntry, Principal, ProjectRequest, ProjectResponse, Relation,
+    RevisionSnapshot, Rule, Scope, TimelineEvent, UpsertRequest,
 };
 use tokio::sync::Notify;
 
@@ -7694,6 +7695,133 @@ async fn scoped_knowledge_face_never_invokes_the_peer_only_probe() {
     );
 
     client.close();
+    responder.close();
+}
+
+/// A history provider that the gated-admission witness must never reach: its
+/// scoped admission never returns before the serve budget expires.
+struct UnreachedHistoryPort;
+
+#[async_trait]
+impl HistoryPort for UnreachedHistoryPort {
+    async fn get_history_snapshot(
+        &self,
+        _principal: &Principal,
+        _scope: &Scope,
+        _entity_kind: &str,
+        _entity_id: &str,
+        _revision: u64,
+    ) -> SpokeResult<RevisionSnapshot> {
+        spoke_reject(SpokeRejectCode::InternalError, "never admitted", None)
+    }
+
+    async fn prune_history(
+        &self,
+        _principal: &Principal,
+        _scope: &Scope,
+        _entity_kind: &str,
+        _entity_id: &str,
+        _keep: u64,
+    ) -> SpokeResult<HistoryPruneResult> {
+        spoke_reject(SpokeRejectCode::InternalError, "never admitted", None)
+    }
+}
+
+/// A1 blocking-pool requirement: a request-scoped admission is host work that
+/// may block, so it runs off the async worker. On a CURRENT-THREAD runtime a
+/// gated scoped admission must not stop the responder from answering its serve
+/// wait — with the callback on the async worker, the single worker would be
+/// stuck inside the resolver and no timeout could be polled.
+#[tokio::test(flavor = "current_thread")]
+async fn a_gated_scoped_history_admission_still_answers_the_serve_timeout() {
+    let scope = scope_of("scope-a");
+    let admitted = scope.clone();
+    let principal: Principal = serde_json::from_value(json!({
+        "principal_id": "prn-peer",
+        "extensions": {},
+    }))
+    .expect("valid Principal");
+    let entered = Arc::new(AtomicBool::new(false));
+    let released = Arc::new(AtomicBool::new(false));
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let gate = Arc::new(Mutex::new(release_rx));
+    let entered_flag = Arc::clone(&entered);
+    let gate_handle = Arc::clone(&gate);
+    let scoped = Arc::new(move |_peer: &str, _selector: Option<&str>| {
+        entered_flag.store(true, Ordering::SeqCst);
+        let receiver = gate_handle.lock().expect("gate lock");
+        let _ = receiver.recv();
+        spoke_ok((principal.clone(), admitted.clone()))
+    });
+    let service = HistoryPortService::new(
+        Arc::new(UnreachedHistoryPort),
+        Arc::new(|_peer: &str| {
+            spoke_reject(SpokeRejectCode::NotAuthorized, "no peer-only admission", None)
+        }),
+    )
+    .with_scoped_admission(scoped);
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_history(Arc::new(service)),
+    );
+    let (responder, pair, seed) =
+        start_raw_ke_responder_with_budget(ports, &["spoke-history"], Some(50)).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-history"]),
+    )
+    .await;
+
+    // The gate opens on its own after a generous delay, so an implementation
+    // that blocks the async worker answers only after it — and this witness
+    // fails on the `released` assertion instead of hanging.
+    let release_flag = Arc::clone(&released);
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(2));
+        release_flag.store(true, Ordering::SeqCst);
+        let _ = release_tx.send(());
+    });
+
+    let response = tokio::time::timeout(
+        Duration::from_secs(10),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session,
+            0,
+            "gated-scoped-admission",
+            "history.revisions.get",
+            json!({
+                "entity_kind": "knowledge_entry",
+                "entity_id": "e1",
+                "revision": 1,
+                "scope": { "scope_id": "scope-a", "extensions": {} },
+            }),
+        ),
+    )
+    .await
+    .expect("the serve budget answers while the scoped admission is still gated");
+
+    assert_eq!(response["error"]["code"], "OUTCOME_UNCERTAIN", "{response}");
+    assert_eq!(
+        response["error"]["details"]["retry_class"], "uncertain",
+        "{response}"
+    );
+    assert!(
+        entered.load(Ordering::SeqCst),
+        "the scoped admission really ran"
+    );
+    assert!(
+        !released.load(Ordering::SeqCst),
+        "the timeout answered before the gate was released — the admission left the async worker"
+    );
+
+    releaser.join().expect("release thread");
     responder.close();
 }
 

@@ -2576,15 +2576,17 @@ impl ConnectResponder {
         // One deadline for the whole op: admission and the store call share the
         // local budget, so a slow admission cannot buy a second full timeout.
         let deadline = std::time::Instant::now() + self.invoke_timeout;
-        // The selector the request declares: the list op names one; get/put
-        // carry no wire scope until A2 supplies the request scope (A1-D5).
-        let selector = match &call {
-            KnowledgeCall::ListKnowledgeEntries(scope) => Some(scope.scope_id.clone()),
-            _ => None,
-        };
         let wait = deadline.saturating_duration_since(std::time::Instant::now());
         let admission = match &face {
             KnowledgeServingFace::Scoped(face) => {
+                // The selector the request declares: the list op names one;
+                // get/put carry no wire scope until A2 supplies the request
+                // scope (A1-D5). Only the scoped closure captures it, so the
+                // peer-only path never copies it.
+                let selector = match &call {
+                    KnowledgeCall::ListKnowledgeEntries(scope) => Some(scope.scope_id.clone()),
+                    _ => None,
+                };
                 let admission = Arc::clone(&face.admission);
                 tokio::time::timeout(
                     wait,

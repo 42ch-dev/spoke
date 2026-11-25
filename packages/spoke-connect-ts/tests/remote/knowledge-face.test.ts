@@ -1501,10 +1501,15 @@ describe("knowledge dispatch pre-validation and refusals", () => {
         undefined,
         [[scopeCase.admitted_scope.scope_id, entry("ke-knowledge-a")]],
       );
-      const host = await dialRawKnowledgeHost(
-        scopeCase.ports === "absent" ? undefined : knowledgeOnlyServePorts(face),
-        scopeCase.negotiated,
-      );
+      let portsFace: unknown = knowledgeOnlyServePorts(face);
+      if (scopeCase.ports === "absent") {
+        portsFace = undefined;
+      } else if (scopeCase.ports === "baseline-only") {
+        // Ports are configured, but no knowledge face: the payload decode owns
+        // the answer for a malformed request.
+        portsFace = {};
+      }
+      const host = await dialRawKnowledgeHost(portsFace, scopeCase.negotiated);
       try {
         const response = await rawInvoke(
           host.clientEnd,

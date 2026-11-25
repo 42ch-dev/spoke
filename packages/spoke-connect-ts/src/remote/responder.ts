@@ -2406,6 +2406,13 @@ export class ConnectResponder {
       });
       return;
     }
+    // note: B2 — a payload without a declared `scope` keeps the `0.18.1`
+    // order: the ports presence check ran above, its decode failure answers
+    // here, and the knowledge-face probe follows only for a decodable payload.
+    if (knowledgePayloadReject !== null) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(knowledgePayloadReject));
+      return;
+    }
     // note: knowledge ops (three-row catalogue) — served only through the
     // knowledge face. Absent face → CAPABILITY_PORT_MISSING (gate → probe
     // → serve/deny); the admitted scope comes from the face's admission
@@ -2422,13 +2429,6 @@ export class ConnectResponder {
           message: `no knowledge face configured for port op ${doc.op}`,
           extensions: {},
         });
-        return;
-      }
-      // note: B2 — a payload without a declared `scope` keeps the `0.18.1`
-      // order: the face probe above ran before this decode, so a refusal never
-      // reaches admission or the store.
-      if (knowledgePayloadReject !== null) {
-        await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(knowledgePayloadReject));
         return;
       }
       // note: B3 — an empty authenticated peer id (session not established) refuses

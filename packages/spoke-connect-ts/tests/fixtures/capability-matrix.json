@@ -372,6 +372,24 @@
       "negotiated": ["spoke-knowledge"],
       "admitted_scope": { "scope_id": "scope_a" },
       "expected": { "code": "op_unsupported", "message_contains": "no ports face" }
+    },
+    {
+      "name": "get without a scope validates before the knowledge-face probe",
+      "op": "port.knowledge.get",
+      "ports": "baseline-only",
+      "payload": { "entry_id": 42 },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a scope validates before the knowledge-face probe",
+      "op": "port.knowledge.get",
+      "ports": "baseline-only",
+      "payload": { "entry_id": 42, "scope": { "scope_id": "scope_a" } },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
     }
   ]
 }

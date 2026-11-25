@@ -2520,7 +2520,7 @@ impl ConnectResponder {
         &self,
         doc: &Value,
         op: &str,
-        decoded: SpokeResult<KnowledgeCall>,
+        call: KnowledgeCall,
         declared_scope: Option<&Scope>,
         ports: &(dyn RemoteServePorts + Send + Sync),
     ) -> Result<Option<SpokeResult<Value>>, ResponderError> {
@@ -2546,21 +2546,6 @@ impl ConnectResponder {
                     return Ok(None);
                 }
             },
-        };
-        // A payload that declares no `scope` keeps the `0.18.1` order: the
-        // face probe above ran before its decode failure answers here.
-        let call = match decoded {
-            SpokeResult::Ok(call) => call,
-            SpokeResult::Reject(reject) => {
-                self.send_reverse_error_envelope(
-                    doc,
-                    reject.code.as_str(),
-                    &reject.message,
-                    reject.details.as_ref(),
-                )
-                .await?;
-                return Ok(None);
-            }
         };
         let store = face.store();
         // The admitted scope derives from the authenticated session peer,
@@ -2863,9 +2848,22 @@ impl ConnectResponder {
                 return Ok(());
             }
         };
-        let result = if let Some(decoded) = knowledge_decode {
+        // A payload that declares no `scope` keeps the `0.18.1` order: the
+        // ports presence check ran above, its decode failure answers here, and
+        // the knowledge-face probe follows only for a decodable call.
+        if let Some(SpokeResult::Reject(reject)) = &knowledge_decode {
+            self.send_reverse_error_envelope(
+                doc,
+                reject.code.as_str(),
+                &reject.message,
+                reject.details.as_ref(),
+            )
+            .await?;
+            return Ok(());
+        }
+        let result = if let Some(SpokeResult::Ok(call)) = knowledge_decode {
             match self
-                .serve_knowledge_op(doc, op, decoded, declared_scope.as_ref(), ports.as_ref())
+                .serve_knowledge_op(doc, op, call, declared_scope.as_ref(), ports.as_ref())
                 .await?
             {
                 Some(result) => result,

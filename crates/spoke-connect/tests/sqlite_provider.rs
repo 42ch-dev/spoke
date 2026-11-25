@@ -256,28 +256,36 @@ async fn spaces_are_listed_only_for_principals_with_a_grant() {
 }
 
 /// A same-key replay of `memory.spaces.create` answers the recorded receipt
-/// without writing the document: an already-committed result must never become
-/// a storage uncertainty because bookkeeping the replay does not need failed.
+/// without writing the document, whether the dedup record was written by the
+/// earlier call or already existed when the request started (the state a
+/// concurrent same-key request leaves): an already-committed result must never
+/// become a storage uncertainty because bookkeeping the replay does not need
+/// failed.
 #[tokio::test]
 async fn create_replay_answers_the_recorded_receipt_without_writing_state() {
+    const CREATED: &str = "spc_sqlite_created";
     let provider = provider();
-    let create = || {
+    let create = |key: &str| {
         serde_json::from_value::<MemorySpacesCreateRequest>(json!({
-            "space_id": "spc_sqlite_created",
+            "space_id": CREATED,
             "display_name": "Created Mind",
-            "idempotency_key": "create-sqlite-0001",
+            "idempotency_key": key,
         }))
         .expect("create request")
     };
 
     let committed = wire(&expect_ok(
-        provider.create_space(&principal(OPERATOR), create()).await,
+        provider
+            .create_space(&principal(OPERATOR), create("create-sqlite-0001"))
+            .await,
     ));
     assert_eq!(committed["result"]["created"], json!(true));
     let writes = provider.state_writes();
 
     let replayed = wire(&expect_ok(
-        provider.create_space(&principal(OPERATOR), create()).await,
+        provider
+            .create_space(&principal(OPERATOR), create("create-sqlite-0001"))
+            .await,
     ));
     assert_eq!(
         replayed, committed,
@@ -287,6 +295,56 @@ async fn create_replay_answers_the_recorded_receipt_without_writing_state() {
         provider.state_writes(),
         writes,
         "the replay writes no state"
+    );
+
+    // The dedup record already exists when this request starts: the answer
+    // comes from the replay check inside the write lock, with no write either.
+    let seeded = create("create-sqlite-0002");
+    let digest = expect_ok(jcs_sha256_hex(&wire(&seeded)));
+    provider.provision_receipt(
+        CREATED,
+        json!({
+            "schema_version": 1,
+            "receipt_id": "rcpt_seeded_0001",
+            "op": "memory.spaces.create",
+            "space_id": CREATED,
+            "requester_principal_id": OPERATOR,
+            "idempotency_key": "create-sqlite-0002",
+            "payload_digest": digest,
+            "status": "committed",
+            "result": {
+                "space_id": CREATED,
+                "status": "active",
+                "created": true,
+                "revision": 1,
+            },
+            "created_at": "2026-07-23T05:30:00Z",
+            "completed_at": "2026-07-23T05:30:00Z",
+            "extensions": {},
+        }),
+    );
+    provider.provision_dedup_entry(
+        CREATED,
+        OPERATOR,
+        "memory.spaces.create",
+        "create-sqlite-0002",
+        "rcpt_seeded_0001",
+        &digest,
+    );
+    let writes = provider.state_writes();
+
+    let seeded_replay = wire(&expect_ok(
+        provider.create_space(&principal(OPERATOR), seeded).await,
+    ));
+    assert_eq!(
+        seeded_replay["receipt_id"],
+        json!("rcpt_seeded_0001"),
+        "an existing dedup record is answered, not re-executed"
+    );
+    assert_eq!(
+        provider.state_writes(),
+        writes,
+        "the replay hit inside the write lock writes no state"
     );
 }
 

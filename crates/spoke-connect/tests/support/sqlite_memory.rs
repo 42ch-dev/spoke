@@ -2180,31 +2180,36 @@ impl SqliteMemoryProvider {
         }
     }
 
-    /// §7.0.5 dedup replay resolved from read state alone: a hit answers from
-    /// the recorded receipt (or its retained evidence) without rewriting the
-    /// document, so an already-committed result can never be reported uncertain
-    /// because bookkeeping the replay does not need failed to write. `None`
-    /// means no dedup record for the key.
-    fn replay_value(
+    /// Mutation helper for a keyed op: `replay` is asked under the same write
+    /// lock the effect needs, and a hit is answered from the recorded receipt
+    /// with no state write at all — an already-committed result must never be
+    /// reported uncertain because bookkeeping the replay does not need failed
+    /// to write. A miss runs `apply` and commits it.
+    fn mutate_value_unless_replayed(
         &self,
-        space_id: &str,
-        principal_id: &str,
-        op: &str,
-        key: &str,
-        digest: &str,
-    ) -> Option<SpokeResult<Value>> {
+        replay: impl FnOnce(&Document) -> Option<SpokeResult<Value>>,
+        apply: impl FnOnce(&mut Document) -> SpokeResult<Value>,
+    ) -> SpokeResult<Value> {
         let store = self.store.lock().expect("store lock");
         let mut document = match store.read() {
             Ok(document) => document,
-            Err(error) => return Some(storage_failure("read state", error)),
+            Err(error) => return storage_failure("read state", error),
         };
-        // Expiry is judged on the in-memory copy: the answer is truthful either
-        // way, and persisting the eviction would be the write this path avoids.
         if let SpokeResult::Reject(reject) = Self::evict_receipts(&mut document) {
-            return Some(SpokeResult::Reject(reject));
+            return SpokeResult::Reject(reject);
         }
-        let space = document.spaces.get(space_id)?;
-        Self::replay_outcome(space, principal_id, op, key, digest)
+        // Expiry was judged on the in-memory copy: a replay hit is answered
+        // from it without persisting anything.
+        if let Some(replayed) = replay(&document) {
+            return replayed;
+        }
+        match apply(&mut document) {
+            SpokeResult::Ok(value) => match store.write(&document) {
+                Ok(()) => SpokeResult::Ok(value),
+                Err(error) => uncertain_storage_failure("write state", error),
+            },
+            SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+        }
     }
 
     fn inspect<T>(&self, answer: impl FnOnce(&Document) -> SpokeResult<T>) -> SpokeResult<T> {
@@ -2547,85 +2552,85 @@ impl MemoryPort for SqliteMemoryProvider {
             );
         }
         let digest = tri!(request_digest(&request_value));
-        // A replay answers from read state: an already-committed result must
-        // never become an uncertainty because bookkeeping it does not need
-        // failed to write. The mutation below re-checks under the write lock.
-        if let Some(replayed) = self.replay_value(&space_id, &principal_id, OP, &key, &digest) {
-            return match replayed {
-                SpokeResult::Ok(receipt) => reply(receipt),
-                SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
-            };
-        }
-        let receipt = tri!(self.mutate_value(|document| {
-            let now = Self::clock(document);
-            if let Some(space) = document.spaces.get_mut(&space_id) {
-                if let Some(outcome) =
-                    Self::replay_outcome(space, &principal_id, OP, &key, &digest)
-                {
-                    return outcome;
+        // The dedup answer and the effect share one lock: a replay that lands
+        // between them still answers the recorded receipt without a write.
+        let receipt = tri!(self.mutate_value_unless_replayed(
+            |document| {
+                let space = document.spaces.get(&space_id)?;
+                Self::replay_outcome(space, &principal_id, OP, &key, &digest)
+            },
+            |document| {
+                let now = Self::clock(document);
+                if let Some(space) = document.spaces.get_mut(&space_id) {
+                    let requirement = Self::admin_requirement();
+                    tri!(Self::require(space, now, &principal_id, &requirement, OP));
+                    if space.frozen {
+                        // §8.2: creating is not a maintenance op, so a repeat
+                        // create is refused even for the space admin.
+                        return reject(SpokeRejectCode::SpaceFrozen, "space is frozen");
+                    }
+                    // No-op success: no space, grant or revision write; the
+                    // receipt itself is still recorded (MEM-R008).
+                    let mut receipt = Self::receipt(space, now, OP, &principal_id, &digest, &key);
+                    receipt["result"] = json!({
+                        "space_id": space_id,
+                        "status": "active",
+                        "created": false,
+                        "revision": space.revision,
+                    });
+                    tri!(Self::remember(
+                        space, now, &principal_id, OP, &key, &digest, &receipt
+                    ));
+                    return SpokeResult::Ok(receipt);
                 }
-                let requirement = Self::admin_requirement();
-                tri!(Self::require(space, now, &principal_id, &requirement, OP));
-                if space.frozen {
-                    // §8.2: creating is not a maintenance op, so a repeat
-                    // create is refused even for the space admin.
-                    return reject(SpokeRejectCode::SpaceFrozen, "space is frozen");
-                }
-                // No-op success: no space, grant or revision write; the
-                // receipt itself is still recorded (MEM-R008).
-                let mut receipt = Self::receipt(space, now, OP, &principal_id, &digest, &key);
+                let grant_id = "grt_sqlite_0001".to_string();
+                let mut space = Space {
+                    space_id: space_id.clone(),
+                    display_name: request_value["display_name"].as_str().map(str::to_string),
+                    authority_host_id: AUTHORITY_HOST_ID.to_string(),
+                    authority_generation: 1,
+                    revision: 1,
+                    created_at: CLOCK_ORIGIN.to_string(),
+                    state_epoch: 1,
+                    ..Space::default()
+                };
+                space.grants.insert(
+                    grant_id.clone(),
+                    json!({
+                        "schema_version": 1,
+                        "grant_id": grant_id,
+                        "space_id": space_id.clone(),
+                        "principal_id": principal_id,
+                        "capabilities": [
+                            "recall",
+                            "capture",
+                            "review",
+                            "records_write",
+                            "knowledge_read",
+                            "knowledge_write",
+                            "admin",
+                        ],
+                        "created_at": CLOCK_ORIGIN,
+                        "revision": 1,
+                        "extensions": {},
+                    }),
+                );
+                let mut receipt =
+                    Self::receipt(&mut space, now, OP, &principal_id, &digest, &key);
                 receipt["result"] = json!({
-                    "space_id": space_id,
-                    "status": "active",
-                    "created": false,
-                    "revision": space.revision,
-                });
-                tri!(Self::remember(space, now, &principal_id, OP, &key, &digest, &receipt));
-                return SpokeResult::Ok(receipt);
-            }
-            let grant_id = "grt_sqlite_0001".to_string();
-            let mut space = Space {
-                space_id: space_id.clone(),
-                display_name: request_value["display_name"].as_str().map(str::to_string),
-                authority_host_id: AUTHORITY_HOST_ID.to_string(),
-                authority_generation: 1,
-                revision: 1,
-                created_at: CLOCK_ORIGIN.to_string(),
-                state_epoch: 1,
-                ..Space::default()
-            };
-            space.grants.insert(
-                grant_id.clone(),
-                json!({
-                    "schema_version": 1,
-                    "grant_id": grant_id,
                     "space_id": space_id.clone(),
-                    "principal_id": principal_id,
-                    "capabilities": [
-                        "recall",
-                        "capture",
-                        "review",
-                        "records_write",
-                        "knowledge_read",
-                        "knowledge_write",
-                        "admin",
-                    ],
-                    "created_at": CLOCK_ORIGIN,
+                    "status": "active",
+                    "created": true,
                     "revision": 1,
-                    "extensions": {},
-                }),
-            );
-            let mut receipt = Self::receipt(&mut space, now, OP, &principal_id, &digest, &key);
-            receipt["result"] = json!({
-                "space_id": space_id.clone(),
-                "status": "active",
-                "created": true,
-                "revision": 1,
-            });
-            tri!(Self::remember(&mut space, now, &principal_id, OP, &key, &digest, &receipt));
-            document.spaces.insert(space_id, space);
-            SpokeResult::Ok(receipt)
-        }));
+                });
+                tri!(Self::remember(
+                    &mut space, now, &principal_id, OP, &key, &digest, &receipt
+                ));
+                // Borrow, not move: the replay closure above holds `space_id`.
+                document.spaces.insert(space_id.clone(), space);
+                SpokeResult::Ok(receipt)
+            }
+        ));
         reply(receipt)
     }
 

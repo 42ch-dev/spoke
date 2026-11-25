@@ -16,6 +16,55 @@
             {
               "oneOf": [
                 {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-spaces-create-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/FailedReceipt"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.spaces.create",
+                          "type": "string",
+                          "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "SpacesCreatePollBranch"
+            },
+            {
+              "oneOf": [
+                {
                   "$ref": "https://spoke42.invalid/schemas/ops/memory-spaces-freeze-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {

@@ -356,6 +356,7 @@ const RESPONSE_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>>
   "memory.records.promote": [["payload", "result", "revision"]],
   "memory.records.update": [["payload", "result", "revision"]],
   "memory.reflections.list": [["payload", "reflections", "revision"]],
+  "memory.spaces.create": [["payload", "result", "revision"]],
   "memory.spaces.freeze": [["payload", "result", "revision"]],
   "memory.spaces.list": [["payload", "spaces", "revision"]],
   "memory.spaces.unfreeze": [["payload", "result", "revision"]],

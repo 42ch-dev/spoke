@@ -523,7 +523,7 @@
       "invariant": "MEM-R006",
       "surface": "wire",
       "outcome": "identical",
-      "what": "creating a space materializes no subject and no subject-scoped grant: a subject probe in the new space is NOT_FOUND and the sole grant is space-wide",
+      "what": "creating a space materialises no subject row at all (the provider holds zero subjects for the new space) and no subject-scoped grant: a subject probe is NOT_FOUND and the sole grant is space-wide",
       "op": "memory.spaces.create",
       "request": {
         "space_id": "spc_tw_mind_subjectless",
@@ -541,6 +541,10 @@
         "absent": [
           "result.subject_id"
         ]
+      },
+      "provider_state_check": {
+        "space_id": "spc_tw_mind_subjectless",
+        "subjects": 0
       },
       "then": [
         {

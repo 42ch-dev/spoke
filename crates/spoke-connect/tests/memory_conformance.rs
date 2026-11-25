@@ -292,6 +292,15 @@ impl Provider {
             Provider::Loopback(_store) => {}
         }
     }
+
+    /// Complete subject rows of a space, for `provider_state_check`; `None`
+    /// when the active provider exposes no subject surface.
+    fn subject_count(&self, space_id: &str) -> Option<usize> {
+        match self {
+            Provider::Sqlite(provider) => Some(provider.subject_count(space_id)),
+            Provider::Loopback(_store) => None,
+        }
+    }
 }
 
 /// The corpus driver: one raw invoke per step.
@@ -1394,6 +1403,25 @@ async fn run_case(
     }
     if let Err(failure) = check_expect(&op_response, &case["expect"], &responses) {
         return Outcome::Inconclusive(format!("{scenario}/{case_id}: {failure}"));
+    }
+    if let Some(check) = case.get("provider_state_check") {
+        // Provider-level invariants the wire cannot express (no op enumerates
+        // subjects). A wrong count is a product failure, not a harness gap.
+        let space_id = check["space_id"].as_str().unwrap_or_default();
+        let expected = check["subjects"].as_u64().unwrap_or_default() as usize;
+        match wire.provider.subject_count(space_id) {
+            Some(actual) if actual == expected => {}
+            Some(actual) => {
+                return Outcome::Fail(format!(
+                    "{scenario}/{case_id}: provider_state_check {space_id}: {actual} subjects, expected {expected}"
+                ))
+            }
+            None => {
+                return Outcome::Inconclusive(format!(
+                    "{scenario}/{case_id}: provider_state_check: the active provider exposes no subject state"
+                ))
+            }
+        }
     }
     if let Some(outcome) = check_policy_directives(wire, case, &responses, &op_request).await {
         return outcome;

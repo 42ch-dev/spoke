@@ -1079,6 +1079,18 @@ impl SqliteMemoryProvider {
         }
     }
 
+    /// Test-support accessor: the complete subject state of a space. No wire op
+    /// enumerates subjects, so a vector that claims an op materialised none has
+    /// to read the provider's own rows — a probe cannot rule out another id.
+    pub fn subject_count(&self, space_id: &str) -> usize {
+        let store = self.store.lock().expect("store lock");
+        let document = store.read().expect("read state");
+        document
+            .spaces
+            .get(space_id)
+            .map_or(0, |space| space.subjects.len())
+    }
+
     /// Test-support accessor: run the worker for one receipt and return its
     /// JSON. The generated `MemoryReceiptsGetResponse` copy rejects content-free
     /// results that carry nested objects (Task 4 report finding), so the

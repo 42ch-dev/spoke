@@ -276,6 +276,13 @@ test rejects un-namespaced references anywhere in a request payload or directive
   named response value is an empty array, the case is recorded `inconclusive`
   and its remaining assertions are not counted. Used only where the protocol
   explicitly permits an empty outcome (for example a zero-candidate capture).
+- `provider_state_check` — `{ "space_id": "...", "subjects": <int> }`: exact
+  count of the provider's own subject rows in that space, asserted after the op
+  under test. No wire op enumerates subjects, so an invariant like "creation
+  establishes no subject" cannot be proven by probing ids: one named probe
+  leaves every other id open, this count closes them all. A wrong count is a
+  product failure, not a harness gap; a provider exposing no subject surface
+  records the case `inconclusive`.
 - `harness.save_snapshot` / `harness.restore_snapshot` — **harness capability
   steps**, not protocol ops:
   `{ "op": "harness.save_snapshot" | "harness.restore_snapshot", "request": { "space_id": … } }`.

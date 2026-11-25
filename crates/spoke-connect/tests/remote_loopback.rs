@@ -7884,17 +7884,20 @@ async fn scoped_knowledge_get_put_malformed_scope_is_invalid_input() {
 }
 
 #[tokio::test]
-async fn scoped_knowledge_marker_gate_reads_the_raw_scope_past_a_deferred_cognition_subtree() {
-    // A scope with a valid baseline shape and an invalid cognition subtree
-    // fails the typed decode only on that subtree, so the responder defers the
-    // reject. The marker gate must still read the raw `scope` member: without
-    // the marker the request is an unnegotiated scope, never a cognition
-    // answer.
-    let payload = json!({
+async fn scoped_knowledge_malformed_scope_wins_over_the_marker_and_cognition_gates() {
+    // A2-D3 shape-first: for the optional-scope knowledge ops a present
+    // `scope` that fails the typed decode — including an invalid cognition
+    // subtree — answers INVALID_INPUT before the marker, ownership and
+    // cognition gates (the required-scope query ops keep their deferred
+    // diagnosis). A well-formed wire cognition selection does decode, so the
+    // cognition gate still owns those cases.
+    let malformed = json!({
         "entry_id": "ke-knowledge-a",
         "scope": { "scope_id": "scope-a", "cognition": { "bogus": 1 } },
     });
 
+    // No marker negotiated: a malformed scope is still an input failure, not
+    // the marker refusal.
     let store = Arc::new(ScopedKnowledgeStore::default());
     let seen = Arc::new(Mutex::new(Vec::new()));
     let ports = scoped_knowledge_ports(&store, scope_of("scope-a"), &seen);
@@ -7910,25 +7913,55 @@ async fn scoped_knowledge_marker_gate_reads_the_raw_scope_past_a_deferred_cognit
         seed,
         &session,
         0,
-        "scoped-deferred-marker-absent",
+        "scoped-shape-first-marker-absent",
         "port.knowledge.get",
-        payload.clone(),
+        malformed.clone(),
     )
     .await;
-    assert_eq!(response["error"]["code"], "op_unsupported", "{response}");
+    assert_eq!(response["error"]["code"], "INVALID_INPUT", "{response}");
     assert!(
         response["error"]["message"]
             .as_str()
             .unwrap_or_default()
+            .contains("invalid port.knowledge.get payload"),
+        "the baseline scope decode owns the message: {response}"
+    );
+    // A well-formed scope without the marker still takes the marker refusal.
+    let unnegotiated = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        1,
+        "scoped-shape-valid-marker-absent",
+        "port.knowledge.get",
+        json!({
+            "entry_id": "ke-knowledge-a",
+            "scope": {
+                "scope_id": "scope-a",
+                "cognition": {
+                    "view": "current",
+                    "filter": {},
+                    "selection_policy": { "policy_id": "policy_t3", "policy_version": "v1" },
+                },
+            },
+        }),
+    )
+    .await;
+    assert_eq!(unnegotiated["error"]["code"], "op_unsupported", "{unnegotiated}");
+    assert!(
+        unnegotiated["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
             .contains("spoke-knowledge-scoped"),
-        "the deny is the marker refusal: {response}"
+        "the deny is the marker refusal: {unnegotiated}"
     );
     assert!(seen.lock().expect("seen").is_empty());
     assert!(store.calls().is_empty());
     responder.close();
 
-    // With the marker negotiated the cognition branch owns the rejection: the
-    // family is missing first...
+    // Marker negotiated, cognition family absent: the malformed subtree is
+    // still INVALID_INPUT, never `capability_missing`; a well-formed
+    // cognition selection takes the family refusal.
     let store = Arc::new(ScopedKnowledgeStore::default());
     let seen = Arc::new(Mutex::new(Vec::new()));
     let ports = scoped_knowledge_ports(&store, scope_of("scope-a"), &seen);
@@ -7945,25 +7978,46 @@ async fn scoped_knowledge_marker_gate_reads_the_raw_scope_past_a_deferred_cognit
         seed,
         &session,
         0,
-        "scoped-deferred-cognition-family-absent",
+        "scoped-shape-first-cognition-family-absent",
         "port.knowledge.get",
-        payload.clone(),
+        malformed.clone(),
     )
     .await;
-    assert_eq!(response["error"]["code"], "capability_missing", "{response}");
+    assert_eq!(response["error"]["code"], "INVALID_INPUT", "{response}");
+    let cognition = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        1,
+        "scoped-shape-valid-cognition-family-absent",
+        "port.knowledge.get",
+        json!({
+            "entry_id": "ke-knowledge-a",
+            "scope": {
+                "scope_id": "scope-a",
+                "cognition": {
+                    "view": "current",
+                    "filter": {},
+                    "selection_policy": { "policy_id": "policy_t3", "policy_version": "v1" },
+                },
+            },
+        }),
+    )
+    .await;
+    assert_eq!(cognition["error"]["code"], "capability_missing", "{cognition}");
     assert!(
-        response["error"]["message"]
+        cognition["error"]["message"]
             .as_str()
             .unwrap_or_default()
             .contains("spoke-cognition"),
-        "the deny names the cognition family: {response}"
+        "the deny names the cognition family: {cognition}"
     );
     assert!(seen.lock().expect("seen").is_empty());
     assert!(store.calls().is_empty());
     responder.close();
 
-    // ...and with the family negotiated the raw §2.2 diagnosis answers the
-    // invalid subtree (`invalid_input`), still before admission or the store.
+    // Both gates pass: the malformed subtree is still an input failure, while
+    // a well-formed but unavailable requirement keeps its §2.2 diagnosis.
     let store = Arc::new(ScopedKnowledgeStore::default());
     let seen = Arc::new(Mutex::new(Vec::new()));
     let ports = scoped_knowledge_ports(&store, scope_of("scope-a"), &seen);
@@ -7984,16 +8038,33 @@ async fn scoped_knowledge_marker_gate_reads_the_raw_scope_past_a_deferred_cognit
         seed,
         &session,
         0,
-        "scoped-deferred-cognition-diagnosis",
+        "scoped-shape-first-all-gates",
         "port.knowledge.get",
-        payload,
+        malformed,
     )
     .await;
-    assert_eq!(response["error"]["code"], "invalid_input", "{response}");
+    assert_eq!(response["error"]["code"], "INVALID_INPUT", "{response}");
+    let unavailable = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        1,
+        "scoped-shape-valid-unavailable-view",
+        "port.knowledge.get",
+        json!({
+            "entry_id": "ke-knowledge-a",
+            "scope": {
+                "scope_id": "scope-a",
+                "cognition": { "view": "recorded_at", "filter": {} },
+            },
+        }),
+    )
+    .await;
+    assert_eq!(unavailable["error"]["code"], "invalid_input", "{unavailable}");
     assert_eq!(
-        response["error"]["details"]["reason"],
+        unavailable["error"]["details"]["reason"],
         json!("unsupported_cognition_requirement"),
-        "the existing cognition diagnosis owns the rejection: {response}"
+        "the existing cognition diagnosis owns a well-formed requirement: {unavailable}"
     );
     assert!(seen.lock().expect("seen").is_empty());
     assert!(store.calls().is_empty());

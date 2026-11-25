@@ -82,7 +82,8 @@ use spoke_schemas::{
     MemoryRecordsPromoteResponse, MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse,
     MemoryReflectionsGenerateRequest, MemoryReflectionsGenerateResponse,
     MemoryReflectionsListRequest, MemoryReflectionsListResponse, MemoryReflectionsStateRequest,
-    MemoryReflectionsStateResponse, MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
+    MemoryReflectionsStateResponse, MemorySpacesCreateRequest, MemorySpacesCreateResponse,
+    MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
     MemorySpacesListRequest, MemorySpacesListResponse, MemorySpacesUnfreezeRequest,
     MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
     MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
@@ -2461,6 +2462,14 @@ impl MemoryPort for SqliteMemoryProvider {
             spaces.truncate(limit);
             reply(json!({ "spaces": spaces }))
         })
+    }
+
+    async fn create_space(
+        &self,
+        _principal: &Principal,
+        _request: MemorySpacesCreateRequest,
+    ) -> SpokeResult<MemorySpacesCreateResponse> {
+        not_served("memory.spaces.create")
     }
 
     async fn freeze_space(

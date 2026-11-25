@@ -74,8 +74,9 @@ use spoke_schemas::{
     MemoryRecordsListResponse, MemoryRecordsPromoteRequest, MemoryRecordsPromoteResponse,
     MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse, MemoryReflectionsGenerateRequest,
     MemoryReflectionsGenerateResponse, MemoryReflectionsListRequest, MemoryReflectionsListResponse,
-    MemoryReflectionsStateRequest, MemoryReflectionsStateResponse, MemorySpacesFreezeRequest,
-    MemorySpacesFreezeResponse, MemorySpacesListRequest, MemorySpacesListResponse,
+    MemoryReflectionsStateRequest, MemoryReflectionsStateResponse, MemorySpacesCreateRequest,
+    MemorySpacesCreateResponse, MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
+    MemorySpacesListRequest, MemorySpacesListResponse,
     MemorySpacesUnfreezeRequest, MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest,
     MemorySubjectsEnsureResponse, MemorySubjectsFenceRequest, MemorySubjectsFenceResponse,
     MemorySubjectsGetRequest, MemorySubjectsGetResponse, Principal, Relation, Rule, Scope,
@@ -1397,6 +1398,14 @@ impl MemoryPort for DelayedHost {
         _principal: &Principal,
         _request: MemorySpacesListRequest,
     ) -> SpokeResult<MemorySpacesListResponse> {
+        not_served()
+    }
+
+    async fn create_space(
+        &self,
+        _principal: &Principal,
+        _request: MemorySpacesCreateRequest,
+    ) -> SpokeResult<MemorySpacesCreateResponse> {
         not_served()
     }
 

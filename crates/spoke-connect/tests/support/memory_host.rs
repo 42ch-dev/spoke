@@ -60,7 +60,8 @@ use spoke_schemas::{
     MemoryRecordsPromoteResponse, MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse,
     MemoryReflectionsGenerateRequest, MemoryReflectionsGenerateResponse,
     MemoryReflectionsListRequest, MemoryReflectionsListResponse, MemoryReflectionsStateRequest,
-    MemoryReflectionsStateResponse, MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
+    MemoryReflectionsStateResponse, MemorySpacesCreateRequest, MemorySpacesCreateResponse,
+    MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
     MemorySpacesListRequest, MemorySpacesListResponse, MemorySpacesUnfreezeRequest,
     MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
     MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
@@ -1828,6 +1829,14 @@ impl MemoryPort for MemoryHost {
         _principal: &Principal,
         _request: MemorySpacesListRequest,
     ) -> SpokeResult<MemorySpacesListResponse> {
+        not_served()
+    }
+
+    async fn create_space(
+        &self,
+        _principal: &Principal,
+        _request: MemorySpacesCreateRequest,
+    ) -> SpokeResult<MemorySpacesCreateResponse> {
         not_served()
     }
 

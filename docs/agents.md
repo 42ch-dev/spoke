@@ -61,7 +61,8 @@ A docs page that contradicts `schemas/` is a docs bug. Do not generate code from
 | `ke-ownership` | `KnowledgeEntry.owner` / `disclosure`, `Scope.viewpoint` |
 | `spoke-knowledge` | the three connect knowledge port ops behind a standalone `ScopedKnowledgePort` with per-peer scope admission |
 | `spoke-connect` | the six connect envelopes |
-| `spoke-memory` | 13 memory models and 33 `memory.*` ops; `spoke-memory-reflection` and `spoke-memory-transfer` are sub-flags |
+| `spoke-memory` | 13 memory models and 34 `memory.*` ops; `spoke-memory-reflection` and `spoke-memory-transfer` are sub-flags |
+| `spoke-knowledge-scoped` | the optional `scope` member on `port.knowledge.get` / `port.knowledge.put`; declare it on both peers before sending a declared scope |
 
 ## Common traps
 
@@ -72,7 +73,7 @@ A docs page that contradicts `schemas/` is a docs bug. Do not generate code from
 - Sequences are per direction and start at 0. A response echoes `session_id`, `sequence` and `request_id`.
 - Ops results are `SpokeResult`. Branch on `ok` and `SpokeRejectCode`, never on thrown exception types.
 - Adapter writes are optimistic-concurrency controlled: `expectedBaseRevision: null` means create; a number must equal the stored revision.
-- Op dispatch rejects before any handler runs. Unknown or unnegotiated tools, static `port.*` families, `extract`, and a viewpoint-bearing Scope without `ke-ownership` answer `op_unsupported`. `capability_missing` answers a known `memory.*` op whose family is not negotiated, and a cognition-bearing request (`Scope.cognition` or `cognition_filter`) without `spoke-cognition`. Do not emulate a family you did not declare.
+- Op dispatch rejects before any handler runs. Unknown or unnegotiated tools, static `port.*` families, `extract`, a viewpoint-bearing Scope without `ke-ownership`, and a declared `scope` on knowledge get/put without `spoke-knowledge-scoped` answer `op_unsupported`. `capability_missing` answers a known `memory.*` op whose family is not negotiated, and a cognition-bearing request (`Scope.cognition` or `cognition_filter`) without `spoke-cognition`. Do not emulate a family you did not declare.
 
 ## Machine-readable bundle
 

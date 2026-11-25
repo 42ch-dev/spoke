@@ -19,7 +19,7 @@ The ops layer defines transport-agnostic request/response envelopes for core Kno
 | `check` | `CheckRequest` | `CheckResponse` | Run checker(s) over a `Scope`; returns `Finding[]` (rules via `rule_refs` and/or embedded `rules[]`) |
 | `assemble` | `AssembleRequest` | `AssembleResponse` | Return an `AssemblePacket` for a `Scope` (structure only) |
 
-Each operation has a paired request and response schema. Optional families add their own pairs: `project` / `compute` under `l2-computable`, `extract` under `ke-extraction`, and the 33-op `spoke-memory` family.
+Each operation has a paired request and response schema. Optional families add their own pairs: `project` / `compute` under `l2-computable`, `extract` under `ke-extraction`, and the 34-op `spoke-memory` family.
 
 ## One failure dialect
 
@@ -166,11 +166,11 @@ When `scope.cognition` is present, `packet.cognition` is a `CognitionProjection`
 
 ## Optional family (`spoke-memory`)
 
-Thirty-three ops across three capability flags for per-subject memory. Every op has a paired request/response schema named `memory-<segments>-{request,response}.schema.json` — `memory.records.promote` becomes `memory-records-promote-request.schema.json` / `memory-records-promote-response.schema.json`.
+Thirty-four ops across three capability flags for per-subject memory. Every op has a paired request/response schema named `memory-<segments>-{request,response}.schema.json` — `memory.records.promote` becomes `memory-records-promote-request.schema.json` / `memory-records-promote-response.schema.json`.
 
 | Capability | Ops |
 |------------|-----|
-| `spoke-memory` | 25 core ops: `memory.describe`, `memory.spaces.list` / `.freeze` / `.unfreeze`, `memory.subjects.ensure` / `.get` / `.fence`, `memory.grants.list` / `.grant` / `.revoke`, `memory.capture`, `memory.candidates.list` / `.get` / `.dismiss` / `.review`, `memory.records.create` / `.get` / `.update` / `.delete` / `.list` / `.promote`, `memory.recall`, `memory.profile.get` / `.update`, `memory.receipts.get` |
+| `spoke-memory` | 26 core ops: `memory.describe`, `memory.spaces.create` / `.list` / `.freeze` / `.unfreeze`, `memory.subjects.ensure` / `.get` / `.fence`, `memory.grants.list` / `.grant` / `.revoke`, `memory.capture`, `memory.candidates.list` / `.get` / `.dismiss` / `.review`, `memory.records.create` / `.get` / `.update` / `.delete` / `.list` / `.promote`, `memory.recall`, `memory.profile.get` / `.update`, `memory.receipts.get` |
 | `spoke-memory-reflection` | `memory.reflections.state`, `.list`, `.generate` |
 | `spoke-memory-transfer` | `memory.exports.create`, `.get`, `memory.imports.stage`, `.activate`, `.discard` |
 
@@ -189,4 +189,4 @@ Thirty-three ops across three capability flags for per-subject memory. Every op 
 - [Data model reference](/reference/data-model) — the objects these envelopes carry.
 - [Cognition records](/reference/data-model#cognition-spoke-cognition) — record shapes, `q`, the closed filter grammar and projections.
 - [Connect reference](/reference/connect) — ops envelopes wrapped as opaque invoke payloads.
-- [Memory reference](/reference/memory) — the optional `spoke-memory` family's 33 ops, capability split, and provider guidance.
+- [Memory reference](/reference/memory) — the optional `spoke-memory` family's 34 ops, capability split, and provider guidance.

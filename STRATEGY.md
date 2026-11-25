@@ -11,7 +11,7 @@ It defines JSON Schema wire contracts for KnowledgeEntry data and operations, at
 | Deliverable | Role |
 |-------------|------|
 | **Normative specs** | `.agents/specs/` — protocol umbrella, L0–L8 layers, data model, ops wire, operations library |
-| **`schemas/`** | Draft-07 SSOT (**123** files — see [`spoke-protocol.md`](.agents/specs/protocol/spoke-protocol.md)) |
+| **`schemas/`** | Draft-07 SSOT (**125** files — see [`spoke-protocol.md`](.agents/specs/protocol/spoke-protocol.md)) |
 | **`@42ch/spoke-schemas`** | Generated TypeScript types (published to npm) |
 | **`@42ch/spoke-operations`** | Hand-written lifecycle helpers, capability-sliced adapter port contracts, and injection orchestration over wire types (published to npm) |
 | **`spoke-schemas`** (Rust crate) | Generated Rust types (published to crates.io) |

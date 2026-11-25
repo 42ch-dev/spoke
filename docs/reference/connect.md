@@ -176,6 +176,7 @@ Each operation maps to the capability it requires on the session's `negotiated_c
 | `project`, `compute` (and `port.computable.*`) | `l2-computable` |
 | `listForkTimelineEvents` (and `port.fork.*`) | `l5-fork` |
 | `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, `port.fork.list_timeline_events` carrying a non-empty `scope.viewpoint` | The row capability **plus** `ke-ownership` |
+| `port.knowledge.get`, `port.knowledge.put` declaring a `scope` | The row capability **plus** `spoke-knowledge-scoped` |
 | Product-defined operations | The capability the product documents |
 
 `assemble` is classified as `spoke-baseline` by the capability gate, but the responder has no `assemble` serving arm. Assembly is executed locally by `orchestrateAssemble`; the baseline classification governs capability checks, not remote op serving.
@@ -188,8 +189,8 @@ The RemoteAdapter proxies each `BaselinePorts` method as a connect invoke with a
 
 | Method | `op` | Request `payload` | Success `payload` |
 |--------|------|-------------------|-------------------|
-| `getKnowledgeEntry` | `port.knowledge.get` | `{ "entry_id": string }` | `KnowledgeEntry` |
-| `putKnowledgeEntry` | `port.knowledge.put` | `{ "entry": KnowledgeEntry, "expected_base_revision": number \| null }` | `KnowledgeEntry` |
+| `getKnowledgeEntry` | `port.knowledge.get` | `{ "entry_id": string, "scope"?: Scope }` | `KnowledgeEntry` |
+| `putKnowledgeEntry` | `port.knowledge.put` | `{ "entry": KnowledgeEntry, "expected_base_revision": number \| null, "scope"?: Scope }` | `KnowledgeEntry` |
 | `getRelation` | `port.relation.get` | `{ "relation_id": string }` | `Relation` |
 | `putRelation` | `port.relation.put` | `{ "relation": Relation, "expected_base_revision": number \| null }` | `Relation` |
 | `listKnowledgeEntries` | `port.scope.list_knowledge_entries` | `{ "scope": Scope }` | `KnowledgeEntry[]` |
@@ -252,7 +253,15 @@ Each `PortsHandler` method takes the request payload as a JSON string and return
 
 A `RemoteKnowledgeFace` combines a `ScopedKnowledgePort` store with `admission(peerId)` (Rust: `KnowledgeAdmission`). The responder checks the dispatch capability, Scope ownership/cognition requirements and declaration, decodes the request, probes the knowledge face, and then admits the authenticated peer. Admission refusals and list-scope mismatches return `NOT_AUTHORIZED` with no entry-existence details.
 
-For knowledge listing, the request's `scope_id` and `viewpoint` equal the admitted values. Requested `entry_ids` and `timeline_event_ids` are intersected with their admitted sets, and those intersections are passed to the store; an empty intersection returns no results. These id filters never widen admission and never refuse because an id lies outside the admitted set. Requested `entry_types` may be a subset of the admitted set, while scalar constraints (`source_id`, `timeline_scale`, `fork_id`), when present, must equal the admitted values; only a value outside these admitted constraints refuses `NOT_AUTHORIZED` before the store. Knowledge get and put receive the admitted Scope directly. A baseline host serving these ops declares `spoke-knowledge` explicitly and attaches the knowledge face; a knowledge-only host declares only the capabilities it serves and attaches only that face.
+For knowledge listing, the request's `scope_id` and `viewpoint` equal the admitted values. Requested `entry_ids` and `timeline_event_ids` are intersected with their admitted sets, and those intersections are passed to the store; an empty intersection returns no results. These id filters never widen admission and never refuse because an id lies outside the admitted set. Requested `entry_types` may be a subset of the admitted set, while scalar constraints (`source_id`, `timeline_scale`, `fork_id`), when present, must equal the admitted values; only a value outside these admitted constraints refuses `NOT_AUTHORIZED` before the store. Knowledge get and put use the admitted Scope directly when the request declares none: an optional `scope` member must equal the admitted scope, so a peer cannot read or write another Mind's collection through the admitted face. A baseline host serving these ops declares `spoke-knowledge` explicitly and attaches the knowledge face; a knowledge-only host declares only the capabilities it serves and attaches only that face.
+
+#### Optional request scope (`spoke-knowledge-scoped`)
+
+`getKnowledgeEntry` and `putKnowledgeEntry` accept an optional `scope: Scope`, the same carrier the query ops take. A declared scope must be supported by both peers: the host advertises `spoke-knowledge-scoped`, the session's `negotiated_capabilities` must contain it, and a peer that declared no marker answers the dispatch deny `op_unsupported` before any store call. A declared scope is never dropped silently — the responder serves it or refuses it.
+
+Serving order for the two ops when a scope is declared: scope shape (`INVALID_INPUT` when malformed, including a JSON `null`), marker (`op_unsupported` when unnegotiated), the `ke-ownership` conjunct for a viewpoint-bearing scope, the `spoke-cognition` conjunct for a cognition-bearing selection, payload decode, knowledge-face probe, admission with the declared selector, declared-versus-admitted equality (`NOT_AUTHORIZED` with `knowledge scope not authorized` and no entry-existence detail), then the store. A request that omits `scope` keeps the admitted scope and the pre-existing order.
+
+The adapter names the scope explicitly and takes it as a required argument: `getKnowledgeEntryInScope(entryId: string, scope: Scope | null)` / `putKnowledgeEntryInScope(entry, expectedBaseRevision: number | null, scope: Scope | null)` (Rust `get_knowledge_entry_in_scope(entry_id, scope: Option<&Scope>)` / `put_knowledge_entry_in_scope(entry, expected_base_revision, scope: Option<&Scope>)`). A `null` scope (Rust `None`) is the unscoped request and sends the plain get/put payload. It attaches the member only under a negotiated marker and otherwise refuses locally with `CAPABILITY_PORT_MISSING` and `details.wire_code = "op_unsupported"` without sending, so neither side can silently serve the wrong Mind.
 
 ### Drive (adapter)
 

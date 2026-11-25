@@ -58,7 +58,8 @@ title: 面向 Agent
 | `ke-ownership` | `KnowledgeEntry.owner` / `disclosure`、`Scope.viewpoint` |
 | `spoke-knowledge` | 独立 `ScopedKnowledgePort` 与逐对等节点作用域准入之后的三个 connect 知识 port 操作 |
 | `spoke-connect` | 六个 connect 信封 |
-| `spoke-memory` | 13 个 memory 模型与 33 个 `memory.*` ops；`spoke-memory-reflection` 与 `spoke-memory-transfer` 为子标志 |
+| `spoke-knowledge-scoped` | `port.knowledge.get` / `port.knowledge.put` 上可选的 `scope` 成员；声明并发送作用域前须在双方都声明该标志 |
+| `spoke-memory` | 13 个 memory 模型与 34 个 `memory.*` ops；`spoke-memory-reflection` 与 `spoke-memory-transfer` 为子标志 |
 
 ## 常见陷阱
 

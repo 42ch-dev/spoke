@@ -20,7 +20,7 @@ Wire authority stays in root [`schemas/`](../../schemas/); these pages describe 
 | [`connect/connect-publish-strategy.md`](connect/connect-publish-strategy.md) | Published surface inventory, registry channels, auth, binding disposition |
 | [`connect/connect-cpp-binding.md`](connect/connect-cpp-binding.md) | C/C++ carrier ABI, C++17 convenience layer, native artifact rules |
 | [`connect/connect-csharp-binding.md`](connect/connect-csharp-binding.md) | C# binding surface, regenerate/build/run, fork drop condition |
-| [`memory/spoke-memory.md`](memory/spoke-memory.md) | `spoke-memory` family: models, invariants, 33 ops, wire mapping |
+| [`memory/spoke-memory.md`](memory/spoke-memory.md) | `spoke-memory` family: models, invariants, 34 ops, wire mapping |
 | [`cognition/spoke-cognition-data-contract.md`](cognition/spoke-cognition-data-contract.md) | Cognition records, attribution, projections, Memory carrier, pure helpers |
 | [`cognition/spoke-cognition-consumer-contract.md`](cognition/spoke-cognition-consumer-contract.md) | Served-surface conformance, negotiation, library ownership |
 | [`domain-profiles/domain-profile-narrative-structure.md`](domain-profiles/domain-profile-narrative-structure.md) | Narrative-structure profile: Beat senses, `precedes`, `structural_role` |

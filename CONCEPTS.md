@@ -222,7 +222,7 @@ Integrators may map one local mental fact to one or more of these surfaces. SPOK
 | Term | In SPOKE |
 |------|----------|
 | **KnowledgeEntry** | Portable wire envelope for one KB entry |
-| **World KB / Author Memory** | World KB stays a product-local store mapped via adapters. Author Memory is standardized as the optional `spoke-memory` capability family ([`spoke-memory.md`](.agents/specs/memory/spoke-memory.md)) — thirteen models, 33 `memory.*` ops, standalone `MemoryPort`. A product that does not implement the family keeps memory product-local and MUST NOT emulate memory semantics through baseline objects (`MEM-R019`) |
+| **World KB / Author Memory** | World KB stays a product-local store mapped via adapters. Author Memory is standardized as the optional `spoke-memory` capability family ([`spoke-memory.md`](.agents/specs/memory/spoke-memory.md)) — thirteen models, 34 `memory.*` ops, standalone `MemoryPort`. A product that does not implement the family keeps memory product-local and MUST NOT emulate memory semantics through baseline objects (`MEM-R019`) |
 | **Rule** | L6 declarative wire object + `check` input |
 | **TimelineEvent / TimelineScale** | L5 when-axis object + `brief` / `narrative` / `moment` vocabulary |
 | **CognitionRecord / Scope.cognition** | Optional `spoke-cognition` records on the holder KnowledgeEntry — Belief, epistemic (knowledge/ignorance/undetermined), Perception — with mandatory `q`; `Scope.cognition` filters/projections and Memory `Content.cognition` |

@@ -62,22 +62,6 @@ export type HistoryAdmission = (
   scopeId?: string,
 ) => SpokeResult<{ principal: Principal; scope: Scope }>;
 
-/**
- * note: the scope selector a `history.*` request declares on the wire, or
- * `undefined` when it names none. Read from the raw payload because admission
- * runs before the typed decode.
- */
-function declaredScopeId(payload: unknown): string | undefined {
-  if (!isJsonObject(payload)) {
-    return undefined;
-  }
-  const scope = payload.scope;
-  if (!isJsonObject(scope) || typeof scope.scope_id !== "string") {
-    return undefined;
-  }
-  return scope.scope_id;
-}
-
 /** note: `history.revisions.get` wire op. */
 export const HISTORY_OP_GET = "history.revisions.get";
 /** note: `history.revisions.prune` wire op. */
@@ -558,15 +542,19 @@ export class HistoryPortService implements RemoteHistoryService {
     op: string,
     payload: unknown,
   ): Promise<SpokeResult<unknown>> {
-    const admitted = this.#admission(peerId, declaredScopeId(payload));
-    if (!admitted.ok) {
-      return admitted;
-    }
+    // note: the closed request decode runs BEFORE admission (contract: a
+    // malformed payload answers INVALID_INPUT before admission, dedup and any
+    // port call; Rust parity: `decode_history_call` then `admit`). The
+    // selector therefore comes from the decoded call, never the raw payload.
     const decoded = decodeHistoryCall(op, payload);
     if (!decoded.ok) {
       return decoded;
     }
     const call = decoded.value;
+    const admitted = this.#admission(peerId, call.scope?.scope_id);
+    if (!admitted.ok) {
+      return admitted;
+    }
     const { principal, scope: admittedScope } = admitted.value;
     // note: a present request scope MUST equal the admitted scope (contract
     // §Connect operations); equality is membership-independent — canonical

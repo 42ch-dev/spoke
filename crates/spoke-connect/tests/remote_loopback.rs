@@ -5356,6 +5356,27 @@ async fn start_raw_ke_responder(
     start_raw_ke_responder_with_budget(ports, capabilities, None).await
 }
 
+/// [`start_raw_ke_responder`] with no ports face configured, so a raw request
+/// can prove the knowledge payload decode still precedes the absent-ports
+/// probe.
+async fn start_raw_responder_without_ports(
+    capabilities: &[&str],
+) -> (Arc<ConnectResponder>, LoopbackTransportPair, [u8; 32]) {
+    let pair = loopback_transport_pair();
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let responder = connect_responder(ConnectResponderOptions {
+        transport: Arc::new(pair.server.clone()),
+        identity: RemoteIdentity { seed: seed_host() },
+        manifest: ke_remote_manifest("test-responder", capabilities),
+        allowlist: vec![peer_id_client.clone()],
+        peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
+        ports: None,
+        invoke_timeout_ms: None,
+    })
+    .await;
+    (responder, pair, seed_client())
+}
+
 /// [`start_raw_ke_responder`] with an explicit local serve-wait budget, so a
 /// serve-bound witness can drive a raw request the typed adapter cannot
 /// express against a zero/short budget.
@@ -8105,7 +8126,12 @@ async fn the_shared_request_scope_matrix_matches_the_responder_verdicts() {
         store.seed(&admitted, scoped_entry("ke-knowledge-a", "alpha"));
         let seen = Arc::new(Mutex::new(Vec::new()));
         let ports = scoped_knowledge_ports(&store, admitted.clone(), &seen);
-        let (responder, pair, seed) = start_raw_ke_responder(ports, &capabilities).await;
+        let absence = case.get("ports").and_then(Value::as_str) == Some("absent");
+        let (responder, pair, seed) = if absence {
+            start_raw_responder_without_ports(&capabilities).await
+        } else {
+            start_raw_ke_responder(ports, &capabilities).await
+        };
         let session_id = raw_handshake(
             &pair.client,
             seed,

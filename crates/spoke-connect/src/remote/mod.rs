@@ -230,6 +230,19 @@ pub(crate) fn validate_scope_declaration(
             ));
         }
     }
+    // A present JSON `null` cognition subtree is malformed shape for the
+    // optional-scope knowledge ops: the generated `Scope` decodes it as an
+    // absent selection, which would let the marker/cognition gates answer
+    // before the shape (A2-D3 shape-first). The required-scope query ops keep
+    // their existing deferred §2.2 diagnosis.
+    if optional_scope_op(op)
+        && matches!(
+            scope.as_object().and_then(|scope| scope.get("cognition")),
+            Some(Value::Null)
+        )
+    {
+        return Err(invalid("scope.cognition must be an object, not null".to_owned()));
+    }
     Scope::deserialize(scope)
         .map(Some)
         .map_err(|error| invalid(error.to_string()))

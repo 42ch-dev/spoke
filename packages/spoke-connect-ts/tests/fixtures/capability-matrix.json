@@ -59,6 +59,34 @@
       "allowed": false
     },
     {
+      "op": "port.knowledge.get",
+      "table": "product",
+      "negotiated": ["spoke-knowledge-scoped"],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.knowledge.get",
+      "table": "product",
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "required": "spoke-knowledge",
+      "allowed": true
+    },
+    {
+      "op": "port.knowledge.put",
+      "table": "product",
+      "negotiated": ["spoke-knowledge-scoped"],
+      "required": "spoke-knowledge",
+      "allowed": false
+    },
+    {
+      "op": "port.knowledge.put",
+      "table": "product",
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "required": "spoke-knowledge",
+      "allowed": true
+    },
+    {
       "op": "port.scope.list_knowledge_entries",
       "table": "product",
       "negotiated": ["spoke-knowledge"],

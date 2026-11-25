@@ -261,7 +261,7 @@ Provider 面是 operations crate 的契约（`@42ch/spoke-operations`）；组�
 
 两个操作在声明作用域时的服务顺序：作用域形状（畸形，包括 JSON `null`，返回 `INVALID_INPUT`）→ 标志（未协商返回 `op_unsupported`）→ 带 `viewpoint` 作用域的 `ke-ownership` 合取 → 带认知选择时的 `spoke-cognition` 合取 → 载荷解码 → 知识面探测 → 以声明选择器为准的准入 → 声明值与准入值相等性校验（不相等返回 `NOT_AUTHORIZED`，消息 `knowledge scope not authorized`，不透露条目是否存在）→ 存储。省略 `scope` 的请求保持准入作用域与既有顺序。
 
-adapter 显式命名作用域：`getKnowledgeEntryInScope(entryId, scope?)` / `putKnowledgeEntryInScope(entry, expectedBaseRevision, scope?)`（Rust `get_knowledge_entry_in_scope` / `put_knowledge_entry_in_scope`）。仅在标志已协商时附带该成员，否则在本地以 `CAPABILITY_PORT_MISSING` 与 `details.wire_code = "op_unsupported"` 拒绝且不发送，因此任何一侧都无法静默地在错误的 Mind 上服务。
+adapter 显式命名作用域，且该参数为必填：`getKnowledgeEntryInScope(entryId: string, scope: Scope | null)` / `putKnowledgeEntryInScope(entry, expectedBaseRevision: number | null, scope: Scope | null)`（Rust `get_knowledge_entry_in_scope(entry_id, scope: Option<&Scope>)` / `put_knowledge_entry_in_scope(entry, expected_base_revision, scope: Option<&Scope>)`）。`scope` 为 `null`（Rust `None`）即不带作用域的请求，发送普通 get/put 载荷。仅在标志已协商时附带该成员，否则在本地以 `CAPABILITY_PORT_MISSING` 与 `details.wire_code = "op_unsupported"` 拒绝且不发送，因此任何一侧都无法静默地在错误的 Mind 上服务。
 
 ### 驱动（adapter）
 

@@ -231,7 +231,7 @@ Thirty-four ops across three capability flags for per-subject memory. **Not** ba
 
 | Capability | Ops | Family |
 |------------|-----|--------|
-| `spoke-memory` | `memory.describe`, `memory.spaces.list`, `memory.spaces.freeze`, `memory.spaces.unfreeze`, `memory.subjects.ensure`, `memory.subjects.get`, `memory.subjects.fence`, `memory.grants.list`, `memory.grants.grant`, `memory.grants.revoke`, `memory.capture`, `memory.candidates.list`, `memory.candidates.get`, `memory.candidates.dismiss`, `memory.candidates.review`, `memory.records.create`, `memory.records.get`, `memory.records.update`, `memory.records.delete`, `memory.records.list`, `memory.records.promote`, `memory.recall`, `memory.profile.get`, `memory.profile.update`, `memory.receipts.get` | Core (25 ops) |
+| `spoke-memory` | `memory.describe`, `memory.spaces.create`, `memory.spaces.list`, `memory.spaces.freeze`, `memory.spaces.unfreeze`, `memory.subjects.ensure`, `memory.subjects.get`, `memory.subjects.fence`, `memory.grants.list`, `memory.grants.grant`, `memory.grants.revoke`, `memory.capture`, `memory.candidates.list`, `memory.candidates.get`, `memory.candidates.dismiss`, `memory.candidates.review`, `memory.records.create`, `memory.records.get`, `memory.records.update`, `memory.records.delete`, `memory.records.list`, `memory.records.promote`, `memory.recall`, `memory.profile.get`, `memory.profile.update`, `memory.receipts.get` | Core (26 ops) |
 | `spoke-memory-reflection` | `memory.reflections.state`, `memory.reflections.list`, `memory.reflections.generate` | Optional; requires `spoke-memory` |
 | `spoke-memory-transfer` | `memory.exports.create`, `memory.exports.get`, `memory.imports.stage`, `memory.imports.activate`, `memory.imports.discard` | Optional; requires `spoke-memory` |
 

@@ -104,6 +104,10 @@ pub const EXPORT_RETENTION_SECONDS: i64 = 86_400;
 /// Fixed clock origin: repeated runs produce identical timestamps.
 pub const CLOCK_ORIGIN: &str = "2026-07-23T06:00:00Z";
 
+/// The single authoritative provider for spaces it creates (MEM-R001); this
+/// reference provider is the authority for every space in its document.
+pub const AUTHORITY_HOST_ID: &str = "host_sqlite_reference";
+
 fn reject<T>(code: SpokeRejectCode, message: impl Into<String>) -> SpokeResult<T> {
     spoke_reject(code, message, None)
 }
@@ -2464,12 +2468,103 @@ impl MemoryPort for SqliteMemoryProvider {
         })
     }
 
+    /// `memory.spaces.create` (§7.0.6): caller-named `space_id`, one transaction
+    /// that inserts the space row plus the creator's space-wide default grant,
+    /// or a no-op success on an existing space (MEM-R007: no revision bump).
+    /// Refusal order is shape → dedup replay → admin on an existing space →
+    /// freeze (A3-D5), so a replay survives a later freeze and an existing id
+    /// never answers with existence detail.
     async fn create_space(
         &self,
-        _principal: &Principal,
-        _request: MemorySpacesCreateRequest,
+        principal: &Principal,
+        request: MemorySpacesCreateRequest,
     ) -> SpokeResult<MemorySpacesCreateResponse> {
-        not_served("memory.spaces.create")
+        const OP: &str = "memory.spaces.create";
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let key = text_field(&request_value, "idempotency_key");
+        // The caller names the id and the dedup key: both are trust-boundary
+        // input (the typed boundary enforces the schema ranges; this keeps the
+        // provider honest on its own).
+        if space_id.is_empty() || key.is_empty() {
+            return reject(
+                SpokeRejectCode::InvalidInput,
+                format!("{OP} requires a non-empty space_id and idempotency_key"),
+            );
+        }
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            if let Some(space) = document.spaces.get_mut(&space_id) {
+                if let Some(outcome) =
+                    Self::replay_outcome(space, &principal_id, OP, &key, &digest)
+                {
+                    return outcome;
+                }
+                let requirement = Self::admin_requirement();
+                tri!(Self::require(space, now, &principal_id, &requirement, OP));
+                if space.frozen {
+                    // §8.2: creating is not a maintenance op, so a repeat
+                    // create is refused even for the space admin.
+                    return reject(SpokeRejectCode::SpaceFrozen, "space is frozen");
+                }
+                // No-op success: no space, grant or revision write; the
+                // receipt itself is still recorded (MEM-R008).
+                let mut receipt = Self::receipt(space, now, OP, &principal_id, &digest, &key);
+                receipt["result"] = json!({
+                    "space_id": space_id,
+                    "status": "active",
+                    "created": false,
+                    "revision": space.revision,
+                });
+                tri!(Self::remember(space, now, &principal_id, OP, &key, &digest, &receipt));
+                return SpokeResult::Ok(receipt);
+            }
+            let grant_id = "grt_sqlite_0001".to_string();
+            let mut space = Space {
+                space_id: space_id.clone(),
+                display_name: request_value["display_name"].as_str().map(str::to_string),
+                authority_host_id: AUTHORITY_HOST_ID.to_string(),
+                authority_generation: 1,
+                revision: 1,
+                created_at: CLOCK_ORIGIN.to_string(),
+                state_epoch: 1,
+                ..Space::default()
+            };
+            space.grants.insert(
+                grant_id.clone(),
+                json!({
+                    "schema_version": 1,
+                    "grant_id": grant_id,
+                    "space_id": space_id.clone(),
+                    "principal_id": principal_id,
+                    "capabilities": [
+                        "recall",
+                        "capture",
+                        "review",
+                        "records_write",
+                        "knowledge_read",
+                        "knowledge_write",
+                        "admin",
+                    ],
+                    "created_at": CLOCK_ORIGIN,
+                    "revision": 1,
+                    "extensions": {},
+                }),
+            );
+            let mut receipt = Self::receipt(&mut space, now, OP, &principal_id, &digest, &key);
+            receipt["result"] = json!({
+                "space_id": space_id.clone(),
+                "status": "active",
+                "created": true,
+                "revision": 1,
+            });
+            tri!(Self::remember(&mut space, now, &principal_id, OP, &key, &digest, &receipt));
+            document.spaces.insert(space_id, space);
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
 
     async fn freeze_space(

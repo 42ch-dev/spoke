@@ -29,6 +29,7 @@ namespaces) is asserted separately.
 | `candidate-consumption.json` | 4 | 1 | 3 | 0 |
 | `grant-coverage.json` | 12 | 0 | 12 | 0 |
 | `space-freeze.json` | 12 | 8 | 4 | 0 |
+| `space-create.json` | 10 | 0 | 10 | 0 |
 | `subject-fencing.json` | 5 | 2 | 3 | 0 |
 | `cursor-invalidation.json` | 2 | 0 | 2 | 0 |
 | `transfer-chunks.json` | 8 | 4 | 4 | 0 |
@@ -38,7 +39,14 @@ namespaces) is asserted separately.
 | `classification.json` | 8 | 7 | 1 | 8 |
 | `recall-budget.json` | 6 | 5 | 1 | 6 |
 
-Totals: 78 cases — 34 engine, 44 wire, 14 variable.
+Totals: 88 cases — 34 engine, 54 wire, 14 variable.
+
+`space-create.json` is the executable contract for `memory.spaces.create`
+(§7.0.6): the caller-named `space_id`, the one-transaction space row plus the
+creator's space-wide default grant, the no-op repeat (`created: false`, no
+space/grant/revision write, its own receipt still recorded), the refusal order
+(shape → replay → admin on an existing space → freeze), and the absence of a
+subject and of any existence detail on a refused create.
 
 `assets/tw-minimal-export.json` is a sealed `MemoryExportBundle` (real JCS
 `digest`) shared by the transfer, staging and import-staleness scenarios. It

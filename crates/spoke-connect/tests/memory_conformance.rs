@@ -5,8 +5,9 @@
 //! provider and the loopback `MemoryHost` (`tests/support/memory_host.rs`,
 //! serving transfer). Each leg records one terminal outcome per case (pass /
 //! documented inconclusive / fail); both columns print and the test asserts
-//! both are terminal — SQLite 44/44 pass, the loopback column pass or
-//! documented inconclusive with its gap reason, never fail.
+//! both are terminal — the SQLite reference column passes every wire case, and
+//! the loopback column is pass or documented inconclusive with its gap reason,
+//! never fail.
 //!
 //! One `invoke(op, payload) -> Value` driver: over Connect an invoke carries JSON,
 //! so the interpreter needs no typed per-op dispatch. The expect vocabulary,
@@ -952,6 +953,13 @@ fn print_column(label: &str, report: &Report) {
 
 #[test]
 fn corpus_interpreter_runs_against_both_memory_providers() {
+    // Both columns must execute every wire case the corpus carries; the count
+    // is derived so adding a vector cannot silently shrink a column.
+    let wire_cases = load_scenarios()
+        .iter()
+        .flat_map(|scenario| scenario.cases.iter())
+        .filter(|case| case["surface"] == "wire")
+        .count();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1005,15 +1013,15 @@ fn corpus_interpreter_runs_against_both_memory_providers() {
     print_column("sqlite", &sqlite);
     print_column("loopback", &loopback);
 
-    assert_eq!(sqlite.rows.len(), 44, "all wire cases are executed");
+    assert_eq!(sqlite.rows.len(), wire_cases, "all wire cases are executed");
     let sqlite_passed = sqlite
         .rows
         .iter()
         .filter(|(_, _, outcome)| *outcome == Outcome::Pass)
         .count();
     assert_eq!(
-        sqlite_passed, 44,
-        "the SQLite reference column passes 44/44"
+        sqlite_passed, wire_cases,
+        "the SQLite reference column passes every wire case"
     );
     let sqlite_failed = sqlite
         .rows
@@ -1027,7 +1035,7 @@ fn corpus_interpreter_runs_against_both_memory_providers() {
 
     assert_eq!(
         loopback.rows.len(),
-        44,
+        wire_cases,
         "the loopback column runs every wire case to a terminal outcome"
     );
     let loopback_failed = loopback

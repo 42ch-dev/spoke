@@ -9885,6 +9885,57 @@ impl Shared7 {
         Default::default()
     }
 }
+#[doc = "The space's current status (§8.2); \"active\" on creation."]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SpaceCreateStatus {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "frozen")]
+    Frozen,
+}
+impl ::std::fmt::Display for SpaceCreateStatus {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Active => f.write_str("active"),
+            Self::Frozen => f.write_str("frozen"),
+        }
+    }
+}
+impl ::std::str::FromStr for SpaceCreateStatus {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "active" => Ok(Self::Active),
+            "frozen" => Ok(Self::Frozen),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SpaceCreateStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SpaceCreateStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 #[doc = "`SpaceId`"]
 #[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
@@ -10091,7 +10142,7 @@ pub struct SpacesCreatePollBranchVariant0Result {
     pub revision: ::std::num::NonZeroU64,
     pub space_id: SpaceId,
     #[doc = "The space's current status (§8.2); \"active\" on creation."]
-    pub status: Status,
+    pub status: SpaceCreateStatus,
 }
 impl SpacesCreatePollBranchVariant0Result {
     pub fn builder() -> builder::SpacesCreatePollBranchVariant0Result {
@@ -11029,7 +11080,7 @@ impl StagedReport {
         Default::default()
     }
 }
-#[doc = "The space's current status (§8.2); \"active\" on creation."]
+#[doc = "`Status`"]
 #[derive(
     :: serde :: Deserialize,
     :: serde :: Serialize,
@@ -11045,14 +11096,17 @@ impl StagedReport {
 pub enum Status {
     #[serde(rename = "active")]
     Active,
-    #[serde(rename = "frozen")]
-    Frozen,
+    #[serde(rename = "fenced")]
+    Fenced,
+    #[serde(rename = "archived")]
+    Archived,
 }
 impl ::std::fmt::Display for Status {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Active => f.write_str("active"),
-            Self::Frozen => f.write_str("frozen"),
+            Self::Fenced => f.write_str("fenced"),
+            Self::Archived => f.write_str("archived"),
         }
     }
 }
@@ -11061,7 +11115,8 @@ impl ::std::str::FromStr for Status {
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
             "active" => Ok(Self::Active),
-            "frozen" => Ok(Self::Frozen),
+            "fenced" => Ok(Self::Fenced),
+            "archived" => Ok(Self::Archived),
             _ => Err("invalid value".into()),
         }
     }
@@ -15476,7 +15531,7 @@ pub mod builder {
         created: ::std::result::Result<bool, ::std::string::String>,
         revision: ::std::result::Result<::std::num::NonZeroU64, ::std::string::String>,
         space_id: ::std::result::Result<super::SpaceId, ::std::string::String>,
-        status: ::std::result::Result<super::Status, ::std::string::String>,
+        status: ::std::result::Result<super::SpaceCreateStatus, ::std::string::String>,
     }
     impl ::std::default::Default for SpacesCreatePollBranchVariant0Result {
         fn default() -> Self {
@@ -15521,7 +15576,7 @@ pub mod builder {
         }
         pub fn status<T>(mut self, value: T) -> Self
         where
-            T: ::std::convert::TryInto<super::Status>,
+            T: ::std::convert::TryInto<super::SpaceCreateStatus>,
             T::Error: ::std::fmt::Display,
         {
             self.status = value

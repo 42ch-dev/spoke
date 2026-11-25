@@ -59,7 +59,7 @@
                     "frozen"
                   ],
                   "description": "The space's current status (§8.2); \"active\" on creation.",
-                  "title": "Status"
+                  "title": "SpaceCreateStatus"
                 },
                 "created": {
                   "type": "boolean",

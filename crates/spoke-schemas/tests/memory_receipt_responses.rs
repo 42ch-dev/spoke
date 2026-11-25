@@ -296,3 +296,46 @@ fn receipts_get_admits_the_spaces_create_receipt() {
         "a receipt whose op no branch emits does not poll"
     );
 }
+
+/// The create result's `active|frozen` status is its own type: a subject
+/// receipt still polls with `fenced` or `archived`, and the space-only
+/// `frozen` does not satisfy a subject result.
+#[test]
+fn receipts_get_keeps_subject_status_distinct_from_the_space_status() {
+    for (status, polls) in [("fenced", true), ("archived", true), ("frozen", false)] {
+        let poll = json!({ "receipt": {
+            "schema_version": 1,
+            "receipt_id": "rcpt_01J9A0B1C2EXAMPLE0000301",
+            "op": "memory.subjects.fence",
+            "space_id": "spc_cli_created",
+            "requester_principal_id": "prn_nexus_cli_operator",
+            "idempotency_key": "fence-subject-0001",
+            "payload_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+            "status": "committed",
+            "result": {
+                "subject_id": "subj_cli_mira",
+                "status": status,
+                "fenced_contexts": ["ctx_cli_harbor"],
+                "revision": 2
+            },
+            "created_at": "2026-10-28T09:20:01Z",
+            "completed_at": "2026-10-28T09:20:01Z",
+            "extensions": {}
+        }});
+        let parsed: Result<spoke_schemas::MemoryReceiptsGetResponse, _> =
+            serde_json::from_value(poll.clone());
+        if !polls {
+            assert!(
+                parsed.is_err(),
+                "the space-only status {status} does not satisfy a subject result"
+            );
+            continue;
+        }
+        let parsed =
+            parsed.unwrap_or_else(|error| panic!("a {status} subject receipt polls: {error}"));
+        assert_eq!(
+            serde_json::to_value(&parsed).expect("polled subject receipt serializes"),
+            poll
+        );
+    }
+}

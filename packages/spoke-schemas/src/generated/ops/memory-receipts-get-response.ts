@@ -75,7 +75,7 @@ export type SpaceId1 = string;
  * The space's current status (§8.2); "active" on creation.
  * @generated
  */
-export type Status2 = "active" | "frozen";
+export type SpaceCreateStatus = "active" | "frozen";
 /**
  * Provider-assigned.
  * @generated
@@ -90,7 +90,7 @@ export type SpaceId2 = string;
 export type RequesterPrincipalId1 = string;
 export type IdempotencyKey2 = string;
 export type PayloadDigest1 = string;
-export type Status3 = "failed";
+export type Status2 = "failed";
 /**
  * Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2).
  * @generated
@@ -144,7 +144,7 @@ export type Op3 = "memory.spaces.create";
  * @generated
  */
 export type IdempotencyKey3 = string;
-export type Status4 = "failed";
+export type Status3 = "failed";
 export type SpacesFreezePollBranch = (CommittedReceipt & AllOf4 & AllOf5) | (FailedReceipt & AllOf6 & AllOf7);
 export type Op4 = "memory.spaces.freeze";
 /**
@@ -152,15 +152,15 @@ export type Op4 = "memory.spaces.freeze";
  * @generated
  */
 export type IdempotencyKey4 = string;
-export type Status5 = "committed";
-export type Status6 = "frozen";
+export type Status4 = "committed";
+export type Status5 = "frozen";
 export type Op5 = "memory.spaces.freeze";
 /**
  * Echo when supplied — always, except memory.subjects.ensure.
  * @generated
  */
 export type IdempotencyKey5 = string;
-export type Status7 = "failed";
+export type Status6 = "failed";
 export type SpacesUnfreezePollBranch = (CommittedReceipt & AllOf8 & AllOf9) | (FailedReceipt & AllOf10 & AllOf11);
 export type Op6 = "memory.spaces.unfreeze";
 /**
@@ -168,22 +168,22 @@ export type Op6 = "memory.spaces.unfreeze";
  * @generated
  */
 export type IdempotencyKey6 = string;
-export type Status8 = "committed";
-export type Status9 = "active";
+export type Status7 = "committed";
+export type Status8 = "active";
 export type Op7 = "memory.spaces.unfreeze";
 /**
  * Echo when supplied — always, except memory.subjects.ensure.
  * @generated
  */
 export type IdempotencyKey7 = string;
-export type Status10 = "failed";
+export type Status9 = "failed";
 export type SubjectsEnsurePollBranch = (CommittedReceipt & AllOf12 & AllOf13) | (FailedReceipt & AllOf14 & AllOf15);
 export type Op8 = "memory.subjects.ensure";
-export type Status11 = "committed";
+export type Status10 = "committed";
 export type SubjectId = string;
-export type Status12 = "active" | "fenced" | "archived";
+export type Status11 = "active" | "fenced" | "archived";
 export type Op9 = "memory.subjects.ensure";
-export type Status13 = "failed";
+export type Status12 = "failed";
 export type SubjectsFencePollBranch = (CommittedReceipt & AllOf16 & AllOf17) | (FailedReceipt & AllOf18 & AllOf19);
 export type Op10 = "memory.subjects.fence";
 /**
@@ -191,16 +191,16 @@ export type Op10 = "memory.subjects.fence";
  * @generated
  */
 export type IdempotencyKey8 = string;
-export type Status14 = "committed";
+export type Status13 = "committed";
 export type SubjectId1 = string;
-export type Status15 = "active" | "fenced" | "archived";
+export type Status14 = "active" | "fenced" | "archived";
 export type Op11 = "memory.subjects.fence";
 /**
  * Echo when supplied — always, except memory.subjects.ensure.
  * @generated
  */
 export type IdempotencyKey9 = string;
-export type Status16 = "failed";
+export type Status15 = "failed";
 export type GrantsGrantPollBranch = (CommittedReceipt & AllOf20 & AllOf21) | (FailedReceipt & AllOf22 & AllOf23);
 export type Op12 = "memory.grants.grant";
 /**
@@ -208,7 +208,7 @@ export type Op12 = "memory.grants.grant";
  * @generated
  */
 export type IdempotencyKey10 = string;
-export type Status17 = "committed";
+export type Status16 = "committed";
 export type GrantId = string;
 export type Op13 = "memory.grants.grant";
 /**
@@ -216,7 +216,7 @@ export type Op13 = "memory.grants.grant";
  * @generated
  */
 export type IdempotencyKey11 = string;
-export type Status18 = "failed";
+export type Status17 = "failed";
 export type RecordsUpdatePollBranch = (CommittedReceipt & AllOf24 & AllOf25) | (FailedReceipt & AllOf26 & AllOf27);
 export type Op14 = "memory.records.update";
 /**
@@ -224,7 +224,7 @@ export type Op14 = "memory.records.update";
  * @generated
  */
 export type IdempotencyKey12 = string;
-export type Status19 = "committed";
+export type Status18 = "committed";
 export type RecordId = string;
 export type Op15 = "memory.records.update";
 /**
@@ -232,7 +232,7 @@ export type Op15 = "memory.records.update";
  * @generated
  */
 export type IdempotencyKey13 = string;
-export type Status20 = "failed";
+export type Status19 = "failed";
 export type GrantsRevokePollBranch = (CommittedReceipt & AllOf28 & AllOf29) | (FailedReceipt & AllOf30 & AllOf31);
 export type Op16 = "memory.grants.revoke";
 /**
@@ -240,7 +240,7 @@ export type Op16 = "memory.grants.revoke";
  * @generated
  */
 export type IdempotencyKey14 = string;
-export type Status21 = "committed";
+export type Status20 = "committed";
 export type GrantId1 = string;
 export type Op17 = "memory.grants.revoke";
 /**
@@ -248,7 +248,7 @@ export type Op17 = "memory.grants.revoke";
  * @generated
  */
 export type IdempotencyKey15 = string;
-export type Status22 = "failed";
+export type Status21 = "failed";
 export type CapturePollBranch = (CommittedReceipt & AllOf32 & AllOf33) | (FailedReceipt & AllOf34 & AllOf35);
 export type Op18 = "memory.capture";
 /**
@@ -256,14 +256,14 @@ export type Op18 = "memory.capture";
  * @generated
  */
 export type IdempotencyKey16 = string;
-export type Status23 = "committed";
+export type Status22 = "committed";
 export type Op19 = "memory.capture";
 /**
  * Echo when supplied — always, except memory.subjects.ensure.
  * @generated
  */
 export type IdempotencyKey17 = string;
-export type Status24 = "failed";
+export type Status23 = "failed";
 export type CandidatesDismissPollBranch = (CommittedReceipt & AllOf36 & AllOf37) | (FailedReceipt & AllOf38 & AllOf39);
 export type Op20 = "memory.candidates.dismiss";
 /**
@@ -271,7 +271,7 @@ export type Op20 = "memory.candidates.dismiss";
  * @generated
  */
 export type IdempotencyKey18 = string;
-export type Status25 = "committed";
+export type Status24 = "committed";
 export type CandidateId = string;
 export type Outcome = "dismissed";
 export type Op21 = "memory.candidates.dismiss";
@@ -280,7 +280,7 @@ export type Op21 = "memory.candidates.dismiss";
  * @generated
  */
 export type IdempotencyKey19 = string;
-export type Status26 = "failed";
+export type Status25 = "failed";
 export type CandidatesReviewPollBranch = (CommittedReceipt & AllOf40 & AllOf41) | (FailedReceipt & AllOf42 & AllOf43);
 export type Op22 = "memory.candidates.review";
 /**
@@ -288,7 +288,7 @@ export type Op22 = "memory.candidates.review";
  * @generated
  */
 export type IdempotencyKey20 = string;
-export type Status27 = "committed";
+export type Status26 = "committed";
 export type Outcome1 = "promoted" | "fragmented" | "dropped";
 export type Op23 = "memory.candidates.review";
 /**
@@ -296,7 +296,7 @@ export type Op23 = "memory.candidates.review";
  * @generated
  */
 export type IdempotencyKey21 = string;
-export type Status28 = "failed";
+export type Status27 = "failed";
 export type RecordsCreatePollBranch = (CommittedReceipt & AllOf44 & AllOf45) | (FailedReceipt & AllOf46 & AllOf47);
 export type Op24 = "memory.records.create";
 /**
@@ -304,7 +304,7 @@ export type Op24 = "memory.records.create";
  * @generated
  */
 export type IdempotencyKey22 = string;
-export type Status29 = "committed";
+export type Status28 = "committed";
 export type RecordId1 = string;
 export type Op25 = "memory.records.create";
 /**
@@ -312,7 +312,7 @@ export type Op25 = "memory.records.create";
  * @generated
  */
 export type IdempotencyKey23 = string;
-export type Status30 = "failed";
+export type Status29 = "failed";
 export type RecordsDeletePollBranch = (CommittedReceipt & AllOf48 & AllOf49) | (FailedReceipt & AllOf50 & AllOf51);
 export type Op26 = "memory.records.delete";
 /**
@@ -320,7 +320,7 @@ export type Op26 = "memory.records.delete";
  * @generated
  */
 export type IdempotencyKey24 = string;
-export type Status31 = "committed";
+export type Status30 = "committed";
 export type RecordId2 = string;
 export type Op27 = "memory.records.delete";
 /**
@@ -328,7 +328,7 @@ export type Op27 = "memory.records.delete";
  * @generated
  */
 export type IdempotencyKey25 = string;
-export type Status32 = "failed";
+export type Status31 = "failed";
 export type RecordsPromotePollBranch = (CommittedReceipt & AllOf52 & AllOf53) | (FailedReceipt & AllOf54 & AllOf55);
 export type Op28 = "memory.records.promote";
 /**
@@ -336,7 +336,7 @@ export type Op28 = "memory.records.promote";
  * @generated
  */
 export type IdempotencyKey26 = string;
-export type Status33 = "committed";
+export type Status32 = "committed";
 export type RecordId3 = string;
 /**
  * Write placement (§6.6): context_id is required iff visibility = "context" and MUST be omitted when visibility = "shared". Changed only by memory.records.promote.
@@ -352,7 +352,7 @@ export type Op29 = "memory.records.promote";
  * @generated
  */
 export type IdempotencyKey27 = string;
-export type Status34 = "failed";
+export type Status33 = "failed";
 export type ProfileUpdatePollBranch = (CommittedReceipt & AllOf56 & AllOf57) | (FailedReceipt & AllOf58 & AllOf59);
 export type Op30 = "memory.profile.update";
 /**
@@ -360,7 +360,7 @@ export type Op30 = "memory.profile.update";
  * @generated
  */
 export type IdempotencyKey28 = string;
-export type Status35 = "committed";
+export type Status34 = "committed";
 export type ProfileKind = string;
 export type Op31 = "memory.profile.update";
 /**
@@ -368,7 +368,7 @@ export type Op31 = "memory.profile.update";
  * @generated
  */
 export type IdempotencyKey29 = string;
-export type Status36 = "failed";
+export type Status35 = "failed";
 export type ReflectionsGeneratePollBranch =
   (CommittedReceipt & AllOf60 & AllOf61) | (PendingReceipt & AllOf62 & AllOf63) | (FailedReceipt & AllOf64 & AllOf65);
 export type Op32 = "memory.reflections.generate";
@@ -377,7 +377,7 @@ export type Op32 = "memory.reflections.generate";
  * @generated
  */
 export type IdempotencyKey30 = string;
-export type Status37 = "committed";
+export type Status36 = "committed";
 export type ReflectionId = string;
 export type UnitKind = string;
 /**
@@ -394,21 +394,21 @@ export type SpaceId3 = string;
 export type RequesterPrincipalId2 = string;
 export type IdempotencyKey31 = string;
 export type PayloadDigest2 = string;
-export type Status38 = "pending";
+export type Status37 = "pending";
 export type Op34 = "memory.reflections.generate";
 /**
  * Echo when supplied — always, except memory.subjects.ensure.
  * @generated
  */
 export type IdempotencyKey32 = string;
-export type Status39 = "pending";
+export type Status38 = "pending";
 export type Op35 = "memory.reflections.generate";
 /**
  * Echo when supplied — always, except memory.subjects.ensure.
  * @generated
  */
 export type IdempotencyKey33 = string;
-export type Status40 = "failed";
+export type Status39 = "failed";
 export type ExportsCreatePollBranch =
   (CommittedReceipt & AllOf66 & AllOf67) | (PendingReceipt & AllOf68 & AllOf69) | (FailedReceipt & AllOf70 & AllOf71);
 export type Op36 = "memory.exports.create";
@@ -417,7 +417,7 @@ export type Op36 = "memory.exports.create";
  * @generated
  */
 export type IdempotencyKey34 = string;
-export type Status41 = "committed";
+export type Status40 = "committed";
 export type ExportId = string;
 export type BundleDigest = string;
 export type Op37 = "memory.exports.create";
@@ -426,14 +426,14 @@ export type Op37 = "memory.exports.create";
  * @generated
  */
 export type IdempotencyKey35 = string;
-export type Status42 = "pending";
+export type Status41 = "pending";
 export type Op38 = "memory.exports.create";
 /**
  * Echo when supplied — always, except memory.subjects.ensure.
  * @generated
  */
 export type IdempotencyKey36 = string;
-export type Status43 = "failed";
+export type Status42 = "failed";
 export type ImportsStagePollBranch =
   (CommittedReceipt & AllOf72 & AllOf73) | (PendingReceipt & AllOf74 & AllOf75) | (FailedReceipt & AllOf76 & AllOf77);
 export type Op39 = "memory.imports.stage";
@@ -442,7 +442,7 @@ export type Op39 = "memory.imports.stage";
  * @generated
  */
 export type IdempotencyKey37 = string;
-export type Status44 = "committed";
+export type Status43 = "committed";
 export type ImportId = string;
 export type Op40 = "memory.imports.stage";
 /**
@@ -450,14 +450,14 @@ export type Op40 = "memory.imports.stage";
  * @generated
  */
 export type IdempotencyKey38 = string;
-export type Status45 = "pending";
+export type Status44 = "pending";
 export type Op41 = "memory.imports.stage";
 /**
  * Echo when supplied — always, except memory.subjects.ensure.
  * @generated
  */
 export type IdempotencyKey39 = string;
-export type Status46 = "failed";
+export type Status45 = "failed";
 export type ImportsActivatePollBranch =
   (CommittedReceipt & AllOf78 & AllOf79) | (PendingReceipt & AllOf80 & AllOf81) | (FailedReceipt & AllOf82 & AllOf83);
 export type Op42 = "memory.imports.activate";
@@ -466,7 +466,7 @@ export type Op42 = "memory.imports.activate";
  * @generated
  */
 export type IdempotencyKey40 = string;
-export type Status47 = "committed";
+export type Status46 = "committed";
 export type ImportId1 = string;
 export type Op43 = "memory.imports.activate";
 /**
@@ -474,14 +474,14 @@ export type Op43 = "memory.imports.activate";
  * @generated
  */
 export type IdempotencyKey41 = string;
-export type Status48 = "pending";
+export type Status47 = "pending";
 export type Op44 = "memory.imports.activate";
 /**
  * Echo when supplied — always, except memory.subjects.ensure.
  * @generated
  */
 export type IdempotencyKey42 = string;
-export type Status49 = "failed";
+export type Status48 = "failed";
 export type ImportsDiscardPollBranch = (CommittedReceipt & AllOf84 & AllOf85) | (FailedReceipt & AllOf86 & AllOf87);
 export type Op45 = "memory.imports.discard";
 /**
@@ -489,7 +489,7 @@ export type Op45 = "memory.imports.discard";
  * @generated
  */
 export type IdempotencyKey43 = string;
-export type Status50 = "committed";
+export type Status49 = "committed";
 export type ImportId2 = string;
 export type Op46 = "memory.imports.discard";
 /**
@@ -497,7 +497,7 @@ export type Op46 = "memory.imports.discard";
  * @generated
  */
 export type IdempotencyKey44 = string;
-export type Status51 = "failed";
+export type Status50 = "failed";
 /**
  * Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2).
  * @generated
@@ -585,7 +585,7 @@ export interface AllOf1 {
 }
 export interface Result {
   space_id: SpaceId1;
-  status: Status2;
+  status: SpaceCreateStatus;
   /**
    * true on creation, false on a repeat create.
    * @generated
@@ -609,7 +609,7 @@ export interface FailedReceipt {
   requester_principal_id: RequesterPrincipalId1;
   idempotency_key?: IdempotencyKey2;
   payload_digest: PayloadDigest1;
-  status: Status3;
+  status: Status2;
   error: MemoryErrorEnvelope;
   /**
    * RFC 3339 UTC datetime string.
@@ -1018,7 +1018,7 @@ export interface AllOf2 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf3 {
-  status: Status4;
+  status: Status3;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1031,12 +1031,12 @@ export interface AllOf4 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf5 {
-  status: Status5;
+  status: Status4;
   result: Result1;
   [k: string]: unknown | undefined;
 }
 export interface Result1 {
-  status: Status6;
+  status: Status5;
   pending_receipts: number;
   revision: number;
 }
@@ -1046,7 +1046,7 @@ export interface AllOf6 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf7 {
-  status: Status7;
+  status: Status6;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1059,12 +1059,12 @@ export interface AllOf8 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf9 {
-  status: Status8;
+  status: Status7;
   result: Result2;
   [k: string]: unknown | undefined;
 }
 export interface Result2 {
-  status: Status9;
+  status: Status8;
   pending_receipts: number;
   revision: number;
 }
@@ -1074,7 +1074,7 @@ export interface AllOf10 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf11 {
-  status: Status10;
+  status: Status9;
   [k: string]: unknown | undefined;
 }
 export interface AllOf12 {
@@ -1082,14 +1082,14 @@ export interface AllOf12 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf13 {
-  status: Status11;
+  status: Status10;
   result: Result3;
   [k: string]: unknown | undefined;
 }
 export interface Result3 {
   subject_id: SubjectId;
   created: boolean;
-  status: Status12;
+  status: Status11;
   revision: number;
 }
 export interface AllOf14 {
@@ -1097,7 +1097,7 @@ export interface AllOf14 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf15 {
-  status: Status13;
+  status: Status12;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1110,13 +1110,13 @@ export interface AllOf16 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf17 {
-  status: Status14;
+  status: Status13;
   result: Result4;
   [k: string]: unknown | undefined;
 }
 export interface Result4 {
   subject_id: SubjectId1;
-  status: Status15;
+  status: Status14;
   fenced_contexts: string[];
   revision: number;
 }
@@ -1126,7 +1126,7 @@ export interface AllOf18 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf19 {
-  status: Status16;
+  status: Status15;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1139,7 +1139,7 @@ export interface AllOf20 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf21 {
-  status: Status17;
+  status: Status16;
   result: Result5;
   [k: string]: unknown | undefined;
 }
@@ -1153,7 +1153,7 @@ export interface AllOf22 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf23 {
-  status: Status18;
+  status: Status17;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1166,7 +1166,7 @@ export interface AllOf24 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf25 {
-  status: Status19;
+  status: Status18;
   result: Result6;
   [k: string]: unknown | undefined;
 }
@@ -1180,7 +1180,7 @@ export interface AllOf26 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf27 {
-  status: Status20;
+  status: Status19;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1193,7 +1193,7 @@ export interface AllOf28 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf29 {
-  status: Status21;
+  status: Status20;
   result: Result7;
   [k: string]: unknown | undefined;
 }
@@ -1208,7 +1208,7 @@ export interface AllOf30 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf31 {
-  status: Status22;
+  status: Status21;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1221,7 +1221,7 @@ export interface AllOf32 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf33 {
-  status: Status23;
+  status: Status22;
   result: Result8;
   [k: string]: unknown | undefined;
 }
@@ -1235,7 +1235,7 @@ export interface AllOf34 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf35 {
-  status: Status24;
+  status: Status23;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1248,7 +1248,7 @@ export interface AllOf36 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf37 {
-  status: Status25;
+  status: Status24;
   result: Result9;
   [k: string]: unknown | undefined;
 }
@@ -1262,7 +1262,7 @@ export interface AllOf38 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf39 {
-  status: Status26;
+  status: Status25;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1275,7 +1275,7 @@ export interface AllOf40 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf41 {
-  status: Status27;
+  status: Status26;
   result: Result10;
   [k: string]: unknown | undefined;
 }
@@ -1289,7 +1289,7 @@ export interface AllOf42 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf43 {
-  status: Status28;
+  status: Status27;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1302,7 +1302,7 @@ export interface AllOf44 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf45 {
-  status: Status29;
+  status: Status28;
   result: Result11;
   [k: string]: unknown | undefined;
 }
@@ -1316,7 +1316,7 @@ export interface AllOf46 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf47 {
-  status: Status30;
+  status: Status29;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1329,7 +1329,7 @@ export interface AllOf48 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf49 {
-  status: Status31;
+  status: Status30;
   result: Result12;
   [k: string]: unknown | undefined;
 }
@@ -1343,7 +1343,7 @@ export interface AllOf50 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf51 {
-  status: Status32;
+  status: Status31;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1356,7 +1356,7 @@ export interface AllOf52 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf53 {
-  status: Status33;
+  status: Status32;
   result: Result13;
   [k: string]: unknown | undefined;
 }
@@ -1386,7 +1386,7 @@ export interface AllOf54 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf55 {
-  status: Status34;
+  status: Status33;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1399,7 +1399,7 @@ export interface AllOf56 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf57 {
-  status: Status35;
+  status: Status34;
   result: Result14;
   [k: string]: unknown | undefined;
 }
@@ -1413,7 +1413,7 @@ export interface AllOf58 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf59 {
-  status: Status36;
+  status: Status35;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1426,7 +1426,7 @@ export interface AllOf60 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf61 {
-  status: Status37;
+  status: Status36;
   result: Result15;
   [k: string]: unknown | undefined;
 }
@@ -1454,7 +1454,7 @@ export interface PendingReceipt {
   requester_principal_id: RequesterPrincipalId2;
   idempotency_key?: IdempotencyKey31;
   payload_digest: PayloadDigest2;
-  status: Status38;
+  status: Status37;
   /**
    * RFC 3339 UTC datetime string.
    * @generated
@@ -1468,7 +1468,7 @@ export interface AllOf62 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf63 {
-  status: Status39;
+  status: Status38;
   [k: string]: unknown | undefined;
 }
 export interface AllOf64 {
@@ -1477,7 +1477,7 @@ export interface AllOf64 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf65 {
-  status: Status40;
+  status: Status39;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1490,7 +1490,7 @@ export interface AllOf66 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf67 {
-  status: Status41;
+  status: Status40;
   result: Result16;
   [k: string]: unknown | undefined;
 }
@@ -1515,7 +1515,7 @@ export interface AllOf68 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf69 {
-  status: Status42;
+  status: Status41;
   [k: string]: unknown | undefined;
 }
 export interface AllOf70 {
@@ -1524,7 +1524,7 @@ export interface AllOf70 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf71 {
-  status: Status43;
+  status: Status42;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1537,7 +1537,7 @@ export interface AllOf72 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf73 {
-  status: Status44;
+  status: Status43;
   result: Result17;
   [k: string]: unknown | undefined;
 }
@@ -1594,7 +1594,7 @@ export interface AllOf74 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf75 {
-  status: Status45;
+  status: Status44;
   [k: string]: unknown | undefined;
 }
 export interface AllOf76 {
@@ -1603,7 +1603,7 @@ export interface AllOf76 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf77 {
-  status: Status46;
+  status: Status45;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1616,7 +1616,7 @@ export interface AllOf78 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf79 {
-  status: Status47;
+  status: Status46;
   result: Result18;
   [k: string]: unknown | undefined;
 }
@@ -1639,7 +1639,7 @@ export interface AllOf80 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf81 {
-  status: Status48;
+  status: Status47;
   [k: string]: unknown | undefined;
 }
 export interface AllOf82 {
@@ -1648,7 +1648,7 @@ export interface AllOf82 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf83 {
-  status: Status49;
+  status: Status48;
   [k: string]: unknown | undefined;
 }
 /**
@@ -1661,7 +1661,7 @@ export interface AllOf84 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf85 {
-  status: Status50;
+  status: Status49;
   result: Result19;
   [k: string]: unknown | undefined;
 }
@@ -1675,7 +1675,7 @@ export interface AllOf86 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf87 {
-  status: Status51;
+  status: Status50;
   [k: string]: unknown | undefined;
 }
 /**

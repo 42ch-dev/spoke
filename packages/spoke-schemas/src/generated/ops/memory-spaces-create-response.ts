@@ -50,7 +50,7 @@ export type SpaceId1 = string;
  * The space's current status (§8.2); "active" on creation.
  * @generated
  */
-export type Status2 = "active" | "frozen";
+export type SpaceCreateStatus = "active" | "frozen";
 /**
  * Provider-assigned.
  * @generated
@@ -65,7 +65,7 @@ export type SpaceId2 = string;
 export type RequesterPrincipalId1 = string;
 export type IdempotencyKey2 = string;
 export type PayloadDigest1 = string;
-export type Status3 = "failed";
+export type Status2 = "failed";
 /**
  * Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2).
  * @generated
@@ -119,7 +119,7 @@ export type Op3 = "memory.spaces.create";
  * @generated
  */
 export type IdempotencyKey3 = string;
-export type Status4 = "failed";
+export type Status3 = "failed";
 /**
  * Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2).
  * @generated
@@ -203,7 +203,7 @@ export interface AllOf1 {
 }
 export interface Result {
   space_id: SpaceId1;
-  status: Status2;
+  status: SpaceCreateStatus;
   /**
    * true on creation, false on a repeat create.
    * @generated
@@ -227,7 +227,7 @@ export interface FailedReceipt {
   requester_principal_id: RequesterPrincipalId1;
   idempotency_key?: IdempotencyKey2;
   payload_digest: PayloadDigest1;
-  status: Status3;
+  status: Status2;
   error: MemoryErrorEnvelope;
   /**
    * RFC 3339 UTC datetime string.
@@ -639,7 +639,7 @@ export interface AllOf3 {
   [k: string]: unknown | undefined;
 }
 export interface AllOf4 {
-  status: Status4;
+  status: Status3;
   [k: string]: unknown | undefined;
 }
 export interface OneOf1 {

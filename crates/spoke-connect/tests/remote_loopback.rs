@@ -7884,6 +7884,123 @@ async fn scoped_knowledge_get_put_malformed_scope_is_invalid_input() {
 }
 
 #[tokio::test]
+async fn scoped_knowledge_marker_gate_reads_the_raw_scope_past_a_deferred_cognition_subtree() {
+    // A scope with a valid baseline shape and an invalid cognition subtree
+    // fails the typed decode only on that subtree, so the responder defers the
+    // reject. The marker gate must still read the raw `scope` member: without
+    // the marker the request is an unnegotiated scope, never a cognition
+    // answer.
+    let payload = json!({
+        "entry_id": "ke-knowledge-a",
+        "scope": { "scope_id": "scope-a", "cognition": { "bogus": 1 } },
+    });
+
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope_of("scope-a"), &seen);
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &["spoke-knowledge"]).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-knowledge"]),
+    )
+    .await;
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        0,
+        "scoped-deferred-marker-absent",
+        "port.knowledge.get",
+        payload.clone(),
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "op_unsupported", "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("spoke-knowledge-scoped"),
+        "the deny is the marker refusal: {response}"
+    );
+    assert!(seen.lock().expect("seen").is_empty());
+    assert!(store.calls().is_empty());
+    responder.close();
+
+    // With the marker negotiated the cognition branch owns the rejection: the
+    // family is missing first...
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope_of("scope-a"), &seen);
+    let capabilities = ["spoke-knowledge", "spoke-knowledge-scoped"];
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &capabilities).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &capabilities),
+    )
+    .await;
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        0,
+        "scoped-deferred-cognition-family-absent",
+        "port.knowledge.get",
+        payload.clone(),
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "capability_missing", "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("spoke-cognition"),
+        "the deny names the cognition family: {response}"
+    );
+    assert!(seen.lock().expect("seen").is_empty());
+    assert!(store.calls().is_empty());
+    responder.close();
+
+    // ...and with the family negotiated the raw §2.2 diagnosis answers the
+    // invalid subtree (`invalid_input`), still before admission or the store.
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, scope_of("scope-a"), &seen);
+    let capabilities = [
+        "spoke-knowledge",
+        "spoke-knowledge-scoped",
+        "spoke-cognition",
+    ];
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &capabilities).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &capabilities),
+    )
+    .await;
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        0,
+        "scoped-deferred-cognition-diagnosis",
+        "port.knowledge.get",
+        payload,
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "invalid_input", "{response}");
+    assert_eq!(
+        response["error"]["details"]["reason"],
+        json!("unsupported_cognition_requirement"),
+        "the existing cognition diagnosis owns the rejection: {response}"
+    );
+    assert!(seen.lock().expect("seen").is_empty());
+    assert!(store.calls().is_empty());
+    responder.close();
+}
+
+#[tokio::test]
 async fn scoped_knowledge_admission_refusal_keeps_the_0_18_1_answer() {
     let store = Arc::new(ScopedKnowledgeStore::default());
     let scope = scope_of("scope-a");

@@ -2382,6 +2382,16 @@ export class ConnectResponder {
     ) {
       return;
     }
+    // note: A2-D3 step 6 before step 7 — the knowledge payload decode runs
+    // before the face probe, so a malformed payload answers INVALID_INPUT even
+    // when no ports face is configured (the absent-ports branch is the probe).
+    if (KNOWLEDGE_OPS[doc.op]) {
+      const payloadReject = validateKnowledgeOpPayload(doc.op, payload);
+      if (payloadReject !== null) {
+        await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(payloadReject));
+        return;
+      }
+    }
     const ports = this.#ports;
     if (ports === undefined) {
       // note: absent `ports` (documented) — the capability gate passes but there
@@ -2398,14 +2408,8 @@ export class ConnectResponder {
     // → serve/deny); the admitted scope comes from the face's admission
     // callback keyed by the authenticated peer id, never from the wire.
     if (KNOWLEDGE_OPS[doc.op]) {
-      // note: B2 — mirror Rust decode_knowledge_call; a malformed get/put payload
-      // answers INVALID_INPUT before the face probe, admission, and any
-      // store call. The list op's Scope shape validated earlier.
-      const payloadReject = validateKnowledgeOpPayload(doc.op, payload);
-      if (payloadReject !== null) {
-        await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(payloadReject));
-        return;
-      }
+      // note: B2 — the payload decode already ran before the face probe;
+      // admission and any store call still follow it.
       const face = ports.knowledge;
       if (face === undefined) {
         // note: B4 — an absent knowledge face is the dispatch-deny branch; the

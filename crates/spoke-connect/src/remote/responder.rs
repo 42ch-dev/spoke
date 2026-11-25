@@ -672,13 +672,13 @@ fn effective_scope(requested: &Scope, admitted: &Scope) -> Option<Scope> {
 
 /// Serve one decoded [`KnowledgeCall`] against the served scope. Runs
 /// inside the serve bound; admission and the declared-scope intersection ran
-/// before it, so a refusal never reaches the store and `list_scope` is
-/// present exactly when the call lists.
+/// before it, so a refusal never reaches the store and `served_scope` is the
+/// effective scope for every op (the admitted one when the request declared
+/// none).
 async fn call_knowledge_op(
     call: KnowledgeCall,
     store: &(dyn ScopedKnowledgePort + Send + Sync),
     served_scope: &Scope,
-    list_scope: Option<&Scope>,
 ) -> SpokeResult<Value> {
     match call {
         KnowledgeCall::GetKnowledgeEntry(entry_id) => map_result(
@@ -771,8 +771,7 @@ async fn call_knowledge_op(
             )
         }
         KnowledgeCall::ListKnowledgeEntries => {
-            let scope = list_scope.expect("a list call carries its effective scope");
-            map_result(store.list_scoped_knowledge_entries(scope).await)
+            map_result(store.list_scoped_knowledge_entries(served_scope).await)
         }
     }
 }
@@ -2508,11 +2507,12 @@ impl ConnectResponder {
 
     /// Serve one of the three knowledge ops through the knowledge face.
     ///
-    /// Gate order: decode → face probe → admission (exactly once, keyed by
-    /// the authenticated peer, with the declared scope selector when there is
-    /// one) → declared scope equality/intersection → store call. A list
-    /// always declares a scope; get/put may (A2). The request-scoped face is
-    /// probed before the peer-only face
+    /// Gate order: the caller already ran the payload decode (it precedes the
+    /// face probe, A2-D3 step 6) → face probe → admission (exactly once,
+    /// keyed by the authenticated peer, with the declared scope selector when
+    /// there is one) → declared scope equality/intersection → store call. A
+    /// list always declares a scope; get/put may (A2). The request-scoped
+    /// face is probed before the peer-only face
     /// (A1-D5). Admission and the store share ONE deadline; `Ok(None)` means
     /// a refusal envelope was already sent and the store was never called — a
     /// refusal discloses nothing, not even whether the entry exists.
@@ -2520,23 +2520,10 @@ impl ConnectResponder {
         &self,
         doc: &Value,
         op: &str,
-        payload: &Value,
+        call: KnowledgeCall,
         declared_scope: Option<&Scope>,
         ports: &(dyn RemoteServePorts + Send + Sync),
     ) -> Result<Option<SpokeResult<Value>>, ResponderError> {
-        let call = match decode_knowledge_call(op, payload, declared_scope) {
-            SpokeResult::Ok(call) => call,
-            SpokeResult::Reject(reject) => {
-                self.send_reverse_error_envelope(
-                    doc,
-                    reject.code.as_str(),
-                    &reject.message,
-                    reject.details.as_ref(),
-                )
-                .await?;
-                return Ok(None);
-            }
-        };
         // Gate → probe → serve/deny: a declared `spoke-knowledge` without the
         // serving face is the same dispatch-deny branch as an absent
         // baseline face, never a baseline fallback (D7 wire code). The
@@ -2666,7 +2653,7 @@ impl ConnectResponder {
         let mutates = matches!(&call, KnowledgeCall::PutKnowledgeEntry(..));
         let result = match tokio::time::timeout(
             remaining,
-            call_knowledge_op(call, store.as_ref(), store_scope, served_scope.as_ref()),
+            call_knowledge_op(call, store.as_ref(), store_scope),
         )
         .await
         {
@@ -2822,6 +2809,27 @@ impl ConnectResponder {
             .await?;
             return Ok(());
         }
+        // A2-D3 step 6 before step 7: decode the knowledge payload before the
+        // face probe, so a malformed payload answers INVALID_INPUT even on a
+        // host with no ports face configured (the absent-ports branch is the
+        // probe).
+        let knowledge_call = if is_knowledge_op(op) {
+            match decode_knowledge_call(op, payload, declared_scope.as_ref()) {
+                SpokeResult::Ok(call) => Some(call),
+                SpokeResult::Reject(reject) => {
+                    self.send_reverse_error_envelope(
+                        doc,
+                        reject.code.as_str(),
+                        &reject.message,
+                        reject.details.as_ref(),
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            }
+        } else {
+            None
+        };
         let ports = match self.ports.as_ref() {
             Some(ports) => Arc::clone(ports),
             None => {
@@ -2838,9 +2846,9 @@ impl ConnectResponder {
                 return Ok(());
             }
         };
-        let result = if is_knowledge_op(op) {
+        let result = if let Some(call) = knowledge_call {
             match self
-                .serve_knowledge_op(doc, op, payload, declared_scope.as_ref(), ports.as_ref())
+                .serve_knowledge_op(doc, op, call, declared_scope.as_ref(), ports.as_ref())
                 .await?
             {
                 Some(result) => result,
@@ -4096,7 +4104,6 @@ mod tests {
             KnowledgeCall::PutKnowledgeEntry(put_entry("new-entry", None), None),
             store.as_ref(),
             &put_scope(),
-            None,
         )
         .await;
         let SpokeResult::Ok(entry) = result else {
@@ -4114,7 +4121,6 @@ mod tests {
             KnowledgeCall::PutKnowledgeEntry(put_entry("absent-entry", None), Some(7)),
             store.as_ref(),
             &put_scope(),
-            None,
         )
         .await;
         assert!(
@@ -4159,7 +4165,6 @@ mod tests {
             ),
             store.as_ref(),
             &put_scope(),
-            None,
         )
         .await;
         assert!(
@@ -4182,7 +4187,6 @@ mod tests {
             KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", Some(put_anchor())), None),
             store.as_ref(),
             &put_scope(),
-            None,
         )
         .await;
         assert!(
@@ -4205,7 +4209,6 @@ mod tests {
             KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", None), None),
             store.as_ref(),
             &put_scope(),
-            None,
         )
         .await;
         assert!(
@@ -4232,7 +4235,6 @@ mod tests {
             ),
             store.as_ref(),
             &put_scope(),
-            None,
         )
         .await;
         assert!(matches!(result, SpokeResult::Ok(_)), "{result:?}");
@@ -4248,7 +4250,6 @@ mod tests {
             KnowledgeCall::PutKnowledgeEntry(put_entry("anchored-entry", None), Some(5)),
             store.as_ref(),
             &put_scope(),
-            None,
         )
         .await;
         assert!(matches!(

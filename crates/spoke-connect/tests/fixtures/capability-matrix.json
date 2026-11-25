@@ -215,6 +215,28 @@
       "expected": { "code": "INVALID_INPUT" }
     },
     {
+      "name": "get with a null cognition subtree beats the marker",
+      "op": "port.knowledge.get",
+      "payload": {
+        "entry_id": "ke-knowledge-a",
+        "scope": { "scope_id": "scope_a", "cognition": null }
+      },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a null cognition subtree beats the cognition gate",
+      "op": "port.knowledge.get",
+      "payload": {
+        "entry_id": "ke-knowledge-a",
+        "scope": { "scope_id": "scope_a", "cognition": null }
+      },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
       "name": "get with a well-formed cognition selection keeps the family gate",
       "op": "port.knowledge.get",
       "payload": {
@@ -323,6 +345,24 @@
       "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
       "admitted_scope": { "scope_id": "scope_a" },
       "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a malformed payload answers INVALID_INPUT without any ports face",
+      "op": "port.knowledge.get",
+      "ports": "absent",
+      "payload": { "entry_id": 42, "scope": { "scope_id": "scope_a" } },
+      "negotiated": ["spoke-knowledge", "spoke-knowledge-scoped"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "INVALID_INPUT" }
+    },
+    {
+      "name": "get with a well-formed payload answers op_unsupported without any ports face",
+      "op": "port.knowledge.get",
+      "ports": "absent",
+      "payload": { "entry_id": "ke-knowledge-a" },
+      "negotiated": ["spoke-knowledge"],
+      "admitted_scope": { "scope_id": "scope_a" },
+      "expected": { "code": "op_unsupported", "message_contains": "no ports face" }
     }
   ]
 }

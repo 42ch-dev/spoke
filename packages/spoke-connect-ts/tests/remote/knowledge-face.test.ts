@@ -1476,6 +1476,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
         payload: Record<string, unknown>;
         negotiated: string[];
         admitted_scope: Scope;
+        ports?: string;
         expected: {
           allowed?: boolean;
           code?: string;
@@ -1501,7 +1502,7 @@ describe("knowledge dispatch pre-validation and refusals", () => {
         [[scopeCase.admitted_scope.scope_id, entry("ke-knowledge-a")]],
       );
       const host = await dialRawKnowledgeHost(
-        knowledgeOnlyServePorts(face),
+        scopeCase.ports === "absent" ? undefined : knowledgeOnlyServePorts(face),
         scopeCase.negotiated,
       );
       try {

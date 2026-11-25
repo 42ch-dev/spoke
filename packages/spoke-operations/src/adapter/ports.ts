@@ -68,6 +68,8 @@ import type {
   MemoryReflectionsListResponse,
   MemoryReflectionsStateRequest,
   MemoryReflectionsStateResponse,
+  MemorySpacesCreateRequest,
+  MemorySpacesCreateResponse,
   MemorySpacesFreezeRequest,
   MemorySpacesFreezeResponse,
   MemorySpacesListRequest,
@@ -315,6 +317,22 @@ export interface MemoryPort {
     principal: Principal,
     request: MemorySpacesListRequest,
   ): Promise<SpokeResult<MemorySpacesListResponse>>;
+  /**
+   * note: `memory.spaces.create` — create a space (a Mind) with a caller-named
+   * `space_id`; establishes no subject. **Grant:** none for a new id
+   * (authenticated principal only, MEM-R003); on an existing space the
+   * requester MUST hold `admin` or the call fails `NOT_AUTHORIZED` — never
+   * `NOT_FOUND`, so the op is not an existence oracle. Idempotency key
+   * required (§7.0.5) over `(space_id, requester_principal_id, op,
+   * idempotency_key)`: a replay returns the stored receipt, and a repeat
+   * create by an admin answers `created: false` without writing. The adapter
+   * MUST write the space row and the creator's default grant row in one
+   * transaction.
+   */
+  createSpace(
+    principal: Principal,
+    request: MemorySpacesCreateRequest,
+  ): Promise<SpokeResult<MemorySpacesCreateResponse>>;
   /** note: §7.3 `memory.spaces.freeze`. **Grant:** `admin`. Idempotency key required. */
   freezeSpace(
     principal: Principal,

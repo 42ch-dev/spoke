@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-spaces-create-response.schema.json",
+  "title": "MemorySpacesCreateResponse",
+  "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"space_id\": string, \"status\": string, \"created\": bool, \"revision\": int }. On creation: status \"active\", created true, revision 1. On a repeat: the space's current status and revision, created false. The response never carries the grant row, a subject, or display_name. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.spaces.create: INVALID_INPUT, IDEMPOTENCY_CONFLICT, RECEIPT_EXPIRED, NOT_AUTHORIZED. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "definitions": {
+    "CommittedReceipt": {
+      "allOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/CommittedReceipt"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "memory.spaces.create",
+              "type": "string",
+              "title": "Op"
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "Echo when supplied — always, except memory.subjects.ensure.",
+              "title": "IdempotencyKey"
+            }
+          },
+          "required": [
+            "op",
+            "idempotency_key"
+          ],
+          "title": "AllOf",
+          "description": "Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt)."
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "committed",
+              "type": "string",
+              "title": "Status"
+            },
+            "result": {
+              "type": "object",
+              "required": [
+                "space_id",
+                "status",
+                "created",
+                "revision"
+              ],
+              "properties": {
+                "space_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "title": "SpaceId"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "frozen"
+                  ],
+                  "description": "The space's current status (§8.2); \"active\" on creation.",
+                  "title": "Status"
+                },
+                "created": {
+                  "type": "boolean",
+                  "description": "true on creation, false on a repeat create."
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740992
+                }
+              },
+              "additionalProperties": false,
+              "title": "Result"
+            }
+          },
+          "required": [
+            "status",
+            "result"
+          ],
+          "title": "AllOf"
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "oneOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/ops/memory-spaces-create-response.schema.json#/definitions/CommittedReceipt"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/FailedReceipt"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.spaces.create",
+                  "type": "string",
+                  "title": "Op"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "title": "AllOf"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "failed",
+                  "type": "string",
+                  "title": "Status"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "title": "AllOf"
+            }
+          ]
+        }
+      ],
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    }
+  ]
+}

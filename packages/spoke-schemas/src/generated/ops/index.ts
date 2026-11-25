@@ -72,6 +72,8 @@ export type { MemoryReflectionsListRequest } from './memory-reflections-list-req
 export type { MemoryReflectionsListResponse } from './memory-reflections-list-response';
 export type { MemoryReflectionsStateRequest } from './memory-reflections-state-request';
 export type { MemoryReflectionsStateResponse } from './memory-reflections-state-response';
+export type { MemorySpacesCreateRequest } from './memory-spaces-create-request';
+export type { MemorySpacesCreateResponse } from './memory-spaces-create-response';
 export type { MemorySpacesFreezeRequest } from './memory-spaces-freeze-request';
 export type { MemorySpacesFreezeResponse } from './memory-spaces-freeze-response';
 export type { MemorySpacesListRequest } from './memory-spaces-list-request';

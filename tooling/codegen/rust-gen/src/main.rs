@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use typify::{TypeSpace, TypeSpaceSettings};
 
-const EXPECTED_SCHEMA_COUNT: usize = 123;
+const EXPECTED_SCHEMA_COUNT: usize = 125;
 
 // typify breaks recursion cycles by boxing the child type id it finds in its
 // active set. When the cycle reaches a recursive struct through a *shared*

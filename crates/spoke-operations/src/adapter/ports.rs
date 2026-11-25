@@ -31,7 +31,8 @@ use spoke_schemas::{
     MemoryRecordsPromoteResponse, MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse,
     MemoryReflectionsGenerateRequest, MemoryReflectionsGenerateResponse,
     MemoryReflectionsListRequest, MemoryReflectionsListResponse, MemoryReflectionsStateRequest,
-    MemoryReflectionsStateResponse, MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
+    MemoryReflectionsStateResponse, MemorySpacesCreateRequest, MemorySpacesCreateResponse,
+    MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
     MemorySpacesListRequest, MemorySpacesListResponse, MemorySpacesUnfreezeRequest,
     MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
     MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
@@ -278,7 +279,7 @@ pub struct ExtractionResult {
 ///
 /// Standalone like [`ExtractionPort`]: `MemoryPort` is NOT part of
 /// [`BaselinePorts`] / [`FullPorts`] or the adapter aliases. One method per op
-/// (33); every method takes the authenticated [`Principal`] as an explicit
+/// (34); every method takes the authenticated [`Principal`] as an explicit
 /// admission-context parameter — it is never payload-asserted (MEM-R003). The
 /// library contains no memory storage or enforcement; providers implement the
 /// port and own storage, transactions, and every enforcement duty.
@@ -307,6 +308,22 @@ pub trait MemoryPort {
         principal: &Principal,
         request: MemorySpacesListRequest,
     ) -> SpokeResult<MemorySpacesListResponse>;
+
+    /// `memory.spaces.create` — create a space (a Mind) with a caller-named
+    /// `space_id`; establishes no subject. **Grant:** none for a new id
+    /// (authenticated principal only, MEM-R003); on an existing space the
+    /// requester MUST hold `admin` or the call fails `NOT_AUTHORIZED` — never
+    /// `NOT_FOUND`, so the op is not an existence oracle. Idempotency key
+    /// required (§7.0.5) over `(space_id, requester_principal_id, op,
+    /// idempotency_key)`: a replay returns the stored receipt, and a repeat
+    /// create by an admin answers `created: false` without writing. The
+    /// adapter MUST write the space row and the creator's default grant row
+    /// in one transaction.
+    async fn create_space(
+        &self,
+        principal: &Principal,
+        request: MemorySpacesCreateRequest,
+    ) -> SpokeResult<MemorySpacesCreateResponse>;
 
     /// §7.3 `memory.spaces.freeze` — freeze a space (§8.2 maintenance
     /// allowlist applies). **Grant:** `admin`. Idempotency key required.

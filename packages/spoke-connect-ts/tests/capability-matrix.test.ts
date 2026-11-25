@@ -25,9 +25,38 @@ interface CapabilityCase {
   allowed: boolean;
 }
 
+/** A request-scope verdict case executed through the responder by both harnesses. */
+interface RequestScopeCase {
+  name: string;
+  op: string;
+  payload: Record<string, unknown>;
+  negotiated: string[];
+  admitted_scope: { scope_id: string };
+  expected: { allowed?: boolean; code?: string };
+}
+
 const MATRIX = JSON.parse(
   readFileSync(fileURLToPath(new URL("./fixtures/capability-matrix.json", import.meta.url)), "utf8"),
-) as { schema_version: number; cases: CapabilityCase[] };
+) as {
+  schema_version: number;
+  cases: CapabilityCase[];
+  request_scope_cases: RequestScopeCase[];
+};
+
+// note: both harnesses read these exact bytes — Rust embeds the SSOT with
+// `include_str!`, this copy is byte-checked against it here (the sync gate
+// enforces the same rule outside the test run).
+const TS_FIXTURE_BYTES = readFileSync(
+  fileURLToPath(new URL("./fixtures/capability-matrix.json", import.meta.url)),
+);
+const RUST_FIXTURE_BYTES = readFileSync(
+  fileURLToPath(
+    new URL(
+      "../../../crates/spoke-connect/tests/fixtures/capability-matrix.json",
+      import.meta.url,
+    ),
+  ),
+);
 
 function tableRequirement(row: CapabilityCase): string | undefined {
   return row.table === "core"
@@ -62,9 +91,45 @@ function candidate(negotiated: string[]): SelectablePeer {
 }
 
 describe("shared capability matrix", () => {
+  it("is byte-identical to the Rust fixture", () => {
+    expect(TS_FIXTURE_BYTES.equals(RUST_FIXTURE_BYTES)).toBe(true);
+  });
+
   it("carries schema_version 1 rows", () => {
     expect(MATRIX.schema_version).toBe(1);
     expect(MATRIX.cases.length).toBeGreaterThan(0);
+  });
+
+  it("covers the scoped request contract on both knowledge ops", () => {
+    const cases = MATRIX.request_scope_cases;
+    expect(cases.length).toBeGreaterThan(0);
+    for (const row of cases) {
+      expect(row.negotiated, row.name).toBeInstanceOf(Array);
+      expect(
+        row.expected.allowed === true || typeof row.expected.code === "string",
+        row.name,
+      ).toBe(true);
+    }
+    // Both ops and both marker states are exercised, and every A2 refusal
+    // class appears — the responder loops in either stack assert the verdicts.
+    expect(new Set(cases.map((row) => row.op))).toEqual(
+      new Set(["port.knowledge.get", "port.knowledge.put"]),
+    );
+    expect(
+      cases.some((row) => row.negotiated.includes("spoke-knowledge-scoped")),
+    ).toBe(true);
+    expect(
+      cases.some((row) => !row.negotiated.includes("spoke-knowledge-scoped")),
+    ).toBe(true);
+    const codes = new Set(cases.map((row) => row.expected.code ?? ""));
+    for (const code of [
+      "op_unsupported",
+      "NOT_AUTHORIZED",
+      "INVALID_INPUT",
+      "capability_missing",
+    ]) {
+      expect(codes, code).toContain(code);
+    }
   });
 
   it("matches the core and product tables row by row", () => {

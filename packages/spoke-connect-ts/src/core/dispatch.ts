@@ -81,6 +81,15 @@ export const CAPABILITY_SPOKE_JUDGMENT = "spoke-judgment";
 export const CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION = "spoke-knowledge-adoption";
 
 /**
+ * Optional capability: required by a `port.knowledge.get` / `put` request
+ * that declares a `scope` (A2-D1). It is a conjunct, never a replacement
+ * for the op's `spoke-knowledge` requirement, and marks a peer that honours
+ * the member instead of ignoring it. A session without it answers
+ * `op_unsupported` for such a request (no silent scope drop).
+ */
+export const CAPABILITY_SPOKE_KNOWLEDGE_SCOPED = "spoke-knowledge-scoped";
+
+/**
  * Wire spelling of a dispatch-layer validation verdict (consumer contract
  * §2.2). The ops protocol spells the same internal code `INVALID_INPUT` on
  * its envelopes; a rejection taken at the pre-handler boundary carries this
@@ -250,8 +259,8 @@ export function tokenAuthorizesOp(
 /**
  * note: ops whose registered request carries a `Scope` and therefore the
  * `Scope.cognition` selection slot (`common.schema.json` → `Scope`,
- * referenced by `assemble-request` / `check-request` and the three remote
- * Scope ops).
+ * referenced by `assemble-request` / `check-request`, the three remote
+ * Scope ops, and the optional-scope `port.knowledge.get` / `put` of A2).
  */
 const SCOPE_COGNITION_OPS: Record<string, true> = {
   check: true,
@@ -259,6 +268,8 @@ const SCOPE_COGNITION_OPS: Record<string, true> = {
   "port.scope.list_knowledge_entries": true,
   "port.scope.list_timeline_events": true,
   "port.fork.list_timeline_events": true,
+  "port.knowledge.get": true,
+  "port.knowledge.put": true,
   "history.revisions.get": true,
   "history.revisions.prune": true,
 };

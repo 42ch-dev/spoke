@@ -64,17 +64,26 @@ pub const CAPABILITY_SPOKE_JUDGMENT: &str = "spoke-judgment";
 /// requires the mandatory co-capability `spoke-knowledge` — a host
 /// declaring `spoke-knowledge-adoption` also declares `spoke-knowledge`.
 pub const CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION: &str = "spoke-knowledge-adoption";
+/// Optional capability: required by a `port.knowledge.get` / `put` request
+/// that declares a `scope` (A2-D1). It is a conjunct, never a replacement
+/// for the op's `spoke-knowledge` requirement, and marks a peer that honours
+/// the member instead of ignoring it. A session without it must answer
+/// `op_unsupported` for such a request (no silent scope drop).
+pub const CAPABILITY_SPOKE_KNOWLEDGE_SCOPED: &str = "spoke-knowledge-scoped";
 
 /// Ops whose registered request carries a `Scope` and therefore the
 /// `Scope.cognition` selection slot (`common.schema.json` → `Scope`):
-/// `assemble` / `check`, the three `port.*` Scope ops, and
+/// `assemble` / `check`, the three `port.*` Scope ops, `port.knowledge.get` /
+/// `put` (optional scope, A2), and
 /// `history.revisions.get` / `history.revisions.prune`.
-const SCOPE_COGNITION_OPS: [&str; 7] = [
+const SCOPE_COGNITION_OPS: [&str; 9] = [
     "check",
     "assemble",
     "port.scope.list_knowledge_entries",
     "port.scope.list_timeline_events",
     "port.fork.list_timeline_events",
+    "port.knowledge.get",
+    "port.knowledge.put",
     "history.revisions.get",
     "history.revisions.prune",
 ];
@@ -394,6 +403,24 @@ mod tests {
         assert!(!dispatch_allowed("custom-op", &caps(&["spoke-baseline"])));
         assert!(!dispatch_allowed("custom-op", &caps(&["spoke-connect"])));
         assert!(!dispatch_allowed("", &caps(&["spoke-baseline"])));
+    }
+
+    #[test]
+    fn knowledge_get_and_put_carry_the_scope_cognition_slot() {
+        // The marker is a released wire name; renaming it is a negotiation
+        // break.
+        assert_eq!(CAPABILITY_SPOKE_KNOWLEDGE_SCOPED, "spoke-knowledge-scoped");
+        for op in ["port.knowledge.get", "port.knowledge.put"] {
+            assert_eq!(
+                cognition_requirement_field(op, &json!({ "scope": { "cognition": {} } })),
+                Some("scope.cognition"),
+                "{op}: a declared cognition selection must demand the family"
+            );
+            assert!(
+                !cognition_requirement_present(op, &json!({ "scope": { "scope_id": "s" } })),
+                "{op}: a scope without the selection declares no requirement"
+            );
+        }
     }
 
     #[test]

@@ -280,7 +280,7 @@ describe("decodeHistoryCall — closed request shape", () => {
 });
 
 describe("HistoryPortService — admission + scope", () => {
-  it("admission refusal propagates before decode and any port call", async () => {
+  it("admission refusal propagates before any port call", async () => {
     const { port, calls } = countingPort({});
     const service = new HistoryPortService(port, () =>
       spokeReject("NOT_AUTHORIZED", "peer not admitted"),
@@ -295,6 +295,27 @@ describe("HistoryPortService — admission + scope", () => {
       code: "NOT_AUTHORIZED",
       message: "peer not admitted",
     });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("malformed input answers INVALID_INPUT without invoking admission", async () => {
+    const seen: Array<string | undefined> = [];
+    const { port, calls } = countingPort({});
+    const service = new HistoryPortService(port, (_peerId, scopeId) => {
+      seen.push(scopeId);
+      return spokeOk({ principal: PRINCIPAL_A, scope: SCOPE_A });
+    });
+    // Empty `entity_kind` fails the closed request decode: the documented
+    // INVALID_INPUT must win, and a selector-aware callback must not run at
+    // all (Rust parity: decode before admission).
+    const result = await service.invoke("peer-a", "history.revisions.get", {
+      entity_kind: "",
+      entity_id: "ke_1",
+      revision: 1,
+      scope: { scope_id: "scope_a" },
+    });
+    expect(result).toMatchObject({ ok: false, code: "INVALID_INPUT" });
+    expect(seen).toHaveLength(0);
     expect(calls).toHaveLength(0);
   });
 
@@ -345,6 +366,27 @@ describe("HistoryPortService — admission + scope", () => {
       { principal: PRINCIPAL_A, scope: SCOPE_A },
       { principal: PRINCIPAL_A, scope: SCOPE_A },
     ]);
+  });
+
+  it("passes the request's declared scope selector to admission", async () => {
+    const seen: Array<string | undefined> = [];
+    const { port } = countingPort({});
+    const service = new HistoryPortService(port, (_peerId, scopeId) => {
+      seen.push(scopeId);
+      return spokeOk({ principal: PRINCIPAL_A, scope: SCOPE_A });
+    });
+    const request = {
+      entity_kind: "knowledge_entry",
+      entity_id: "ke_1",
+      revision: 1,
+    };
+    await service.invoke("peer-a", "history.revisions.get", {
+      ...request,
+      scope: { scope_id: "scope_a" },
+    });
+    // absent scope names no selector (Rust parity: `None`).
+    await service.invoke("peer-a", "history.revisions.get", request);
+    expect(seen).toEqual(["scope_a", undefined]);
   });
 });
 

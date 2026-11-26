@@ -7322,6 +7322,22 @@ impl ScopedKnowledgeStore {
             .collect()
     }
 
+    /// The `(op, effective scope)` pairs the responder actually handed the
+    /// store, in call order.
+    fn call_scopes(&self) -> Vec<(String, Value)> {
+        self.calls
+            .lock()
+            .expect("calls lock")
+            .iter()
+            .map(|(op, scope)| {
+                (
+                    op.clone(),
+                    scope.clone().expect("every store call records its scope"),
+                )
+            })
+            .collect()
+    }
+
     fn listed_scopes(&self) -> Vec<Value> {
         self.calls
             .lock()
@@ -7695,6 +7711,65 @@ async fn scoped_knowledge_get_put_send_and_honour_the_declared_scope() {
     // The store served inside the declared scope (put also runs its OCC
     // pre-read).
     assert_eq!(store.calls(), vec!["get", "get", "put"]);
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn scoped_knowledge_get_put_keep_the_requested_narrowing_filters() {
+    let store = Arc::new(ScopedKnowledgeStore::default());
+    let admitted = scope_of("scope-a");
+    store.seed(&admitted, scoped_entry("ke-knowledge-a", "alpha"));
+    // The admission grants the whole scope; the request narrows it.
+    let requested: Scope = serde_json::from_value(json!({
+        "scope_id": "scope-a",
+        "entry_ids": ["ke-knowledge-a", "ke-knowledge-b"],
+        "entry_types": ["note"],
+    }))
+    .expect("valid Scope");
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let ports = scoped_knowledge_ports(&store, admitted, &seen);
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["spoke-knowledge", "spoke-knowledge-scoped"],
+        responder_capabilities: vec!["spoke-knowledge", "spoke-knowledge-scoped"],
+        ports: Some(ports),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    match client
+        .get_knowledge_entry_in_scope("ke-knowledge-a", Some(&requested))
+        .await
+    {
+        SpokeResult::Ok(entry) => assert_eq!(entry.entry_id.as_str(), "ke-knowledge-a"),
+        SpokeResult::Reject(reject) => panic!("scoped get must serve: {reject:?}"),
+    }
+    match client
+        .put_knowledge_entry_in_scope(
+            scoped_entry("ke-knowledge-b", "created"),
+            None,
+            Some(&requested),
+        )
+        .await
+    {
+        SpokeResult::Ok(entry) => assert_eq!(entry.revision, Some(1)),
+        SpokeResult::Reject(reject) => panic!("scoped put must serve: {reject:?}"),
+    }
+
+    // The effective scope keeps the requested filters for the get, the put
+    // pre-read and the put — all three see the same scope. Regression pinned:
+    // dropping the requested `entry_ids`/`entry_types` would widen every one of
+    // these calls back to the whole admitted scope.
+    let narrowed = serde_json::to_value(&requested).expect("scope serializes");
+    assert_eq!(
+        store.call_scopes(),
+        vec![
+            ("get".to_owned(), narrowed.clone()),
+            ("get".to_owned(), narrowed.clone()),
+            ("put".to_owned(), narrowed),
+        ],
+    );
 
     client.close();
     responder.close();

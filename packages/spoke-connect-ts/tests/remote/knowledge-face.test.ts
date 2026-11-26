@@ -132,6 +132,7 @@ function scopedStoreFace(
   storeRejectOn?: "put" | "get",
   storeGateOn?: "put" | "get",
   seedEntries: Array<[string, KnowledgeEntry]> = [],
+  storeScopes: Array<{ op: string; scope: Scope }> = [],
 ): RemoteKnowledgeFace {
   const entries = new Map<string, Map<string, KnowledgeEntry>>();
   const bucket = (scopeId: string): Map<string, KnowledgeEntry> => {
@@ -149,6 +150,7 @@ function scopedStoreFace(
     store: {
       async getScopedKnowledgeEntry(scope, entryId) {
         storeCalls.push("get");
+        storeScopes.push({ op: "get", scope });
         if (storeRejectOn === "get") {
           throw new Error("store get exploded");
         }
@@ -162,6 +164,7 @@ function scopedStoreFace(
       },
       async putScopedKnowledgeEntry(scope, entry, expectedBaseRevision) {
         storeCalls.push("put");
+        storeScopes.push({ op: "put", scope });
         if (storeRejectOn === "put") {
           throw new Error("store put exploded");
         }
@@ -226,6 +229,7 @@ async function dialKnowledgeOnlyHost(options: {
   storeRejectOn?: "put" | "get";
   invokeTimeoutMs?: number;
   storeGateOn?: "put" | "get";
+  storeScopes?: Array<{ op: string; scope: Scope }>;
 }): Promise<DialedKnowledgeHost> {
   const hostSeed = seed(0xa0);
   const hostPubkey = getPublicKeyEd25519(hostSeed);
@@ -264,6 +268,8 @@ async function dialKnowledgeOnlyHost(options: {
         options.storeGate,
         options.storeRejectOn,
         options.storeGateOn,
+        [],
+        options.storeScopes,
       ),
     ),
     invokeTimeoutMs: options.invokeTimeoutMs,
@@ -1585,6 +1591,55 @@ describe("scoped knowledge get/put (A2)", () => {
             : undefined;
         expect(scope, frame.op).toMatchObject({ scope_id: "scope_a" });
       }
+    } finally {
+      close();
+    }
+  });
+
+  it("keeps the requested entry_ids/entry_types narrowing on get and put", async () => {
+    const admitted: Scope = { scope_id: "scope_a" };
+    // The admission grants the whole scope; the request narrows it.
+    const requested: Scope = {
+      scope_id: "scope_a",
+      entry_ids: ["kb_scoped"],
+      entry_types: ["note"],
+    };
+    const storeScopes: Array<{ op: string; scope: Scope }> = [];
+    const { client, close } = await dialKnowledgeOnlyHost({
+      admission: () => spokeOk(admitted),
+      clientSeed: seed(0x1a),
+      clientCapabilities: SCOPED,
+      hostCapabilities: SCOPED,
+      storeScopes,
+    });
+    try {
+      expect(
+        (
+          await client.putKnowledgeEntryInScope(
+            entry("kb_scoped"),
+            null,
+            requested,
+          )
+        ).ok,
+      ).toBe(true);
+      expect(
+        (await client.getKnowledgeEntryInScope("kb_scoped", requested)).ok,
+      ).toBe(true);
+
+      // The effective scope keeps the requested filters for the put pre-read,
+      // the put and the get. Regression pinned: dropping the requested
+      // entry_ids/entry_types would widen each call to the admitted scope.
+      expect(
+        storeScopes.map(({ op, scope }) => ({
+          op,
+          entry_ids: scope.entry_ids,
+          entry_types: scope.entry_types,
+        })),
+      ).toEqual([
+        { op: "get", entry_ids: ["kb_scoped"], entry_types: ["note"] },
+        { op: "put", entry_ids: ["kb_scoped"], entry_types: ["note"] },
+        { op: "get", entry_ids: ["kb_scoped"], entry_types: ["note"] },
+      ]);
     } finally {
       close();
     }

@@ -2158,12 +2158,14 @@ export class ConnectResponder {
    * host declared `spoke-history` without providing the service).
    *
    * The serve bound matches the `memory.*` ops: a zero budget answers the
-   * plain timeout without invoking the service at all, while expiry AFTER
-   * invocation means the admitted mutation may have committed — that is
+   * plain timeout without invoking the service at all. Past invocation only
+   * the read op (`history.revisions.get`) is plain: an expired budget or a
+   * thrown service answers the plain serve timeout / internal error. Only
+   * the prune — the one registered mutating op — stays
    * `OUTCOME_UNCERTAIN`/`uncertain` (§14.2/§14.3), recoverable through the
    * recorded-outcome dedup, never a clean internal error or a silent
-   * re-execution. The service promise keeps running past the deadline so
-   * a settling prune still records its outcome.
+   * re-execution. The service promise keeps running past the deadline so a
+   * settling prune still records its outcome.
    */
   async #dispatchHistoryInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const session = this.#session;
@@ -2196,13 +2198,16 @@ export class ConnectResponder {
     // session peer, never from the payload (MEM-R003; contract
     // §Authorization).
     const peerId = this.remotePeerId;
-    // note: a zero budget rejects before the service is invoked (plain
-    // timeout, no dedup key reserved). A non-zero budget expiring AFTER
-    // invocation answers the uncertain outcome identically to the memory
-    // ops — the invoked service is left running; nothing here claims
-    // cancellation or rollback of provider work.
+    // note: a zero budget never invokes the service (plain timeout, no dedup
+    // key reserved). A non-zero expiry or a thrown service on
+    // `history.revisions.get` is a plain timeout / internal error: a read
+    // cannot have committed. Only the prune — the one registered mutating
+    // op — stays uncertain: its effect is unknown and may have committed.
+    const isRead = doc.op === "history.revisions.get";
+    // note: only the read op is plain; the prune is the sole registered
+    // mutating op, so it is the only op whose failures stay uncertain.
     const uncertainOnExpiry =
-      this.#invokeTimeoutMs === 0
+      isRead || this.#invokeTimeoutMs === 0
         ? undefined
         : spokeReject(
             SpokeRejectCode.OUTCOME_UNCERTAIN,
@@ -2216,17 +2221,22 @@ export class ConnectResponder {
         uncertainOnExpiry,
       );
     } catch (error) {
-      // why: the service threw or rejected AFTER invocation, so the transport
-      // has no evidence that nothing committed (§14.3): answer uncertain —
-      // the same containment as a provider panic on the memory path —
-      // never a clean internal error.
-      result = spokeReject(
-        SpokeRejectCode.OUTCOME_UNCERTAIN,
-        `history service failed after invocation: ${
-          error instanceof Error ? error.message : String(error)
-        }; the outcome is unknown — replay the same idempotency key`,
-        { retry_class: "uncertain", kind: "panic" },
-      );
+      // why: the service threw or rejected AFTER invocation. On any non-read
+      // op the transport has no evidence that nothing committed (§14.3), so
+      // it answers uncertain — the same containment as a provider panic on
+      // the memory path. The read op has no effect to be uncertain about, so
+      // it keeps the plain internal error.
+      const message = error instanceof Error ? error.message : String(error);
+      result = isRead
+        ? spokeReject(
+            SpokeRejectCode.INTERNAL_ERROR,
+            `history service failed after invocation: ${message}`,
+          )
+        : spokeReject(
+            SpokeRejectCode.OUTCOME_UNCERTAIN,
+            `history service failed after invocation: ${message}; the outcome is unknown — replay the same idempotency key`,
+            { retry_class: "uncertain", kind: "panic" },
+          );
     }
     // note: a close during the bounded wait answers nothing afterwards.
     if (this.#stateInternal === "Closed") {

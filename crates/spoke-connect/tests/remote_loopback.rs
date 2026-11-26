@@ -52,8 +52,9 @@ use spoke_connect::remote::{
     reset_accepted_server_hellos_for_test, ConnectResponder, ConnectResponderOptions,
     HistoryPortService, LoopbackTransport, LoopbackTransportPair, MultiPeerRouterOptions,
     RemoteAdapter, RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState,
-    RemoteExtractService, RemoteIdentity, RemoteKnowledgeFace, RemoteScopedKnowledgeFace,
-    RemoteServePorts, RemoteServePortsComposite, ToolHandler, Transport, TransportError,
+    RemoteExtractService, RemoteHistoryService, RemoteIdentity, RemoteKnowledgeFace,
+    RemoteScopedKnowledgeFace, RemoteServePorts, RemoteServePortsComposite, ToolHandler, Transport,
+    TransportError,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
@@ -8374,6 +8375,19 @@ impl HistoryPort for UnreachedHistoryPort {
     }
 }
 
+/// A raw history face that panics during invocation, so the responder's
+/// detached task dies before sending: the only thing the responder can
+/// observe is a dropped result channel, never whether the panic hit before
+/// or after any side effect.
+struct DroppedChannelHistoryService;
+
+#[async_trait]
+impl RemoteHistoryService for DroppedChannelHistoryService {
+    async fn invoke(&self, _peer: &str, _op: &str, _payload: Value) -> SpokeResult<Value> {
+        panic!("history service panicked during invocation");
+    }
+}
+
 /// A1 blocking-pool requirement: a request-scoped admission is host work that
 /// may block, so it runs off the async worker. On a CURRENT-THREAD runtime a
 /// gated scoped admission must not stop the responder from answering its serve
@@ -8466,10 +8480,14 @@ async fn a_gated_scoped_history_admission_still_answers_the_serve_timeout() {
     .await
     .expect("the serve budget answers while the scoped admission is still gated");
 
-    assert_eq!(response["error"]["code"], "OUTCOME_UNCERTAIN", "{response}");
+    assert_eq!(response["error"]["code"], "INTERNAL_ERROR", "{response}");
     assert_eq!(
-        response["error"]["details"]["retry_class"], "uncertain",
+        response["error"]["details"]["kind"], "timeout",
         "{response}"
+    );
+    assert!(
+        response["error"]["details"].get("retry_class").is_none(),
+        "a read must not claim an uncertain outcome: {response}"
     );
     assert!(
         entered.load(Ordering::SeqCst),
@@ -8487,6 +8505,99 @@ async fn a_gated_scoped_history_admission_still_answers_the_serve_timeout() {
     wake.notify_all();
     let _ = done_tx.send(());
     watchdog.join().expect("watchdog thread");
+    responder.close();
+}
+
+/// A read that dies during invocation has no effect to be uncertain about:
+/// the responder observes only a dropped result channel and answers the
+/// plain internal error, with no details.
+#[tokio::test]
+async fn a_panicking_history_get_answers_a_plain_internal_error() {
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_history(Arc::new(DroppedChannelHistoryService)),
+    );
+    let (responder, pair, seed) =
+        start_raw_ke_responder_with_budget(ports, &["spoke-history"], Some(500)).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-history"]),
+    )
+    .await;
+
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        0,
+        "panicking-history-get",
+        "history.revisions.get",
+        json!({
+            "entity_kind": "knowledge_entry",
+            "entity_id": "e1",
+            "revision": 1,
+        }),
+    )
+    .await;
+
+    assert_eq!(response["error"]["code"], "INTERNAL_ERROR", "{response}");
+    assert!(
+        response["error"].get("details").is_none(),
+        "a read failure carries no details: {response}"
+    );
+    responder.close();
+}
+
+/// A prune that dies during invocation may already have committed: the
+/// responder observes only a dropped result channel, so it keeps the
+/// conservative uncertain answer, covering both a pre-effect panic and a
+/// possibly committed write.
+#[tokio::test]
+async fn a_panicking_history_prune_stays_uncertain() {
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_history(Arc::new(DroppedChannelHistoryService)),
+    );
+    let (responder, pair, seed) =
+        start_raw_ke_responder_with_budget(ports, &["spoke-history"], Some(500)).await;
+    let session = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["spoke-history"]),
+    )
+    .await;
+
+    let response = raw_invoke(
+        &pair.client,
+        seed,
+        &session,
+        0,
+        "panicking-history-prune",
+        "history.revisions.prune",
+        json!({
+            "entity_kind": "knowledge_entry",
+            "entity_id": "e1",
+            "keep": 2,
+            "idempotency_key": "panic-prune",
+        }),
+    )
+    .await;
+
+    assert_eq!(response["error"]["code"], "OUTCOME_UNCERTAIN", "{response}");
+    assert_eq!(
+        response["error"]["details"]["retry_class"], "uncertain",
+        "{response}"
+    );
+    assert_eq!(response["error"]["details"]["kind"], "panic", "{response}");
     responder.close();
 }
 

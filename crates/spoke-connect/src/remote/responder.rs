@@ -97,7 +97,7 @@ use crate::remote::remote_adapter::{
     RemoteErrorKind as ResponderErrorKind, RemoteIdentity, ToolHandler,
 };
 use crate::remote::serve_ports::{
-    exact_revision_u64, schema_versions_in_domain, RemoteServePorts,
+    exact_revision_u64, schema_versions_in_domain, RemoteServePorts, HISTORY_OP_GET,
 };
 use crate::remote::transport::Transport;
 use crate::remote::{
@@ -998,10 +998,11 @@ fn history_uncertain_reject(budget: Duration) -> SpokeReject {
 }
 
 /// §14.2/§14.3: the detached history invoke panicked (or otherwise
-/// dropped its result channel) AFTER invocation, so the transport has no
-/// evidence that nothing committed — a clean `INTERNAL_ERROR` would
-/// assert no-effect. The response says the outcome is unknown instead
-/// (same containment as the memory panic path).
+/// dropped its result channel) during invocation, so the transport has no
+/// evidence that nothing committed — it cannot tell a pre-effect panic from
+/// one after a committed write, and a clean `INTERNAL_ERROR` would assert
+/// no-effect. The response says the outcome is unknown instead (same
+/// containment as the memory panic path).
 fn history_panic_uncertain_reject() -> SpokeReject {
     let mut details = Map::new();
     details.insert("retry_class".into(), Value::String("uncertain".into()));
@@ -2199,13 +2200,16 @@ impl ConnectResponder {
     /// without providing the service).
     ///
     /// The serve bound matches the `memory.*` ops: a zero budget answers
-    /// the plain timeout without invoking the service at all, while
-    /// expiry AFTER invocation means the admitted mutation may have
-    /// committed — that is `OUTCOME_UNCERTAIN`/`uncertain`
-    /// (§14.2/§14.3), recoverable through the service's recorded-outcome
-    /// dedup, never a clean internal error or a silent re-execution. The
-    /// service task keeps running past the deadline so a settling prune
-    /// still records its outcome.
+    /// the plain timeout without invoking the service at all. Past
+    /// invocation the ops split by effect (`HISTORY_OP_GET` is read-only,
+    /// `history.revisions.prune` mutates): an expired budget or a dropped
+    /// result channel on a read answers the plain serve timeout /
+    /// internal error, while on a prune it stays
+    /// `OUTCOME_UNCERTAIN`/`uncertain` (§14.2/§14.3) — the admitted
+    /// mutation may have committed, recoverable through the service's
+    /// recorded-outcome dedup, never a clean internal error or a silent
+    /// re-execution. The service task keeps running past the deadline so
+    /// a settling prune still records its outcome.
     async fn dispatch_history_invoke(
         &self,
         doc: &Value,
@@ -2259,15 +2263,19 @@ impl ConnectResponder {
             return Ok(());
         };
         // Same serve bound as `memory.*`: a zero budget rejects before the
-        // service is invoked (the baseline serve-timeout rejection
-        // stands). A non-zero budget that expires AFTER invocation means
-        // the mutation may have committed: that is `OUTCOME_UNCERTAIN`,
-        // not a clean internal error. The admitted invoke is detached
-        // from the response deadline (spawned, matching the TS path's
-        // uncancellable promise): expiry answers the budget, it never
-        // cancels the provider task, and the dedup store still records
-        // the settled outcome for a same-key replay to recover.
+        // service is invoked (the baseline serve-timeout rejection stands).
+        // Past invocation only the read op is plain: `history.revisions.get`
+        // cannot commit, so an expired budget or a dropped result channel
+        // answers the plain serve timeout / internal error. Only the prune —
+        // the one registered mutating op — stays conservative: a dropped
+        // channel cannot tell a pre-effect panic from a committed write, so
+        // the same failures are `OUTCOME_UNCERTAIN`. The
+        // admitted invoke is detached from the response deadline (spawned,
+        // matching the TS path's uncancellable promise): expiry answers the
+        // budget, it never cancels the provider task, and the dedup store
+        // still records the settled outcome for a same-key replay to recover.
         let zero_budget = self.invoke_timeout.is_zero();
+        let is_read = op == HISTORY_OP_GET;
         let bounded = if zero_budget {
             None
         } else {
@@ -2281,11 +2289,22 @@ impl ConnectResponder {
             match tokio::time::timeout(self.invoke_timeout, rx).await {
                 Ok(Ok(result)) => Some(result),
                 // The detached task sends exactly once before dropping the
-                // sender; a receive failure means it panicked AFTER
-                // admission, so — like a budget expiry — the transport
-                // cannot assert no-effect (§14.3): answer uncertain,
-                // never a clean internal error.
-                Ok(Err(_)) => Some(SpokeResult::Reject(history_panic_uncertain_reject())),
+                // sender; a receive failure means the service panicked during
+                // invocation. The responder observes only the dropped channel,
+                // so — on a prune — it cannot tell a pre-effect panic from a
+                // possibly committed write (§14.3): answer uncertain, never a
+                // clean internal error. A read has no effect to be uncertain
+                // about.
+                Ok(Err(_)) => Some(SpokeResult::Reject(if is_read {
+                    SpokeReject {
+                        code: SpokeRejectCode::InternalError,
+                        message: "history service failed after invocation: result channel dropped"
+                            .to_string(),
+                        details: None,
+                    }
+                } else {
+                    history_panic_uncertain_reject()
+                })),
                 Err(_) => None,
             }
         };
@@ -2293,7 +2312,7 @@ impl ConnectResponder {
             return Ok(());
         }
         let Some(result) = bounded else {
-            let reject = if zero_budget {
+            let reject = if zero_budget || is_read {
                 serve_timeout_reject(self.invoke_timeout)
             } else {
                 history_uncertain_reject(self.invoke_timeout)

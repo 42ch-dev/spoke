@@ -102,6 +102,10 @@ pub const DEDUP_RETENTION_SECONDS: i64 = 2_592_000;
 pub const STAGED_IMPORT_TTL_SECONDS: i64 = 259_200;
 pub const EXPORT_RETENTION_SECONDS: i64 = 86_400;
 
+/// The provider's required-profile policy (`memory.describe`): every space it
+/// provisions or creates admits reflection generation only with these present.
+pub const REQUIRED_PROFILE_KINDS: [&str; 1] = ["personality"];
+
 /// Fixed clock origin: repeated runs produce identical timestamps.
 pub const CLOCK_ORIGIN: &str = "2026-07-23T06:00:00Z";
 
@@ -2465,7 +2469,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 "staged_import_ttl_seconds": STAGED_IMPORT_TTL_SECONDS,
                 "export_retention_seconds": EXPORT_RETENTION_SECONDS,
             },
-            "required_profile_kinds": ["personality"],
+            "required_profile_kinds": REQUIRED_PROFILE_KINDS,
             "engine_policy_version": ENGINE_POLICY_VERSION,
         }))
     }
@@ -2592,6 +2596,12 @@ impl MemoryPort for SqliteMemoryProvider {
                     revision: 1,
                     created_at: CLOCK_ORIGIN.to_string(),
                     state_epoch: 1,
+                    // A created space carries the provider policy, exactly as
+                    // a provisioned one does.
+                    required_profile_kinds: REQUIRED_PROFILE_KINDS
+                        .iter()
+                        .map(|kind| (*kind).to_string())
+                        .collect(),
                     ..Space::default()
                 };
                 space.grants.insert(

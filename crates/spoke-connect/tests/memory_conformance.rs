@@ -1228,6 +1228,74 @@ fn cognition_lifecycle_shared_vectors_sqlite_leg() {
     });
 }
 
+/// `memory.spaces.create` must carry the provider's declared required-profile
+/// policy: a created space refuses reflection generation for a subject with no
+/// `personality` profile, exactly as a provisioned space does.
+#[test]
+fn created_space_applies_the_required_profile_policy() {
+    const CREATED: &str = "spc_tw_created_policy";
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    runtime.block_on(async {
+        let provider = SqliteMemoryProvider::in_memory();
+        let operator = principal_for("tw_cli_operator");
+        let created = provider
+            .create_space(
+                &operator,
+                serde_json::from_value::<spoke_schemas::MemorySpacesCreateRequest>(json!({
+                    "space_id": CREATED,
+                    "display_name": "Created Mind",
+                    "idempotency_key": "create-policy-0001",
+                }))
+                .expect("create request"),
+            )
+            .await;
+        assert!(
+            matches!(created, SpokeResult::Ok(_)),
+            "the create must commit: {created:?}"
+        );
+
+        // No personality profile was authored in the created space, so the
+        // provider policy (not a wire declaration) must refuse generation.
+        let generated = provider
+            .generate_reflection(
+                &operator,
+                serde_json::from_value::<spoke_schemas::MemoryReflectionsGenerateRequest>(json!({
+                    "space_id": CREATED,
+                    "subject_id": MIRA,
+                    "selection": {
+                        "mode": "selected_contexts",
+                        "context_ids": [GATE],
+                        "include_shared": false,
+                    },
+                    "expected_state_digest": "0".repeat(64),
+                    "idempotency_key": "gen-policy-0001",
+                }))
+                .expect("generate request"),
+            )
+            .await;
+        match generated {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(
+                    reject.code,
+                    spoke_operations::SpokeRejectCode::ProfileIncomplete,
+                    "a created space requires the provider policy: {reject:?}"
+                );
+                assert_eq!(
+                    reject.details.expect("missing detail")["missing"],
+                    json!(["personality"]),
+                    "the refusal names the absent required kind"
+                );
+            }
+            SpokeResult::Ok(value) => {
+                panic!("a created space must not admit generation: {value:?}")
+            }
+        }
+    });
+}
+
 /// Drive the provider worker and poll one receipt until it is committed or
 /// failed (§7.0.3: completion is observed only through `memory.receipts.get`).
 /// Deferred work may span several worker runs, so a single poll is not

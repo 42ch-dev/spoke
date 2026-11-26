@@ -96,8 +96,11 @@ The Connect serving face is `RemoteHistoryService` over a provider `HistoryPort`
 | `STORED_REVISION_STALE` | A conditional entity put names an `expected_base_revision` that does not equal the current row revision; history floor state plays no part | The entity's existing stale-revision details, for example `{ "expectedBaseRevision": 1, "storeRevision": 5 }` |
 | `IDEMPOTENCY_CONFLICT` | A prune retry reuses the same key with a different payload digest | None |
 | `RECEIPT_EXPIRED` | A prune retry replays a key whose recorded outcome was evicted | None |
-| `INTERNAL_ERROR` | A zero serve budget refuses before the history service is invoked; the provider was never called | `{ "kind": "timeout" }` |
-| `OUTCOME_UNCERTAIN` | A non-zero serve budget expires after invocation, or the service fails after invocation; the provider outcome is unknown | `{ "retry_class": "uncertain", "kind": "timeout" \| "panic" }` |
+| `INTERNAL_ERROR` | `history.revisions.get`: a zero serve budget refuses before the history service is invoked; a non-zero budget that expires after invocation answers the plain serve timeout (`details.kind = "timeout"`); a thrown or failed service call — the service panics, drops its result channel, or throws — answers the plain internal error with no `details`; a malformed or wrong-target provider snapshot answers `INTERNAL_ERROR` with `details.kind = "transport"`. A rejection the service itself returns (for example `HISTORY_TRUNCATED`) passes through unchanged. The responder never generates `OUTCOME_UNCERTAIN` for a read. | `{ "kind": "timeout" }` on the budget paths; absent on a thrown or failed service call; `{ "kind": "transport" }` on a malformed or wrong-target snapshot |
+| `INTERNAL_ERROR` | `history.revisions.prune`: a zero serve budget refuses before the history service is invoked; the provider was never called | `{ "kind": "timeout" }` |
+| `OUTCOME_UNCERTAIN` | `history.revisions.prune`: a non-zero serve budget expires after invocation, or a transport-generated post-invocation failure — the detached invoke panics, drops its result channel, or throws; the provider outcome is unknown. A rejection the service itself returns passes through unchanged. | `{ "retry_class": "uncertain", "kind": "timeout" \| "panic" }` |
+
+Only the two registered ops (`history.revisions.get` and `history.revisions.prune`) reach the history face. Any other `history.*` op is refused at the capability gate — `op_unsupported`, or `capability_missing` when the op maps to a capability — before the face probe, so it never reaches invocation.
 
 `HISTORY_TRUNCATED`, `HISTORY_ENTITY_UNSUPPORTED`, and `HISTORY_NOT_RETAINED` are new `SpokeRejectCode` members; the remaining codes keep their established meanings.
 

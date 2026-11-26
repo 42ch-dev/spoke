@@ -96,8 +96,11 @@ Connect 服务面是 `RemoteHistoryService`，经 `HistoryPortService` 适配提
 | `STORED_REVISION_STALE` | 条件实体 put 的 `expected_base_revision` 不等于当前行修订；历史地板状态不参与 | 实体既有的过期修订细节，例如 `{ "expectedBaseRevision": 1, "storeRevision": 5 }` |
 | `IDEMPOTENCY_CONFLICT` | 裁剪重试复用同一键但载荷摘要不同 | 无 |
 | `RECEIPT_EXPIRED` | 裁剪重试重放其记录结果已被逐出的键 | 无 |
-| `INTERNAL_ERROR` | serve 预算为零，响应方在调用历史服务之前拒绝；提供方从未被调用 | `{ "kind": "timeout" }` |
-| `OUTCOME_UNCERTAIN` | 非零 serve 等待在调用后超出本地预算，或调用后服务失败；提供方结果未知 | `{ "retry_class": "uncertain", "kind": "timeout" \| "panic" }` |
+| `INTERNAL_ERROR` | `history.revisions.get`：serve 预算为零时在调用历史服务之前拒绝；非零预算在调用后超出本地预算时，应答普通 serve 超时（`details.kind = "timeout"`）；抛出或失败的服务调用 —— 服务 panic、丢弃结果通道或抛错 —— 应答不带 `details` 的普通内部错误；畸形或目标不符的提供方快照应答 `INTERNAL_ERROR` 且 `details.kind = "transport"`。服务自身返回的拒绝（例如 `HISTORY_TRUNCATED`）原样透传。响应方对读操作绝不生成 `OUTCOME_UNCERTAIN`。 | 预算路径为 `{ "kind": "timeout" }`；抛出或失败的服务调用时 `details` 缺失；畸形或目标不符的快照为 `{ "kind": "transport" }` |
+| `INTERNAL_ERROR` | `history.revisions.prune`：serve 预算为零时在调用历史服务之前拒绝；提供方从未被调用 | `{ "kind": "timeout" }` |
+| `OUTCOME_UNCERTAIN` | `history.revisions.prune`：非零 serve 预算在调用后超出本地预算，或发生传输层产生的调用后失败 —— 分离的调用 panic、丢弃结果通道或抛错；提供方结果未知。服务自身返回的拒绝原样透传。 | `{ "retry_class": "uncertain", "kind": "timeout" \| "panic" }` |
+
+只有两个已注册操作（`history.revisions.get` 与 `history.revisions.prune`）会到达历史服务面。其它任何 `history.*` 操作在服务面探测之前即被能力门禁拒绝 —— `op_unsupported`，或该操作映射到某个能力时为 `capability_missing` —— 因此绝不会到达调用阶段。
 
 `HISTORY_TRUNCATED`、`HISTORY_ENTITY_UNSUPPORTED` 与 `HISTORY_NOT_RETAINED` 是新增的 `SpokeRejectCode` 成员；其余代码保持既有含义。
 

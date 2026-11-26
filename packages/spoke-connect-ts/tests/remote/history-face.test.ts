@@ -1230,6 +1230,115 @@ describe("history serving over the loopback responder", () => {
     }
   });
 
+  it("a read serve budget expiring mid-invoke answers the plain serve timeout", async () => {
+    const { port, calls } = countingPort({
+      get: async (_principal, _scope, _kind, id, revision) => {
+        calls.push(`get:${id}@${revision}`);
+        // note: the port outlives the responder budget on purpose — real
+        // delay, deterministic time cannot stand in for the serve budget.
+        await new Promise<void>((resolve) => setTimeout(resolve, 200));
+        return spokeOk(snapshot(id, revision));
+      },
+    });
+    const service = new HistoryPortService(port, admission());
+    const host = await dialHistoryHost({
+      clientCapabilities: ["spoke-history"],
+      ports: { asHistory: () => service },
+      // note: 60ms responder budget < 200ms port call < client budget.
+      hostInvokeTimeoutMs: 60,
+    });
+    try {
+      const timedOut = await host.client.getHistorySnapshot(
+        PRINCIPAL_A,
+        SCOPE_A,
+        "knowledge_entry",
+        "ke_1",
+        3,
+      );
+      expect(timedOut.ok).toBe(false);
+      if (!timedOut.ok) {
+        // A read cannot have committed: plain internal error, no
+        // `retry_class` (exact details equality proves its absence).
+        expect(timedOut.code).toBe("INTERNAL_ERROR");
+        expect(timedOut.details).toEqual({ kind: "timeout" });
+      }
+      expect(calls).toEqual(["get:ke_1@3"]);
+    } finally {
+      host.close();
+    }
+  });
+
+  it("a throwing history read answers the plain internal error with no details", async () => {
+    const service: RemoteHistoryService = {
+      invoke: async (_peerId, op) => {
+        if (op !== "history.revisions.get") {
+          throw new Error(`unexpected op ${op}`);
+        }
+        throw new Error("history get exploded");
+      },
+    };
+    const host = await dialHistoryHost({
+      clientCapabilities: ["spoke-history"],
+      ports: { asHistory: () => service },
+    });
+    try {
+      const failed = await host.client.getHistorySnapshot(
+        PRINCIPAL_A,
+        SCOPE_A,
+        "knowledge_entry",
+        "ke_1",
+        3,
+      );
+      expect(failed.ok).toBe(false);
+      if (!failed.ok) {
+        // A read cannot have committed: plain internal error, no `details`
+        // and therefore no `retry_class`.
+        expect(failed.code).toBe("INTERNAL_ERROR");
+        expect(failed.message).toBe(
+          "history service failed after invocation: history get exploded",
+        );
+        expect(failed.details).toBeUndefined();
+      }
+    } finally {
+      host.close();
+    }
+  });
+
+  it("a throwing history prune stays uncertain with the panic class", async () => {
+    const service: RemoteHistoryService = {
+      invoke: async (_peerId, op) => {
+        if (op !== "history.revisions.prune") {
+          throw new Error(`unexpected op ${op}`);
+        }
+        throw new Error("history prune exploded");
+      },
+    };
+    const host = await dialHistoryHost({
+      clientCapabilities: ["spoke-history"],
+      ports: { asHistory: () => service },
+    });
+    try {
+      const failed = await host.client.pruneHistory(
+        PRINCIPAL_A,
+        SCOPE_A,
+        "knowledge_entry",
+        "ke_1",
+        2,
+        { idempotencyKey: "throwing-prune" },
+      );
+      expect(failed.ok).toBe(false);
+      if (!failed.ok) {
+        expect(failed.code).toBe("OUTCOME_UNCERTAIN");
+        expect(failed.details).toEqual({
+          retry_class: "uncertain",
+          kind: "panic",
+        });
+      }
+    } finally {
+      host.close();
+    }
+  });
+
   it("a serve budget expiring mid-invoke answers OUTCOME_UNCERTAIN and a same-key replay recovers", async () => {
     const { port, calls } = countingPort({
       prune: async (_principal, _scope, _kind, id, keep) => {

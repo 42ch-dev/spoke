@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.19.1] - 2026-11-26
+
+
+### Changed
+
+- **connect:** Pin scoped filter coverage and created-space profile policy
+
+
+### Fixed
+
+- **connect:** Answer plain serve timeout for history reads
+
+- **ci:** Compare artifact freshness against recorded provenance revisions
+
 ## [0.19.0] - 2026-11-25
 
 

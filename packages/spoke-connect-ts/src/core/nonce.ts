@@ -22,11 +22,6 @@ import { base64UrlEncode } from "../crypto.js";
 export class NonceStore {
   private readonly seen = new Set<string>();
 
-  /**
-   * note: records `(peerId, nonce)` unless it was already accepted; returns
-   * `false` on replay. Call only after the hello passed every earlier gate
-   * (allowlist, signature) so a rejected hello is not burned.
-   */
   checkAndRecord(peerId: string, nonce: string): boolean {
     const key = `${peerId}\u0000${nonce}`;
     if (this.seen.has(key)) {

@@ -153,10 +153,6 @@ describe("buildAssemblePacket", () => {
   });
 });
 
-// note: Cognition projection is a derivative of the already-authorized carrier set —
-// the builder never invents a source view, and `max_entries` only truncates
-// slim context entries.
-
 const cognitionModule = {
   records: [
     {

@@ -18,15 +18,8 @@ export type EnvelopeBytes = Uint8Array;
 
 /** Message-oriented transport: one connect envelope per `send` / `recv` call. */
 export interface Transport {
-  /** note: resolves when the transport has accepted the bytes. */
   send(envelope: EnvelopeBytes): Promise<void>;
-  /**
-   * note: rejects when the transport closes — a pending `recv` must fail
-   * fast on connection loss so the adapter can fail its in-flight invokes
-   * instead of waiting out their timeout.
-   */
   recv(): Promise<EnvelopeBytes>;
-  /** note: release resources; idempotent. */
   close?(): void | Promise<void>;
 }
 
@@ -50,10 +43,6 @@ class LoopbackChannel {
     this.buffer.push(bytes);
   }
 
-  /**
-   * note: buffered messages are lost on close (a pop after close rejects),
-   * matching a real connection drop.
-   */
   pop(): Promise<EnvelopeBytes> {
     if (this.closed) {
       return Promise.reject(new Error("loopback transport is closed"));
@@ -78,11 +67,6 @@ class LoopbackChannel {
   }
 }
 
-/**
- * why: both directions close together — closing one end fails the peer's
- * pending `recv` exactly like a real connection close, so the RemoteAdapter
- * sees transport loss.
- */
 class LoopbackConnection {
   readonly clientToServer = new LoopbackChannel();
   readonly serverToClient = new LoopbackChannel();

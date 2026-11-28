@@ -1194,17 +1194,6 @@ async fn rejects_a_host_signed_response_with_wrong_session_id_fail_closed() {
             // (the override is signed by the host after the request passed
             // every inbound gate). The signature verifies against the
             // host's hello key; the response still fails closed.
-            //
-            // NOTE: the surfaced kind is `correlation_mismatch`, not
-            // `envelope_auth_session_unbound`: `session_id` is one of the
-            // three correlation echo fields, and the locked check order
-            // (mirrored in TS) runs the correlation echo check BEFORE
-            // envelope-auth verify — so a wrong `session_id` is caught by
-            // the correlation gate first. The session-binding kind is
-            // covered end-to-end by
-            // `fails_the_dial_when_the_session_snapshot_carries_unbound_peer_ids`
-            // and at the core level by `verify_invoke_response_auth` unit
-            // tests. Fires once; the retry below uses the real response.
             host_response_override: Some(Box::new(move |request| {
                 if !fired_flag.swap(true, Ordering::SeqCst) {
                     return Some(json!({

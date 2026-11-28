@@ -31,7 +31,6 @@ export interface SessionOptions {
   session_id: string;
   initiator_peer_id: string;
   responder_peer_id: string;
-  /** note: agreed subset of both hosts' capabilities (spec §Session-core state machine). */
   negotiated_capabilities: readonly string[];
 }
 
@@ -62,20 +61,10 @@ export class Session {
     return this.inbound.nextExpected();
   }
 
-  /**
-   * note: atomically-in-spirit assign the next outbound sequence (first = 0).
-   * Throws `sequence_exhausted` past 2⁵³−1 — sequences never wrap; the
-   * caller must close the session.
-   */
   allocateOutboundSequence(): number {
     return this.outbound.allocate();
   }
 
-  /**
-   * note: accept an inbound invoke sequence iff it is the next expected one;
-   * throws `inbound_sequence_mismatch` otherwise and leaves the expectation
-   * unchanged (the caller must reject the invoke without dispatching it).
-   */
   acceptInboundSequence(sequence: number): void {
     this.inbound.advance(sequence);
   }

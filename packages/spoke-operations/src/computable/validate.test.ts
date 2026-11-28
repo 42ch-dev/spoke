@@ -47,9 +47,6 @@ describe("validateComputableFieldMap", () => {
   });
 });
 
-// note: Shared cross-language timestamp parity contract — computable logging must
-// apply the same RFC 3339 gate as mind-state (TS isParseableDateTime ↔ Rust
-// is_parseable_date_time), pinned here against the one shared fixture.
 const timestampParityCases = JSON.parse(
   readFileSync(
     join(

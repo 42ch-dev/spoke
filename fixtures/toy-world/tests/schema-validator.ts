@@ -42,12 +42,6 @@ export function createSchemaValidator(): Ajv {
     validateSchema: false,
   });
   addFormats(ajv);
-  // why: the schema's `Timestamp` is the shared strict RFC 3339 grammar, not
-  // stock `ajv-formats` `date-time` — that one admits a space separator and
-  // restricts `:60` to the UTC day boundary, so the schema verdict would
-  // disagree with both runtimes (qc1 F-002 / qc3-03). The shared gate is the
-  // single source of truth; registering it after `addFormats` overrides the
-  // stock `date-time` validator.
   ajv.addFormat("date-time", {
     validate: (value: string) => isStrictTimestamp(value),
   });

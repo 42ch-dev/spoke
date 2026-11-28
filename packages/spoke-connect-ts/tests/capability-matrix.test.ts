@@ -9,14 +9,6 @@ import { capabilitySatisfies, requiredCapability, reservedPrefixOp } from "../sr
 import { selectPeerForOp, type SelectablePeer } from "../src/remote/multi-peer-router.js";
 import { PORT_OP_CAPABILITY_REQUIREMENTS, portDispatchAllowed } from "../src/remote/responder.js";
 
-/**
- * why: capability selection matrix parity. The fixture is a byte-identical
- * registered copy of the SSOT under
- * `crates/spoke-connect/tests/fixtures/capability-matrix.json` (sync gate:
- * `tooling/connect/golden-vector-sync.mjs`); the Rust twin iterates the same
- * rows against its own tables, so a requirement or verdict drift on either
- * side fails here or there.
- */
 interface CapabilityCase {
   op: string;
   table: "core" | "product";
@@ -43,9 +35,6 @@ const MATRIX = JSON.parse(
   request_scope_cases: RequestScopeCase[];
 };
 
-// note: both harnesses read these exact bytes — Rust embeds the SSOT with
-// `include_str!`, this copy is byte-checked against it here (the sync gate
-// enforces the same rule outside the test run).
 const TS_FIXTURE_BYTES = readFileSync(
   fileURLToPath(new URL("./fixtures/capability-matrix.json", import.meta.url)),
 );
@@ -142,9 +131,6 @@ describe("shared capability matrix", () => {
         `${row.op}: verdict for negotiated [${row.negotiated.join(", ")}]`,
       ).toBe(row.allowed);
 
-      // why: the responder's actual combined gate, not just the row's owning
-      // table: a core-table entry for a `port.*` op would otherwise pass both
-      // lookups above while admitting the wrong session.
       expect(
         portDispatchAllowed(row.op, row.negotiated),
         `${row.op}: serve gate for negotiated [${row.negotiated.join(", ")}]`,
@@ -155,9 +141,6 @@ describe("shared capability matrix", () => {
         );
       }
 
-      // why: the real selection path, not just the table lookup: one candidate
-      // carrying exactly this row's negotiated set must be selected for an
-      // allowed row and rejected for a denied one.
       const selection = selectPeerForOp([candidate(row.negotiated)], row.op, payloadFor(row.op));
       if (row.allowed) {
         expect(selection.ok, `${row.op}: router must select the row's peer`).toBe(true);
@@ -178,11 +161,6 @@ describe("shared capability matrix", () => {
 
 describe("reserved-prefix terminal dispatch (QC2-16)", () => {
   it("a reserved knowledge.* unknown is terminal before the product map", () => {
-    // note: the shipped product map is constant, so a conflicting row is
-    // pinned by the guard's contract: `reservedPrefixOp` is the SAME
-    // predicate the gate runs before its product-map fallback — a
-    // reserved unknown denies even when a map row + negotiated capability
-    // would otherwise admit it.
     for (const op of ["knowledge.archive", "knowledge.", "knowledge.migrate"]) {
       expect(reservedPrefixOp(op), `${op}: reserved unknown`).toBe(true);
       expect(
@@ -198,9 +176,6 @@ describe("reserved-prefix terminal dispatch (QC2-16)", () => {
   });
 
   it("a conflicting product-map row never advances a reserved unknown (F-011)", () => {
-    // note: the conflicting row IS the distinguishing case: removing the
-    // production gate's reserved short-circuit would let this map admit
-    // the op — the shipped-map-only checks above cannot tell old from new.
     const conflictingMap = {
       "knowledge.made_up": "spoke-knowledge",
     } as const;
@@ -225,10 +200,6 @@ describe("reserved-prefix terminal dispatch (QC2-16)", () => {
   });
 
   it("a product-map row for the registered knowledge.adopt never bypasses the dual-capability gate (F-020)", () => {
-    // note: the shipped map grants knowledge.adopt nothing — an injected
-    // row claiming `spoke-baseline` (or even `spoke-knowledge`) must not
-    // substitute for the op's OWN dual requirement
-    // (`spoke-knowledge-adoption` AND `spoke-knowledge`).
     const conflictingMap = {
       "knowledge.adopt": "spoke-baseline",
     } as const;

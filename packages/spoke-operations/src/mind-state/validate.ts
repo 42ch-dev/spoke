@@ -3,7 +3,6 @@ import type { MindState } from "@42ch/spoke-schemas";
 import { validateCognitionProjection } from "../cognition/validate.js";
 import { isStrictTimestamp } from "../timestamp.js";
 
-// note: Closed-envelope property table (mind-state.schema.json, additionalProperties: false).
 const MIND_STATE_KEYS: Record<string, true> = {
   schema_version: true,
   mind_state_id: true,
@@ -20,7 +19,6 @@ const MIND_STATE_KEYS: Record<string, true> = {
   extensions: true,
 };
 
-// note: Retained nine-field mental vocabulary (domain-profile-mental-state).
 const MENTAL_FIELDS: Record<string, true> = {
   identity: true,
   beliefs: true,
@@ -33,13 +31,6 @@ const MENTAL_FIELDS: Record<string, true> = {
   constraints: true,
 };
 
-/**
- * note: MindDelta path gate (common.schema.json MindDelta) — RFC 6901 JSON Pointer
- * with one of these exact roots: `/modules/mental/<field>...` for any of the
- * nine mental fields; `/modules/cognition/records/...` for derivative
- * standard cognition; `/modules/cognition/world_facts/...` for narrated-world
- * facts. No dot-path and no path targeting the MindState itself as authority.
- */
 function isValidMindDeltaPath(value: unknown): boolean {
   if (typeof value !== "string" || value.length === 0) {
     return false;
@@ -55,9 +46,6 @@ function isValidMindDeltaPath(value: unknown): boolean {
   if (section === "mental") {
     return rest.length > 0 && MENTAL_FIELDS[rest[0]] === true;
   }
-  // note: Schema `/(records|world_facts)/.+` counts the separating slash itself,
-  // so only a literally empty post-root tail is rejected; an all-empty-token
-  // tail such as `/records//` is valid (RFC 6901 permits empty tokens).
   return (
     section === "cognition" &&
     rest.length > 1 &&
@@ -96,7 +84,6 @@ export function validateMindState(state: unknown): state is MindState {
     }
   }
 
-  // note: SchemaVersion is [1, 2^53-1]; `Number.isSafeInteger` is that ceiling.
   if (
     typeof state.schema_version !== "number" ||
     !Number.isSafeInteger(state.schema_version) ||

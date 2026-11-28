@@ -1,13 +1,3 @@
-/**
- * note: `spoke-history` serving face conformance (spoke-history contract
- * §Connect operations / §9.1): the closed request decode, peer admission +
- * effective-scope resolution, prune dedup (recorded outcome / conflict /
- * expired receipt), served-side response validation, present-empty
- * snapshot preservation, and the RemoteAdapter caller-owned
- * idempotency key — exercised through the loopback responder plus direct
- * `HistoryPortService` calls.
- */
-
 import { readFileSync } from "node:fs";
 
 import canonicalize from "canonicalize";
@@ -157,8 +147,6 @@ describe("decodeHistoryCall — closed request shape", () => {
   });
 
   it("enforces the inclusive [0, 2^53] revision domain", () => {
-    // note: the ceiling is `2^53` inclusive — one step past
-    // `Number.isSafeInteger` (spoke-data-model §Shared wire scalars).
     for (const payload of [
       { ...base, revision: 2 ** 53 },
       { ...base, revision: 0 },
@@ -223,9 +211,6 @@ describe("decodeHistoryCall — closed request shape", () => {
         idempotency_key: "k".repeat(128),
       }).ok,
     ).toBe(true);
-    // note: the wire bound is Unicode code points, not UTF-16 code units
-    // (schema `maxLength`; Rust `chars().count()`) — a supplementary-plane
-    // key inside the bound is admitted, one past it is not.
     expect(
       decodeHistoryCall("history.revisions.prune", {
         ...payload,
@@ -440,7 +425,6 @@ describe("HistoryPortService — prune dedup", () => {
     const dedup = new InMemoryHistoryDedupStore({ maxEntries: 1 });
     const service = new HistoryPortService(port, admission(), { dedupStore: dedup });
     await service.invoke("peer-a", "history.revisions.prune", prunePayload("k-1"));
-    // note: a second key evicts the first record (capacity 1).
     await service.invoke("peer-a", "history.revisions.prune", prunePayload("k-2"));
     expect(calls).toHaveLength(2);
     const expired = await service.invoke(
@@ -494,23 +478,11 @@ describe("HistoryPortService — prune dedup", () => {
     const { port, calls } = countingPort({});
     const service = new HistoryPortService(port, admission());
     await service.invoke("peer-a", "history.revisions.prune", prunePayload("k-1"));
-    // note: same key on a different op payload digest conflicts only when
-    // the digest differs — here keep differs so a second namespace member
-    // is exercised via a distinct key.
     await service.invoke("peer-a", "history.revisions.prune", prunePayload("k-2"));
     expect(calls).toHaveLength(2);
   });
 
   it("a `|` inside principal_id or idempotency_key never collides two retry identities", async () => {
-    // note: PR #210 pin — the joined key was
-    // `${scopeDigest}|${principal}|${op}|${key}`, so
-    // `(principal "p", key "a|history.revisions.prune|b")` and
-    // `(principal "p|history.revisions.prune|a", key "b")` produced the
-    // SAME key: the second call collided with the first's recorded
-    // outcome (an IDEMPOTENCY_CONFLICT on the differing payload digest,
-    // never its own execution). The canonical-array key keeps member
-    // boundaries structural — the two identities record two independent
-    // outcomes and an exact repeat still replays one.
     const OP = "history.revisions.prune";
     const { port, calls } = countingPort({});
     const byPeer = (peerId: string): SpokeResult<{ principal: Principal; scope: Scope }> =>
@@ -532,15 +504,7 @@ describe("HistoryPortService — prune dedup", () => {
   });
 
   it("overlapping same-key prunes execute the port once", async () => {
-    // note: same-key serialization (Rust parity: `dedup_lock`) — two
-    // concurrent prunes racing on `unseen` run lookup → port → record
-    // exclusively, so the second settles as the same recorded outcome
-    // and the provider mutates exactly once (contract §9.1).
     let n = 0;
-    // why: executor form — `Promise.withResolvers` needs the ES2024 lib.
-    // A gate the test controls: both invokes are dispatched while the
-    // first holds the dedup section inside the port call, so the second
-    // genuinely races `unseen` without a wall-clock guess.
     let openPort!: () => void;
     const portGate = new Promise<void>((resolve) => {
       openPort = resolve;
@@ -621,8 +585,6 @@ describe("HistoryPortService — served success validation", () => {
       code: "INTERNAL_ERROR",
       details: { kind: "transport" },
     });
-    // note: contract §9.1 — the transport decode reject is the recorded
-    // outcome: a same-digest replay returns it and never re-executes.
     const replay = await service.invoke(
       "peer-a",
       "history.revisions.prune",
@@ -686,7 +648,6 @@ describe("HistoryPortService — served success validation", () => {
     );
     expect(first).toEqual({ ok: true, value: { deleted: 1, floor_revision: 2 } });
     if (first.ok) {
-      // why: the caller holds the returned object; mutating it is the risk.
       const callerView = first.value as { deleted: number };
       callerView.deleted = 999;
     }
@@ -734,8 +695,6 @@ describe("HistoryPortService — served success validation", () => {
 });
 
 describe("RevisionSnapshot — nested entity deep shape", () => {
-  // note: QC-Re3rd F-004/F-008 — a malformed nested member must fail the
-  // decode at both faces (Rust's typed decode already rejects each case).
   const malformed: Array<[string, Record<string, unknown>]> = [
     ["created_at number", { created_at: 123 }],
     ["updated_at number", { updated_at: 42 }],
@@ -745,8 +704,6 @@ describe("RevisionSnapshot — nested entity deep shape", () => {
     ["updated_at no seconds", { updated_at: "2026-07-23T06:15Z" }],
     ["created_at bad month", { created_at: "2026-13-23T06:15:00Z" }],
     ["updated_at offset out of range", { updated_at: "2026-07-23T06:15:00+24:00" }],
-    // note: QC-Re5th F-008 — `Date.parse` normalizes hour 24 into the
-    // next day; chrono `DateTime<Utc>` rejects it outright.
     ["created_at hour 24", { created_at: "2026-07-23T24:00:00Z" }],
     [
       "extensions bad key",
@@ -903,8 +860,6 @@ describe("RevisionSnapshot — nested entity deep shape", () => {
     expect(isValidRevisionSnapshot(relation)).toBe(true);
   });
   it("a leap-second timestamp still decodes (chrono parity)", () => {
-    // note: QC-Re5th F-008 — `Date.parse` returns NaN for `:60`, but
-    // chrono `DateTime<Utc>` accepts leap seconds.
     const leap = snapshot("ke_1", 3, {
       created_at: "2026-07-23T23:59:60Z",
       updated_at: "2026-07-23T23:59:60.5Z",
@@ -912,9 +867,6 @@ describe("RevisionSnapshot — nested entity deep shape", () => {
     expect(isValidRevisionSnapshot(leap)).toBe(true);
   });
   it("an invalid calendar day is rejected even with a leap-second clamp", () => {
-    // note: QC-Re6th F-008 — `Date.parse` normalizes `2026-02-30` into a
-    // valid date while chrono rejects it; the day is range-checked
-    // before the `ss=60→59` normalization reaches `Date.parse`.
     const invalidDay = snapshot("ke_1", 3, {
       created_at: "2026-02-30T23:59:60Z",
       updated_at: "2026-02-30T23:59:60Z",
@@ -1154,7 +1106,6 @@ describe("history serving over the loopback responder", () => {
       await host.client.pruneHistory(PRINCIPAL_A, SCOPE_A, "knowledge_entry", "ke_1", 1, {
         idempotencyKey: "evicted-key",
       });
-      // note: a second key evicts the first record (capacity 1).
       await host.client.pruneHistory(PRINCIPAL_A, SCOPE_A, "knowledge_entry", "ke_1", 1, {
         idempotencyKey: "evictor-key",
       });
@@ -1203,8 +1154,6 @@ describe("history serving over the loopback responder", () => {
   it("a malformed snapshot envelope is a transport decode error at the RemoteAdapter boundary", async () => {
     const zero = snapshot("ke_1", 3) as unknown as Record<string, unknown>;
     zero.schema_version = 0;
-    // note: a raw serving face bypasses the server-side validator, so only
-    // the client's own `isValidRevisionSnapshot` gate can refuse it.
     const rawService: RemoteHistoryService = {
       invoke: async () => spokeOk({ snapshot: zero }),
     };
@@ -1234,8 +1183,6 @@ describe("history serving over the loopback responder", () => {
     const { port, calls } = countingPort({
       get: async (_principal, _scope, _kind, id, revision) => {
         calls.push(`get:${id}@${revision}`);
-        // note: the port outlives the responder budget on purpose — real
-        // delay, deterministic time cannot stand in for the serve budget.
         await new Promise<void>((resolve) => setTimeout(resolve, 200));
         return spokeOk(snapshot(id, revision));
       },
@@ -1244,7 +1191,6 @@ describe("history serving over the loopback responder", () => {
     const host = await dialHistoryHost({
       clientCapabilities: ["spoke-history"],
       ports: { asHistory: () => service },
-      // note: 60ms responder budget < 200ms port call < client budget.
       hostInvokeTimeoutMs: 60,
     });
     try {
@@ -1343,8 +1289,6 @@ describe("history serving over the loopback responder", () => {
     const { port, calls } = countingPort({
       prune: async (_principal, _scope, _kind, id, keep) => {
         calls.push(`prune:${id}@${keep}`);
-        // note: the port outlives the responder budget on purpose — real
-        // delay, deterministic time cannot stand in for the serve budget.
         await new Promise<void>((resolve) => setTimeout(resolve, 200));
         return spokeOk({ deleted: 1, floor_revision: 2 });
       },
@@ -1363,7 +1307,6 @@ describe("history serving over the loopback responder", () => {
     const host = await dialHistoryHost({
       clientCapabilities: ["spoke-history"],
       ports: { asHistory: () => service },
-      // note: 60ms responder budget < 200ms port call < client budget.
       hostInvokeTimeoutMs: 60,
     });
     try {

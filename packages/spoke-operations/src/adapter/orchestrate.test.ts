@@ -107,7 +107,6 @@ function makeTimelineEvent(
   };
 }
 
-/** note: Enforce OCC on in-memory put — mirrors adapter CAS contract. */
 function putKnowledgeEntryWithOcc(
   entries: Map<string, KnowledgeEntry>,
   entry: KnowledgeEntry,
@@ -143,11 +142,6 @@ function putKnowledgeEntryWithOcc(
   return spokeOk(entry);
 }
 
-/**
- * note: Enforce OCC on in-memory relation put — mirrors adapter CAS contract.
- * The adapter owns revision assignment (seed 1 on create, bump +1 on update),
- * matching the toy-world fixture store and the RelationPort parity contract.
- */
 function putRelationWithOcc(
   relations: Map<string, Relation>,
   relation: Relation,
@@ -483,7 +477,6 @@ describe("baseline orchestration", () => {
       ): Promise<SpokeResult<KnowledgeEntry>> {
         const result = await baseline.getKnowledgeEntry(entryId);
         if (result.ok) {
-          // note: Concurrent writer advances the store after our read snapshot.
           storeRevision = 3;
         }
         return result;
@@ -709,7 +702,6 @@ describe("baseline orchestration", () => {
       async getRelation(relationId: string): Promise<SpokeResult<Relation>> {
         const result = await baseline.getRelation(relationId);
         if (result.ok) {
-          // note: Concurrent writer advances the store after our read snapshot.
           storeRevision = 6;
         }
         return result;
@@ -749,8 +741,6 @@ describe("baseline orchestration", () => {
   it("orchestrateRelate rejects update when candidate revision conflicts (ahead of store)", async () => {
     const stored = makeRelation({ relation_id: "rel_conflict", revision: 2 });
     const baseline = createMemoryBaselinePorts({ relations: [stored] });
-    // note: Candidate claims revision 7 while store holds 2 → validator returns
-    // REVISION_CONFLICT (candidate ahead of stored) before the put.
     const candidate = makeRelation({
       relation_id: "rel_conflict",
       revision: 7,
@@ -766,10 +756,6 @@ describe("baseline orchestration", () => {
   });
 
   it("orchestrateRelate propagates RELATION_ALREADY_EXISTS when create races an existing id", async () => {
-    // note: The create-path `RELATION_ALREADY_EXISTS` can only surface through a
-    // read-then-put CAS race: the orchestrator's `getRelation` snapshot missed
-    // a concurrently-inserted row, so validate routes to create and the adapter
-    // rejects `putRelation(existing, null)`. The orchestrator must propagate it.
     const stored = makeRelation({ relation_id: "rel_race", revision: 1 });
     const baseline = createMemoryBaselinePorts({ relations: [stored] });
     const ports: BaselinePorts = {
@@ -782,7 +768,6 @@ describe("baseline orchestration", () => {
         );
       },
     };
-    // note: Create candidate carries no revision so validate chooses the create path.
     const candidate = makeRelation({ relation_id: "rel_race" });
     const request: RelateRequest = { relation: candidate };
 
@@ -1132,7 +1117,6 @@ describe("optional fork orchestration", () => {
   });
 });
 
-/** note: Shared entry plus one holder-private entry per holder, seeded in that order. */
 function makeViewpointEntries(): KnowledgeEntry[] {
   return [
     makeKnowledgeEntry({ entry_id: "kb_shared" }),
@@ -1408,7 +1392,6 @@ describe("cognition assembly orchestration", () => {
       input_record_ids: ["rec_assemble"],
       selected_record_id: "rec_assemble",
     });
-    // note: Slim packet entries are unchanged by the derivative projection.
     expect(result.value.packet.entries).toEqual([
       {
         entry_id: "kb_mira",
@@ -1475,9 +1458,6 @@ describe("cognition assembly orchestration", () => {
   });
 });
 
-// note: Shared cross-language KE authorization/assembly contract (TS ↔ Rust) — every
-// vector runs the actual public operation with a recording baseline port, so a
-// rejection is proven to happen before source output, checker or persistence.
 const assemblyVectorFile = JSON.parse(
   readFileSync(
     join(
@@ -1596,7 +1576,6 @@ function vectorPolicy(selects: AssemblyVector["policy_selects"]) {
   return undefined;
 }
 
-/** note: Recording baseline port — the provider deliberately returns the raw vector set. */
 function createVectorPorts(
   entries: KnowledgeEntry[],
   calls: AssemblyVectorCalls,
@@ -1740,8 +1719,6 @@ async function runAssemblyVector(vector: AssemblyVector): Promise<void> {
     items: vector.expected.items,
   });
 
-  // note: Every retained assessment is the complete input record — holder, target,
-  // assessor, basis, context and probability references survive verbatim.
   const inputRecords = vectorCarrierRecords(vector.entries);
   for (const item of projection.items) {
     for (const record of item.assessments) {

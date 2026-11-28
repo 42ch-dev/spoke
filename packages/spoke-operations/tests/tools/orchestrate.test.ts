@@ -77,7 +77,6 @@ describe("orchestrateInvokeTool", () => {
       makeRequest({ capability_id: "tools.Bad.lookup" }),
     );
 
-    // note: Grammar gate runs first — the port must never be reached.
     expect(invoked).toBe(false);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -87,8 +86,6 @@ describe("orchestrateInvokeTool", () => {
   });
 
   it("rejects a structurally-missing port with CAPABILITY_PORT_MISSING per-tool blame", async () => {
-    // note: JS boundary — a plain object that is not a ToolInvokePort must reject
-    // structurally instead of throwing a TypeError.
     const notAPort = {} as unknown as ToolInvokePort;
 
     const result = await orchestrateInvokeTool(
@@ -104,8 +101,6 @@ describe("orchestrateInvokeTool", () => {
   });
 
   it("rejects a null/undefined port with CAPABILITY_PORT_MISSING per-tool blame", async () => {
-    // note: JS boundary — `null`/`undefined` must reject structurally (same code +
-    // per-tool blame) instead of throwing a TypeError on `port.invokeTool`.
     for (const notAPort of [null, undefined] as const) {
       const result = await orchestrateInvokeTool(
         notAPort as unknown as ToolInvokePort,
@@ -123,8 +118,6 @@ describe("orchestrateInvokeTool", () => {
   it("does not re-run argument validation (grammar-only; arbitrary arguments reach the port)", async () => {
     const port = createEchoPort();
 
-    // note: Arguments that would fail the structural argument gate still reach the
-    // port — argument validation is the caller's job (validateToolArguments).
     const result = await orchestrateInvokeTool(
       port,
       makeRequest({

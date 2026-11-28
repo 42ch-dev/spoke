@@ -1,7 +1,3 @@
-/**
- * note: Type-level evidence — ComputableLogChange.previous / .next accept any JSON value.
- * Asserts scalar, null, and array assignments typecheck against generated OpaqueJson.
- */
 import type { ComputableLogChange } from "./generated/common/common";
 
 const _scalarPrevious: ComputableLogChange = {

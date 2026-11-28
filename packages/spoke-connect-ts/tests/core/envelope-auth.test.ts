@@ -29,19 +29,6 @@ import type {
   SessionSignInput,
 } from "../../src/core/envelope-auth.js";
 
-/**
- * why: envelope-auth core tests — mirror the locked contract
- * (`.agents/specs/connect/spoke-connect.md` §Envelope authentication):
- * algorithm ids, exact signed-field sets, conditional-`auth` inclusion,
- * oneOf invoke-response branch separation, canonical base64url round-trip,
- * and the fail-closed verify order with stable `details.kind` values.
- *
- * Deterministic seeds per role (Rust unit tests use the same convention):
- * the envelope emitter is `[7u8; 32]`; a distinct key `[8u8; 32]` stands in
- * for a wrong peer / tamper key; the two session peers are `[9u8; 32]` and
- * `[10u8; 32]`.
- */
-
 const EMITTER_SEED = new Uint8Array(32).fill(7);
 const EMITTER_PUBKEY = getPublicKeyEd25519(EMITTER_SEED);
 const OTHER_SEED = new Uint8Array(32).fill(8);
@@ -53,19 +40,10 @@ const INITIATOR_PEER_ID = peerOf(INITIATOR_SEED);
 const RESPONDER_PEER_ID = peerOf(RESPONDER_SEED);
 const SESSION_ID = "session-0001";
 
-/** why: a peer id for a raw Ed25519 seed (runtime-derived — no literals in crypto positions). */
 function peerOf(seed: Uint8Array): string {
   return derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed));
 }
 
-/**
- * why: cast an OpaqueJson `auth` value (any JSON — scalar, null, array, object)
- * through the generated schema type, whose `auth` is object-only. The
- * contract (§3) types `auth` as `<OpaqueJson>` and both runtimes bind
- * arbitrary JSON (Rust `Option<serde_json::Value>`), so the generated type
- * is narrower than the contract — the cast is a type-level accommodation
- * only.
- */
 function opaqueAuth(auth: unknown): ConnectInvokeRequest["auth"] {
   return auth as ConnectInvokeRequest["auth"];
 }
@@ -77,7 +55,6 @@ async function rejectsWithKind(
   await expect(promise).rejects.toMatchObject({ kind });
 }
 
-/** note: swap the final base64url char for a sibling encoding the same 64 bytes with non-zero slack bits. */
 function nonCanonicalSignature(encoded: string): string {
   const last = encoded[encoded.length - 1];
   const sibling =
@@ -107,7 +84,6 @@ function requestInput(extra: Partial<InvokeRequestSignInput> = {}): InvokeReques
   };
 }
 
-/** note: success-branch response sign input (oneOf branch 1). */
 function responseSuccessInput(): InvokeResponseSignInput {
   return {
     session_id: SESSION_ID,
@@ -117,7 +93,6 @@ function responseSuccessInput(): InvokeResponseSignInput {
   };
 }
 
-/** note: error-branch response sign input (oneOf branch 2). */
 function responseErrorInput(): InvokeResponseSignInput {
   return {
     session_id: SESSION_ID,
@@ -140,7 +115,6 @@ describe("ConnectSession envelope auth (spoke-connect-session-jcs-v1)", () => {
     const session = await authenticateSession(EMITTER_SEED, sessionInput());
     expect(session.signature).toMatch(/^[A-Za-z0-9_-]{86}$/);
     expect(session.extensions).toEqual({});
-    // note: verify with the emitter's hello public key + the authenticated hellos.
     await verifySessionAuth(
       EMITTER_PUBKEY,
       session,
@@ -194,8 +168,6 @@ describe("ConnectSession envelope auth (spoke-connect-session-jcs-v1)", () => {
 
   it("rejects peer ids that do not match the authenticated hellos (envelope_auth_session_unbound)", async () => {
     const session = await authenticateSession(EMITTER_SEED, sessionInput());
-    // why: signature verifies (emitter key) but the snapshot's peer ids do not
-    // match the authenticated hellos of the current session.
     await rejectsWithKind(
       verifySessionAuth(EMITTER_PUBKEY, session, peerOf(OTHER_SEED), RESPONDER_PEER_ID),
       "envelope_auth_session_unbound",
@@ -491,7 +463,6 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
     await expect(
       verifyInvokeRequestAuth(EMITTER_PUBKEY, signed, SESSION_ID),
     ).resolves.toBeUndefined();
-    // note: the endpoint hashes as its equal integer spelling, shared with Rust.
     const jcs = canonicalize({
       session_id: signed.session_id,
       sequence: signed.sequence,
@@ -521,8 +492,6 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
         )).message,
       );
     }
-    // note: `Relation.metadata` is an open product bag — the key's spelling
-    // cannot change the verdict, so both members refuse the same way.
     expect(messages[0]).toBe(messages[1]);
     expect(messages[0]).toContain("outside the revision member domain");
   });
@@ -613,9 +582,6 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
   });
 
   it("signs a reverse-invoke success `payload.result` revision at the endpoint", async () => {
-    // why: the reverse-invoke success branch wraps the served value as
-    // `payload.result` (frozen §4), so the op's declared response revision
-    // paths sit one level deeper on that branch.
     const payload = {
       result: {
         revision: ENDPOINT,
@@ -651,8 +617,6 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
   });
 
   it("signs a `memory.spaces.create` receipt `result.revision` at the endpoint", async () => {
-    // why: A3-D4 gives the create receipt the `memory.subjects.ensure` result
-    // shape, so its revision is a declared response revision path.
     const payload = {
       result: { space_id: "spc_0001", status: "active", created: true, revision: ENDPOINT },
     };
@@ -685,8 +649,6 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
   });
 
   it("signs a reverse-invoke `memory.spaces.create` receipt revision at the endpoint", async () => {
-    // why: the wrapped served value puts the same receipt one level deeper
-    // (`payload.result.result.revision`), so the wrapper branch owns it too.
     const payload = {
       result: {
         result: {
@@ -726,8 +688,6 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
   });
 
   it("refuses a served adoption payload carrying both `entry` and `error` (GH-01)", async () => {
-    // note: the adoption response carries one variant — the mixed malformed
-    // payload cannot borrow the success variant's `entry.revision` endpoint.
     await expect(
       authenticateInvokeResponse(
         EMITTER_SEED,
@@ -752,8 +712,6 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
   });
 
   it("refuses the adoption refusal endpoint without its owning op (D-01)", async () => {
-    // note: the exception is op-scoped, not vocabulary-scoped — the same
-    // REVISION_CONFLICT receipt owns no revision slot for another op.
     await expect(
       authenticateInvokeResponse(EMITTER_SEED, {
         session_id: SESSION_ID,
@@ -798,22 +756,13 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
         })).message,
       );
     }
-    // note: `ErrorEnvelope.details` is an open bag — it may not borrow
-    // `payload.entry.revision`, and the key's spelling cannot change the
-    // verdict, so every member refuses identically (including the
-    // op-scoped `adopted_revision`, which owns no slot without its op).
     expect(new Set(messages).size).toBe(1);
     expect(messages[0]).toContain("outside the revision member domain");
   });
 
   it("refuses a path spliced from two owning prefixes (D-01)", async () => {
     for (const payload of [
-      // note: only `payload.snapshot.snapshot.adoption_anchor` owns the
-      // endpoint, so one `snapshot` level may not borrow it.
       { snapshot: { adoption_anchor: { source_revision: ENDPOINT } } },
-      // note: `payload.error.details` continues through the served adoption
-      // refusal, but `source_revision` there belongs to
-      // `payload.records.import_ref.source_revision`.
       { error: { details: { source_revision: ENDPOINT } } },
     ]) {
       await expect(
@@ -866,9 +815,6 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
 
   it("refuses a generic rejection's `adopted_revision` on the adoption op (F-01)", async () => {
     for (const code of ["INVALID_INPUT", "NOT_FOUND"]) {
-      // note: only REVISION_CONFLICT owns `details.adopted_revision`, so a
-      // generic refusal on the same op keeps the `2^53 - 1` bound in both
-      // response branches.
       await expect(
         authenticateInvokeResponse(
           EMITTER_SEED,
@@ -958,8 +904,6 @@ describe("signed member domain (Rust core/jcs.rs parity)", () => {
     await expect(
       verifyInvokeRequestAuth(EMITTER_PUBKEY, signed, SESSION_ID),
     ).resolves.toBeUndefined();
-    // note: an unknown op owns no revision path, so its payload endpoint
-    // refuses instead of inheriting `Object.prototype.constructor`.
     await expect(
       authenticateInvokeRequest(
         EMITTER_SEED,

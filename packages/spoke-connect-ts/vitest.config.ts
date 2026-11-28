@@ -8,14 +8,10 @@ const REPO_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../..");
 export default defineConfig({
   resolve: {
     alias: {
-      // why: alias to schemas src/ so tests run without a prior `build:schema`
-      // (same pattern as the fixture → operations alias; AD-P0-1).
       "@42ch/spoke-schemas": join(
         REPO_ROOT,
         "packages/spoke-schemas/src/index.ts",
       ),
-      // why: self-import aliases so tests run from src/ without a prior build
-      // (the package exports point to dist/ for published consumers).
       // Order matters: the /node, /noise and /remote subpaths MUST come
       // before the bare name, otherwise vite prefix-matches the shorter key
       // first.
@@ -35,14 +31,10 @@ export default defineConfig({
         REPO_ROOT,
         "packages/spoke-connect-ts/src/index.ts",
       ),
-      // why: alias to src/ so tests run without a prior build:operations (same
-      // pattern as the fixture → operations alias).
       "@42ch/spoke-operations": join(
         REPO_ROOT,
         "packages/spoke-operations/src/index.ts",
       ),
-      // note: workspace-private fixture package (no exports map) — loopback host
-      // serving a ToyWorldAdapter.
       "@42ch/spoke-fixture-toy-world": join(
         REPO_ROOT,
         "fixtures/toy-world/src/adapter/index.ts",

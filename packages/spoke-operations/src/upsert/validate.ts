@@ -37,7 +37,6 @@ function validateRequiredKnowledgeEntryFields(
     }
   }
 
-  // note: SchemaVersion is [1, 2^53-1]; `Number.isSafeInteger` is that ceiling.
   if (
     typeof candidate.schema_version !== "number" ||
     !Number.isSafeInteger(candidate.schema_version) ||
@@ -50,11 +49,6 @@ function validateRequiredKnowledgeEntryFields(
     );
   }
 
-  // note: nested provenance anchors share the entry's `[1, 2^53-1]` domain
-  // (Rust parity: `validate_anchor_schema_versions`); `adoption_anchor`
-  // `source_revision` is revision-typed `[0, 2^53]` (qc3-04). A present
-  // non-object anchor (e.g. explicit `null`) is malformed input — reject it
-  // like Rust's typed decode, never throw a `TypeError` (qc1 R1-002).
   const sourceAnchor = candidate.source_anchor;
   if (sourceAnchor !== undefined) {
     if (
@@ -248,8 +242,6 @@ function validateUpdatePath(
     );
   }
 
-  // note: revision-typed member — inclusive `[0, 2^53]`; Rust refuses the
-  // first representable value above the ceiling (qc3-04).
   if (candidate.revision > MAX_REVISION) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,

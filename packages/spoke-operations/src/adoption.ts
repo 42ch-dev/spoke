@@ -171,11 +171,6 @@ export async function resolveRetirementChain(
     }
     const [successorId] = successors;
     if (visited.length > RETIREMENT_CHAIN_MAX_EDGES) {
-      // note: reaching the 33rd edge means 32 edges were already followed
-      // and the chain still has not terminated. `retirement_chain` lists
-      // visited ids only — the successor beyond the rejected edge was
-      // never loaded, so it stays unlisted (contract §Retirement-chain
-      // resolution).
       return spokeReject(
         "SOURCE_RETIRED",
         "retirement chain exceeds the 32-edge limit",
@@ -192,9 +187,6 @@ export async function resolveRetirementChain(
     }
     const successor = await loadEntry(successorId);
     if (successor === undefined) {
-      // note: `retirement_chain` ends at the last resolved node — the
-      // unresolvable successor stays unlisted (contract §Retirement-chain
-      // resolution).
       return spokeReject(
         "SOURCE_RETIRED",
         "retirement chain is broken: the successor entry is missing",

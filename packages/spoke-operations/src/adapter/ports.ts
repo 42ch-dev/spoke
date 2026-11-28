@@ -1,9 +1,3 @@
-/**
- * note: Capability-sliced adapter port contracts for injection orchestration.
- * Async SpokeResult surface — port methods return awaitable results; the
- * library stays I/O-free and only awaits injected ports.
- */
-
 import type {
   ComputeRequest,
   ComputeResponse,
@@ -100,17 +94,6 @@ export interface KnowledgeEntryPort {
   getKnowledgeEntry(
     entryId: string,
   ): Promise<SpokeResult<KnowledgeEntry>>;
-  /**
-   * note: Persist a KnowledgeEntry with optimistic concurrency control.
-   *
-   * Adapters MUST treat `expectedBaseRevision` as the store’s required current
-   * revision before accepting the write (conditional put / OCC / CAS).
-   * `null` means the entry must be absent (create). A non-null value means the
-   * store’s current revision for `entry.entry_id` MUST equal
-   * `expectedBaseRevision`; otherwise reject with `STORED_REVISION_STALE` or
-   * `REVISION_CONFLICT`. True concurrent safety requires atomic compare-and-put
-   * in the adapter; the library stays I/O-free.
-   */
   putKnowledgeEntry(
     entry: KnowledgeEntry,
     expectedBaseRevision: number | null,
@@ -120,22 +103,6 @@ export interface KnowledgeEntryPort {
 /** Relation persistence — get / put by relation id. */
 export interface RelationPort {
   getRelation(relationId: string): Promise<SpokeResult<Relation>>;
-  /**
-   * note: Persist a Relation with optimistic concurrency control.
-   *
-   * Adapters MUST treat `expectedBaseRevision` as the store’s required current
-   * revision before accepting the write (conditional put / OCC / CAS).
-   * `null` means the relation must be absent (create). A non-null value means the
-   * store’s current revision for `relation.relation_id` MUST equal
-   * `expectedBaseRevision`; otherwise reject with `STORED_REVISION_STALE` or
-   * `REVISION_CONFLICT`. True concurrent safety requires atomic compare-and-put
-   * in the adapter; the library stays I/O-free.
-   *
-   * Revision assignment is adapter-owned: on create (`expectedBaseRevision`
-   * `null`) the adapter MUST seed `revision = 1`; on an accepted update it MUST
-   * persist `revision = stored + 1`. The returned Relation carries the assigned
-   * revision — callers must not set it themselves.
-   */
   putRelation(
     relation: Relation,
     expectedBaseRevision: number | null,
@@ -244,16 +211,6 @@ export type ForkAdapter = ForkPorts;
 export type FullAdapter = FullPorts;
 
 /**
- * note: Optional `ke-extraction` family — the injected product boundary for
- * referenced-content extraction.
- *
- * Standalone like `ToolInvokePort`: `ExtractionPort` is NOT part of
- * `BaselinePorts` / `FullPorts` or the adapter aliases. The library contains no
- * source I/O and no extraction engine; it only awaits the injected port and
- * callback, then validates and assembles.
- */
-
-/**
  * Opaque JSON (`common.schema.json#/definitions/OpaqueJson`) — any JSON value
  * retained verbatim, never narrowed to an object map.
  */
@@ -307,193 +264,138 @@ export type RunExtractor = (
  * sufficient coverage also satisfies capability requirements (§6.5).
  */
 export interface MemoryPort {
-  /** note: §7.1 `memory.describe` — provider self-description. **Grant:** none; authenticated principal only. Read-only. */
   describe(
     principal: Principal,
     request: MemoryDescribeRequest,
   ): Promise<SpokeResult<MemoryDescribeResponse>>;
-  /** note: §7.2 `memory.spaces.list` — visible spaces; drain-barrier read. **Grant:** any valid grant in the space, or provider-configured visibility. Read-only. */
   listSpaces(
     principal: Principal,
     request: MemorySpacesListRequest,
   ): Promise<SpokeResult<MemorySpacesListResponse>>;
-  /**
-   * note: `memory.spaces.create` — create a space (a Mind) with a caller-named
-   * `space_id`; establishes no subject. **Grant:** none for a new id
-   * (authenticated principal only, MEM-R003); on an existing space the
-   * requester MUST hold `admin` or the call fails `NOT_AUTHORIZED` — never
-   * `NOT_FOUND`, and the refusal carries no existence detail. A caller that
-   * does hold `admin` still learns that its own create succeeded; the promise
-   * covers the refusal, not the caller's own outcome.
-   *
-   * note: Idempotency key required (§7.0.5) over `(space_id,
-   * requester_principal_id, op, idempotency_key)` and checked before the grant
-   * and freeze steps: replaying the same key and payload returns the receipt
-   * recorded under it (or `RECEIPT_EXPIRED` once its body is evicted); the same
-   * key with a different payload is `IDEMPOTENCY_CONFLICT`.
-   *
-   * note: The first create atomically writes the space row, its knowledge
-   * binding, carrier and the creator's default grant row, plus the committed
-   * receipt. A repeat create by an admin under a fresh key changes no space,
-   * grant or revision, but still records its own receipt and answers
-   * `created: false` with the current status and revision. A frozen space
-   * answers `SPACE_FROZEN`.
-   */
   createSpace(
     principal: Principal,
     request: MemorySpacesCreateRequest,
   ): Promise<SpokeResult<MemorySpacesCreateResponse>>;
-  /** note: §7.3 `memory.spaces.freeze`. **Grant:** `admin`. Idempotency key required. */
   freezeSpace(
     principal: Principal,
     request: MemorySpacesFreezeRequest,
   ): Promise<SpokeResult<MemorySpacesFreezeResponse>>;
-  /** note: §7.4 `memory.spaces.unfreeze` — always allowed on a frozen space. **Grant:** `admin`. */
   unfreezeSpace(
     principal: Principal,
     request: MemorySpacesUnfreezeRequest,
   ): Promise<SpokeResult<MemorySpacesUnfreezeResponse>>;
-  /** note: §7.5 `memory.subjects.ensure` — idempotent get-or-create; sole `idempotency_key` exemption (§7.0.5). **Grant:** `capture` (admin with coverage also satisfies). */
   ensureSubject(
     principal: Principal,
     request: MemorySubjectsEnsureRequest,
   ): Promise<SpokeResult<MemorySubjectsEnsureResponse>>;
-  /** note: §7.6 `memory.subjects.get`. **Grant:** any capability on the subject. Read-only. */
   getSubject(
     principal: Principal,
     request: MemorySubjectsGetRequest,
   ): Promise<SpokeResult<MemorySubjectsGetResponse>>;
-  /** note: §7.7 `memory.subjects.fence` — subject/context lifecycle fencing. **Grant:** `admin`. */
   fenceSubject(
     principal: Principal,
     request: MemorySubjectsFenceRequest,
   ): Promise<SpokeResult<MemorySubjectsFenceResponse>>;
-  /** note: §7.8 `memory.grants.list`. **Grant:** `admin` for full/filtered views; self-view limited to the caller's own grants. Read-only. */
   listGrants(
     principal: Principal,
     request: MemoryGrantsListRequest,
   ): Promise<SpokeResult<MemoryGrantsListResponse>>;
-  /** note: §7.9 `memory.grants.grant`. **Grant:** `admin`; the issued grant must be non-amplifying relative to the granter's coverage (§6.5). */
   grant(
     principal: Principal,
     request: MemoryGrantsGrantRequest,
   ): Promise<SpokeResult<MemoryGrantsGrantResponse>>;
-  /** note: §7.10 `memory.grants.revoke` — allowed during freeze (§8.2 allowlist). **Grant:** `admin`. */
   revokeGrant(
     principal: Principal,
     request: MemoryGrantsRevokeRequest,
   ): Promise<SpokeResult<MemoryGrantsRevokeResponse>>;
-  /** note: §7.11 `memory.capture` — never writes retained records (MEM-R012). **Grant:** `capture` covering the declared `capture_scope`. */
   capture(
     principal: Principal,
     request: MemoryCaptureRequest,
   ): Promise<SpokeResult<MemoryCaptureResponse>>;
-  /** note: §7.12 `memory.candidates.list`. **Grant:** `review` covering `capture_scope`. Read-only. */
   listCandidates(
     principal: Principal,
     request: MemoryCandidatesListRequest,
   ): Promise<SpokeResult<MemoryCandidatesListResponse>>;
-  /** note: §7.13 `memory.candidates.get`. **Grant:** `review` covering the candidate's `capture_scope`. Read-only. */
   getCandidate(
     principal: Principal,
     request: MemoryCandidatesGetRequest,
   ): Promise<SpokeResult<MemoryCandidatesGetResponse>>;
-  /** note: §7.14 `memory.candidates.dismiss` — consumption without a review decision. **Grant:** `review` covering `capture_scope`. */
   dismissCandidate(
     principal: Principal,
     request: MemoryCandidatesDismissRequest,
   ): Promise<SpokeResult<MemoryCandidatesDismissResponse>>;
-  /** note: §7.15 `memory.candidates.review` — the only candidate → record path. **Grant:** `review` + `records_write`, both covering `capture_scope`. */
   reviewCandidate(
     principal: Principal,
     request: MemoryCandidatesReviewRequest,
   ): Promise<SpokeResult<MemoryCandidatesReviewResponse>>;
-  /** note: §7.16 `memory.records.create` — direct authored write. **Grant:** `records_write` covering the declared placement. */
   createRecord(
     principal: Principal,
     request: MemoryRecordsCreateRequest,
   ): Promise<SpokeResult<MemoryRecordsCreateResponse>>;
-  /** note: §7.17 `memory.records.get`. **Grant:** `records_read` or `recall` covering placement; tombstoned reads require `admin`. Read-only. */
   getRecord(
     principal: Principal,
     request: MemoryRecordsGetRequest,
   ): Promise<SpokeResult<MemoryRecordsGetResponse>>;
-  /** note: §7.18 `memory.records.update` — placement changes are NOT updates (see `promoteRecord`). **Grant:** `records_write` covering the current placement. */
   updateRecord(
     principal: Principal,
     request: MemoryRecordsUpdateRequest,
   ): Promise<SpokeResult<MemoryRecordsUpdateResponse>>;
-  /** note: §7.19 `memory.records.delete` — tombstone retained, receipts unaffected. **Grant:** `records_write` covering the placement. */
   deleteRecord(
     principal: Principal,
     request: MemoryRecordsDeleteRequest,
   ): Promise<SpokeResult<MemoryRecordsDeleteResponse>>;
-  /** note: §7.20 `memory.records.list`. **Grant:** `records_read` or `recall` covering the selection/filter; `include_tombstoned` requires `admin`. Read-only. */
   listRecords(
     principal: Principal,
     request: MemoryRecordsListRequest,
   ): Promise<SpokeResult<MemoryRecordsListResponse>>;
-  /** note: §7.21 `memory.records.promote` — explicit placement change. **Grant:** `promote` + `records_write`, both covering source and target placements. */
   promoteRecord(
     principal: Principal,
     request: MemoryRecordsPromoteRequest,
   ): Promise<SpokeResult<MemoryRecordsPromoteResponse>>;
-  /** note: §7.22 `memory.recall` — authorized, ranked, budgeted read. **Grant:** `recall` covering the selection/filter. Read-only. */
   recall(
     principal: Principal,
     request: MemoryRecallRequest,
   ): Promise<SpokeResult<MemoryRecallResponse>>;
-  /** note: §7.23 `memory.profile.get` — absent kinds are honest-empty (§4.2). **Grant:** any capability on the subject with shared access or unrestricted coverage. Read-only. */
   getProfile(
     principal: Principal,
     request: MemoryProfileGetRequest,
   ): Promise<SpokeResult<MemoryProfileGetResponse>>;
-  /** note: §7.24 `memory.profile.update`. **Grant:** `profile_write`. */
   updateProfile(
     principal: Principal,
     request: MemoryProfileUpdateRequest,
   ): Promise<SpokeResult<MemoryProfileUpdateResponse>>;
-  /** note: §7.25 `memory.reflections.state` — capability `spoke-memory-reflection`. **Grant:** `reflect` covering the selection/filter. Read-only. */
   getReflectionState(
     principal: Principal,
     request: MemoryReflectionsStateRequest,
   ): Promise<SpokeResult<MemoryReflectionsStateResponse>>;
-  /** note: §7.26 `memory.reflections.list` — capability `spoke-memory-reflection`. **Grant:** `reflect` covering the selection/filter. Read-only. */
   listReflections(
     principal: Principal,
     request: MemoryReflectionsListRequest,
   ): Promise<SpokeResult<MemoryReflectionsListResponse>>;
-  /** note: §7.27 `memory.reflections.generate` — explicit cost-bearing generation; may complete asynchronously (§7.0.3). Capability `spoke-memory-reflection`. **Grant:** `reflect` covering the selection/filter. */
   generateReflection(
     principal: Principal,
     request: MemoryReflectionsGenerateRequest,
   ): Promise<SpokeResult<MemoryReflectionsGenerateResponse>>;
-  /** note: §7.28 `memory.receipts.get` — sole uncertainty-resolution and pending-polling channel. **Grant:** current authorization as the receipt's `requester_principal_id`, or `admin` in the space. Read-only. */
   getReceipt(
     principal: Principal,
     request: MemoryReceiptsGetRequest,
   ): Promise<SpokeResult<MemoryReceiptsGetResponse>>;
-  /** note: §7.29 `memory.exports.create` — capability `spoke-memory-transfer`; never fails `SPACE_FROZEN` (§8.2 allowlist). **Grant:** `transfer` covering the export scope; `include_tombstoned` requires `admin`. */
   createExport(
     principal: Principal,
     request: MemoryExportsCreateRequest,
   ): Promise<SpokeResult<MemoryExportsCreateResponse>>;
-  /** note: §7.30 `memory.exports.get` — capability `spoke-memory-transfer`. **Grant:** `transfer` covering the export scope; `include_tombstoned` requires `admin`. Read-only. */
   getExport(
     principal: Principal,
     request: MemoryExportsGetRequest,
   ): Promise<SpokeResult<MemoryExportsGetResponse>>;
-  /** note: §7.31 `memory.imports.stage` — per-chunk staging, strict ordinal order. Capability `spoke-memory-transfer`. **Grant:** `transfer` + `admin` on the target space. */
   stageImport(
     principal: Principal,
     request: MemoryImportsStageRequest,
   ): Promise<SpokeResult<MemoryImportsStageResponse>>;
-  /** note: §7.32 `memory.imports.activate` — atomic visibility flip. Capability `spoke-memory-transfer`. **Grant:** `transfer` + `admin`. */
   activateImport(
     principal: Principal,
     request: MemoryImportsActivateRequest,
   ): Promise<SpokeResult<MemoryImportsActivateResponse>>;
-  /** note: §7.33 `memory.imports.discard` — pre-activation rollback. Capability `spoke-memory-transfer`. **Grant:** `transfer` + `admin`. */
   discardImport(
     principal: Principal,
     request: MemoryImportsDiscardRequest,
@@ -538,7 +440,6 @@ export interface MemoryPorts {
  * `crates/spoke-operations/src/adapter/ports.rs` `HistoryPort`.
  */
 export interface HistoryPort {
-  /** note: `history.revisions.get` — replay the stored entity at exactly `revision`. Read-only. */
   getHistorySnapshot(
     principal: Principal,
     scope: Scope,
@@ -546,13 +447,6 @@ export interface HistoryPort {
     entityId: string,
     revision: number,
   ): Promise<SpokeResult<RevisionSnapshot>>;
-  /**
-   * note: `history.revisions.prune` — retain the newest `keep` checkpoints
-   * of one `(scope, entity_kind, entity_id)` target and delete every older
-   * checkpoint. The live row is not a checkpoint and never consumes `keep`;
-   * no write path performs this pruning implicitly. Prune authorization is
-   * the selected entity's write permission in `scope`.
-   */
   pruneHistory(
     principal: Principal,
     scope: Scope,
@@ -599,11 +493,6 @@ export interface HistoryPorts {
  * `crates/spoke-operations/src/adapter/ports.rs` `AdoptionPort`.
  */
 export interface AdoptionPort {
-  /**
-   * note: `knowledge.adopt` — adopt a shared `KnowledgeEntry` into the
-   * destination scope, writing `adoption_anchor` with the resolved
-   * terminal source scope/id/revision. Mutating op.
-   */
   adoptKnowledgeEntry(
     principal: Principal,
     scope: Scope,

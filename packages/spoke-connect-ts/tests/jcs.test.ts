@@ -72,8 +72,6 @@ describe("canonicalHelloBytes (RFC 8785 JCS)", () => {
       "protocol_version",
     ]);
     expect(responderObj.peer_nonce).toBe("initiator-nonce-123456");
-    // why: the initiator object stays byte-identical to the pre-dial-binding
-    // golden bytes; the responder object differs (dial binding).
     expect(initiatorObj).not.toHaveProperty("peer_nonce");
     expect(toHex(initiator)).toBe(GOLDEN_JCS_HEX);
     expect(toHex(responder)).not.toBe(GOLDEN_JCS_HEX);
@@ -85,8 +83,6 @@ describe("canonicalHelloBytes (RFC 8785 JCS)", () => {
     );
     expect(canonical).not.toContain("authority");
 
-    // why: a manifest WITH authority canonicalizes to different bytes: an
-    // explicit null would too — the omit-not-null rule is signature-binding.
     const withAuthority: HostCapabilityManifest = {
       ...goldenManifest(),
       authority: { scope_key: "golden-scope" },

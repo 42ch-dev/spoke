@@ -1,14 +1,3 @@
-/**
- * note: JCS / SHA-256 digest helpers (§6.7 `content_digest`, §6.10
- * `payload_digest`, §6.11 bundle `digest`, §6.13 `chunk_digest`):
- * RFC 8785 canonicalization → SHA-256 → 64 lowercase hex.
- *
- * Canonicalization uses the `canonicalize` package — the reference RFC 8785
- * implementation, also used by spoke-connect-ts capability tokens, so TS
- * and Rust (`serde_jcs`) digests agree (cross-pinned known vectors in the
- * tests mirror the Rust pins exactly).
- */
-
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import canonicalize from "canonicalize";

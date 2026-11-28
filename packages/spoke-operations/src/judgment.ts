@@ -26,8 +26,6 @@ import {
 } from "./result.js";
 import { isStrictTimestamp } from "./timestamp.js";
 
-// note: Closed-envelope property tables (judgment.schema.json,
-// additionalProperties: false on Judgment, JudgmentRef and Verdict).
 const JUDGMENT_KEYS: Record<string, true> = {
   schema_version: true,
   judgment_id: true,
@@ -53,16 +51,10 @@ const VERDICT_KEYS: Record<string, true> = {
   detail: true,
 };
 
-// note: Reserved verdict.detail direct member names in the fixed protocol
-// probe order (contract §verdict core and detail) — the first present member
-// decides details.field, independent of wire member order.
 const DETAIL_RESERVED_MEMBERS = ["target", "evidence", "judgment_kind", "outcome"] as const;
 
-// note: Shared ExtensionMap grammar — namespace keys (contract §Wire-wide rules).
 const NAMESPACE_RE = /^[a-z][a-z0-9_-]*$/u;
 
-// note: Non-empty is raw JSON Schema minLength: 1 — whitespace-only strings are
-// valid wire values for every open string in this contract.
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
@@ -71,8 +63,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-// note: Interoperable integer domain [0, 2^53-1]; integral spellings (1.0)
-// decode as the integer they spell.
 function isPositiveInteger(value: unknown): value is number {
   return (
     typeof value === "number" && Number.isSafeInteger(value) && value >= 1
@@ -89,31 +79,14 @@ function hasOnlyKeys(
 ): boolean {
   return Object.keys(value).every((key) => allowed[key] === true);
 }
-// note: Wire members are own enumerable properties only (contract §verdict
-// core and detail) — non-enumerable own names are representation detail, not
-// wire members.
 function ownEnumerable(value: object, key: string): boolean {
   return Object.prototype.propertyIsEnumerable.call(value, key);
 }
 
-// note: The producer-facing wire projection is the engine's own JSON wire
-// emission: `JSON.parse(JSON.stringify(value))` reproduces the wire bytes a
-// producer sends and a reader parses (contract §Wire member enumerability).
-// Own enumerable members only, `toJSON` invoked with the member's key exactly
-// as wire emission does, sparse array indices emitted as `null` holes (not
-// compacted), `__proto__` re-parsed as an own data member, and no
-// hand-rolled recursion — stringify's traversal is engine-implemented.
-// Throws on values no wire exists for (cycles, bigints); both call sites
-// translate a throw into an INVALID_INPUT refusal.
 function wireForm(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
 }
 
-// note: Lexicographic first-offender order is Unicode code-point order
-// (contract §Wire-wide rules), matching Rust UTF-8 string order. ECMAScript's
-// default `.sort()` compares UTF-16 code units, which misorders
-// supplementary-plane keys (a leading surrogate sorts below every BMP code
-// point >= U+E000).
 function compareCodePoints(left: string, right: string): number {
   const leftPoints = Array.from(left, (unit) => unit.codePointAt(0)!);
   const rightPoints = Array.from(right, (unit) => unit.codePointAt(0)!);
@@ -174,9 +147,6 @@ function validateJudgmentRef(
  * product-specific `detail` shape stay product-owned.
  */
 export function validateJudgment(judgment: Judgment): SpokeResult<void> {
-  // note: Validation reads wire members only — the producer object is first
-  // re-emitted through the engine's JSON wire emission so off-wire members
-  // and serializer hooks resolve to their wire form (or refuse outright).
   let wire: Judgment;
   try {
     wire = wireForm(judgment) as Judgment;
@@ -313,12 +283,6 @@ export function validateJudgment(judgment: Judgment): SpokeResult<void> {
  */
 function canonicalJson(value: unknown): string | undefined {
   try {
-    // note: the equality path canonicalizes the value as-is — the `wireForm`
-    // projection (validateJudgment's) coerces non-finite numbers to `null`,
-    // which would let RFC 8785-unrepresentable members compare equal. The
-    // canonicalizer still honours `toJSON` and drops no-JSON members exactly
-    // as wire emission does; it throws on non-finite numbers, cycles and
-    // bigints, surfaced as `undefined` below.
     return canonicalize(value);
   } catch {
     return undefined;

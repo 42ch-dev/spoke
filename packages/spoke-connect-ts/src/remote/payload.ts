@@ -31,27 +31,20 @@ type FieldKind =
 interface Field {
   name: string;
   kind: FieldKind;
-  /** note: absent members are permitted (optional in the schema). */
   optional?: boolean;
-  /** note: wire-scalar members of this schema-owned nested object shape. */
   nested?: readonly Field[];
-  /** note: wire-scalar members of each schema-owned array element. */
   elements?: readonly Field[];
 }
 
-/** note: required-field shape of one ops/data wire type (schemas/data/*.schema.json). */
 interface SuccessShape {
   kind: "object" | "array";
-  /** note: required fields (of the payload, or of each array element). */
   fields: readonly Field[];
 }
 
-/** note: wire scalars owned by `SourceAnchor` (source-anchor.schema.json). */
 const SOURCE_ANCHOR_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `AdoptionAnchor` (adoption-anchor.schema.json). */
 const ADOPTION_ANCHOR_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "source_revision", kind: "revision" },
@@ -100,7 +93,6 @@ const FINDING_FIELDS = [
   { name: "created_at", kind: "datetime", optional: true },
   { name: "updated_at", kind: "datetime", optional: true },
   { name: "source_anchor", kind: "object", optional: true, nested: SOURCE_ANCHOR_SCALARS },
-  // note: `text_position` is an open product object — never inspected by member name.
   { name: "text_position", kind: "object", optional: true },
 ] as const satisfies readonly Field[];
 
@@ -132,9 +124,6 @@ const HOST_MANIFEST_FIELDS = [
   { name: "extensions", kind: "object" },
 ] as const satisfies readonly Field[];
 
-/** note: required fields shared by every memory receipt state (committed,
- * pending, failed) — the base receipt envelope
- * (schemas/data/memory-receipt.schema.json). */
 const MEMORY_RECEIPT_FIELDS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "receipt_id", kind: "string" },
@@ -148,8 +137,6 @@ const MEMORY_RECEIPT_FIELDS = [
   { name: "extensions", kind: "object" },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by the `memory.grants.list` grant shapes
- * (memory-grant.schema.json `RestrictedGrant` / `UnrestrictedGrant`). */
 const MEMORY_GRANT_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "created_at", kind: "datetime" },
@@ -158,7 +145,6 @@ const MEMORY_GRANT_SCALARS = [
   { name: "revision", kind: "revision" },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `memory-candidate.schema.json`. */
 const MEMORY_CANDIDATE_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "occurred_at", kind: "datetime" },
@@ -167,8 +153,6 @@ const MEMORY_CANDIDATE_SCALARS = [
   { name: "revision", kind: "revision" },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `retained-record.schema.json` (+ nested provenance,
- * import attribution and the tombstone marker). */
 const MEMORY_RECORD_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "occurred_at", kind: "datetime" },
@@ -194,21 +178,18 @@ const MEMORY_RECORD_SCALARS = [
   },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `memory-space.schema.json`. */
 const MEMORY_SPACE_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "created_at", kind: "datetime" },
   { name: "revision", kind: "revision" },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `subject.schema.json`. */
 const SUBJECT_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "created_at", kind: "datetime" },
   { name: "revision", kind: "revision" },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `profile-document.schema.json`. */
 const MEMORY_PROFILE_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "created_at", kind: "datetime" },
@@ -216,37 +197,26 @@ const MEMORY_PROFILE_SCALARS = [
   { name: "revision", kind: "revision" },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `reflection.schema.json`. */
 const MEMORY_REFLECTION_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "created_at", kind: "datetime" },
   { name: "revision", kind: "revision" },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `MemoryExportChunk.header`
- * (memory-export-chunk.schema.json `Header`; `source` carries no wire
- * scalar from the shared domains). */
 const MEMORY_EXPORT_HEADER_SCALARS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "created_at", kind: "datetime" },
   { name: "extensions", kind: "object", optional: true },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `ReceiptSummary`
- * (memory-export-bundle.schema.json). */
 const MEMORY_RECEIPT_SUMMARY_SCALARS = [
   { name: "created_at", kind: "datetime" },
 ] as const satisfies readonly Field[];
 
-/** note: wire scalars owned by `GrantSummary`
- * (memory-export-bundle.schema.json). */
 const MEMORY_GRANT_SUMMARY_SCALARS = [
   { name: "revision", kind: "revision" },
 ] as const satisfies readonly Field[];
 
-/** note: required chunk envelope plus the header scalars and the element
- * runs of `MemoryExportChunk` (memory-export-chunk.schema.json); the
- * optional arrays are present on either variant, `header` only on ordinal 0. */
 const MEMORY_EXPORT_CHUNK_FIELDS = [
   { name: "export_id", kind: "string" },
   { name: "chunk_ordinal", kind: "number" },
@@ -344,7 +314,6 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   "port.finding.put": { kind: "array", fields: FINDING_FIELDS },
   "port.rule.list": { kind: "array", fields: RULE_FIELDS },
   "port.host.list_peer_manifests": { kind: "array", fields: HOST_MANIFEST_FIELDS },
-  // note: memory reads (schemas/ops/memory-*-response.schema.json success branch).
   "memory.describe": { kind: "object", fields: MEMORY_DESCRIBE_FIELDS },
   "memory.spaces.list": {
     kind: "object",
@@ -406,8 +375,6 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
     kind: "object",
     fields: [{ name: "receipt", kind: "object", nested: MEMORY_RECEIPT_FIELDS }],
   },
-  // note: every mutating memory op answers with a receipt whose envelope
-  // fields are pinned above (committed and pending alike).
   "memory.spaces.create": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   "memory.spaces.freeze": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   "memory.spaces.unfreeze": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
@@ -459,7 +426,6 @@ function matchesFieldKind(value: unknown, kind: FieldKind): boolean {
     case "datetime":
       return typeof value === "string" && isStrictTimestamp(value);
     case "schema_version":
-      // note: SchemaVersion is `[1, 2^53-1]`; `Number.isSafeInteger` is that ceiling.
       return (
         typeof value === "number" &&
         Number.isSafeInteger(value) &&
@@ -468,8 +434,6 @@ function matchesFieldKind(value: unknown, kind: FieldKind): boolean {
     case "revision":
       return isRevisionInteger(value);
     case "record_revision":
-      // note: RetainedRecord.revision is `[1, 2^53]` — the per-object
-      // counter starts at 1 (retained-record.schema.json).
       return isRevisionInteger(value) && value >= 1;
   }
 }
@@ -498,7 +462,6 @@ function matchesField(value: unknown, field: Field): boolean {
   return true;
 }
 
-/** note: a declared subset — only members present in the payload are checked. */
 function matchesPresentFields(
   value: Record<string, unknown>,
   fields: readonly Field[],
@@ -516,19 +479,6 @@ function matchesShape(value: Record<string, unknown>, shape: SuccessShape): bool
     return matchesField(value[field.name], field);
   });
 }
-
-/**
- * note: shared wire scalar domains (spoke-data-model §Shared wire scalars) are
- * checked on the schema-owned members declared by each success `SuccessShape`:
- * `schema_version` `[1, 2^53-1]`, revision-typed integers `[0, 2^53]`,
- * `created_at`/`updated_at`/`opened_at`/`occurred_at` strict RFC 3339 (qc1
- * F-003). Rust enforces the same at typed decode, so an ordinary response the
- * strict history/adopt branches do not cover must not surface a wider
- * accept-set. The walk follows declared shapes only: product-owned bags
- * (`extensions`, `metadata`, `state`, `computable`, `modules`,
- * `Finding.text_position`) declare no nested spec and are never inspected by
- * member name (qc1 R1-001).
- */
 
 const EXTRACT_RESPONSE_WIRE_KEYS = new Set(["candidates", "run", "extensions"]);
 
@@ -551,10 +501,6 @@ export function isValidExtensionMap(value: unknown): boolean {
   return true;
 }
 
-/** note: `KnowledgeEntry.modules` (knowledge-entry.schema.json) — Rust
- * `HashMap<KnowledgeEntryModulesKey, KnowledgeEntryModulesValue>`:
- * keys match the ExtensionKey pattern; values are object | array only
- * (scalar module values fail Rust typed decode). */
 function isValidModulesMap(value: unknown): boolean {
   if (!isRecord(value)) {
     return false;
@@ -597,11 +543,6 @@ const EXTRACT_CANDIDATE_SHAPE: SuccessShape = {
   fields: KNOWLEDGE_ENTRY_FIELDS,
 };
 
-/**
- * note: strict `extract` success shape — Rust §8.2 parity: a malformed
- * payload must reject with `INTERNAL_ERROR` instead of flowing through
- * `spokeOk` unvalidated.
- */
 function isValidExtractSuccessPayload(value: unknown): boolean {
   if (!isRecord(value)) {
     return false;
@@ -635,28 +576,8 @@ function isValidExtractSuccessPayload(value: unknown): boolean {
   return true;
 }
 
-/**
- * note: every revision-typed wire integer (`revision`, `deleted`,
- * `floor_revision`, `keep`, `expected_base_revision`, `source_revision`,
- * adopted-revision details) shares the operations-layer `[0, 2^53]` gate
- * (spoke-data-model §Shared wire scalars). `sequence` is not a revision
- * integer and keeps its own `2^53-1` bound.
- */
 export { isRevisionInteger } from "@42ch/spoke-operations";
 
-/**
- * note: strict `RevisionSnapshot` decode (spoke-history contract
- * §RevisionSnapshot): all six envelope members present and well-formed,
- * `snapshot` a COMPLETE core shape (`KnowledgeEntry` or `Relation`
- * required-field set — matching `port.knowledge.get` / `port.relation.get`
- * strictness), the variant agreeing with `entity_kind` for the core
- * kinds, and the nested entity's own id and revision equal to the
- * envelope's. `selectors` — bound at the serving face and each
- * `RemoteAdapter` — additionally requires the envelope to match the
- * request (Rust parity: `validate_history_snapshot`). An open product
- * kind declares its core shape, so the nested member must still decode
- * under one consistent core shape.
- */
 export function isValidRevisionSnapshot(
   value: unknown,
   selectors?: { entity_kind: string; entity_id: string; revision: number },
@@ -685,11 +606,6 @@ export function isValidRevisionSnapshot(
   if (!isKnowledgeEntry && !isRelation) {
     return false;
   }
-  // note: RevisionSnapshot equality rules — the nested entity's own id
-  // equals the envelope `entity_id` and its own `revision` equals the
-  // envelope `revision` (contract §RevisionSnapshot: "equals the selected
-  // entity snapshot's own revision"). The nested revision is required, not
-  // conditional: the authored response example carries them equal.
   if (isKnowledgeEntry && entity.entry_id !== value.entity_id) {
     return false;
   }
@@ -702,8 +618,6 @@ export function isValidRevisionSnapshot(
   );
 }
 
-/** note: closed envelope member set (`additionalProperties: false`) — a
- * member outside it fails the Rust typed decode, so it fails here too. */
 const REVISION_SNAPSHOT_ENVELOPE_KEYS: Record<string, true> = {
   schema_version: true,
   entity_kind: true,
@@ -713,12 +627,6 @@ const REVISION_SNAPSHOT_ENVELOPE_KEYS: Record<string, true> = {
   extensions: true,
 };
 
-/**
- * note: strict `RevisionSnapshot` envelope shape (spoke-history contract
- * §RevisionSnapshot): all six members present, no member outside the
- * closed set, and `schema_version` an integer ≥ 1 (Rust `SchemaVersion`
- * is `NonZeroU64`).
- */
 function isValidRevisionSnapshotEnvelope(snapshot: unknown): boolean {
   return (
     isRecord(snapshot) &&
@@ -746,12 +654,6 @@ const RELATION_SHAPE: SuccessShape = {
   fields: RELATION_FIELDS,
 };
 
-/**
- * note: optional `KnowledgeEntry` / `Relation` members are declared in the
- * `*_FIELDS` tables above with `optional: true`; only present members are
- * checked.
- */
-
 const SOURCE_ANCHOR_REQUIRED_FIELDS = [
   { name: "schema_version", kind: "schema_version" },
   { name: "source_id", kind: "string" },
@@ -774,10 +676,6 @@ const BODY_ATTRIBUTE_OPTIONAL_FIELDS = [
   { name: "max_value", kind: "number" },
 ] as const satisfies readonly Field[];
 
-/**
- * note: every listed field is optional — only present members must match
- * their declared JSON kind.
- */
 function matchesOptionalFields(
   value: Record<string, unknown>,
   fields: readonly Field[],
@@ -789,7 +687,6 @@ function matchesOptionalFields(
   );
 }
 
-/** note: closed `SourceSpan` member set (additionalProperties: false). */
 const SOURCE_SPAN_WIRE_KEYS: Record<string, true> = { start: true, end: true };
 
 function isValidSourceSpan(value: unknown): boolean {
@@ -807,7 +704,6 @@ function isValidSourceSpan(value: unknown): boolean {
     Number.isFinite(value.end)
   );
 }
-/** note: closed `SourceAnchor` member set (additionalProperties: false). */
 const SOURCE_ANCHOR_WIRE_KEYS: Record<string, true> = {
   schema_version: true,
   source_id: true,
@@ -845,12 +741,6 @@ function isValidSourceAnchor(value: unknown): boolean {
   return !("span" in value) || isValidSourceSpan(value.span);
 }
 
-/**
- * note: `BodyAttribute` (common.schema.json): closed member set —
- * `trait_type` non-empty string, `value` string | number | boolean;
- * optional `display_type` / `max_value`. An undeclared member fails Rust
- * typed decode (`deny_unknown_fields`), so extras are malformed.
- */
 const BODY_ATTRIBUTE_WIRE_KEYS: Record<string, true> = {
   trait_type: true,
   value: true,
@@ -881,7 +771,6 @@ function isValidBodyAttribute(value: unknown): boolean {
   return matchesOptionalFields(value, BODY_ATTRIBUTE_OPTIONAL_FIELDS);
 }
 
-/** note: closed `KnowledgeEntry.body` member set (additionalProperties: false). */
 const KNOWLEDGE_ENTRY_BODY_WIRE_KEYS: Record<string, true> = {
   summary: true,
   tags: true,
@@ -890,12 +779,6 @@ const KNOWLEDGE_ENTRY_BODY_WIRE_KEYS: Record<string, true> = {
   computable: true,
 };
 
-/**
- * note: `KnowledgeEntry.body` (knowledge-entry.schema.json): closed member
- * set — optional `summary`/`tags`/`attributes`/`state`/`computable`, each
- * typed; an undeclared member or a present member with the wrong JSON kind
- * is malformed, not absent.
- */
 function isValidKnowledgeEntryBody(value: unknown): boolean {
   if (!isRecord(value)) {
     return false;
@@ -930,7 +813,6 @@ function isValidKnowledgeEntryBody(value: unknown): boolean {
   return !("computable" in value) || isRecord(value.computable);
 }
 
-/** note: closed `AdoptionAnchor` member set (additionalProperties: false). */
 const ADOPTION_ANCHOR_WIRE_KEYS: Record<string, true> = {
   schema_version: true,
   source_scope_id: true,
@@ -969,7 +851,6 @@ export function isWellFormedAdoptionAnchor(value: unknown): boolean {
   return isValidExtensionMap(value.extensions);
 }
 
-/** note: closed `KnowledgeEntry` member set (additionalProperties: false). */
 const KNOWLEDGE_ENTRY_WIRE_KEYS: Record<string, true> = {
   schema_version: true,
   entry_id: true,
@@ -988,15 +869,6 @@ const KNOWLEDGE_ENTRY_WIRE_KEYS: Record<string, true> = {
   disclosure: true,
 };
 
-/**
- * note: full schema-declared `KnowledgeEntry` field set — the closed
- * member list, required members plus every optional member's declared
- * JSON kind, recursively for `body` / `source_anchor` / `adoption_anchor`,
- * plus the schema's range constraints (`schema_version` integer >= 1,
- * `canonical_name` / `owner` / `disclosure` non-empty, `revision` a
- * non-negative integer). An undeclared member fails Rust typed decode
- * (`deny_unknown_fields`), so extras are malformed, not tolerated.
- */
 export function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): boolean {
   if (
     !Object.keys(entity).every((key) => KNOWLEDGE_ENTRY_WIRE_KEYS[key] === true)
@@ -1043,24 +915,12 @@ export function isValidKnowledgeEntryDeep(entity: Record<string, unknown>): bool
   );
 }
 
-/**
- * note: full schema-declared `Relation` field set — required members plus
- * every optional member's declared JSON kind. Unknown extra keys are
- * tolerated (Rust serde typed-decode parity of the declared members).
- */
 function isValidRelationDeep(entity: Record<string, unknown>): boolean {
   return (
     matchesShape(entity, RELATION_SHAPE) && isValidExtensionMap(entity.extensions)
   );
 }
 
-/**
- * note: strict `history.revisions.*` success shapes (spoke-history
- * contract §Connect operations): get requires a present `snapshot` member
- * decoding as `RevisionSnapshot`; prune requires `deleted` integer ≥ 0
- * and a present, nullable `floor_revision`. Malformed values fail the
- * gate → `INTERNAL_ERROR` transport decode, never `Ok`.
- */
 function isValidHistorySuccessPayload(op: string, value: unknown): boolean {
   if (op === "history.revisions.get") {
     return (

@@ -58,10 +58,6 @@ describe("common.Timestamp boundary through AJV", () => {
 });
 
 describe("registered date-time format boundary (no Timestamp pattern)", () => {
-  // why: `Timestamp` also carries a pattern, which could mask a stock format
-  // verdict. A bare `format: date-time` schema proves the registered gate
-  // itself equals `isStrictTimestamp` — the guarantee every other schema that
-  // uses the format relies on (qc1 F-002 / qc3-03).
   const validate = createSchemaValidator().compile({
     type: "string",
     format: "date-time",

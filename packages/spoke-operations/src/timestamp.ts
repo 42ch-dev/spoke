@@ -1,7 +1,3 @@
-// why: strict RFC 3339 with mandatory offset — the one wire grammar
-// (spoke-data-model §Shared wire scalars). Unlike `Date.parse`, it rejects
-// date-only, slash-separated, RFC 2822, space-separated, naive, `UTC`-suffixed
-// and whitespace-wrapped spellings.
 const RFC3339_TIMESTAMP_RE =
   /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:[Zz]|([+-])(\d{2}):(\d{2}))$/;
 
@@ -34,11 +30,6 @@ export function isStrictTimestamp(value: string): boolean {
   );
 }
 
-/**
- * note: Calendar/clock validity on UTC parts. Seconds may be 60 (leap second), which
- * chrono accepts; JS Date cannot represent it, so it is checked separately.
- * Round-trip through Date catches rollovers (Feb 30, month 13, hour 24, ...).
- */
 function isCalendarDateTimeValid(
   year: string,
   month: string,

@@ -91,10 +91,6 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
   });
 
   it("rejects a downgrade-attempt protocol_version (below the current one) at verify time", async () => {
-    // why: a hello claiming a version BELOW the current one (0) is a downgrade
-    // attempt: the version gate fires with the dedicated kind, mirroring the
-    // Rust core (where the wire schema floor — NonZeroU64, minimum 1 — makes
-    // version 0 unrepresentable, so Rust rejects it at deserialization).
     const hello = await signHelloEd25519(
       GOLDEN_SEED,
       GOLDEN_NONCE,
@@ -172,10 +168,7 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
       schemaConformantManifest(),
       initiatorNonce,
     );
-    // note: the responder hello carries the initiator's nonce on the wire…
     expect(hello.peer_nonce).toBe(initiatorNonce);
-    // note: …and verifies over the 5-field signed object, both with the initiator
-    // asserting its own nonce (dial assert) and role-aware alone.
     await expect(
       verifyHelloEd25519(publicKey, peerId, hello, initiatorNonce),
     ).resolves.toBeUndefined();
@@ -188,8 +181,6 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
     const secret = new Uint8Array(32).fill(14);
     const publicKey = getPublicKeyEd25519(secret);
     const peerId = derivePeerIdFromEd25519Pubkey(publicKey);
-    // why: the captured responder hello was signed over the OLD initiator nonce;
-    // the fresh dial (after a simulated restart) asserts the NEW one.
     const captured = await signHelloEd25519(
       secret,
       "replay-nonce-1234567",
@@ -207,10 +198,6 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
   });
 
   it("rejects a responder hello WITHOUT peer_nonce when the dial expects one (fail-closed downgrade)", async () => {
-    // why: a mixed-version OLD responder signs the 4-field initiator object (no
-    // `peer_nonce`); the NEW initiator dial supplies its own nonce and
-    // expects a responder — the missing `peer_nonce` must fail the dial
-    // closed (dial-binding error), not silently skip the binding assert.
     const secret = new Uint8Array(32).fill(16);
     const publicKey = getPublicKeyEd25519(secret);
     const peerId = derivePeerIdFromEd25519Pubkey(publicKey);
@@ -227,8 +214,6 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
         message: expect.stringContaining("dial binding"),
       }),
     );
-    // note: role-aware verify alone (no expected nonce) still accepts an initiator
-    // hello — the fail-closed rule is dial-scoped.
     await expect(
       verifyHelloEd25519(publicKey, peerId, legacy),
     ).resolves.toBeUndefined();
@@ -241,18 +226,8 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
       goldenManifest(),
     );
     expect(hello).not.toHaveProperty("peer_nonce");
-    // why: the signature is still the golden one — the 4-field path is
-    // byte-identical (dial binding changed nothing for the initiator).
     expect(hello.signature).toBe(GOLDEN_SIGNATURE);
   });
-
-  // why: responder golden (5-field signed object, dial binding).
-  // The `responder` block of the shared fixture pins the 5-field vector: the
-  // SAME golden key pair / manifest signed over `peer_nonce` = the initiator
-  // golden nonce. These tests assert the TS client reproduces the pinned
-  // bytes (cross-language byte parity: the Rust core pins the identical
-  // constants in `crates/spoke-connect/src/core/golden.rs` and asserts them
-  // in `hello_crypto.rs`).
 
   it("signs the golden responder hello to the pinned signature (5-field byte parity)", async () => {
     const hello = await signHelloEd25519(
@@ -263,9 +238,6 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
     );
     expect(hello.peer_nonce).toBe(RESPONDER_PEER_NONCE);
     expect(hello.signature).toBe(RESPONDER_SIGNATURE);
-    // why: the 5-field canonical bytes match the pinned vector and differ from
-    // the 4-field initiator object — `peer_nonce` is inside the signed
-    // bytes, not an envelope extra.
     const bytes = canonicalHelloBytes(
       GOLDEN_PEER_ID,
       RESPONDER_NONCE,
@@ -277,11 +249,6 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
   });
 
   it("verifies the golden responder hello with the initiator's dial assert", async () => {
-    // why: rebuild the wire envelope from the pinned vector: the signature in the
-    // fixture is the Rust-produced golden — the TS verify must accept the
-    // SAME bytes the Rust signer produced (TS↔Rust interop on the new
-    // mechanism), both with the initiator asserting its own nonce and
-    // role-aware alone.
     const hello = await signHelloEd25519(
       GOLDEN_SEED,
       RESPONDER_NONCE,
@@ -294,9 +261,6 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
     await expect(
       verifyHelloEd25519(GOLDEN_PUBKEY, GOLDEN_PEER_ID, hello),
     ).resolves.toBeUndefined();
-    // why: the dial binding still fails closed against a different expected
-    // nonce — the pinned 5-field vector cannot be replayed onto a fresh
-    // dial.
     await expect(
       verifyHelloEd25519(GOLDEN_PUBKEY, GOLDEN_PEER_ID, hello, "fresh-dial-nonce-123456"),
     ).rejects.toThrowError(

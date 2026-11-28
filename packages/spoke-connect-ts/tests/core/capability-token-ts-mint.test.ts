@@ -18,18 +18,6 @@ import type {
   CapabilityTokenProof,
 } from "../../src/core/capability-token.js";
 
-/**
- * why: TS-minted capability-token golden vector — deterministic proof from the
- * identity golden seed (`tests/fixtures/golden.ts`, bytes 1..=32),
- * checked in as `tests/fixtures/capability-token-ts-golden.json` (byte-identical
- * registered copy of the SSOT under `crates/spoke-connect/tests/fixtures/`; sync
- * gate: `tooling/connect/golden-vector-sync.mjs`).
- *
- * The vitest drift guard asserts the minted proof matches the committed
- * JSON (including provenance metadata). Consumers strip `provenance` before
- * strict parse/verify — see plan strict-parser note.
- */
-
 const NOW = 1_000_000_000;
 
 const PROVENANCE = {

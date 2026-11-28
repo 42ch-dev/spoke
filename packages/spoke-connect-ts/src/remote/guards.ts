@@ -1,10 +1,6 @@
 /**
  * Wire-shape discrimination guards for the connect envelopes (§Transport
  * framing: envelope types are distinguishable by JSON shape).
- *
- * why: isomorphic by design (no `ws` import) — these are shared by the Node
- * connect client (`src/node/connect-client.ts`, which re-exports them) and
- * the isomorphic RemoteAdapter + loopback host under `src/remote/`.
  */
 
 import type {
@@ -54,15 +50,6 @@ export function isConnectInvokeRequest(doc: unknown): doc is ConnectInvokeReques
 
 /**
  * `ConnectInvokeResponse` guard (success `payload` branch or error branch).
- *
- * invariant: classification rule (normative `spoke-connect.md` §Request /
- * response classification) — an inbound envelope carrying `op` is a
- * `ConnectInvokeRequest`, NEVER a response. A reverse request carries the
- * same correlation echo fields (`session_id` / `sequence` / `request_id`)
- * and a `payload` as the success branch, so without this exclusion it would
- * satisfy the response discriminator and be silently swallowed by a
- * `request_id` demux. No response ever carried `op` per the wire field
- * tables, so rejecting `op`-bearing docs is strictly hardening.
  */
 export function isConnectInvokeResponse(doc: unknown): doc is ConnectInvokeResponse {
   return (

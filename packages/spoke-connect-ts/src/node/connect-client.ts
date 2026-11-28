@@ -12,10 +12,6 @@
  *   and the authenticated peer binding (initial_sequence must be 0);
  * - `invoke` allocates the next outbound sequence (first = 0), attaches a
  *   fresh `request_id`, and correlates the response's echo fields.
- *
- * why: lives under `src/node/` because `ws` is Node-only (AD-P0-5); a
- * browser build swaps in the native WebSocket. Bounded waits only — every
- * await races a `timeoutMs` deadline (default 5000), no bare sleeps.
  */
 
 import type {
@@ -49,40 +45,21 @@ export interface ConnectIdentity {
 }
 
 export interface ConnectClientOptions {
-  /** note: WebSocket URL of the remote host, e.g. `ws://127.0.0.1:8080`. */
   url: string;
   identity: ConnectIdentity;
-  /** note: host manifest advertised in this client's signed hello. */
   manifest: HostCapabilityManifest;
-  /**
-   * note: preconfigured remote (server) Ed25519 public key — how the key is
-   * obtained is transport-adapter-owned (spec §Auth model, Path A without
-   * Noise); the server's peer_id is derived from it.
-   */
   remotePubkey: Uint8Array;
-  /** invariant: must contain the server's derived peer_id (fail-closed). */
   allowlist: readonly string[];
-  /** note: bounded-wait deadline for the handshake and each invoke, ms (default 5000). */
   timeoutMs?: number;
 }
 
 export interface ConnectClient {
-  /** note: A-assigned session id (from the `ConnectSession` snapshot). */
   readonly sessionId: string;
-  /** note: the verified server peer id. */
   readonly remotePeerId: string;
-  /** note: the verified server host manifest (from its signed hello). */
   readonly remoteManifest: HostCapabilityManifest;
 
-  /**
-   * note: allocates the next outbound sequence (first = 0), sends
-   * `ConnectInvokeRequest`, and resolves with the response after the echo
-   * correlation check passes; rejects on `timeoutMs` elapse, correlation
-   * mismatch, or socket failure.
-   */
   invoke(op: string, payload: Record<string, unknown>): Promise<ConnectInvokeResponse>;
 
-  /** note: pending invokes reject. */
   close(): void;
 }
 
@@ -107,11 +84,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
   });
 }
 
-// why: wire-shape discrimination (spec §Transport framing: envelope types are
-// distinguishable by JSON shape). Exported for adapters and tests; the
-// guards live in the isomorphic `src/remote/guards.ts` so the Node client
-// and the remote module share one implementation.
-
 import {
   isConnectHello,
   isConnectInvokeRequest,
@@ -127,7 +99,6 @@ export {
 
 interface PendingInvoke {
   correlation: Correlation;
-  /** note: the request op — a response envelope carries no op of its own. */
   op: string;
   resolve: (response: ConnectInvokeResponse) => void;
   reject: (error: Error) => void;
@@ -169,34 +140,17 @@ export async function connectClient(
       `dial ${url}`,
     );
   } catch (error) {
-    // why: dial failure (timeout / connection error) — the handshake never
-    // started, so an unclosed socket would leak in a half-open state (the
-    // peer keeps the TCP connection established). Close it so the peer
-    // sees a clean disconnect and local resources are freed (mirrors the
-    // handshake-rejection pattern below).
     socket.close();
     throw error;
   }
 
-  // note: handshake messages are consumed in order via a waiter queue; once
-  // the session is established, invoke responses route by `request_id`.
   const inbox: unknown[] = [];
   const waiters: {
     resolve: (doc: unknown) => void;
     reject: (error: Error) => void;
   }[] = [];
   const pending = new Map<string, PendingInvoke>();
-  // note: set once the hello exchange + session snapshot have been validated.
-  // Post-handshake, stray non-invoke envelopes are dropped (see below);
-  // only the handshake phase buffers ahead-of-waiter frames.
   let sessionEstablished = false;
-  /**
-   * why: outbound send serialization tail. Sequences are allocated
-   * synchronously in call order, but the Ed25519 sign is async (WebCrypto) —
-   * without a chain, signs complete out of order and requests hit the wire
-   * out of sequence, which the peer's strict inbound gate rejects. Every
-   * invoke chains its send behind the previous invoke's send.
-   */
   let sendTail: Promise<void> = Promise.resolve();
 
   function nextMessage(): Promise<unknown> {
@@ -218,9 +172,6 @@ export async function connectClient(
     }
   }
 
-  // note: fail fast on socket error/close in every phase — pending handshake
-  // waits and in-flight invokes reject immediately instead of waiting out
-  // their timeout.
   socket.on("error", () => failAll(new Error("websocket error before invoke completion")));
   socket.on("close", () => failAll(new Error("websocket closed before invoke completion")));
 
@@ -235,7 +186,7 @@ export async function connectClient(
       if (isConnectInvokeResponse(doc)) {
         const entry = pending.get(doc.request_id);
         if (!entry) {
-          return; // note: unknown/duplicate response — no retry semantics in protocol v1
+          return;
         }
         clearTimeout(entry.timer);
         pending.delete(doc.request_id);
@@ -259,27 +210,11 @@ export async function connectClient(
         return;
       }
       if (sessionEstablished) {
-        // why: post-handshake stray envelope (hello / session / unknown shape)
-        // is ignored, per protocol v1 no-retry semantics — the receiver never
-        // buffers it, so the inbox cannot grow without bound after the
-        // handshake. The handshake-phase inbox below exists only to keep
-        // hello/snapshot frames in order until their waiter is registered.
         return;
       }
-      // why: handshake-phase envelope (hello / session snapshot) arriving
-      // ahead of its waiter is buffered so `nextMessage` can consume it in
-      // order. This matters when the peer sends several frames in one TCP
-      // segment: ws emits both 'message' events in the same macrotask, before
-      // the awaiting continuation re-registers a waiter.
       inbox.push(doc);
     },
     (error) => {
-      // why: malformed frame at the transport boundary (JSON.parse failure) —
-      // release every pending wait and close the socket so the peer sees a
-      // clean disconnect (mirrors the handshake-rejection pattern). The
-      // decode error never escapes into the ws listener, so the host
-      // process does not crash; pending invokes fail fast instead of
-      // waiting out their timeout.
       failAll(new Error(`malformed JSON frame: ${error.message}`));
       socket.close();
     },
@@ -288,19 +223,12 @@ export async function connectClient(
   let remoteManifest: HostCapabilityManifest;
   let session: Session;
   try {
-    // note: send our signed hello — the initiator hello signs the 4-field
-    // object (no `peer_nonce`); the nonce is kept for the responder-hello
-    // dial-binding assert.
     const initiatorNonce = generateNonce();
     sendJsonMessage(
       socket,
       await signHelloEd25519(identity.seed, initiatorNonce, manifest),
     );
 
-    // invariant: the server's signed hello is the next WS message (AD-P0-3).
-    // Dial binding — the responder signs the 5-field object incl.
-    // `peer_nonce` = our nonce; a replayed responder hello (signed over a
-    // different or absent initiator nonce) fails this assert.
     const helloDoc = await withTimeout(nextMessage(), timeoutMs, "server hello");
     if (!isConnectHello(helloDoc)) {
       throw new Error("expected ConnectHello from server");
@@ -308,10 +236,6 @@ export async function connectClient(
     await verifyHelloEd25519(remotePubkey, remotePeerId, helloDoc, initiatorNonce);
     remoteManifest = helloDoc.host;
 
-    // note: the session snapshot carries the A-assigned session id + binding.
-    // Envelope-auth verify runs on the wire form before the typed checks
-    // (`spoke-connect-session-jcs-v1` against the responder's hello key; the
-    // step-6 peer-id binding assert replaces the old manual comparison).
     const sessionDoc = await withTimeout(nextMessage(), timeoutMs, "session snapshot");
     if (!isConnectSession(sessionDoc)) {
       throw new Error("expected ConnectSession snapshot after server hello");
@@ -339,15 +263,11 @@ export async function connectClient(
       ),
     });
   } catch (error) {
-    // why: handshake rejection — release pending waits and close the socket so
-    // the peer sees a clean disconnect and local resources are freed.
     failAll(error instanceof Error ? error : new Error(String(error)));
     socket.close();
     throw error;
   }
 
-  // note: handshake complete — from here on the receiver drops stray non-invoke
-  // envelopes instead of buffering them (see onJsonMessage above).
   sessionEstablished = true;
 
   return {
@@ -360,15 +280,10 @@ export async function connectClient(
       try {
         sequence = session.allocateOutboundSequence();
       } catch (error) {
-        // why: outbound sequence exhaustion is a reject, not a synchronous
-        // throw — callers always observe the promise API.
         return Promise.reject(
           error instanceof Error ? error : new Error(String(error)),
         );
       }
-      // why: outbound wire-order serialization — the tail entry is created
-      // HERE, synchronously, so the wire order matches the allocation order
-      // even though the Ed25519 sign completes asynchronously.
       const prevSend = sendTail;
       let releaseSend: () => void = () => {};
       sendTail = new Promise<void>((resolveTail) => {
@@ -411,22 +326,8 @@ export async function connectClient(
         });
         void authenticateInvokeRequest(identity.seed, unsigned).then(
           (request) => {
-            // note: send in allocation order (behind the previous invoke's send).
             void prevSend
               .then(() => {
-                // why: the invoke may have settled while this send waited behind
-                // the tail (timeout fired → entry deleted; socket closed →
-                // failAll cleared the map). Do NOT transmit late: the caller
-                // already observed the failure, and a retry would otherwise
-                // produce a duplicate dispatch on the host. A timeout drop is
-                // worse than a duplicate dispatch though: the allocated
-                // outbound sequence was never transmitted, so the host's
-                // inbound gate is stuck at that sequence and every later
-                // invoke fails `inbound_sequence_mismatch` — the wire state
-                // is unreconcilable. Tear the connection down (fail remaining
-                // pending + close the socket, mirroring the RemoteAdapter's
-                // `session_closed` close) instead of leaving a silently
-                // poisoned session.
                 if (!pending.has(unsigned.request_id)) {
                   failAll(
                     new Error(
@@ -443,11 +344,6 @@ export async function connectClient(
                   releaseSend();
                 },
                 (error) => {
-                  // why: send failure (the socket closed between the invoke
-                  // setup and the send) — reject this invoke now and remove
-                  // its pending entry + timer immediately: no dead entry
-                  // waits out the timeout, and a later failAll cannot touch
-                  // a settled promise.
                   releaseSend();
                   clearTimeout(timer);
                   pending.delete(unsigned.request_id);
@@ -456,8 +352,6 @@ export async function connectClient(
               );
           },
           (error) => {
-            // why: signing failure (e.g. non-JSON-serializable payload) is a
-            // local client bug — reject immediately, no dead timer.
             releaseSend();
             clearTimeout(timer);
             pending.delete(unsigned.request_id);

@@ -56,12 +56,6 @@ function deepMergeRecords(
   return result;
 }
 
-/**
- * note: Merge two structured JSON values — deep-merge when both are plain objects;
- * otherwise the overlay replaces the base (arrays/scalars are not element-merged).
- * When the overlay is absent, the base is retained. Shared primitive for the
- * generalized namespace merge below.
- */
 function mergeJsonValues(base: unknown, overlay: unknown): unknown {
   if (isPlainObject(base) && isPlainObject(overlay)) {
     return deepMergeRecords(base, overlay);
@@ -70,12 +64,6 @@ function mergeJsonValues(base: unknown, overlay: unknown): unknown {
   return overlay !== undefined ? cloneValue(overlay) : cloneValue(base);
 }
 
-/**
- * note: Generalized namespace merge — iterate the union of namespace keys and merge
- * each value via `mergeJsonValues` (object deep-merge; arrays/other replaced by
- * overlay). Shared core for extension and module map helpers — no duplicate
- * merge logic.
- */
 function mergeNamespaceMaps(
   base: Record<string, unknown>,
   overlay: Record<string, unknown>,

@@ -7,9 +7,6 @@ import { describe, expect, it } from "vitest";
 
 import { validateMindState } from "./validate.js";
 
-// note: Shared cross-language timestamp parity contract (TS validateMindState ↔ Rust
-// validate_mind_state is_parseable_date_time): both suites assert the exact
-// same accept/reject verdicts against this single fixture.
 const timestampParityCases = JSON.parse(
   readFileSync(
     join(
@@ -20,9 +17,6 @@ const timestampParityCases = JSON.parse(
   ),
 ) as { accept: string[]; reject: string[] };
 
-// note: Shared cross-language mental-field contract (schema MindDelta pattern ↔ TS
-// validateMindState ↔ Rust validate_mind_state): the same accept/reject path
-// lists are asserted by all three layers.
 const mentalFieldCases = JSON.parse(
   readFileSync(
     join(
@@ -61,7 +55,6 @@ describe("validateMindState", () => {
     expect(validateMindState(validState)).toBe(true);
   });
 
-  // note: shared contract — SchemaVersion is `[1, 2^53-1]`; `2^53` is refused.
   it("enforces the SchemaVersion ceiling", () => {
     expect(validateMindState({ ...validState, schema_version: 2 ** 53 - 1 })).toBe(
       true,

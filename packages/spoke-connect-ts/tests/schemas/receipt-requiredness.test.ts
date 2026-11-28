@@ -1,14 +1,3 @@
-/**
- * why: reviewer-round regression: the per-op committed receipt branch must keep
- * `idempotency_key` REQUIRED in the TypeScript output.
- *
- * Mechanism: COMPILE-LEVEL. The schema pins the key through a flattened
- * branch definition (schemas/ops/memory-*-response.schema.json); when the
- * generator drops the required-ness (the old allOf-of-fragments shape), the
- * `IdempotencyKeyRequired` assertion below stops compiling and
- * `tsc --noEmit` fails. Vitest additionally runs the positive runtime check
- * that a well-formed committed receipt still type-checks and round-trips.
- */
 import { describe, expect, it } from "vitest";
 import type { MemoryCaptureResponse } from "@42ch/spoke-schemas";
 
@@ -19,7 +8,6 @@ type IsOptional<T, K extends keyof T> = {} extends Pick<T, K> ? true : false;
 type IdempotencyKeyRequired =
   IsOptional<CommittedBranch, "idempotency_key"> extends false ? true : never;
 
-// why: compile-level assertion — tsc fails here if the generator regresses.
 const idempotencyKeyIsRequired: IdempotencyKeyRequired = true;
 void idempotencyKeyIsRequired;
 

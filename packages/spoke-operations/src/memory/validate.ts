@@ -1,21 +1,3 @@
-/**
- * note: Per-op request validators and pure policy predicates — TS parity with
- * `crates/spoke-operations/src/memory/validate.rs`.
- *
- * Covers only the conditional wire rules the JSON-Schema codegen cannot
- * derive (draft-07 `if`/`then`/`else`), plus provider-limit-dependent
- * checks parameterized from `memory.describe.limits` (§7.1). The TS
- * `minItems` tuple types (`[string, ...string[]]`) are compile-time only —
- * runtime callers can still pass empty arrays, so the invariants are
- * re-checked here exactly as the Rust validators do. Idempotency-key
- * presence, placement conditionality, and the oneOf shapes are type-enforced,
- * but `limit` / `budget.max_items` positivity and integrality are NOT — the
- * generated `number` types admit `0`, negatives, and fractions, so the
- * page-bound validators check safe-positive integers before the
- * provider-declared upper bound. Limit exceedances carry `details.limit`
- * per §7.0.7.
- */
-
 import type {
   MemoryCandidatesListRequest,
   MemoryCandidatesReviewRequest,
@@ -60,22 +42,8 @@ function checkPageLimit(limit: number | undefined, maxPageSize: number): SpokeRe
   return spokeOk();
 }
 
-// why: TextEncoder is stateless; one instance serves every measure call.
 const utf8Encoder = new TextEncoder();
 
-/**
- * note: Byte size of a `Content` request field against `max_content_bytes`
- * (§7.1): UTF-8 bytes of the compact serialization of the complete
- * `content` value — field name, quotes, escaping, and `structured` included.
- *
- * Canonical form: a member explicitly `null` is absent, matching the Rust
- * generated serializer (`Option::None` is skipped). Every other member is
- * measured exactly as supplied, including an explicitly present empty
- * `cognition` array: the caller's wire value is what the admission budget
- * bounds, and silently dropping the member would admit bytes the request
- * still carries. Numbers use `JSON.stringify`'s ECMAScript form, which the
- * Rust measure shares through RFC 8785 JCS.
- */
 export function contentSerializedBytes(content: Content): number {
   const canonical = Object.fromEntries(
     Object.entries(content).filter(([, value]) => value !== null),
@@ -89,12 +57,6 @@ interface Content {
   cognition?: unknown;
 }
 
-/**
- * note: C5 entry-point guard (§6.1) — every present `Content.cognition` entry must
- * be a closed standard cognition record with `view = "recorded_at"`. Called
- * before byte admission so a malformed carrier fails `INVALID_INPUT` on the
- * field, never on the budget.
- */
 function checkCognitionContent(content: Content): SpokeResult<void> {
   if (!validateCognitionContent(content)) {
     return invalidInput(
@@ -148,7 +110,6 @@ function checkFilter(filter: FilterLike | undefined): SpokeResult<void> {
  */
 export function isFreezeAllowlisted(op: string): boolean {
   switch (op) {
-    // note: Read-only ops (MEM-R011).
     case "memory.describe":
     case "memory.spaces.list":
     case "memory.subjects.get":
@@ -163,7 +124,6 @@ export function isFreezeAllowlisted(op: string): boolean {
     case "memory.reflections.list":
     case "memory.receipts.get":
     case "memory.exports.get":
-    // note: §8.2 maintenance mutations.
     case "memory.spaces.unfreeze":
     case "memory.grants.revoke":
     case "memory.exports.create":

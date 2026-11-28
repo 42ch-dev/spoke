@@ -25,7 +25,6 @@
  * public key.
  */
 
-/** note: Bitcoin alphabet (base58btc), as used by libp2p's `bs58` encoding. */
 const BITCOIN_ALPHABET =
   "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
@@ -39,8 +38,6 @@ function base58Encode(input: Uint8Array): string {
   let zeros = 0;
   while (zeros < input.length && input[zeros] === 0) zeros++;
 
-  // note: little-endian base-58 digits (least significant first) — the classic
-  // base-256 → base-58 conversion.
   const digits: number[] = [];
   for (let i = 0; i < input.length; i++) {
     let carry = input[i];
@@ -94,10 +91,6 @@ export function derivePeerIdFromEd25519Pubkey(pubkey: Uint8Array): string {
     throw new Error("pubkey must be 32 bytes");
   }
 
-  // note: protobuf PublicKey message, hand-encoded (fixed layout):
-  //   field 1, varint Type = 1 (Ed25519):  tag 0x08, value 0x01
-  //   field 2, bytes Data (32-byte key):   tag 0x12, length 0x20, key
-  // 36 bytes total — always ≤ 42, so the identity multihash branch applies.
   const pkBytes = new Uint8Array(36);
   pkBytes[0] = 0x08;
   pkBytes[1] = 0x01;
@@ -105,8 +98,6 @@ export function derivePeerIdFromEd25519Pubkey(pubkey: Uint8Array): string {
   pkBytes[3] = 0x20;
   pkBytes.set(pubkey, 4);
 
-  // note: identity multihash: code-varint 0x00, length-varint 36 (0x24) — both
-  // single-byte varints for this digest size — then the protobuf bytes.
   const multihash = new Uint8Array(38);
   multihash[0] = 0x00;
   multihash[1] = 0x24;
@@ -128,19 +119,12 @@ export function derivePeerIdFromEd25519Pubkey(pubkey: Uint8Array): string {
  * signature.
  */
 export function ed25519PubkeyFromPeerId(peerId: string): Uint8Array | undefined {
-  // why: base58 decoding is O(n²) in input length; valid Ed25519 peer ids are
-  // ≤ 52 chars (38 bytes → base58btc). Cap the decode input so an over-long
-  // adversarial `iss` fails closed in O(1) instead of burning CPU.
   if (peerId.length > 128) return undefined;
   const bytes = base58Decode(peerId);
   if (bytes === undefined) return undefined;
-  // note: identity multihash (code 0x00, length 0x24 = 36) with the protobuf
-  // `PublicKey` message as the digest (38 bytes total).
   if (bytes.length !== 38 || bytes[0] !== 0x00 || bytes[1] !== 0x24) {
     return undefined;
   }
-  // note: protobuf `PublicKey`: field 1 varint Type = 1 (Ed25519): 0x08 0x01;
-  // field 2 bytes, length 0x20 (32): 0x12 0x20, then the raw key.
   const message = bytes.subarray(2);
   if (
     message.length !== 36 ||

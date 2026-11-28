@@ -8,9 +8,6 @@ const REPO_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../..");
 export default defineConfig({
   resolve: {
     alias: {
-      // why: alias to src/ so tests run without a prior `build:schema` /
-      // `build:operations` (same pattern as spoke-connect-ts and the
-      // fixture → operations alias; AD-P0-1).
       "@42ch/spoke-operations": join(
         REPO_ROOT,
         "packages/spoke-operations/src/index.ts",

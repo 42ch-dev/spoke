@@ -23,28 +23,6 @@ import {
 } from "../../src/core/capability-token.js";
 import type { CapabilityTokenProof } from "../../src/core/capability-token.js";
 
-/**
- * why: cross-language golden vector: a capability token minted by the **Rust**
- * reference (`crates/spoke-connect`) from the identity golden seed
- * (`tests/fixtures/golden.ts`, bytes 1..=32), checked in as
- * `tests/fixtures/capability-token-golden.json`.
- *
- * Verifying the Rust-produced proof end-to-end on TS pins the JCS bytes TS
- * canonicalizes from `claims` to exactly what Rust signed, and the base64url
- * sig to the encoding Rust emits. It catches coordinated cross-language
- * drift in canonicalization / signature encoding that same-language
- * round-trip tests cannot see.
- *
- * Regeneration (temporary, uncommitted — do not land Rust changes):
- *   1. Add a one-off test at `crates/spoke-connect/tests/mint_golden.rs`
- *      that issues a token with the exact claims in the fixture below
- *      (issuer seed = `GOLDEN_SEED`, `iat` and `jti` present) and prints
- *      `serde_json::to_string_pretty(&proof)`.
- *   2. Run: `cargo +nightly test -p spoke-connect --test mint_golden -- --nocapture`
- *   3. Copy the printed proof into `tests/fixtures/capability-token-golden.json`
- *      and delete the temporary test.
- */
-
 const NOW = 1_000_000_000;
 
 const fixtureUrl = new URL(
@@ -58,9 +36,6 @@ const goldenProof = JSON.parse(
 describe("Rust-minted capability-token golden vector", () => {
   it("verifies the Rust-produced proof (JCS + signature parity)", async () => {
     expect(goldenProof.v).toBe(TOKEN_VERSION);
-    // note: the fixture issuer derives from the identity golden seed; sub/aud from
-    // the deterministic role seeds [7u8; 32] / [8u8; 32] (same roles as the
-    // Rust and TS unit tests).
     expect(goldenProof.claims.iss).toBe(GOLDEN_PEER_ID);
     expect(
       derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(GOLDEN_SEED)),
@@ -81,11 +56,8 @@ describe("Rust-minted capability-token golden vector", () => {
   });
 
   it("carries a canonical unpadded base64url signature over the normative claim set", async () => {
-    // why: 64 raw signature bytes → 86 base64url chars, no padding.
     expect(goldenProof.sig).toHaveLength(86);
     expect(base64UrlEncode(base64UrlDecode(goldenProof.sig))).toBe(goldenProof.sig);
-    // why: iat / jti present in the fixture — the optional fields must survive
-    // the Rust → TS round trip (omit-vs-null parity).
     const claimKeys = Object.keys(goldenProof.claims).sort();
     expect(claimKeys).toEqual([
       "aud",

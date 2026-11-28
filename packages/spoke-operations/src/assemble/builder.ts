@@ -100,7 +100,6 @@ export function knowledgeEntryToAssembleEntry(
 
 export type BuildAssemblePacketInput = {
   packetId: string;
-  /** note: Already scope-authorized entries — disclosure filtering happens before cognition. */
   knowledgeEntries: KnowledgeEntry[];
   extensions?: ExtensionMap;
   maxEntries?: number;
@@ -152,13 +151,8 @@ export function buildAssemblePacket(
   const truncatedEntries =
     maxEntries === undefined ? entries : entries.slice(0, maxEntries);
 
-  // note: Optional derivative cognitive projection over the authorized source set.
-  // It is computed before `max_entries` truncation: the limit narrows the slim
-  // context entries, never which authorized cognition was requested.
   let cognition: CognitionProjection | undefined;
   if (cognitionSelection !== undefined) {
-    // note: This carrier supplies current cognition only; an unavailable view rejects
-    // the whole build instead of returning a false empty projection.
     const supported = assertSupportedCognitionSelection(
       cognitionSelection,
       "cognitionSelection",

@@ -108,8 +108,6 @@ describe("ToolInvokePort contract", () => {
   it("does not re-validate arguments (gate is the caller's job)", async () => {
     const port = createEchoPort();
 
-    // note: Direct port invocation with arguments that would fail the structural
-    // gate still reaches the port — validation happens before, not inside.
     const result = await port.invokeTool(makeRequest({ arguments: {} }));
 
     expect(result.ok).toBe(true);

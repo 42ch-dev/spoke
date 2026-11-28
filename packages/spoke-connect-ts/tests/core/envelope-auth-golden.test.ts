@@ -28,26 +28,6 @@ import type {
 } from "../../src/core/envelope-auth.js";
 import { fromHex, toHex } from "../hex.js";
 
-/**
- * why: cross-language golden vectors for envelope authentication: wire envelopes
- * signed by the **Rust** core (`crates/spoke-connect`, the capture
- * authority) from the identity golden seed (bytes 1..=32 — the same key
- * pair as `golden-hello.json`), checked in as
- * `tests/fixtures/golden-envelope-auth.json` (byte-identical registered
- * copy of the SSOT under `crates/spoke-connect/tests/fixtures/`; sync gate:
- * `tooling/connect/golden-vector-sync.mjs`).
- *
- * Verifying the Rust-produced envelopes end-to-end on TS pins the JCS bytes
- * TS canonicalizes from the wire fields to exactly what Rust signed, and
- * the base64url sig to the encoding Rust emits. Re-signing the same inputs
- * on TS and asserting the pinned signature reproduces byte-for-byte closes
- * the loop in the opposite direction — TS↔Rust canonical-bytes parity for
- * `spoke-connect-session-jcs-v1` /
- * `spoke-connect-invoke-request-jcs-v1` /
- * `spoke-connect-invoke-response-jcs-v1`. The negative vectors pin the
- * fail-closed rejection kinds both languages must agree on.
- */
-
 interface PositiveVector {
   envelope_json: string;
   jcs_hex: string;
@@ -89,7 +69,6 @@ function wireOf(envelopeJson: string): Record<string, unknown> {
   return JSON.parse(envelopeJson) as Record<string, unknown>;
 }
 
-/** note: the signed object a session envelope covers: wire minus signature/extensions. */
 function sessionSignInput(wire: Record<string, unknown>): SessionSignInput {
   return {
     session_id: wire.session_id as string,
@@ -155,7 +134,6 @@ describe("Rust-minted envelope-auth golden vectors", () => {
     );
     expect(toHex(getPublicKeyEd25519(GOLDEN_SEED))).toBe(golden.pubkey_hex);
 
-    // note: the golden host (the fixture peer_id) signs its own session snapshot.
     const sessionWire = wireOf(golden.session.positive[0].envelope_json);
     expect(sessionWire.initiator_peer_id).toBe(golden.peer_id);
 
@@ -168,11 +146,9 @@ describe("Rust-minted envelope-auth golden vectors", () => {
       expect(family.negative.length).toBeGreaterThanOrEqual(1);
       for (const positive of family.positive) {
         expect(wireOf(positive.envelope_json).signature).toBe(positive.signature_b64u);
-        // why: 64 raw signature bytes → 86 base64url chars, no padding.
         expect(positive.signature_b64u).toHaveLength(86);
       }
     }
-    // why: the invoke-response family pins both branches (never merged).
     const responsePositives = golden.invoke_response.positive;
     expect(responsePositives.length).toBe(2);
     expect(wireOf(responsePositives[0].envelope_json)).toHaveProperty("payload");
@@ -192,7 +168,6 @@ describe("Rust-minted envelope-auth golden vectors", () => {
       ),
     ).resolves.toBeUndefined();
 
-    // why: re-sign the received wire fields: identical JCS bytes + signature.
     const input = sessionSignInput(wire);
     expect(jcsHex(input as unknown as Record<string, unknown>)).toBe(positive.jcs_hex);
     const reSigned = await authenticateSession(GOLDEN_SEED, input);
@@ -227,8 +202,6 @@ describe("Rust-minted envelope-auth golden vectors", () => {
     ).resolves.toBeUndefined();
 
     const input = invokeRequestSignInput(wire);
-    // why: the pinned vector carries `auth` — conditional inclusion must survive
-    // the re-sign (a lost auth would change the signed bytes).
     expect(input.auth).toBeDefined();
     expect(jcsHex(input as unknown as Record<string, unknown>)).toBe(positive.jcs_hex);
     const reSigned = await authenticateInvokeRequest(GOLDEN_SEED, input);

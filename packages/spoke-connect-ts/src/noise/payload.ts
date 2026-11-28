@@ -42,8 +42,6 @@ export const STATIC_KEY_DOMAIN = "noise-libp2p-static-key:";
 
 const STATIC_KEY_DOMAIN_BYTES = new TextEncoder().encode(STATIC_KEY_DOMAIN);
 
-// why: minimal hand-rolled protobuf wire helpers — fixed small messages only
-
 function encodeVarint(value: number | bigint): Uint8Array {
   let v = BigInt(value);
   const bytes: number[] = [];
@@ -62,8 +60,6 @@ function readVarint(
   let result = 0n;
   let shift = 0n;
   let i = offset;
-  // note: max 10 bytes for a 64-bit varint; continuation bit beyond that is
-  // malformed input, not a larger integer.
   while (i < bytes.length && i - offset < 10) {
     const b = bytes[i++];
     result |= BigInt(b & 0x7f) << shift;
@@ -88,11 +84,6 @@ interface ParsedField {
   varint?: bigint;
 }
 
-/**
- * note: wire types 0 (varint), 1 (64-bit), 2 (length-delimited) and 5
- * (32-bit) are consumed and unknown fields skipped; groups (3/4) are
- * rejected as malformed, and truncated input throws.
- */
 function parseProto(bytes: Uint8Array): ParsedField[] {
   const fields: ParsedField[] = [];
   let offset = 0;
@@ -204,19 +195,14 @@ export function decodeIdentityPublicKey(bytes: Uint8Array): Uint8Array | undefin
 
 /** `NoiseExtensions` message (contract §4.3). */
 export interface NoiseExtensions {
-  /** note: WebTransport certificate hashes (field 1) — parsed, never required. */
   webtransportCerthashes?: Uint8Array[];
-  /** note: preferred stream muxers (field 2). */
   streamMuxers?: string[];
 }
 
 /** Decoded `NoiseHandshakePayload` (contract §4.3). */
 export interface NoiseHandshakePayload {
-  /** note: libp2p `PublicKey` protobuf bytes (36 bytes for Ed25519). */
   identityKey?: Uint8Array;
-  /** note: Ed25519 signature over `STATIC_KEY_DOMAIN || static_public` (§4.2). */
   identitySig?: Uint8Array;
-  /** note: optional extensions (field 4) — omitted on the golden path. */
   extensions?: NoiseExtensions;
 }
 

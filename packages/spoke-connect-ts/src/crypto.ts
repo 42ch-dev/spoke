@@ -20,22 +20,12 @@
 import * as nobleEd25519 from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha2.js";
 
-// why: noble-ed25519 v3 keeps its SHA-512 provider slots caller-owned (the
-// package is dependency-free by default); sync sign/verify/getPublicKey
-// require the wired provider before first use.
 nobleEd25519.hashes.sha512 = sha512;
 
 function subtle(): SubtleCrypto | undefined {
   return globalThis.crypto?.subtle;
 }
 
-/**
- * why: WebCrypto's `BufferSource` requires `ArrayBuffer`-backed views (TS 5.7+
- * typed-array generics). Every buffer this module produces or receives is
- * ArrayBuffer-backed in practice (`Uint8Array` constructors/`from`, noble
- * outputs, DER wrappers); normalize the type at the boundary instead of
- * widening the public API or copying bytes.
- */
 function asBufferSource(bytes: Uint8Array): BufferSource {
   return bytes as unknown as BufferSource;
 }
@@ -61,7 +51,6 @@ export function base64UrlDecode(s: string): Uint8Array {
 /** PKCS8 DER wrapping a raw 32-byte Ed25519 seed (RFC 8410). */
 export function ed25519SeedToPkcs8(seed: Uint8Array): Uint8Array {
   if (seed.length !== 32) throw new Error("seed must be 32 bytes");
-  // note: 30 2e 02 01 00 30 05 06 03 2b 65 70 04 22 04 20 || seed
   const header = Uint8Array.of(
     0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70,
     0x04, 0x22, 0x04, 0x20,
@@ -75,7 +64,6 @@ export function ed25519SeedToPkcs8(seed: Uint8Array): Uint8Array {
 /** SPKI DER wrapping a raw 32-byte Ed25519 public key (RFC 8410). */
 export function ed25519PubkeyToSpki(pubkey: Uint8Array): Uint8Array {
   if (pubkey.length !== 32) throw new Error("pubkey must be 32 bytes");
-  // note: 30 2a 30 05 06 03 2b 65 70 03 21 00 || pubkey
   const header = Uint8Array.of(
     0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
   );

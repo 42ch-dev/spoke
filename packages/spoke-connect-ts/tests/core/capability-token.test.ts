@@ -18,27 +18,11 @@ import type {
   CapabilityTokenProof,
 } from "../../src/core/capability-token.js";
 
-/**
- * why: capability-token parity tests — mirror
- * `crates/spoke-connect/src/core/capability_token.rs` unit tests
- * (deterministic seeds per role, same expiry boundary / skew semantics).
- *
- * A Rust-produced golden capability-token vector is checked in as
- * `tests/fixtures/capability-token-golden.json` and verified by
- * `capability-token-golden.test.ts` (cross-language JCS/sig drift check).
- * The unit tests here use the deterministic seeds from the Rust tests:
- * issuer `[1u8; 32]`, other-issuer `[2u8; 32]`, subject `[7u8; 32]`,
- * audience `[8u8; 32]`, and `now = 1_000_000_000`. Behavioral parity
- * (accept/reject outcomes and the validation order) is the acceptance bar.
- */
-
-/** note: deterministic test keys: distinct 32-byte seeds per role (Rust constants). */
 const ISSUER_SEED = new Uint8Array(32).fill(1);
 const OTHER_ISSUER_SEED = new Uint8Array(32).fill(2);
 
 const NOW = 1_000_000_000;
 
-/** why: a peer id for a raw Ed25519 seed (runtime-derived — no literals in crypto positions). */
 function peerOf(seed: Uint8Array): string {
   return derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed));
 }
@@ -94,9 +78,6 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
     const issuer = peerOf(ISSUER_SEED);
     const subject = peerOf(new Uint8Array(32).fill(7));
     const audience = peerOf(new Uint8Array(32).fill(8));
-    // why: exp == now is already expired (reject if now >= exp). Issue the token
-    // an hour before the verify `now` so issuance's own time check accepts
-    // it — this test exercises the verify-side expiry rule.
     const proof = await issueCapabilityToken(
       ISSUER_SEED,
       claims(issuer, subject, audience, ["spoke-baseline"], NOW),
@@ -164,7 +145,6 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
       verifyCapabilityToken(badBase64, trustedIssuers, peers[1], peers[0], NOW),
     ).rejects.toThrowError(tokenInvalid);
 
-    // why: valid base64url but not 64 bytes.
     const shortSig: CapabilityTokenProof = {
       ...proof,
       sig: "AA",
@@ -178,8 +158,6 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
     const [proof, trustedIssuers, peers] = await happyToken(NOW, [
       "spoke-baseline",
     ]);
-    // why: re-signing is not possible without the issuer key; mutating a claim
-    // after issuance must break the signature check.
     const tampered: CapabilityTokenProof = {
       ...proof,
       claims: { ...proof.claims, capabilities: ["l2-computable"] },
@@ -193,8 +171,6 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
     const issuer = peerOf(ISSUER_SEED);
     const subject = peerOf(new Uint8Array(32).fill(7));
     const audience = peerOf(new Uint8Array(32).fill(8));
-    // why: sign with a different key than the named issuer: the issuance API
-    // must refuse before any bytes are signed.
     await expect(
       issueCapabilityToken(
         OTHER_ISSUER_SEED,
@@ -226,7 +202,6 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
     const audience = peerOf(new Uint8Array(32).fill(8));
     const trustedIssuers = trusted([issuer]);
 
-    // why: iat exactly at the skew boundary is accepted.
     const atBoundary: CapabilityClaims = claims(
       issuer,
       subject,
@@ -246,8 +221,6 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
       ),
     ).resolves.toEqual(["spoke-baseline"]);
 
-    // why: iat beyond the skew window is rejected (issuer clock too far ahead).
-    // Issuance now fails fast on the same rule the verifier applies.
     const beyond: CapabilityClaims = claims(
       issuer,
       subject,
@@ -259,9 +232,6 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
     await expect(
       issueCapabilityToken(ISSUER_SEED, beyond, NOW),
     ).rejects.toThrowError(tokenInvalid);
-    // why: the verify-side rule is unchanged: a validly signed token whose iat is
-    // beyond skew is still rejected when the verifier clock runs behind
-    // issuance (signature untouched — only the verify `now` shifts).
     await expect(
       verifyCapabilityToken(
         proofAtBoundary,
@@ -272,7 +242,6 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
       ),
     ).rejects.toThrowError(tokenInvalid);
 
-    // why: iat in the past is always accepted.
     const past: CapabilityClaims = claims(
       issuer,
       subject,
@@ -320,11 +289,9 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
       NOW + 3600,
     );
     emptyJti.jti = "";
-    // why: issuance fails fast: an empty jti can never verify (verify rule 8).
     await expect(
       issueCapabilityToken(ISSUER_SEED, emptyJti),
     ).rejects.toThrowError(tokenInvalid);
-    // why: wire-parsed proofs carrying an empty jti still fail at verification.
     const emptyJtiProof: CapabilityTokenProof = {
       ...proofWithJti,
       claims: { ...proofWithJti.claims, jti: "" },
@@ -351,7 +318,6 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
     expect(claimKeys).toContain("aud");
     expect(claimKeys).toContain("capabilities");
     expect(claimKeys).toContain("exp");
-    // invariant: optional claims absent unless provided (omit, never `null`).
     expect(proof.claims.iat).toBeUndefined();
     expect(proof.claims.jti).toBeUndefined();
   });
@@ -366,9 +332,6 @@ describe("verifyCapabilityToken proof-shape guard (fail closed before crypto)", 
   it("rejects missing or malformed proof fields with CoreError token_invalid", async () => {
     const [proof, trustedIssuers, peers] = await happyToken(NOW, ["spoke-baseline"]);
 
-    // why: runtime-shape violations a wire-parsed OpaqueJson can carry. Each must
-    // fail with the CoreError `token_invalid` code — never a TypeError from
-    // a downstream library (e.g. spreading a missing `capabilities`).
     const malformed: Array<[string, unknown]> = [
       ["proof is null", null],
       ["missing v", { ...proof, v: undefined }],
@@ -435,7 +398,6 @@ describe("ed25519PubkeyFromPeerId (port of peer_id.rs reverse)", () => {
     expect(ed25519PubkeyFromPeerId("QmYwAPJzv5CZsnAzt8auVZRnV")).toBeUndefined();
     expect(ed25519PubkeyFromPeerId("12D3KooW")).toBeUndefined();
     expect(ed25519PubkeyFromPeerId("")).toBeUndefined();
-    // why: out-of-alphabet base58 chars must not decode.
     expect(ed25519PubkeyFromPeerId("12O3")).toBeUndefined();
   });
 });
@@ -443,21 +405,17 @@ describe("ed25519PubkeyFromPeerId (port of peer_id.rs reverse)", () => {
 describe("u64 numeric parity for wire-parsed claims (Rust serde_json)", () => {
   it("rejects non-finite, fractional, negative, and out-of-u64-range exp with typed CoreError", async () => {
     const [proof, trustedIssuers, peers] = await happyToken(NOW, ["spoke-baseline"]);
-    // why: JSON.parse is the attacker-controlled layer: `"exp":1e999` → Infinity,
-    // and hostile JSON text can carry fractions / negatives / values ≥ 2^64.
-    // Each must reject with the typed CoreError — never a raw Error escaping
-    // from canonicalize (regression for the Infinity non-CoreError escape).
     const proofText = JSON.stringify(proof);
     expect(proofText).toContain('"exp":1000003600');
     const hostileLiterals = [
-      "1e999", // note: → Infinity
-      "-1e999", // note: → -Infinity
-      "1e400", // note: → Infinity
-      "-1", // note: negative — Rust u64 rejects
-      "2000000000.5", // note: fractional — Rust u64 rejects
-      "1.5", // note: fractional
-      "18446744073709551616", // note: 2^64 — first value Rust u64 rejects
-      "1e60", // note: integral but > 2^64 − 1
+      "1e999",
+      "-1e999",
+      "1e400",
+      "-1",
+      "2000000000.5",
+      "1.5",
+      "18446744073709551616",
+      "1e60",
     ];
     for (const literal of hostileLiterals) {
       const wire = JSON.parse(
@@ -477,7 +435,6 @@ describe("u64 numeric parity for wire-parsed claims (Rust serde_json)", () => {
       expect((error as CoreError).code, `exp: ${literal} code`).toBe("token_invalid");
     }
 
-    // why: same guard semantics for non-wire-constructible values (object form).
     for (const bad of [Infinity, -Infinity, NaN, 1.5, -1, 2 ** 64, Number.MAX_VALUE]) {
       const wired: CapabilityTokenProof = {
         ...proof,
@@ -515,10 +472,6 @@ describe("u64 numeric parity for wire-parsed claims (Rust serde_json)", () => {
 describe("canonical sig encoding (Rust URL_SAFE_NO_PAD parity)", () => {
   it("accepts only the canonical unpadded base64url sig — padded and alternate slack-bit encodings reject", async () => {
     const [proof, trustedIssuers, peers] = await happyToken(NOW, ["spoke-baseline"]);
-    // why: a 64-byte signature is 86 base64url chars: the final char carries 4
-    // data bits + 2 slack bits, so the same bytes have exactly 4 encodings.
-    // Rust URL_SAFE_NO_PAD rejects the 3 non-canonical ones; TS previously
-    // decoded all 4 (atob ignores slack bits) and all verified.
     const alphabet =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     const lastChar = proof.sig[proof.sig.length - 1];
@@ -560,7 +513,6 @@ describe("issueCapabilityToken sign/return consistency", () => {
     (dirty as CapabilityClaims & Record<string, unknown>).extra_claim = "sneaky";
     dirty.iat = NOW - 10;
     const proof = await issueCapabilityToken(ISSUER_SEED, dirty, NOW);
-    // why: the wrapper carries exactly the signed, whitelisted claim set.
     expect(Object.keys(proof.claims).sort()).toEqual([
       "aud",
       "capabilities",
@@ -570,7 +522,6 @@ describe("issueCapabilityToken sign/return consistency", () => {
       "sub",
     ]);
     expect((proof.claims as unknown as Record<string, unknown>).extra_claim).toBeUndefined();
-    // why: a self-issued token round-trips despite the extra key at issue time.
     await expect(
       verifyCapabilityToken(proof, trusted([issuer]), audience, subject, NOW),
     ).resolves.toEqual(["spoke-baseline"]);
@@ -580,7 +531,7 @@ describe("issueCapabilityToken sign/return consistency", () => {
 describe("iss length cap (base58 O(n²) DoS guard)", () => {
   it("fails closed on over-long iss before base58 decode work", async () => {
     const [proof, trustedIssuers, peers] = await happyToken(NOW, ["spoke-baseline"]);
-    const longIss = `${"1".repeat(200)}abc`; // note: valid alphabet, > 128 chars
+    const longIss = `${"1".repeat(200)}abc`;
     await expect(
       verifyCapabilityToken(
         { ...proof, claims: { ...proof.claims, iss: longIss } },
@@ -595,8 +546,6 @@ describe("iss length cap (base58 O(n²) DoS guard)", () => {
   it("ed25519PubkeyFromPeerId refuses inputs longer than 128 chars", () => {
     expect(ed25519PubkeyFromPeerId(`${"1".repeat(129)}x`)).toBeUndefined();
     expect(ed25519PubkeyFromPeerId(`${"1".repeat(200)}abc`)).toBeUndefined();
-    // why: the cap is on input length only — at-cap inputs still fail the
-    // structural checks, and short valid peer ids still decode.
     expect(ed25519PubkeyFromPeerId("1".repeat(128))).toBeUndefined();
     expect(ed25519PubkeyFromPeerId(GOLDEN_PEER_ID)).toEqual(GOLDEN_PUBKEY);
   });
@@ -622,7 +571,6 @@ describe("issueCapabilityToken claim validation (fail fast at issuance)", () => 
         `missing ${label} must reject`,
       ).rejects.toThrowError(tokenInvalid);
     }
-    // why: non-object claims are malformed too.
     await expect(
       issueCapabilityToken(ISSUER_SEED, null as unknown as CapabilityClaims),
     ).rejects.toThrowError(tokenInvalid);
@@ -653,10 +601,10 @@ describe("issueCapabilityToken claim validation (fail fast at issuance)", () => 
   it("rejects malformed or empty capabilities before signing", async () => {
     const base = claims(issuer, subject, audience, ["spoke-baseline"], NOW + 3600);
     const badCapabilities: unknown[] = [
-      "spoke-baseline", // note: not an array
-      null, // note: not an array
-      [], // note: empty grant — authorizes nothing
-      ["spoke-baseline", 42], // note: non-string member
+      "spoke-baseline",
+      null,
+      [],
+      ["spoke-baseline", 42],
     ];
     for (const capabilities of badCapabilities) {
       await expect(
@@ -767,7 +715,6 @@ describe("issueCapabilityToken claim time validation (fail fast at issuance)", (
     await expect(
       verifyCapabilityToken(proof, trusted([issuer]), audience, subject, NOW),
     ).resolves.toEqual(["spoke-baseline"]);
-    // why: exp exactly at now + skew is the first rejected value (boundary).
     await expect(
       issueCapabilityToken(
         ISSUER_SEED,

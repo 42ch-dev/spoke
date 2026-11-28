@@ -1,12 +1,3 @@
-// note: C6 shared cognition selection predicates and traceable projection
-// (cognition-data-contract.md §5). Pure in-memory evaluation over typed
-// records: one-record conjunction, complete (kind, namespace, id) reference
-// identity, categorical absent/eq arms, inclusive q ranges over declared
-// (uncalibrated) values, and an attribution-preserving projection whose
-// current view is chosen only by an explicitly injected product policy.
-// No storage/reference I/O, no registry resolution, no probability
-// synthesis, no averaging/latest-wins merging and no built-in policy.
-
 import type {
   CognitionFilter,
   CognitionRecord,
@@ -24,10 +15,6 @@ import {
 } from "../result.js";
 import { validateCognitionFilter, validateCognitionSelection } from "./validate.js";
 
-// note: The generated projection/member types are not re-exported at the
-// @42ch/spoke-schemas package root, but its public `MindState` carrier holds
-// them. Deriving every projection shape from that carrier keeps the public
-// helper contract on the schema SSOT instead of a parallel declaration.
 type GeneratedCognitionProjection = NonNullable<MindState["cognition"]>;
 
 export type CognitiveView = GeneratedCognitionProjection["view"];
@@ -44,9 +31,6 @@ export type CognitionContext = CognitionProjectionItem["assessment_context"];
 
 export type CognitionTarget = CognitionProjectionItem["target"];
 
-// note: Explicitly injected product policy for current assessed projections. The
-// library supplies no policy algorithm: it verifies only that the returned
-// id is one of the traced input record ids.
 export type CurrentViewPolicy = {
   select(input: { assessments: readonly CognitionRecord[] }): string;
 };
@@ -55,9 +39,6 @@ function sameReference(a: CognitionReference, b: CognitionReference): boolean {
   return a.kind === b.kind && a.namespace === b.namespace && a.id === b.id;
 }
 
-// note: Categorical predicate — `{eq}` matches only a present value; `{absent:
-// true}` matches only an explicitly absent optional field. A missing field
-// is never equal to any value (missing data is not False/Unknown/zero).
 function categoricalMatches<V>(
   predicate: { eq: V } | { absent: true } | undefined,
   value: V | undefined,
@@ -112,9 +93,6 @@ export function cognitionRecordMatchesFilter(
     }
     if (context.fork_id !== undefined) {
       const actual = record.assessment_context.fork_id;
-      // note: Closed fork predicate — `{eq}` matches one fork identity; `{absent:
-      // true}` matches only the context identity with no fork. An omitted
-      // predicate is a wildcard over forked and no-fork contexts.
       const matches =
         "eq" in context.fork_id
           ? actual !== undefined && actual === context.fork_id.eq
@@ -138,8 +116,6 @@ export function cognitionRecordMatchesFilter(
     }
   }
   if (filter.q !== undefined) {
-    // note: Inclusive comparisons over the declared foundational q.value;
-    // uncalibrated but declared values participate identically.
     const q = record.q.value;
     if (filter.q.min !== undefined && q < filter.q.min) {
       return false;
@@ -148,9 +124,6 @@ export function cognitionRecordMatchesFilter(
       return false;
     }
   }
-  // note: Belief-only dimensions exist only on Belief records — an epistemic or
-  // Perception record has no absent Belief field, and its own `access` is
-  // an ObservationAccess, never BeliefAccess.
   const belief = record.kind === "belief" ? record : undefined;
   const hasBeliefDimension =
     filter.truth !== undefined ||
@@ -183,8 +156,6 @@ export function cognitionRecordMatchesFilter(
   return true;
 }
 
-// note: Keeps the C5 diagnostic (relative `field`) and stamps the unsupported
-// requirement reason the callers already reported.
 function unsupportedRequirement(rejection: SpokeReject): SpokeReject {
   return spokeReject(rejection.code, rejection.message, {
     ...rejection.details,
@@ -209,8 +180,6 @@ export function selectCognitionRecords(
   return spokeOk(records.filter((record) => cognitionRecordMatchesFilter(record, filter)));
 }
 
-// note: Compound item identity — holder tuple + target identity (carrier tuple,
-// kind, target_id — never text) + assessment context identity.
 function groupKeyOf(record: CognitionRecord): string {
   return JSON.stringify([
     [record.holder.kind, record.holder.namespace, record.holder.id],
@@ -223,11 +192,6 @@ function groupKeyOf(record: CognitionRecord): string {
   ]);
 }
 
-// note: The exact-source rule (§5.3) — only the filter itself can exactly address a
-// source key. That requires the complete holder reference, complete target
-// identity, `assessment_context.context_id`, and an explicit fork predicate
-// (`{eq}` or `{absent: true}`). An omitted fork_id is a wildcard, so it never
-// yields a no_record claim for a particular fork identity.
 function exactSourceContext(filter: CognitionFilter): CognitionContext | undefined {
   const context = filter.assessment_context;
   if (
@@ -319,9 +283,6 @@ export function projectCognitionRecords(
   }
   const sourceContext = exactSourceContext(filter);
   if (sourceContext !== undefined) {
-    // note: The lookup ignores optional category/dimension/q predicates — a source
-    // record excluded by those means "no item", never "no cognition was
-    // recorded".
     const target = filter.target!;
     const sourceHasRecord = records.some(
       (record) =>

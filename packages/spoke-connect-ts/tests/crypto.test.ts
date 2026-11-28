@@ -83,9 +83,6 @@ describe("WebCrypto Ed25519 path (when the runtime supports it)", () => {
   });
 
   it("probe is true iff an Ed25519 importKey succeeds on this runtime", async () => {
-    // why: `importKey` presence is not the contract — it exists yet rejects
-    // Ed25519 on Node 20.0–20.18 / 21 / 22.0–22.3. Assert the probe's
-    // contract directly: true iff an actual Ed25519 importKey succeeds.
     const s = globalThis.crypto?.subtle;
     let importSucceeds = false;
     if (s && typeof s.importKey === "function") {
@@ -107,8 +104,6 @@ describe("WebCrypto Ed25519 path (when the runtime supports it)", () => {
 
   it("sign → verify round-trip via crypto.subtle directly", async (ctx) => {
     if (!webcryptoOk) ctx.skip();
-    // why: BufferSource requires ArrayBuffer-backed views under TS 5.7+ generics;
-    // these test buffers are ArrayBuffer-backed by construction.
     const s = globalThis.crypto.subtle;
     const key = await s.importKey(
       "pkcs8",

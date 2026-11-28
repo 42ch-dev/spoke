@@ -54,7 +54,6 @@ const CORE_INVOKE_ERROR_MESSAGES: Record<CoreInvokeErrorCode, string> = {
 /** Hello-gate / identity failure (mirrors `CoreError`). */
 export class CoreError extends Error {
   readonly code: CoreErrorCode;
-  /** note: optional structured context (e.g. handshake reason strings). */
   readonly details?: Record<string, unknown>;
 
   constructor(code: CoreErrorCode, message?: string, details?: Record<string, unknown>) {
@@ -68,7 +67,6 @@ export class CoreError extends Error {
 /** Invoke-path failure over an established session (mirrors `CoreInvokeError`). */
 export class CoreInvokeError extends Error {
   readonly code: CoreInvokeErrorCode;
-  /** note: optional structured context (e.g. `{ expected, actual }` for sequence mismatch). */
   readonly details?: Record<string, unknown>;
 
   constructor(code: CoreInvokeErrorCode, message?: string, details?: Record<string, unknown>) {

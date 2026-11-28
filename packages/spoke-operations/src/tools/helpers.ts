@@ -6,18 +6,6 @@ import type {
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";
 
-/**
- * note: Tool capability grammar — `tools.<ns>.<tool_id>`.
- *
- * The RegExp is byte-identical to the schema pattern in
- * `schemas/data/tool-descriptor.schema.json`
- * (`^tools\.[a-z][a-z0-9_-]*\.[a-z0-9][a-z0-9_-]*$`). It therefore inherits
- * native ECMA-262 semantics: `$` without the `m` flag anchors at the
- * absolute end of input — a trailing line terminator does NOT match (this
- * differs from PCRE/Python `re`, where `$` also matches before a final
- * `\n`; verified against V8 and regress). Do not diverge from the schema
- * pattern string in either direction.
- */
 const TOOL_CAPABILITY_PATTERN =
   /^tools\.[a-z][a-z0-9_-]*\.[a-z0-9][a-z0-9_-]*$/;
 
@@ -76,8 +64,6 @@ export function parseToolCapabilityId(
       { capability_id: id },
     );
   }
-  // note: The pattern guarantees exactly three dot-separated segments; split the
-  // matched text for clarity (strict `$` cannot admit a trailing terminator).
   const [, namespace, toolId] = match[0].split(".");
   return spokeOk({ namespace, toolId });
 }
@@ -114,8 +100,6 @@ export function validateToolDescriptor(
       },
     );
   }
-  // note: Runtime guards for the JS boundary — the generated TS type always declares
-  // objects, but a caller can hand us anything from unvalidated JSON.
   if (!isJsonObject(descriptor.input)) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
@@ -145,10 +129,6 @@ export function validateToolDescriptor(
 export function validateManifestTools(
   manifest: HostCapabilityManifest,
 ): SpokeResult<void> {
-  // note: JS-boundary guards (same rationale as validateToolDescriptor's
-  // input/output guards): the generated TS type declares these required, but
-  // a caller can hand us anything from unvalidated JSON. Missing or
-  // non-array fields reject structurally instead of throwing a TypeError.
   if (!Array.isArray(manifest.capabilities)) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
@@ -182,8 +162,6 @@ export function validateManifestTools(
         { field: "tools", index, capability_id: descriptor.capability_id },
       );
     }
-    // note: validateToolDescriptor passed, so the grammar guarantees exactly three
-    // dot-separated segments; the split below is total.
     const namespace = descriptor.capability_id.split(".")[1];
     if (!manifest.namespaces.includes(namespace)) {
       return spokeReject(
@@ -241,10 +219,6 @@ export function validateToolArguments(
       { field: "arguments" },
     );
   }
-  // note: JS-boundary guard — `descriptor.input` may be a runtime non-object from
-  // unvalidated JSON. REJECT (INVALID_INPUT + details.field = "input") for
-  // consistency with validateToolDescriptor's object-ness guard — deliberately
-  // not a vacuous pass, so a malformed schema cannot silently skip the gate.
   if (!isJsonObject(descriptor.input)) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,

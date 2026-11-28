@@ -30,8 +30,6 @@ import {
 } from "../../src/noise/crypto.js";
 import { fromHex, toHex } from "../hex.js";
 
-// note: RFC 7748 §6.1 test vectors
-
 const RFC7748 = {
   alicePrivate: fromHex(
     "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a",
@@ -79,11 +77,6 @@ describe("X25519 DH (RFC 7748 §6.1)", () => {
   });
 });
 
-// note: RFC 5869 §A.1–A.3 test vectors
-
-// note: A.1: 22×0x0b IKM, 13-byte salt 00..0c, 10-byte info f0..f9, L=42.
-// A.2: 80-byte IKM 00..4f, 80-byte salt 60..af, 80-byte info b0..ff, L=82.
-// A.3: 22×0x0b IKM, empty salt, empty info, L=42 (the Noise-shape case).
 const RFC5869 = {
   a1: {
     ikm: new Uint8Array(22).fill(0x0b),
@@ -122,16 +115,6 @@ describe("HKDF-SHA256 (RFC 5869)", () => {
   });
 });
 
-// note: Noise hkdf(ck, ikm) → { chainingKey, key }
-//
-// Noise HKDF (Noise spec §5.2, hash = SHA-256): two 32-byte outputs from
-// (chaining_key, input_key_material) with empty info — exactly
-// HKDF-SHA256(Extract(ck, ikm), Expand("", 64)) split at byte 32.
-//
-// Fixed vector: ck = SHA-256("Noise_XX_25519_ChaChaPoly_SHA256"),
-// ikm = 32×0x11. Expected values generated with `node:crypto` hkdfSync
-// (OpenSSL) and cross-checked against noble.
-
 const NOISE_HKDF_CK = "f3d15e6108ed9556171207baa58f97d29a13c6be40595166066e2e0958dc002d";
 const NOISE_HKDF_NEW_CK =
   "4e2b33a6ebe06dd7e806e6bf3010ac6574b6be37c8b326528289b4882fb6819a";
@@ -162,10 +145,6 @@ describe("Noise hkdf(chainingKey, inputKeyMaterial)", () => {
   });
 });
 
-// note: RFC 8439 §2.8.2 AEAD test vector
-
-// note: key 80..9f, nonce 07 00 00 00 40 41 42 43 44 45 46 47 (32-bit fixed part
-// 7 || 64-bit IV), AAD 50 51 52 53 c0..c7, plaintext = RFC "sunscreen" text.
 const RFC8439 = {
   key: Uint8Array.from({ length: 32 }, (_, i) => 0x80 + i),
   nonce12: fromHex("070000004041424344454647"),
@@ -223,13 +202,6 @@ describe("ChaCha20-Poly1305 (RFC 8439 §2.8.2)", () => {
     ).toBeNull();
   });
 });
-
-// note: Noise encrypt/decrypt (u64 little-endian nonce)
-//
-// Noise nonce framing: 96-bit nonce = 0x00000000 || u64le(counter). The
-// fixed vector below uses the RFC 8439 key/AAD/plaintext with
-// nonce = 0x0102030405060708 (LE bytes 08 07 06 05 04 03 02 01), expected
-// values generated with the OpenSSL oracle.
 
 const NOISE_AEAD = {
   key: Uint8Array.from({ length: 32 }, (_, i) => 0x80 + i),

@@ -112,9 +112,6 @@ function createBaselinePortStub(
 
 describe("adapter port exports", () => {
   it("history refusal codes are first-class SpokeRejectCode members", async () => {
-    // note: product-behavior assertion — the spoke-history refusal
-    // vocabulary (contract §Refusal vocabulary) must survive a provider
-    // through the SpokeResult surface exactly, codes + required details.
     expect(SpokeRejectCode.CAPABILITY_PORT_MISSING).toBe(
       "CAPABILITY_PORT_MISSING",
     );
@@ -188,8 +185,6 @@ describe("adapter port exports", () => {
       putRelation: async (r, _expectedBaseRevision) => spokeOk(r),
     };
 
-    // note: The port requires a two-arg putRelation (OCC expectedBaseRevision) and a
-    // getRelation reader — parity with KnowledgeEntryPort and the Rust trait.
     expect(typeof relation.getRelation).toBe("function");
     expect(typeof relation.putRelation).toBe("function");
     expect(relation.putRelation.length).toBe(2);

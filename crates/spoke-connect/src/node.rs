@@ -470,6 +470,7 @@ impl EventLoop {
     ) {
         // simplify: single-flight dials. Parallel connects would need a
         // pending-connect map keyed by address; the spike is serial.
+        // upgrade: when parallel dials land, key the pending-connect map by address.
         // A second connect while a dial is pending is rejected.
         if self.pending_connect.is_some() {
             let _ = reply.send(Err(ConnectError::Transport(
@@ -887,11 +888,6 @@ impl EventLoop {
     /// without an established session is answered with a wire
     /// `ErrorEnvelope` (protocol v1 has no invoke-level transport error
     /// outside the response).
-    ///
-    /// Note: session ids are per-side in protocol v1 — each node records its
-    /// own opaque id for the pairing (there is no session-announce message),
-    /// so the responder validates by *peer*, not by id; the request's
-    /// `session_id` is opaque correlation material that the response echoes.
     fn handle_inbound_invoke(
         &mut self,
         peer: PeerId,
@@ -1570,8 +1566,8 @@ impl EventLoop {
             {
                 // Bounded overflow: reject the newest hello instead of
                 // growing the buffer.
-                // simplify: fixed per-peer cap. When connection-level limits
-                // or identify backpressure land, this cap can ride on them.
+                // simplify: fixed per-peer cap.
+                // upgrade: when connection-level limits or identify backpressure land, this cap can ride on them.
                 drop(channel);
                 return;
             }
@@ -1826,9 +1822,9 @@ impl SpokeConnectNode {
         // at least one, or when the settle window expires (still succeeding
         // with what arrived).
         // simplify: settlement counts resolved addresses, not listeners; the
-        // spike accepts a one-listener ceiling. Carry ListenerId through the
-        // channel and wait for one address per configured listener when
-        // multi-listener support lands.
+        // spike accepts a one-listener ceiling.
+        // upgrade: carry ListenerId through the channel and wait for one address
+        // per configured listener when multi-listener support lands.
         let mut listen_addrs = Vec::new();
         let deadline = Instant::now() + LISTEN_SETTLE_TIMEOUT;
         while listen_addrs.len() < requested_listeners {

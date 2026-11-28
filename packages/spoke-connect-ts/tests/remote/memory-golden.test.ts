@@ -1,17 +1,3 @@
-/**
- * note: Cross-language memory invoke vectors (memory protocol §13).
- *
- * The fixture is shared byte-for-byte with the Rust harness
- * (`crates/spoke-connect/tests/fixtures/memory-invoke-golden.json`), where the
- * vectors are additionally round-tripped through the generated Rust request /
- * response types. Here they pin the TypeScript side of the contract:
- *
- * - the adapter's `MEMORY_OPS` table maps every vector's `method` → `op` row;
- * - every vector op has a dispatch row in the core table (Task 1 parity);
- * - each payload is a plain request/response object (no wrapper), which is the
- *   shape `RemoteAdapter` sends and `connectResponder`'s memory seam receives.
- */
-
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
@@ -67,15 +53,12 @@ describe("memory invoke golden vectors (shared with the Rust harness)", () => {
   });
 
   it("wires the create row to the memory capability and a real dispatch row", () => {
-    // why: the row is what makes `memory.spaces.create` reachable — the op
-    // must be the adapter's own row and be gated as a memory core op.
     expect(MEMORY_OPS.createSpace).toBe("memory.spaces.create");
     expect(requiredCapability(MEMORY_OPS.createSpace)).toBe(CAPABILITY_SPOKE_MEMORY);
   });
 
   it("maps every memory op row to a real dispatch row", () => {
     const ops = Object.values(MEMORY_OPS) as string[];
-    // why: two methods sharing one op row would silently drop a row.
     expect(new Set(ops).size).toBe(ops.length);
     for (const op of ops) {
       expect(op.startsWith("memory."), `${op} is a memory op`).toBe(true);

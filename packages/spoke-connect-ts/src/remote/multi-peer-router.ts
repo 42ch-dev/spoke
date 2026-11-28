@@ -1,29 +1,3 @@
-/**
- * note: `MultiPeerRouter` — capability-selected multi-peer async `BaselinePorts`
- * over N registered per-peer `RemoteAdapter` instances (frozen multi-peer
- * routing contract; normative design intent in the RemoteAdapter spec
- * "Multi-peer registry/composer" staged follow-on).
- *
- * The router sits ABOVE per-peer `RemoteAdapter`s and BELOW `orchestrate*`:
- * consumers dial and register established adapters, then keep calling
- * `orchestrate*(router, req)` with no per-op `peer_id`. Each `BaselinePorts`
- * call selects exactly one peer by the locked §3 algorithm — capability →
- * namespace → authority hard filters, role soft partition, deterministic
- * lexicographic UTF-8 `peer_id` tie-break (§4) — and delegates. The selected
- * peer's underlying `SpokeResult` reject is returned as-is (§7.2: no
- * automatic alternate-retry, no remap). `getHostCapabilityManifest` /
- * `listPeerHostCapabilityManifests` are aggregated locally from the cached
- * per-peer manifests (§6: composed view / per-peer array — no round-trip).
- *
- * Public surface (§8): `connectMultiPeerRouter(options)`, `registerPeer`,
- * `unregisterPeer`, `listPeers`, the async `BaselinePorts` six families,
- * and the tool-invoke face `invokeTool(capabilityId, arguments)` (D14 —
- * exact-capability hard filter, lowest-`peer_id` tie-break, terminal
- * `no_capable_peer` reject, composed-manifest `tools[]` union).
- * Per-peer adapters are encapsulated — the router never exposes them after
- * registration.
- */
-
 import type {
   Finding,
   HostCapabilityManifest,
@@ -98,16 +72,6 @@ const PREFERRED_ROLE: Readonly<Record<string, string>> = {
   compute: "l2-computable",
 };
 
-/**
- * note: required capability for an op — orchestrated ops resolve through the
- * shared core table (`requiredCapability` from core dispatch, which also
- * covers the frozen §6 self-describing `tools.<ns>.<tool_id>` prefix rule,
- * where the required capability IS the op string itself); `port.*` ops
- * resolve through the D4 catalogue the responder's serve gate reads. Ops
- * outside both resolve to `undefined` and are rejected outright by selection
- * (no ungated fall-through). Memory ops are neither orchestrated nor
- * `port.*`, so they stay rejected even though the core table defines them.
- */
 function requiredCapability(op: string): string | undefined {
   if (ORCHESTRATED_OPS.has(op) || op.startsWith("tools.")) {
     return coreRequiredCapability(op);
@@ -117,15 +81,6 @@ function requiredCapability(op: string): string | undefined {
 
 // ── Payload-derived selection inputs (contract §2 / §3) ──────────────────
 
-/**
- * note: the request's collaboration namespace, derived from the op payload
- * when it carries one (contract §2 — "derived from `Scope` when the op
- * payload carries one"). Products surface the namespace either at the
- * payload top level (`namespace`) or on the payload's `Scope`
- * (`scope.namespace`). When neither is present the namespace filter is
- * skipped (§3 step 3). No wildcard in v1: a literal `"*"` is the literal
- * string, never a match-all.
- */
 function requestNamespace(payload: Record<string, unknown>): string | undefined {
   const topLevel = payload["namespace"];
   if (typeof topLevel === "string") {
@@ -141,12 +96,6 @@ function requestNamespace(payload: Record<string, unknown>): string | undefined 
   return undefined;
 }
 
-/**
- * note: the request's authority scope key, when the payload carries one
- * (contract §3 step 4 — the authority filter applies when the peer manifest
- * AND the request both declare a scope key). Same carrier shapes as the
- * namespace.
- */
 function requestScopeKey(payload: Record<string, unknown>): string | undefined {
   const topLevel = payload["scope_key"];
   if (typeof topLevel === "string") {
@@ -164,13 +113,6 @@ function requestScopeKey(payload: Record<string, unknown>): string | undefined {
 
 const textEncoder = new TextEncoder();
 
-/**
- * note: lexicographic UTF-8 byte order on `peer_id` strings (contract §4) —
- * plain JS `<` compares UTF-16 code units, which diverges from UTF-8 byte
- * order for non-BMP strings, so encode to bytes for the faithful order (peer
- * ids are base58btc ASCII in practice; the byte order is what the contract
- * locks).
- */
 function compareUtf8PeerIds(a: string, b: string): number {
   const aBytes = textEncoder.encode(a);
   const bBytes = textEncoder.encode(b);
@@ -183,14 +125,6 @@ function compareUtf8PeerIds(a: string, b: string): number {
   return aBytes.length - bBytes.length;
 }
 
-/**
- * note: set-union preserving first-seen order across the inputs, cast to the
- * schema's minItems-1 tuple type (contract §6). The cast covers the
- * legitimate empty union: a router with zero connected peers composes empty
- * `capabilities` / `roles` / `namespaces`, which the generated wire type
- * (JSON Schema `minItems: 1`) cannot express directly — same cast as the
- * golden fixture.
- */
 function unionOf(arrays: readonly (readonly string[])[]): [string, ...string[]] {
   const seen = new Set<string>();
   for (const array of arrays) {
@@ -201,12 +135,6 @@ function unionOf(arrays: readonly (readonly string[])[]): [string, ...string[]] 
   return [...seen] as [string, ...string[]];
 }
 
-/**
- * note: tool-descriptor union across the connected peers' `tools[]`
- * (frozen §6) — dedup by `capability_id` (first occurrence wins) and sort by
- * `capability_id` in lexicographic UTF-8 byte order, for stability across
- * registration order unlike the first-seen string unions above.
- */
 function unionTools(
   arrays: readonly (readonly ToolDescriptor[])[],
 ): ToolDescriptor[] {
@@ -223,7 +151,6 @@ function unionTools(
   );
 }
 
-/** invariant: the locked §5 no-capable-peer reject — terminal, no retry, no fallback. */
 function noCapablePeer(op: string, reason: string): SpokeReject {
   return spokeReject(
     SpokeRejectCode.CAPABILITY_PORT_MISSING,
@@ -274,16 +201,9 @@ export function selectPeerForOp(
 
   const required = requiredCapability(op);
   if (required === undefined) {
-    // why: unknown ops are rejected outright — the §3 capability gate is step 1
-    // of every selection, and an op outside the locked mapping table has no
-    // gate to run; falling through would select an arbitrary Established peer
-    // — same terminal §5 reject shape as a no-match.
     return noCapablePeer(op, `no capability mapping for unknown op "${op}"`);
   }
-  // invariant: hard capability filter — plain membership, no implication
-  // between families. Only a peer that negotiated `spoke-knowledge` itself
-  // qualifies for the three knowledge ops, and `spoke-knowledge` alone never
-  // qualifies a peer for a baseline op.
+
   let survivors = candidates.filter((candidate) =>
     capabilitySatisfies(candidate.manifest.capabilities, required),
   );
@@ -320,8 +240,6 @@ export function selectPeerForOp(
   if (scopeKey !== undefined) {
     survivors = survivors.filter((candidate) => {
       const declared = candidate.manifest.authority?.scope_key;
-      // invariant: both sides declaring a scope key → exact match required;
-      // only one side declares → filter skipped for this peer.
       return declared === undefined || declared === scopeKey;
     });
     if (survivors.length === 0) {
@@ -332,12 +250,6 @@ export function selectPeerForOp(
     }
   }
 
-  // note: a cognition-bearing request can only be routed to a peer that
-  // declared the `spoke-cognition` family — projection/selection must flow
-  // between parties that negotiated it (consumer contract §2.1). The
-  // requirement is read from the op's own declared carrier, never from
-  // arbitrary payload data. Same hard-filter shape as `ke-ownership`; the
-  // legacy `l5-mind` flag never satisfies it.
   if (cognitionRequirementPresent(op, payload)) {
     survivors = survivors.filter((candidate) =>
       candidate.manifest.capabilities.includes(CAPABILITY_SPOKE_COGNITION),
@@ -364,24 +276,10 @@ export function selectPeerForOp(
   return spokeOk(survivors[0]);
 }
 
-/**
- * note: the per-peer adapter surface the router composes — satisfied by
- * `RemoteAdapter` (its read-only session getters + async `BaselinePorts`).
- * The router reads `state` (candidate gate), `remotePeerId` (registry key +
- * tie-break), and `remoteManifest` (cached at registration); it delegates
- * `BaselinePorts` calls to the selected adapter. Envelope auth stays
- * enforced inside each per-peer session — selection is a routing decision
- * above the adapters and adds no bypass.
- */
 export interface RoutedRemoteAdapter extends BaselinePorts {
   readonly state: RemoteAdapterState;
   readonly remotePeerId: string;
   readonly remoteManifest: HostCapabilityManifest;
-  /**
-   * note: forward tool-invoke face (frozen §6) — satisfied by
-   * `RemoteAdapter.invokeTool`; the router delegates tool invokes to the
-   * selected peer's adapter (the router never crafts envelopes itself).
-   */
   invokeTool(
     capabilityId: string,
     args: Record<string, unknown>,
@@ -389,12 +287,6 @@ export interface RoutedRemoteAdapter extends BaselinePorts {
 }
 
 export interface MultiPeerRouterOptions {
-  /**
-   * note: the router's own host identity — the composed view's `host_id`
-   * (contract §6: the local node's identity, NOT a peer's). Optional —
-   * defaults to `"multi-peer-router"`; an empty string is treated as unset
-   * (the schema's `host_id` requires a non-empty string), mirroring Rust.
-   */
   hostId?: string;
 }
 
@@ -409,37 +301,16 @@ interface SelectedPeer {
   adapter: RoutedRemoteAdapter;
 }
 
-/**
- * note: multi-peer capability router — registry (§7.4) + locked §3 selection
- * + async `BaselinePorts` delegation (six families) + §6 HostManifest
- * aggregation. Construct via `connectMultiPeerRouter`; the router starts
- * with zero peers and consumers dial each peer's `RemoteAdapter` and
- * register the established adapter.
- */
 export class MultiPeerRouter implements BaselinePorts {
   readonly #hostId: string;
-  /** note: registered peers by `peer_id` (dynamic insert/delete; registration order). */
   #peers = new Map<string, RegisteredPeer>();
 
   constructor(options: MultiPeerRouterOptions = {}) {
-    // note: empty-string hostId is treated as unset (the schema's `host_id`
-    // requires a non-empty string) — same defaulting as Rust's
-    // `host_id.filter(|id| !id.is_empty())` (§8 constructor options).
     this.#hostId = options.hostId || DEFAULT_ROUTER_HOST_ID;
   }
 
   // ── Registry (contract §7.4) ───────────────────────────────────────────
 
-  /**
-   * note: register an adapter under its verified remote peer id. Idempotent
-   * on `peer_id`: re-registering the same id replaces the stored adapter and
-   * re-caches its manifest. Returns the `peer_id`. Throws when the adapter
-   * has no established session (no verified peer id / no cached manifest) —
-   * consumers dial first (§8: "consumers dial each peer's RemoteAdapter
-   * themselves and register the established adapter"). Does NOT close the
-   * adapter. A Closed adapter may remain registered — it is simply excluded
-   * from the candidate set; the consumer MAY call `unregisterPeer` to evict.
-   */
   registerPeer(adapter: RoutedRemoteAdapter): string {
     const peerId = adapter.remotePeerId;
     if (peerId.length === 0) {
@@ -459,15 +330,10 @@ export class MultiPeerRouter implements BaselinePorts {
     return peerId;
   }
 
-  /**
-   * note: remove a peer from the registry; no-op if not registered. Does NOT
-   * close the adapter (the consumer owns the adapter lifecycle, §7.4).
-   */
   unregisterPeer(peerId: string): void {
     this.#peers.delete(peerId);
   }
 
-  /** note: registered peer ids, in registration order (the registry, not selection). */
   listPeers(): string[] {
     return [...this.#peers.keys()];
   }
@@ -507,9 +373,6 @@ export class MultiPeerRouter implements BaselinePorts {
   async listKnowledgeEntries(
     scope: Scope,
   ): Promise<SpokeResult<KnowledgeEntry[]>> {
-    // note: the selection payload carries the request Scope so the §2
-    // namespace / §3 authority derivations see it (the same Scope the peer
-    // receives).
     return this.#delegate("port.scope.list_knowledge_entries", { scope }, (peer) =>
       peer.listKnowledgeEntries(scope),
     );
@@ -535,28 +398,10 @@ export class MultiPeerRouter implements BaselinePorts {
 
   // see contract §6 — tool routing
 
-  /**
-   * note: tool-invoke face (frozen §6) — fails fast on a non-`tools.`
-   * capability id (the op string IS the capability string; a non-`tools.` id
-   * is a programming error) with `INVALID_INPUT` + `details.capability_id`
-   * before any peer selection, so no wire traffic (D13/D14 parity with
-   * `RemoteAdapter.invokeTool`). Otherwise selects the peer whose cached
-   * hello manifest `capabilities[]` contains the EXACT tool capability
-   * string (the selection table's `tools.` prefix rule resolves the required
-   * capability to the op itself), then delegates to the selected peer's
-   * adapter `invokeTool` — the router never crafts envelopes itself. No
-   * namespace/authority/role filters for tools (the capability string is
-   * ns-scoped; tool payloads carry no `Scope`); deterministic tie-break =
-   * lowest `peer_id`; none → the existing terminal `no_capable_peer` reject
-   * (`details.op = capabilityId`). The selected peer's underlying
-   * `SpokeResult` reject is returned as-is (§7.2 — no alternate-retry).
-   */
   async invokeTool(
     capabilityId: string,
     args: Record<string, unknown>,
   ): Promise<SpokeResult<unknown>> {
-    // why: fail fast on a non-tool capability id (the op string IS the
-    // capability string; a non-`tools.` id is a programming error).
     const parsed = parseToolCapabilityId(capabilityId);
     if (!parsed.ok) {
       return parsed;
@@ -570,14 +415,6 @@ export class MultiPeerRouter implements BaselinePorts {
 
   // ── HostManifestPort — aggregated locally (contract §6, no round-trip) ──
 
-  /**
-   * note: composed view — set-union of all CONNECTED (Established) peers'
-   * capabilities / roles / namespaces, the router's own `host_id`, NO
-   * `authority` (a composed view does not synthesize an authority scope),
-   * and `extensions.router.peers` listing the contributing peer ids in
-   * lexicographic UTF-8 byte order. For consumer introspection ONLY — never
-   * used for routing (§6 aggregation vs routing non-conflation).
-   */
   async getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>> {
     const connected = this.#connectedPeers();
     const composed: HostCapabilityManifest = {
@@ -586,20 +423,12 @@ export class MultiPeerRouter implements BaselinePorts {
       capabilities: unionOf(connected.map((peer) => peer.manifest.capabilities)),
       roles: unionOf(connected.map((peer) => peer.manifest.roles)),
       namespaces: unionOf(connected.map((peer) => peer.manifest.namespaces)),
-      // note: frozen §6 — `tools[]` unions across connected peers, deduped by
-      // `capability_id` in lexicographic order (stability, not first-seen).
       tools: unionTools(connected.map((peer) => peer.manifest.tools ?? [])),
       extensions: { router: { peers: connected.map((peer) => peer.peerId) } },
     };
     return spokeOk(composed);
   }
 
-  /**
-   * note: per-peer array of all connected peers' cached manifests (the `host`
-   * field from their authenticated hello, cached at registration), ordered
-   * lexicographically by `peer_id` (UTF-8 byte order). Zero connected peers
-   * is valid and returns `[]`.
-   */
   async listPeerHostCapabilityManifests(): Promise<
     SpokeResult<HostCapabilityManifest[]>
   > {
@@ -608,7 +437,6 @@ export class MultiPeerRouter implements BaselinePorts {
     );
   }
 
-  /** note: connected (Established) peers with their cached manifests, peer_id-sorted. */
   #connectedPeers(): Array<{ peerId: string; manifest: HostCapabilityManifest }> {
     const connected: Array<{
       peerId: string;
@@ -627,8 +455,6 @@ export class MultiPeerRouter implements BaselinePorts {
     op: string,
     payload: Record<string, unknown>,
   ): SpokeResult<SelectedPeer> {
-    // note: candidate set is Established peers only (Closed / Disconnected /
-    // Handshaking excluded, contract §3 step 1 / §7.4).
     const candidates: SelectablePeer[] = [];
     for (const [peerId, entry] of this.#peers) {
       if (entry.adapter.state === "Established") {
@@ -641,7 +467,6 @@ export class MultiPeerRouter implements BaselinePorts {
     }
     const entry = this.#peers.get(selection.value.peerId);
     if (entry === undefined) {
-      // note: unreachable — candidates are built from the registry keys above.
       return noCapablePeer(
         op,
         `selected peer ${selection.value.peerId} is no longer registered`,
@@ -650,14 +475,6 @@ export class MultiPeerRouter implements BaselinePorts {
     return spokeOk({ peerId: selection.value.peerId, adapter: entry.adapter });
   }
 
-  /**
-   * note: I/O-thin delegation — select a peer for `op` + selection payload,
-   * then await the peer's port method. The selected peer's underlying
-   * `SpokeResult` reject (transport / session failure, envelope-auth kinds)
-   * is returned AS-IS — never remapped to `no_capable_peer`, never retried
-   * on an alternate peer (contract §7.2; the consumer owns retry because
-   * only the consumer knows the op's idempotency semantics).
-   */
   async #delegate<T>(
     op: string,
     payload: Record<string, unknown>,

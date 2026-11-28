@@ -77,19 +77,11 @@ const DEFAULT_PORT_CAPABILITY_REQUIREMENTS: Record<string, string> = {
 };
 
 export interface LoopbackHostOptions {
-  /** note: the server end of the pair; the client dials the other end. */
   transport: Transport;
   seed: Uint8Array;
   clientPubkey: Uint8Array;
-  /** note: peer ids outside this list are denied. */
   allowlist: readonly string[];
   adapter: BaselinePorts;
-  /**
-   * note: override the host's advertised capability manifest (the `host` field of
-   * its signed hello — what the client caches as `remoteManifest` and a
-   * multi-peer router selects on). Defaults to `schemaConformantManifest()`;
-   * the dual-peer loopback proof dials disjoint per-peer manifests.
-   */
   hostManifest?: HostCapabilityManifest;
   /**
    * Product `op_capability_requirements` map (contract §5.1). Ops not
@@ -97,14 +89,7 @@ export interface LoopbackHostOptions {
    * the baseline `port.*` → `spoke-baseline` map.
    */
   opCapabilityRequirements?: Record<string, string>;
-  /** note: per-request response delay in ms — out-of-order fixtures. */
   delay?: (request: ConnectInvokeRequest) => number;
-  /**
-   * note: test-only; when non-undefined for a request, the returned envelope is
-   * sent verbatim instead of the host's real response (deterministic
-   * malformed-response fixtures, e.g. corrupted echo fields or a garbage
-   * success payload).
-   */
   responseOverride?: (request: ConnectInvokeRequest) => unknown;
 }
 
@@ -114,7 +99,6 @@ export interface LoopbackHostStats {
   sequenceRejections: number;
   authRejections: number;
   dispatchDenials: number;
-  /** note: request sequence numbers in response-arrival order (out-of-order fixture). */
   responseOrder: number[];
   authSeen: boolean;
 }
@@ -123,7 +107,6 @@ export interface LoopbackHost {
   readonly transport: Transport;
   readonly sessionId: string;
   readonly stats: LoopbackHostStats;
-  /** note: fails the client's pending recv / invokes. */
   close(): void;
 }
 
@@ -180,8 +163,6 @@ export async function startLoopbackHost(
   const hostPeerId = derivePeerIdFromEd25519Pubkey(
     getPublicKeyEd25519(seed),
   );
-  // note: this fixture host serves the knowledge ports through `DEFAULT_PORT_CAPABILITY_REQUIREMENTS`,
-  // so it negotiates `spoke-knowledge` explicitly (no flag implies it).
   const hostManifest = options.hostManifest ?? {
     ...schemaConformantManifest(),
     capabilities: ["spoke-baseline", "spoke-knowledge"],
@@ -207,7 +188,6 @@ export async function startLoopbackHost(
 
   function sendEnvelope(doc: unknown): void {
     void transportEnd.send(encodeEnvelope(doc)).catch(() => {
-      // why: peer gone — responses are fire-and-forget at the host boundary.
     });
   }
 
@@ -298,30 +278,21 @@ type GateResult =
           details: { kind: error.kind },
         };
       }
-      // why: a wrong-length key is host misconfiguration — fail loudly.
       throw error;
     }
-    // safety: advance the inbound counter only after envelope-auth verify passed.
     current.acceptInboundSequence(doc.sequence);
     return { ok: true };
   }
 
-  /** note: dispatch phase — runs after the serialized gate; may interleave. */
   async function handleInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const current = session;
     if (current === null || doc.session_id !== current.session_id) {
-      // note: stray request — ignored (belt-and-braces; the gate checked).
       return;
     }
     if (doc.auth !== undefined) {
       stats.authSeen = true;
     }
 
-    // note: dispatch gate — a reserved `knowledge.*` name with no core
-    // row is terminal `op_unsupported` BEFORE the product map (QC2-16 /
-    // F-018): a conflicting custom row can never authorize it. Then the
-    // product map, then the core table; unknown ops and missing
-    // capabilities answer `op_unsupported`.
     const required = reservedPrefixOp(doc.op)
       ? undefined
       : requirements[doc.op] ?? requiredCapability(doc.op);
@@ -346,13 +317,6 @@ type GateResult =
       return;
     }
 
-    // note: test-only response override — replace the envelope the host would send
-    // (malformed-response fixtures). The request already passed the gates, so
-    // the client has a pending waiter to exercise against. The override is
-    // still signed with the host identity, so the client's envelope-auth
-    // verify runs before the malformed-fixture assertions (garbage payload /
-    // corrupted echo fields must reach the payload/correlation checks, not
-    // fail as a missing authenticator).
     const override = options.responseOverride?.(doc);
     if (override !== undefined) {
       stats.responseOrder.push(doc.sequence);
@@ -378,8 +342,6 @@ type GateResult =
   function dispatchOp(
     doc: ConnectInvokeRequest,
   ): Promise<SpokeResult<unknown>> {
-    // why: `payload` is any-JSON on the wire, so keeping the unchecked cast
-    // preserves the pre-existing property-access outcome for null / malformed input.
     const payload = doc.payload as Record<string, unknown>;
     switch (doc.op) {
       case "port.knowledge.get":
@@ -407,8 +369,6 @@ type GateResult =
       case "port.host.list_peer_manifests":
         return adapter.listPeerHostCapabilityManifests();
       default:
-        // note: unreachable — the dispatch gate denies unknown ops first. Kept
-        // as a safety net for host misconfiguration.
         return Promise.resolve(
           spokeReject(
             SpokeRejectCode.CAPABILITY_PORT_MISSING,
@@ -443,10 +403,6 @@ type GateResult =
       ),
     });
 
-    // why: answer with our signed hello (responder role — dial binding); the
-    // hello signs the 5-field object incl. `peer_nonce` = the initiator's
-    // nonce, so a captured responder hello cannot be replayed into a fresh
-    // dial. Then the A-assigned session snapshot.
     sendEnvelope(
       await signHelloEd25519(
         seed,
@@ -465,9 +421,6 @@ type GateResult =
         initiator_peer_id: clientPeerId,
         responder_peer_id: hostPeerId,
         opened_at: new Date().toISOString(),
-        // why: the wire snapshot requires ≥1 negotiated capability and the client
-        // derives its own negotiated set from the hellos, so the fallback only
-        // covers the degenerate empty-intersection test fixture.
         negotiated_capabilities:
           session.negotiated_capabilities.length > 0
             ? (session.negotiated_capabilities as [string, ...string[]])
@@ -479,12 +432,6 @@ type GateResult =
     sendEnvelope(snapshot);
   }
 
-  // why: gate-phase serialization — `runGate` (peek → verify → advance) must not
-  // interleave with a concurrent invoke (the async verify would let a
-  // second request peek against the pre-advance counter), so invokes queue
-  // on `gateTail`; after the gate releases, the dispatch phase runs
-  // concurrently — the deterministic-delay out-of-order fixture needs
-  // concurrent dispatch.
   let gateTail: Promise<void> = Promise.resolve();
 
   function queueInvoke(doc: ConnectInvokeRequest): void {
@@ -511,7 +458,6 @@ type GateResult =
         throw error;
       }
     })().catch(() => {
-      // why: a host-side handler failure must not crash the loop.
     });
   }
 
@@ -530,11 +476,6 @@ type GateResult =
     }
   }
 
-  // why: the handshake + serve loop run in the background — the client's dial is
-  // the synchronization point (its hello triggers the host's reply), so
-  // awaiting the handshake here would deadlock a caller that dials after
-  // `startLoopbackHost` returns. A hello-gate failure closes the transport,
-  // which fails the client's dial fast instead of waiting out its timeout.
   void (async () => {
     try {
       await handshake();

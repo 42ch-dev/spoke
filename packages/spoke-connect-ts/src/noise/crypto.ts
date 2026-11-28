@@ -18,10 +18,6 @@
  * Plus the raw RFC-shaped helpers the wrappers build on (`hkdfSha256`,
  * `chacha20Poly1305Seal`/`chacha20Poly1305Open` with an explicit 12-byte
  * nonce), which carry the RFC 5869 / RFC 8439 vector gates.
- *
- * why: imports stay inside `src/noise/**` only (default-bundle isolation
- * rule, plan "Global Constraints"). No WebCrypto — noble is the portable
- * source per architect decision.
  */
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { x25519 } from "@noble/curves/ed25519.js";

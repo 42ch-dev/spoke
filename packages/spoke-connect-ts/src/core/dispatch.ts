@@ -126,9 +126,6 @@ export function requiredCapability(op: string): string | undefined {
       return CAPABILITY_L2_COMPUTABLE;
     case "extract":
       return CAPABILITY_KE_EXTRACTION;
-    // note: memory family (SPOKE memory protocol §4.1/§13): 34 rows, each mapping
-    // its op to the flag that gates it. Sub-flag rows stay literal —
-    // negotiating a sub-flag never authorizes core ops.
     case "memory.describe":
     case "memory.spaces.list":
     case "memory.spaces.create":
@@ -160,15 +157,9 @@ export function requiredCapability(op: string): string | undefined {
     case "memory.reflections.list":
     case "memory.reflections.generate":
       return CAPABILITY_SPOKE_MEMORY_REFLECTION;
-    // note: history family (spoke-history contract §Connect operations): two
-    // rows, exact `spoke-history` membership — no other flag implies it.
     case "history.revisions.get":
     case "history.revisions.prune":
       return CAPABILITY_SPOKE_HISTORY;
-    // note: adoption family (spoke-knowledge-adoption contract §Connect
-    // operation): one row — the mandatory co-capability `spoke-knowledge`
-    // is asserted by `requiredCapabilities` / `dispatchAllowed`, never by
-    // this single-row return.
     case "knowledge.adopt":
       return CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION;
     case "memory.exports.create":
@@ -224,9 +215,6 @@ export function dispatchAllowed(op: string, negotiatedCapabilities: readonly str
   if (!capabilitySatisfies(negotiatedCapabilities, required)) {
     return false;
   }
-  // note: compound gate (spoke-knowledge-adoption contract): `knowledge.adopt`
-  // additionally requires the mandatory co-capability `spoke-knowledge` —
-  // neither flag alone satisfies the gate.
   if (
     required === CAPABILITY_SPOKE_KNOWLEDGE_ADOPTION &&
     !capabilitySatisfies(negotiatedCapabilities, CAPABILITY_SPOKE_KNOWLEDGE)
@@ -257,12 +245,6 @@ export function tokenAuthorizesOp(
   return required !== undefined && tokenCapabilities.includes(required);
 }
 
-/**
- * note: ops whose registered request carries a `Scope` and therefore the
- * `Scope.cognition` selection slot (`common.schema.json` → `Scope`,
- * referenced by `assemble-request` / `check-request`, the three remote
- * Scope ops, and the optional-scope `port.knowledge.get` / `put` of A2).
- */
 const SCOPE_COGNITION_OPS: Record<string, true> = {
   check: true,
   assemble: true,
@@ -275,11 +257,6 @@ const SCOPE_COGNITION_OPS: Record<string, true> = {
   "history.revisions.prune": true,
 };
 
-/**
- * note: memory ops whose registered request declares the `cognition_filter` slot
- * (`memory-recall-request`, `memory-records-list-request`,
- * `memory-reflections-{generate,list,state}-request`).
- */
 const COGNITION_FILTER_OPS: Record<string, true> = {
   "memory.recall": true,
   "memory.records.list": true,

@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/**
- * why: built-package published-shape smoke (connect-ts-noise-stack QC wave, W2;
- * remote surface added with the RemoteAdapter module).
- *
- * Resolves `@42ch/spoke-connect`, `@42ch/spoke-connect/noise` and
- * `@42ch/spoke-connect/remote` against the BUILT `dist/` through the package
- * `exports` map (Node self-reference) — deliberately NOT the vitest source
- * aliases. A dropped `require` condition, a missing dist file, or a wrong
- * conditional target fails here exactly as it would for a packed consumer.
- *
- * Prerequisite: `pnpm --filter @42ch/spoke-connect build` (and a built
- * `@42ch/spoke-schemas`, which CI builds earlier in the same job).
- *
- * Run: `pnpm --filter @42ch/spoke-connect test:dist`
- */
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
@@ -26,7 +11,6 @@ const NOISE_FORBIDDEN_IN_ROOT = [
   "NoiseTransport",
   "NOISE_PROTOCOL_ID",
 ];
-/** note: `./noise` barrel symbols (src/noise/index.ts re-export table). */
 const NOISE_BARREL_SYMBOLS = [
   "NOISE_PROTOCOL_ID",
   "NOISE_PROTOCOL_NAME",
@@ -44,9 +28,7 @@ const NOISE_BARREL_SYMBOLS = [
   "NoiseHandshake",
   "NoiseTransport",
 ];
-/** note: internal raw-crypto wrappers that must stay out of the public barrel. */
 const NOISE_FORBIDDEN_IN_BARREL = ["encrypt", "decrypt", "dh", "hkdf"];
-/** note: `./remote` barrel symbols (src/remote/index.ts re-export table). */
 const REMOTE_BARREL_SYMBOLS = [
   "connectRemoteAdapter",
   "RemoteAdapter",

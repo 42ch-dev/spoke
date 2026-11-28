@@ -1,27 +1,3 @@
-/**
- * note: loopback interop test — TS `RemoteAdapter` (client) ↔ a TS connect host
- * serving an async `ToyWorldAdapter` (server) over the in-repo
- * `loopbackTransportPair` (frozen contract §10 verification checklist).
- *
- * Asserts, per the plan:
- * (a) ENCAPSULATION — the consumer surface is ONLY the async `BaselinePorts`
- *     (+ `connectRemoteAdapter`): this file imports no session-core
- *     verification helpers through the adapter surface, and the adapter
- *     exposes none of them at runtime. (Test fixtures MAY import session-core
- *     helpers directly to craft hostile wire envelopes — see the fail-closed
- *     dial-binding tests.)
- * (b) DROP-IN — `orchestrateUpsert(remoteAdapter, req)` /
- *     `orchestrateCheck(...)` return the same `SpokeResult` as the local
- *     `ToyWorldAdapter` for identical requests (upsert + conflict-reject +
- *     check paths).
- * (c) VERIFICATION RAN — the connect handshake actually happened (host
- *     allowlist + signature + nonce gates; remote hello host cached).
- *
- * Plus the §10 concurrency/error rows: concurrent invokes demuxed by
- * `request_id` with out-of-order responses, invoke timeout, transport close
- * mid-flight, dispatch deny mapping, and fail-closed allowlist dials.
- */
-
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -55,9 +31,6 @@ import {
 import { isValidSuccessPayload } from "../../src/remote/payload.js";
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import { issueCapabilityToken } from "../../src/core/capability-token.js";
-// why: the fail-closed dial tests need a genuinely-signed
-// 4-field (pre-dial-binding) responder hello served over a scripted
-// transport — test-only import; the adapter surface stays clean.
 import { signHelloEd25519 } from "../../src/core/hello.js";
 import { authenticateSession } from "../../src/core/envelope-auth.js";
 import { generateNonce } from "../../src/core/nonce.js";
@@ -66,23 +39,17 @@ import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
 import { MAX_SEQUENCE } from "../../src/core/sequence.js";
 import { decodeJsonMessage, encodeJsonMessage } from "../../src/framing.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
-// why: test-only reset hook for the process-wide accepted-server-hello store —
-// simulates a restart in the cross-restart dial-binding replay test.
 import { __resetAcceptedServerHellosForTest } from "../../src/remote/remote-adapter.js";
 import { startLoopbackHost, type LoopbackHost } from "./loopback-host.js";
 
-/** note: fixture seed — base+i, all values within byte range for base ≤ 0xe0. */
 function seed(base: number): Uint8Array {
   return Uint8Array.from({ length: 32 }, (_, i) => base + i);
 }
 
-/** note: distinct host_id so the remote-host cache is provable. */
 function clientManifest(): HostCapabilityManifest {
   return {
     ...schemaConformantManifest(),
     host_id: "test-client",
-    // why: the toy host serves the knowledge ports, so both hellos must carry
-    // the flag (the negotiated set is their intersection).
     capabilities: ["spoke-baseline", "spoke-knowledge"],
   };
 }
@@ -99,10 +66,6 @@ function freshEntry(entryId: string, canonicalName: string): KnowledgeEntry {
   };
 }
 
-/**
- * note: dials a client against a fresh loopback host serving `hostAdapter`;
- * the returned pair lets tests close either side deterministically.
- */
 async function dial(
   hostAdapter: ToyWorldAdapter,
   options: {
@@ -112,13 +75,8 @@ async function dial(
     hostDelay?: (request: { sequence: number }) => number;
     hostAllowlist?: readonly string[];
     hostManifest?: HostCapabilityManifest;
-    /** note: replaces the host's response envelope for a request. */
     hostResponseOverride?: (request: ConnectInvokeRequest) => unknown;
     attachToken?: boolean;
-    /**
-     * note: wire-level injector — tamper / strip signatures on outbound
-     * requests or inbound responses.
-     */
     clientTransport?: (clientEnd: Transport) => Transport;
   } = {},
 ): Promise<{
@@ -149,9 +107,6 @@ async function dial(
   const capabilityToken =
     options.attachToken === true
       ? await issueCapabilityToken(seedClient, {
-          // why: the client issues proof for itself; the host (aud) may validate
-          // per its product trusted-issuers config — the attach path is what
-          // this fixture exercises.
           iss: peerIdClient,
           sub: peerIdClient,
           aud: peerIdHost,
@@ -179,12 +134,6 @@ function encodeWire(doc: unknown): EnvelopeBytes {
   return new TextEncoder().encode(encodeJsonMessage(doc));
 }
 
-/**
- * note: transport wrapper that mutates outbound invoke requests on the wire
- * (the view an active transport attacker has of the client's signed
- * envelopes). `mutate` receives the decoded request and must return the
- * mutated doc.
- */
 function tamperOutboundRequests(
   clientEnd: Transport,
   mutate: (doc: Record<string, unknown>) => Record<string, unknown>,
@@ -193,8 +142,6 @@ function tamperOutboundRequests(
     send: async (envelope) => {
       const doc = decodeWire(envelope);
       if ("op" in doc) {
-        // why: only invoke requests are mutated — the handshake hello passes
-        // through unchanged so the host's hello gates still succeed.
         await clientEnd.send(encodeWire(mutate(doc)));
         return;
       }
@@ -205,11 +152,6 @@ function tamperOutboundRequests(
   };
 }
 
-/**
- * note: transport wrapper that mutates inbound invoke responses on the wire.
- * `mutate` receives the decoded response and must return the mutated doc; the
- * hello / session snapshot pass through unchanged so the dial still establishes.
- */
 function tamperInboundResponses(
   clientEnd: Transport,
   mutate: (doc: Record<string, unknown>) => Record<string, unknown>,
@@ -236,11 +178,6 @@ describe("RemoteAdapter loopback interop", () => {
       const localAdapter = new ToyWorldAdapter();
       const { client, host, peerIdHost } = await dial(hostAdapter);
       try {
-        // note: encapsulation — the consumer surface is ONLY the async
-        // BaselinePorts: the compile-time assignment proves the type
-        // surface, and no session-core verification helper exists at
-        // runtime. This test file itself imports no hello/nonce/sequence
-        // helpers.
         const ports: BaselinePorts = client;
         expect(ports).toBe(client);
         const runtime = client as unknown as Record<string, unknown>;
@@ -262,17 +199,11 @@ describe("RemoteAdapter loopback interop", () => {
           "verifyInvokeRequestAuth",
           "authenticateInvokeResponse",
           "verifyInvokeResponseAuth",
-          // why: session-lifecycle methods are `#`-private — absent from the
-          // shipped .d.ts AND unreachable at runtime (no forging `Established`
-          // state past hello/allowlist verification, not even via an `any` cast).
           "beginHandshake",
           "sendEnvelope",
           "recvEnvelope",
           "establish",
           "closeSession",
-          // note: verification-gating STATE is `#`-private too (Greptile #2) — the
-          // invoke gate reads `#stateInternal` / `#session`, and a JS
-          // consumer cannot overwrite `#`-slots with inert own properties.
           "stateInternal",
           "session",
           "remoteManifestInternal",
@@ -290,17 +221,12 @@ describe("RemoteAdapter loopback interop", () => {
           expect(runtime[hidden], `verification helper ${hidden} must not leak`).toBeUndefined();
         }
 
-        // note: verification ran — both hellos authenticated and the remote
-        // hello host (the REMOTE "test-host", not the client's "test-client")
-        // is cached.
         expect(host.stats.hellosVerified).toBe(1);
         expect(client.sessionId).toBe(host.sessionId);
         expect(client.remotePeerId).toBe(peerIdHost);
         expect(client.state).toBe("Established");
         expect(client.remoteManifest.host_id).toBe("test-host");
 
-        // note: drop-in parity on the upsert path — identical requests produce
-        // identical SpokeResults on the local and the remote adapter.
         const candidate = freshEntry("kb_tw_remote_cartographer", "Remote Cartographer");
         const request: UpsertRequest = { knowledge_entries: [candidate] };
         const localUpsert = await orchestrateUpsert(localAdapter, request);
@@ -312,15 +238,11 @@ describe("RemoteAdapter loopback interop", () => {
         });
         expect(hostAdapter.store.entries.has("kb_tw_remote_cartographer")).toBe(true);
 
-        // note: reject path — a conflicting second upsert rejects identically
-        // on both sides (error branch → SpokeResult reject).
         const localConflict = await orchestrateUpsert(localAdapter, request);
         const remoteConflict = await orchestrateUpsert(client, request);
         expect(remoteConflict.ok).toBe(false);
         expect(remoteConflict).toEqual(localConflict);
 
-        // note: check path exercises listKnowledgeEntries + listTimelineEvents +
-        // listRules + putFindings over the wire.
         const checkRequest: CheckRequest = {
           scope: { scope_id: "toy-scope-001" },
         };
@@ -340,15 +262,7 @@ describe("RemoteAdapter loopback interop", () => {
   it(
     "rejects a forged Established state — verification-gating fields are ECMAScript #private (Greptile #2)",
     async () => {
-      // why: a JS consumer who constructs the adapter directly (never dialed)
-      // cannot overwrite the state the invoke gate reads — TS `private`
-      // compiles to writable own properties, ECMAScript `#private` slots do
-      // not; every write below creates an inert own property (or a
-      // strict-mode TypeError on the constructor-created accessor-less
-      // slot) that the gate never reads.
       const pair = loopbackTransportPair();
-      // note: direct construction is dial-only; the key material is required
-      // but irrelevant here — the adapter never dials, so it never signs.
       const adapter = new RemoteAdapter(
         pair.client,
         seed(0x10),
@@ -370,8 +284,6 @@ describe("RemoteAdapter loopback interop", () => {
       raw.receiveLoopRunning = true;
       raw.pending = new Map();
 
-      // why: the invoke gate reads the real `#`-slots — the forged writes changed
-      // nothing, so a port call still fails closed (never `Established`).
       expect(adapter.state).toBe("Disconnected");
       const result = await adapter.getKnowledgeEntry("kb_tw_mira");
       expect(result).toEqual({
@@ -396,10 +308,6 @@ describe("RemoteAdapter loopback interop", () => {
       let host: LoopbackHost | undefined;
       try {
         const pair = loopbackTransportPair();
-        // why: delegate everything except close(), which rejects — the adapter
-        // must swallow the failure (fire-and-forget teardown, contract
-        // §2.1/§8.2) without surfacing an unhandled rejection, and still
-        // transition to `Closed`.
         const rejectingClose: Transport = {
           send: (envelope) => pair.client.send(envelope),
           recv: () => pair.client.recv(),
@@ -426,8 +334,6 @@ describe("RemoteAdapter loopback interop", () => {
         expect(client.state).toBe("Established");
 
         client.close();
-        // why: gives a discarded close() rejection a chance to surface when the
-        // fix is absent (Node reports unhandled rejections on the next macrotask).
         await new Promise((resolve) => setTimeout(resolve, 25));
         expect(unhandled, "close() rejection must be handled").toEqual([]);
         expect(client.state).toBe("Closed");
@@ -451,11 +357,6 @@ describe("RemoteAdapter loopback interop", () => {
       let host: LoopbackHost | undefined;
       try {
         const pair = loopbackTransportPair();
-        // note: close() returns a PLAIN-OBJECT thenable — `instanceof Promise` is
-        // FALSE (a cross-realm / library-interop object is not a native
-        // Promise), yet it rejects through `.then(onRejected)`. The old
-        // `instanceof Promise` guard skipped the handler entirely, so the
-        // inner rejection surfaced as an unhandled rejection.
         const rejectingThenableClose = (): unknown => {
           const inner = Promise.reject(new Error("close boom"));
           return {
@@ -470,9 +371,6 @@ describe("RemoteAdapter loopback interop", () => {
         const thenableClose: Transport = {
           send: (envelope) => pair.client.send(envelope),
           recv: () => pair.client.recv(),
-          // why: `Transport.close` is typed `void | Promise<void>` while the
-          // adapter reads the return as `unknown`, so the thenable needs a
-          // narrow cast at the seam.
           close: rejectingThenableClose as () => void,
         };
         host = await startLoopbackHost({
@@ -496,8 +394,6 @@ describe("RemoteAdapter loopback interop", () => {
         expect(client.state).toBe("Established");
 
         client.close();
-        // why: gives a discarded thenable rejection a chance to surface when the
-        // fix is absent (Node reports unhandled rejections on the next macrotask).
         await new Promise((resolve) => setTimeout(resolve, 25));
         expect(
           unhandled,
@@ -519,10 +415,6 @@ describe("RemoteAdapter loopback interop", () => {
       let host: LoopbackHost | undefined;
       try {
         const pair = loopbackTransportPair();
-        // why: delegate everything except close(), which THROWS synchronously —
-        // the adapter must catch the throw at the call site (the state is
-        // already `Closed` and waiters are failed below), so the public
-        // `close()` returns normally and the session ends cleanly.
         const throwingClose: Transport = {
           send: (envelope) => pair.client.send(envelope),
           recv: () => pair.client.recv(),
@@ -570,9 +462,6 @@ describe("RemoteAdapter loopback interop", () => {
       const peerIdHost = derivePeerIdFromEd25519Pubkey(pubkeyHost);
       const peerIdClient = derivePeerIdFromEd25519Pubkey(pubkeyClient);
 
-      // note: dial 1 through a recording transport — the view an active transport
-      // attacker has after one legitimate dial (server hello + session
-      // snapshot captured at the wire).
       const pair1 = loopbackTransportPair();
       const captured: EnvelopeBytes[] = [];
       const recording: Transport = {
@@ -604,12 +493,6 @@ describe("RemoteAdapter loopback interop", () => {
       expect(captured.length).toBeGreaterThanOrEqual(2);
       const [replayHello, replaySession] = captured;
 
-      // why: dial 2 replays the captured envelopes through a scripted transport
-      // with NO real host on the other end. Without receiver-side nonce
-      // single-use this dial would succeed — the signature is genuinely the
-      // allowlisted peer's — and the attacker could fabricate a session and
-      // answer invokes; the fix rejects the replay before any
-      // `ConnectSession` snapshot is accepted.
       let replayIndex = 0;
       const replayTransport: Transport = {
         send: async () => {},
@@ -650,9 +533,6 @@ describe("RemoteAdapter loopback interop", () => {
       const peerIdHost = derivePeerIdFromEd25519Pubkey(pubkeyHost);
       const peerIdClient = derivePeerIdFromEd25519Pubkey(pubkeyClient);
 
-      // note: dial 1 through a recording transport — capture the responder hello
-      // (signed over `peer_nonce` = dial 1's initiator nonce) + session
-      // snapshot at the wire (the view an active transport attacker has).
       const pair1 = loopbackTransportPair();
       const captured: EnvelopeBytes[] = [];
       const recording: Transport = {
@@ -684,12 +564,6 @@ describe("RemoteAdapter loopback interop", () => {
       expect(captured.length).toBeGreaterThanOrEqual(2);
       const [replayHello] = captured;
 
-      // why: simulate a restart — the process-wide accepted-server-hello store
-      // resets, so the receiver-side nonce single-use gate can no longer
-      // recognize the captured pair. Dial binding is the remaining defense:
-      // dial 2 generates a FRESH initiator nonce, and the captured responder
-      // hello was signed over dial 1's nonce — the assert rejects the replay
-      // before any `ConnectSession` snapshot is accepted.
       __resetAcceptedServerHellosForTest();
 
       let replayIndex = 0;
@@ -728,12 +602,6 @@ describe("RemoteAdapter loopback interop", () => {
       const peerIdHost = derivePeerIdFromEd25519Pubkey(pubkeyHost);
       const peerIdClient = derivePeerIdFromEd25519Pubkey(pubkeyClient);
 
-      // why: an OLD responder (pre-dial-binding) signs the 4-field initiator
-      // object — no `peer_nonce` on the wire, with a GENUINELY valid
-      // signature from the allowlisted host key (passes identity checks).
-      // The NEW initiator dial expects a responder (it supplies its own
-      // nonce), so the missing `peer_nonce` must fail the dial closed — not
-      // silently fall back to the 4-field verify (fail-open downgrade).
       const legacyHello = await signHelloEd25519(
         seedHost,
         "legacy-host-nonce-1234567",
@@ -762,10 +630,6 @@ describe("RemoteAdapter loopback interop", () => {
   it(
     "fails the dial when the session snapshot opened_at is not a strict timestamp (qc1 F-005)",
     async () => {
-      // why: the session snapshot guard checks presence only, so a validly
-      // signed snapshot with an offsetless `opened_at` could establish a
-      // session. The shared strict RFC 3339 grammar is the one Timestamp
-      // contract and must fail the dial before any session state exists.
       const seedHost = seed(0xa0);
       const seedClient = seed(0x10);
       const pubkeyHost = getPublicKeyEd25519(seedHost);
@@ -777,8 +641,6 @@ describe("RemoteAdapter loopback interop", () => {
 
       let capturedInitiatorNonce: string | undefined;
       let received = 0;
-      // why: a non-string JSON value must also fail the dial — `RegExp.exec`
-      // coerces a one-element array to the timestamp string (qc1 F-005).
       const openedAtCases: unknown[] = [
         "2026-07-23T09:00:00",
         ["2026-07-23T09:00:00Z"],
@@ -850,14 +712,6 @@ describe("RemoteAdapter loopback interop", () => {
       const pubkeyHost = getPublicKeyEd25519(seedHost);
       const peerIdHost = derivePeerIdFromEd25519Pubkey(pubkeyHost);
 
-      // note: a mixed-version responder hello — `protocol_version` differs from the
-      // core version, so `verifyHelloEd25519` throws the T1
-      // `CoreError("protocol_version_mismatch")` (version gate runs BEFORE
-      // signature verification, so the v1-signed signature no longer matches
-      // the mutated object — that is fine: you do not waste crypto on a
-      // wrong-version peer). `connectRemoteAdapter` propagates the CoreError
-      // uncaught (no wrapping site re-maps it), so the thrown error must
-      // carry `code: "protocol_version_mismatch"` — the kind is preserved.
       const hello = await signHelloEd25519(
         seedHost,
         "mixed-version-host-nonce-1234",
@@ -894,8 +748,6 @@ describe("RemoteAdapter loopback interop", () => {
     "demuxes concurrent invokes by request_id with out-of-order responses",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
-      // note: deterministic out-of-order fixture — sequence-0 responses are
-      // delayed 30ms, so the sequence-1 response arrives first.
       const { client, host } = await dial(hostAdapter, {
         hostDelay: (req) => (req.sequence === 0 ? 30 : 0),
       });
@@ -906,8 +758,6 @@ describe("RemoteAdapter loopback interop", () => {
         ]);
         expect(first.ok && first.value.entry_id).toBe("kb_tw_mira");
         expect(second.ok && second.value.entry_id).toBe("kb_tw_harbor");
-        // note: the delayed response landed second — demux delivered it to the
-        // right waiter despite arrival order.
         expect(host.stats.responseOrder).toEqual([1, 0]);
         expect(host.stats.invokesDispatched).toBe(2);
       } finally {
@@ -922,9 +772,6 @@ describe("RemoteAdapter loopback interop", () => {
     "maps an invoke timeout to INTERNAL_ERROR kind timeout without closing the session",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
-      // why: the invoke timeout also gates the dial handshake, so keep it well
-      // above the handshake's worst-case latency under parallel-suite load
-      // (a 20ms budget here flakes the dial with "server hello timed out").
       let delayMs = 200;
       const { client, host } = await dial(hostAdapter, {
         invokeTimeoutMs: 100,
@@ -954,29 +801,6 @@ describe("RemoteAdapter loopback interop", () => {
     "closes the session when a timed-out queued invoke's send is skipped (never transmitted, no silent poisoning)",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
-      // why: wire-level injector — the FIRST outbound invoke request's send is
-      // delayed on the wire, and every transmission (plus every inbound
-      // response) is recorded by sequence. The second invoke's send is
-      // serialized behind the first (send tail) and times out while
-      // waiting — before its send ever starts. The F-1 guard must skip
-      // that late send: the host must never see the timed-out request, so
-      // a retry cannot duplicate a handler dispatch.
-      //
-      // F-3 (this test's extension): skipping the send without tearing the
-      // session down would leave the allocated outbound sequence
-      // untransmitted — the host's inbound gate is stuck at it, so every
-      // later invoke fails `inbound_sequence_mismatch` (silent poisoning).
-      // The skip must instead close the session: the adapter state becomes
-      // `Closed` and the next invoke fails `session_closed`.
-      //
-      // note: real timers are deliberate here (integration-test exception) — the
-      // race under test IS a real-clock race between the adapter's invoke
-      // timeout timer and a slow transport send, with both peers running
-      // on real timers; fake timers cannot drive the loopback transport
-      // or WebCrypto signing. The 200ms wire delay sits far outside the
-      // 100ms invoke timeout (which also gates the dial handshake, so it
-      // must stay well above the handshake's worst-case latency under
-      // parallel-suite load), so the ordering is deterministic under load.
       const sentSequences: number[] = [];
       const receivedSequences: number[] = [];
       let firstSendDelayed = false;
@@ -1022,17 +846,6 @@ describe("RemoteAdapter loopback interop", () => {
           message: expect.stringContaining("timed out after 100ms"),
           details: { kind: "timeout" },
         });
-        // why: both invokes observed the timeout, and the skip (F-3) closes the
-        // session as soon as the queued send is dropped — wait for the
-        // adapter's state to become `Closed` (the transport is torn down,
-        // so no further transmission is possible), then assert the second
-        // (timed-out-while-queued) invoke was never transmitted.
-        //
-        // note: the host processes the first invoke on a detached chain that
-        // outlives the client's close (gate verify → dispatch → response
-        // attempt), so also wait for its `responseOrder` to be recorded —
-        // the host-side completion point. Without this second condition the
-        // dispatch-count assertion below would race the host's async gate.
         const closeDeadline = Date.now() + 5000;
         while (
           client.state !== "Closed" ||
@@ -1072,10 +885,6 @@ describe("RemoteAdapter loopback interop", () => {
         hostDelay: () => 100,
       });
       try {
-        // why: the pending waiter is registered synchronously (the request is in
-        // flight from the caller's perspective immediately; only the
-        // Ed25519 sign is deferred), so the host can drop the connection
-        // while the response is still delayed.
         const pending = client.getKnowledgeEntry("kb_tw_mira");
         host.close();
         const result = await pending;
@@ -1101,8 +910,6 @@ describe("RemoteAdapter loopback interop", () => {
     "maps host dispatch denials to CAPABILITY_PORT_MISSING",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
-      // why: a client manifest without spoke-baseline ⇒ the negotiated set is
-      // empty ⇒ the host's dispatch gate denies every port.* op.
       const noBaseline: HostCapabilityManifest = {
         ...schemaConformantManifest(),
         host_id: "test-client",
@@ -1135,12 +942,10 @@ describe("RemoteAdapter loopback interop", () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
       const { client, host } = await dial(hostAdapter);
       try {
-        // note: getHostCapabilityManifest = remote hello host cache — NO invoke.
         const self = await client.getHostCapabilityManifest();
         expect(self.ok && self.value.host_id).toBe("test-host");
         expect(host.stats.invokesDispatched).toBe(0);
 
-        // note: listPeerHostCapabilityManifests = remote proxy (product-seeded peers).
         const peers = await client.listPeerHostCapabilityManifests();
         expect(peers.ok && peers.value.map((m) => m.host_id)).toEqual([
           "host_tw_peer",
@@ -1191,7 +996,7 @@ describe("RemoteAdapter loopback interop", () => {
             localIdentity: { seed: seed(0x10) },
             localManifest: clientManifest(),
             remotePubkey: getPublicKeyEd25519(seed(0xa0)),
-            allowlist: [foreignPeer], // note: wrong peer — fail-closed before any hello
+            allowlist: [foreignPeer],
           }),
         ).rejects.toThrow(/not on the allowlist/);
       } finally {
@@ -1213,9 +1018,9 @@ describe("RemoteAdapter loopback interop", () => {
         transport: pair.server,
         seed: seed(0xa0),
         clientPubkey: pubkeyClient,
-        allowlist: [otherPeerId], // note: the real client is NOT allowed
+        allowlist: [otherPeerId],
         adapter: hostAdapter,
-      }).catch(() => null); // why: the handshake rejection may surface here or at dial
+      }).catch(() => null);
       try {
         await expect(
           connectRemoteAdapter({
@@ -1238,10 +1043,6 @@ describe("RemoteAdapter loopback interop", () => {
     "rejects a malformed success payload with INTERNAL_ERROR kind transport (Rust §8.2 parity)",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
-      // why: the host answers with a success envelope whose payload is not a
-      // KnowledgeEntry shape (missing all required fields) — the Rust
-      // adapter's `serde_json::from_value::<T>` rejects this; the TS side
-      // must not surface `spokeOk(garbage)`.
       const { client, host } = await dial(hostAdapter, {
         hostResponseOverride: (request) => ({
           session_id: request.session_id,
@@ -1259,8 +1060,6 @@ describe("RemoteAdapter loopback interop", () => {
           message: expect.stringContaining("payload decode failed"),
           details: { kind: "transport" },
         });
-        // note: a malformed payload fails only this waiter — the session stays
-        // usable (parity with the Rust invoke_mapped path).
         expect(client.state).toBe("Established");
       } finally {
         client.close();
@@ -1273,13 +1072,6 @@ describe("RemoteAdapter loopback interop", () => {
   it(
     "rejects an ordinary knowledge/relation get response outside the shared scalar domains (qc1 F-003)",
     async () => {
-      // why: the ordinary knowledge/relation success gate used to check the
-      // primitive shape only, so `schema_version: 0`, a negative revision and
-      // an offsetless `created_at` surfaced `spokeOk`. The shared wire scalar
-      // domains must reject before `spokeOk` (Rust typed decode parity).
-      // note: out-of-domain integers cannot traverse the signed boundary at
-      // all (member-domain refusal, asserted below), so the wire cases here
-      // carry values that sign and still fail the client gate.
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
       const entry = {
         schema_version: 1,
@@ -1301,9 +1093,6 @@ describe("RemoteAdapter loopback interop", () => {
       const malformed: Record<string, unknown> = {
         kb_schema_version_zero: { ...entry, schema_version: 0 },
         kb_revision_negative: { ...entry, revision: -1 },
-        // note: an integral float above `2^53` is signable (the signed gate
-        // refuses only the `[2^53, 2^64)` integer-token range), so this case
-        // still exercises the consumer-side upper bound.
         kb_revision_over: { ...entry, revision: 1e20 },
         kb_created_at_naive: {
           ...entry,
@@ -1317,7 +1106,6 @@ describe("RemoteAdapter loopback interop", () => {
       };
       const { client, host } = await dial(hostAdapter, {
         hostResponseOverride: (request) => {
-          // why: the fixture routes on the get request's id member.
           const requestPayload = request.payload as {
             entry_id?: string;
             relation_id?: string;
@@ -1346,7 +1134,6 @@ describe("RemoteAdapter loopback interop", () => {
             details: { kind: "transport" },
           });
         }
-        // note: the same session still serves a valid payload.
         const valid = await client.getKnowledgeEntry("kb_tw_mira");
         expect(valid.ok).toBe(true);
         expect(client.state).toBe("Established");
@@ -1370,7 +1157,6 @@ describe("RemoteAdapter loopback interop", () => {
       created_at: "2026-07-23T09:00:00Z",
       extensions: {},
     };
-    // note: `completed_at` is a schema-owned Timestamp outside the history names.
     expect(
       isValidSuccessPayload("memory.receipts.get", {
         receipt: { ...receipt, completed_at: "2026-07-23T09:00:00" },
@@ -1413,7 +1199,6 @@ describe("RemoteAdapter loopback interop", () => {
       body: {},
       extensions: {},
     };
-    // note: the `extract` early return used to skip the scalar walk.
     expect(
       isValidSuccessPayload("extract", {
         candidates: [{ ...candidate, revision: 2 ** 53 + 2 }],
@@ -1435,8 +1220,6 @@ describe("RemoteAdapter loopback interop", () => {
       }),
     ).toBe(true);
 
-    // note: a nested schema-owned revision (adoption anchor) is bounded on the
-    // ordinary knowledge response (qc3-04 at the wire gate).
     expect(
       isValidSuccessPayload("port.knowledge.put", {
         ...candidate,
@@ -1459,8 +1242,6 @@ describe("RemoteAdapter loopback interop", () => {
       description: "Description",
       extensions: {},
     };
-    // note: `text_position` is an open product object — a member named
-    // `revision` is product data, not a wire revision (qc1 R1-001).
     expect(
       isValidSuccessPayload("port.finding.put", [
         { ...finding, text_position: { revision: "draft", schema_version: "x" } },
@@ -1472,8 +1253,6 @@ describe("RemoteAdapter loopback interop", () => {
       ]),
     ).toBe(true);
 
-    // note: the export chunk is a schema-owned shape, not an opaque bag
-    // (qc1 R2-002) — the header scalars and every element run stay bounded.
     const chunk = {
       export_id: "exp_1",
       chunk_ordinal: 1,
@@ -1508,8 +1287,6 @@ describe("RemoteAdapter loopback interop", () => {
       }),
     ).toBe(true);
 
-    // note: the retained record's schema-owned scalars (revision starts at 1;
-    // import attribution and the tombstone marker are bounded members).
     const record = {
       schema_version: 1,
       occurred_at: "2026-07-23T09:00:00Z",
@@ -1570,11 +1347,6 @@ describe("RemoteAdapter loopback interop", () => {
     "refuses a mixed knowledge.adopt payload (success members + error) as INTERNAL_ERROR kind transport (qc1 F-032)",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
-      // why: the client's adopt gate must mirror the typed Rust untagged
-      // decode, which refuses a payload carrying BOTH branch shapes — the
-      // success-shape check alone would let it through (it only requires
-      // `outcome`/`entry`). Both hellos must negotiate the adoption family
-      // so the op reaches the payload gate (the override skips dispatch).
       const adoptionCapabilities: [string, ...string[]] = [
         "spoke-baseline",
         "spoke-knowledge",
@@ -1643,11 +1415,6 @@ describe("RemoteAdapter loopback interop", () => {
     "validates the knowledge.adopt success branch against the published schema (entry completeness, outcome vocabulary, closed members, extensions) (qc1 F-033)",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
-      // why: the shallow success shape only requires `entry` to be an
-      // object; the typed Rust `OneOfEntry` decode requires every
-      // `KnowledgeEntry` member plus `adoption_anchor`, so the client gate
-      // must deep-validate the entry or it surfaces `spokeOk` for a payload
-      // Rust refuses.
       const adoptionCapabilities: [string, ...string[]] = [
         "spoke-baseline",
         "spoke-knowledge",
@@ -1809,8 +1576,6 @@ describe("RemoteAdapter loopback interop", () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
       let mangled = true;
       const { client, host } = await dial(hostAdapter, {
-        // note: same request_id (so the demux still finds the pending waiter) but
-        // a wrong sequence echo — a correlation failure (§6 echo rules).
         hostResponseOverride: (request) => {
           if (!mangled) {
             return undefined;
@@ -1850,12 +1615,6 @@ describe("RemoteAdapter loopback interop", () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
       const { client, host } = await dial(hostAdapter);
       try {
-        // why: position the adapter's outbound counter past the JSON-safe wire
-        // maximum so the next allocate fails deterministically — 2⁵³ real
-        // invokes are not an option. The hook is guarded (throws unless
-        // `Established`) and only advances an established session's counter;
-        // it is the TS twin of the Rust in-module unit test reaching
-        // `OutboundSequence::set_next` under `#[cfg(test)]`.
         client.setOutboundNextForTest(MAX_SEQUENCE + 1);
 
         const result = await client.getKnowledgeEntry("kb_tw_mira");
@@ -1882,11 +1641,6 @@ describe("RemoteAdapter loopback interop", () => {
       try {
         const result = await client.getKnowledgeEntry("kb_tw_mira");
         expect(result.ok).toBe(true);
-        // note: the client's signed request passed the host's envelope-auth gate
-        // (zero rejections) and the host's signed response passed the
-        // client's verify — the wire carried genuine
-        // `spoke-connect-invoke-request-jcs-v1` / `-response-jcs-v1`
-        // signatures in both directions.
         expect(host.stats.authRejections).toBe(0);
         expect(host.stats.invokesDispatched).toBe(1);
         expect(client.state).toBe("Established");
@@ -1902,12 +1656,8 @@ describe("RemoteAdapter loopback interop", () => {
     "rejects a wire-tampered invoke response with envelope_auth_invalid (fail-closed, session stays usable)",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
-      // note: one-shot wire-level injector — only the FIRST response is tampered,
-      // so the follow-up invoke proves the session stayed usable.
       let tampered = false;
       const { client, host } = await dial(hostAdapter, {
-        // note: the host's signed success response has its payload mutated after
-        // the signature was computed.
         clientTransport: (clientEnd) =>
           tamperInboundResponses(clientEnd, (doc) => {
             if (!tampered && "payload" in doc) {
@@ -1955,9 +1705,6 @@ describe("RemoteAdapter loopback interop", () => {
           message: expect.stringContaining("signature"),
           details: { kind: "envelope_auth_missing" },
         });
-        // note: mixed-version fail-closed — an unauthenticated envelope is never
-        // accepted because a transport supplied peer identity; the session
-        // stays usable but the strip is rejected every time.
         expect(client.state).toBe("Established");
       } finally {
         client.close();
@@ -1972,9 +1719,6 @@ describe("RemoteAdapter loopback interop", () => {
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
       const { client, host } = await dial(hostAdapter, {
-        // note: mutate the client's outbound request payload after signing — the
-        // host's envelope-auth verify must reject it BEFORE dispatch, with no
-        // handler side effect.
         clientTransport: (clientEnd) =>
           tamperOutboundRequests(clientEnd, (doc) => {
             (doc.payload as Record<string, unknown>).tampered = true;
@@ -1983,8 +1727,6 @@ describe("RemoteAdapter loopback interop", () => {
       });
       try {
         const result = await client.getKnowledgeEntry("kb_tw_mira");
-        // note: the host answered `auth_failed` (wire code) with the locked
-        // `details.kind`; the client maps it to INTERNAL_ERROR verbatim.
         expect(result).toEqual({
           ok: false,
           code: SpokeRejectCode.INTERNAL_ERROR,
@@ -2048,8 +1790,6 @@ describe("RemoteAdapter loopback interop", () => {
         adapter: hostAdapter,
       });
       try {
-        // note: strip the signature from the host's session snapshot; the hello
-        // passes through unchanged.
         const stripping: Transport = {
           send: (envelope) => pair.client.send(envelope),
           recv: async () => {

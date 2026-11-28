@@ -1,19 +1,3 @@
-/**
- * note: Unit tests for the multi-peer capability router (`multi-peer-router.ts`):
- * registry semantics (§7.4), the locked §3 selection algorithm (match,
- * no-match, namespace / authority hard filters, role soft partition,
- * deterministic UTF-8 `peer_id` tie-break), the §5 no-capable-peer reject,
- * the §7.2 failure policy (selected-peer-down returns the underlying reject
- * as-is — no automatic alternate-retry), and the §6 HostManifest
- * aggregation (composed view + per-peer array in lexicographic order).
- *
- * The router surface is exercised through `@42ch/spoke-connect/remote` (the
- * same exports consumers import). The pure `selectPeerForOp` (§3) is
- * imported from the module src for the filter branches the fixed six-family
- * surface cannot reach with a scope-bearing payload (namespace / authority
- * derivation, and the role preference on non-`port.*` ops).
- */
-
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -55,7 +39,6 @@ import {
   type SelectablePeer,
 } from "../../src/remote/multi-peer-router.js";
 
-/** why: delegate-call dummy values — routing tests never inspect the payloads. */
 const FAKE_ENTRY = { entry_id: "e1" } as KnowledgeEntry;
 const FAKE_RELATION = { relation_id: "r1" } as Relation;
 
@@ -92,11 +75,6 @@ const DESCRIPTOR_BY_ID: Readonly<Record<string, ToolDescriptor>> = {
   "tools.echo.boom": BOOM_DESCRIPTOR,
 };
 
-/**
- * note: namespaces own the tool namespaces; every tool capability ∈
- * capabilities[] (the router's hard filter keys on `capabilities`, the
- * composed view unions `tools`).
- */
 function toolManifest(hostId: string, toolIds: readonly string[]): HostCapabilityManifest {
   const descriptors = toolIds.map((capabilityId) => DESCRIPTOR_BY_ID[capabilityId]);
   const namespaces = new Set<string>(["toy_world"]);
@@ -112,16 +90,7 @@ function toolManifest(hostId: string, toolIds: readonly string[]): HostCapabilit
   };
 }
 
-/**
- * why: a loopback pair for the dual-peer proof — a locally-dialed
- * `RemoteAdapter` (initiator) against a tool-serving minimal responder double
- * (the peer). The RESPONDER's manifest (the peer's cached hello manifest)
- * carries only `tools`, so the router's hard filter sees exactly what each
- * responder serves. The client (dialer) advertises the full fixture tool set
- * so the negotiated intersection includes every tool under test.
- */
 async function dialToolPeer(options: {
-  /** note: Responder Ed25519 seed base (distinct per peer → distinct peer ids). */
   responderSeedBase: number;
   tools: string[];
 }): Promise<{ client: RemoteAdapter; responder: MinimalResponder; peerId: string }> {
@@ -138,8 +107,6 @@ async function dialToolPeer(options: {
     "tools.echo.echo",
     "tools.echo.boom",
   ]);
-  // why: both manifests must satisfy the manifest-tools rules for the
-  // loopback fixtures to prove real negotiation.
   for (const manifest of [responderManifest, clientManifest]) {
     const validated = validateManifestTools(manifest);
     expect(validated.ok, `manifest tools must validate: ${manifest.host_id}`).toBe(true);
@@ -163,20 +130,16 @@ async function dialToolPeer(options: {
   return { client, responder, peerId: peerIdResponder };
 }
 
-/** note: Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
 function seed(base: number): Uint8Array {
   return Uint8Array.from({ length: 32 }, (_, i) => base + i);
 }
 
-/** note: schema-shaped manifest builder; defaults to a baseline data-store peer. */
 function manifest(
   overrides: Partial<HostCapabilityManifest> & { host_id: string },
 ): HostCapabilityManifest {
   return {
     schema_version: 1,
     roles: ["data-store"],
-    // why: the fixture data-store peers serve the knowledge catalogue, so the
-    // session negotiates `spoke-knowledge` explicitly (no flag implies it).
     capabilities: ["spoke-baseline", "spoke-knowledge"],
     namespaces: ["toy_world"],
     extensions: {},
@@ -184,19 +147,11 @@ function manifest(
   };
 }
 
-/**
- * why: a test double for the per-peer adapter surface (`RoutedRemoteAdapter`)
- * — a plain-property `state` / `remotePeerId` / `remoteManifest` plus the ten
- * async `BaselinePorts` methods that record the delegated method name and
- * return `downReject` when a mid-op failure is being simulated (§7.2).
- */
 class FakePeer implements RoutedRemoteAdapter {
   readonly remotePeerId: string;
   readonly remoteManifest: HostCapabilityManifest;
   state: RemoteAdapterState;
-  /** note: Delegated BaselinePorts method names, in call order. */
   readonly calls: string[] = [];
-  /** note: when set, every delegate method returns this reject (peer-down sim). */
   downReject: SpokeReject | null = null;
 
   constructor(
@@ -313,12 +268,6 @@ describe("MultiPeerRouter registry (§7.4)", () => {
 
 describe("MultiPeerRouter concurrent interleaving (W-001)", () => {
   it("survives interleaved register/unregister with in-flight port calls — all calls complete, registry stays consistent", async () => {
-    // why: W-001 — registry mutations interleaved with in-flight port calls.
-    // In the single-threaded TS event loop the interleaving happens at await
-    // boundaries: wave-1 delegates are pending while registration churn
-    // runs, then wave-2 calls select against the mutated registry. Proves
-    // no corruption (registry ends exactly consistent) and that every call
-    // completes — a rejected promise would fail the `Promise.all`.
     const router = connectMultiPeerRouter();
     const registered = new Set<string>();
     const seed = new FakePeer("peer-seed", manifest({ host_id: "h-seed" }));
@@ -326,8 +275,6 @@ describe("MultiPeerRouter concurrent interleaving (W-001)", () => {
     registered.add("peer-seed");
 
     const inflight: Promise<SpokeResult<KnowledgeEntry[]>>[] = [];
-    // note: wave 1 fires port calls (selection runs synchronously, delegates
-    // await).
     for (let i = 0; i < 16; i++) {
       inflight.push(router.listKnowledgeEntries({ scope_id: "s1" }));
     }
@@ -460,11 +407,6 @@ describe("MultiPeerRouter selection (§3)", () => {
 
 describe("MultiPeerRouter dynamic peer-down (§7.4)", () => {
   it("reroutes to the surviving peer when the selected peer leaves Established between calls — no proactive eviction", async () => {
-    // why: W-002 — two Established peers; the first call routes to the
-    // tie-break winner (peer-a); the winner's session drops to Closed WITHOUT
-    // unregister; the next call excludes it from the candidate set and
-    // routes to peer-b — reactive exclusion, no proactive eviction (the
-    // registry still lists peer-a).
     const router = connectMultiPeerRouter();
     const peerA = new FakePeer("peer-a", manifest({ host_id: "h-a" }));
     const peerB = new FakePeer("peer-b", manifest({ host_id: "h-b" }));
@@ -486,9 +428,6 @@ describe("MultiPeerRouter dynamic peer-down (§7.4)", () => {
   });
 
   it("rejects with no_capable_peer when every Established peer leaves Established between calls", async () => {
-    // why: W-002 terminal — when ALL Established peers drop out between
-    // calls, the next selection rejects with the locked §5 reject; no
-    // delegate runs, no wrong-peer fallback.
     const router = connectMultiPeerRouter();
     const peerA = new FakePeer("peer-a", manifest({ host_id: "h-a" }));
     const peerB = new FakePeer("peer-b", manifest({ host_id: "h-b" }));
@@ -617,9 +556,6 @@ describe("selectPeerForOp fork gate row (port.fork.list_timeline_events → l5-f
       expect(selection.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
       expect(selection.details?.kind).toBe("no_capable_peer");
       expect(selection.details?.op).toBe("port.fork.list_timeline_events");
-      // why: the capability-gate reason proves the op resolved through the
-      // gate table (pre-fill it was rejected as an unknown op with no
-      // mapping).
       expect(selection.message).toContain(
         'no peer advertises capability "l5-fork"',
       );
@@ -647,11 +583,6 @@ describe("selectPeerForOp fork gate row (port.fork.list_timeline_events → l5-f
 
 describe("selectPeerForOp host peer-manifest row (port.host.list_peer_manifests → spoke-baseline)", () => {
   it("selects the baseline-capable peer instead of rejecting the op as unknown", () => {
-    // why: the responder serves this op and `RemoteAdapter` forwards it, so
-    // the selection row must resolve through the same product catalogue. The
-    // router's own `listPeerHostCapabilityManifests` aggregates locally, so
-    // the row is inert for that method — a consumer uses the pure selector
-    // before reaching a peer's adapter (same shape as the `extract` row).
     const baseline: SelectablePeer = {
       peerId: "peer-alpha",
       manifest: manifest({ host_id: "h-alpha" }),
@@ -786,9 +717,6 @@ describe("selectPeerForOp authority filter (§3 step 4)", () => {
 
 describe("selectPeerForOp tie-break byte order (§4)", () => {
   it("orders peer_ids by UTF-8 byte order, not UTF-16 code-unit order", () => {
-    // note: U+E000 encodes as UTF-8 EE 80 80; U+10000 encodes as F0 90 80 80.
-    // UTF-16 code units: 0xE000 > 0xD800 (surrogate), so code-unit order
-    // would pick U+10000 first; UTF-8 byte order picks U+E000 first.
     const bmp: SelectablePeer = {
       peerId: "\uE000",
       manifest: manifest({ host_id: "h-bmp" }),
@@ -898,8 +826,6 @@ describe("HostManifest aggregation (§6)", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      // note: §8 constructor options — empty string defaults like
-      // null/undefined.
       expect(result.value.host_id).toBe("multi-peer-router");
     }
   });
@@ -1025,8 +951,6 @@ describe("HostManifest aggregation (§6)", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      // note: tools.echo.echo is shared → deduped; the union is ordered by
-      // capability_id lexicographically (§6 stability, not first-seen).
       expect(result.value.tools?.map((descriptor) => descriptor.capability_id)).toEqual([
         "tools.echo.boom",
         "tools.echo.echo",
@@ -1058,8 +982,6 @@ describe("MultiPeerRouter tool routing (§6 frozen contract)", () => {
 
     const add = await router.invokeTool("tools.math.add", { a: 1, b: 2 });
     expect(add.ok).toBe(true);
-    // why: the selected peer's adapter invokeTool ran — the router delegates,
-    // never crafts envelopes itself (§6).
     expect(addPeer.calls).toEqual(["invokeTool"]);
     expect(echoPeer.calls).toEqual([]);
 
@@ -1132,10 +1054,6 @@ describe("MultiPeerRouter tool routing (§6 frozen contract)", () => {
     );
     router.registerPeer(addPeer);
 
-    // why: "upsert" is a baseline op — without the grammar gate the router
-    // would select the baseline peer and delegate (or surface it as
-    // no_capable_peer). The D13/D14 parity row promises a fail-fast
-    // INVALID_INPUT with details.capability_id and no peer selection.
     const result = await router.invokeTool("upsert", {});
 
     expect(result.ok).toBe(false);
@@ -1173,11 +1091,6 @@ describe("MultiPeerRouter tool routing (§6 frozen contract)", () => {
 });
 
 describe("MultiPeerRouter tool routing over loopback responders (§6 topology)", () => {
-  // why: router-registered adapters are LOCALLY-DIALED — router tool invokes
-  // travel initiator→responder and are served by the PEER's responder-side
-  // tool serving; the proof drives tool-serving responder doubles (the
-  // minimal responder with the frozen §4 pipeline), not dialer-side
-  // registerToolHandler alone.
   it("routes invokeTool to the serving responder by exact tool capability (disjoint tools)", async () => {
     const addCalls: { args: Record<string, unknown> }[] = [];
     const echoCalls: { args: Record<string, unknown> }[] = [];
@@ -1348,9 +1261,6 @@ describe("ke remote", () => {
       expect(served.value.peerId).toBe("peer-cognition");
     }
 
-    // note: ownership is filtered before the family — a viewpoint-bearing
-    // request with a cognition selection names ke-ownership as the missing
-    // capability.
     const ownershipFirst = selectPeerForOp(
       [cognitionPeer],
       "port.scope.list_knowledge_entries",
@@ -1361,8 +1271,6 @@ describe("ke remote", () => {
       expect(ownershipFirst.message).toContain("ke-ownership");
     }
 
-    // note: unrelated payload data is ordinary — a tool request carrying a
-    // top-level `cognition` member routes to a peer without the family.
     const toolPeer: SelectablePeer = {
       peerId: "peer-tool",
       manifest: {

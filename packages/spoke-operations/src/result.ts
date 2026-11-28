@@ -26,52 +26,25 @@ export const SpokeRejectCode = {
   RELATION_NOT_FOUND: "RELATION_NOT_FOUND",
   RELATION_ALREADY_EXISTS: "RELATION_ALREADY_EXISTS",
   CAPABILITY_PORT_MISSING: "CAPABILITY_PORT_MISSING",
-  /**
-   * note: Unexpected internal / server-side failure (HTTP 500 class). Distinct
-   * from the 4xx validation codes; hosts raise it for storage or runtime errors
-   * that are not the caller's fault.
-   */
   INTERNAL_ERROR: "INTERNAL_ERROR",
-  // note: Memory-system vocabulary (spoke-memory, §14.1 of the memory protocol).
-  /** note: Memory op target does not exist (or is hidden from the principal). */
   NOT_FOUND: "NOT_FOUND",
-  /** note: Principal lacks coverage; also used when the provider declines to reveal existence. */
   NOT_AUTHORIZED: "NOT_AUTHORIZED",
-  /** note: The presented grant exists but is revoked/expired (distinct from coverage-absence NOT_AUTHORIZED). */
   GRANT_REVOKED: "GRANT_REVOKED",
-  /** note: Space is frozen for maintenance/migration; op is outside the §8.2 allowlist. */
   SPACE_FROZEN: "SPACE_FROZEN",
-  /** note: Subject (or context) is fenced; writes are rejected, reads allowed. */
   SUBJECT_FENCED: "SUBJECT_FENCED",
-  /** note: Candidate was already consumed (§8.1 terminal state). */
   CANDIDATE_CONSUMED: "CANDIDATE_CONSUMED",
-  /** note: Reflection admission failed: a required profile kind is absent or empty. */
   PROFILE_INCOMPLETE: "PROFILE_INCOMPLETE",
-  /** note: Reflection admission failed: provider/engine data-sufficiency policy gate. */
   INSUFFICIENT_DATA: "INSUFFICIENT_DATA",
-  /** note: Same idempotency key replayed with a different payload digest. */
   IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
-  /** note: Commit state unknown (§14.3); resolve via same-key replay or memory.receipts.get. */
   OUTCOME_UNCERTAIN: "OUTCOME_UNCERTAIN",
-  /** note: Export bundle is past export_retention_seconds. */
   EXPORT_EXPIRED: "EXPORT_EXPIRED",
-  /** note: Staged import verification failed, or the import left the staged state. */
   IMPORT_CONFLICT: "IMPORT_CONFLICT",
-  /** note: Receipt body was evicted; details.last_known_status from the dedup tombstone. */
   RECEIPT_EXPIRED: "RECEIPT_EXPIRED",
-  /** note: Pagination cursor invalidated by state or grant change (§7.0.7). */
   CURSOR_INVALID: "CURSOR_INVALID",
-  // note: History-family vocabulary (spoke-history contract §Refusal vocabulary).
-  /** note: The requested revision existed below the current retained floor and its checkpoint history was discarded (details.floor_revision). */
   HISTORY_TRUNCATED: "HISTORY_TRUNCATED",
-  /** note: The request passed the spoke-history connect gate, but the host does not serve the requested entity_kind (details.entity_kind). */
   HISTORY_ENTITY_UNSUPPORTED: "HISTORY_ENTITY_UNSUPPORTED",
-  /** note: The requested revision is at or above the floor but cannot be reconstructed — an implementation-declared retention gap (details.retention_reason). */
   HISTORY_NOT_RETAINED: "HISTORY_NOT_RETAINED",
-  // note: Adoption-family vocabulary (spoke-knowledge-adoption contract §Refusal vocabulary).
-  /** note: A normal put attempted to change or remove an existing destination adoption_anchor (details.entry_id). */
   ADOPTION_ANCHOR_IMMUTABLE: "ADOPTION_ANCHOR_IMMUTABLE",
-  /** note: Retirement-chain resolution hit a cycle, ambiguity, deleted terminal, or the 32-edge limit (details.retirement_chain). */
   SOURCE_RETIRED: "SOURCE_RETIRED",
 } as const;
 

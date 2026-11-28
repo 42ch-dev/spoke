@@ -1,7 +1,3 @@
-/**
- * note: Injection orchestration entrypoints — compose pure helpers with port I/O.
- */
-
 import type {
   AssembleRequest,
   AssembleResponse,
@@ -84,7 +80,6 @@ async function loadStoredKnowledgeEntry(
   const result = await ports.getKnowledgeEntry(entryId);
   if (!result.ok) {
     if (result.code === SpokeRejectCode.KNOWLEDGE_ENTRY_NOT_FOUND) {
-      // note: spokeOk(undefined) collapses to void SpokeOk; keep explicit value for absence.
       return { ok: true, value: undefined };
     }
     return result;
@@ -183,7 +178,6 @@ export async function orchestrateUpsert(
       return uniqueness;
     }
 
-
     const expectedBaseRevision =
       stored === undefined ? null : (stored.revision ?? 0);
 
@@ -242,8 +236,6 @@ export async function orchestratePromote(
     return accepted;
   }
 
-  // why: when stored exists, base the persisted revision on stored — do not trust
-  // candidate-only bump if it could diverge from the loaded OCC base.
   const toPersist =
     stored !== undefined
       ? {
@@ -252,9 +244,6 @@ export async function orchestratePromote(
         }
       : accepted.value;
 
-  // note: `orchestratePromote` owns the anchor-immutability obligation for
-  // the promote write path too (spoke-knowledge-adoption contract §Anchor
-  // immutability) — the stored entry was already loaded above.
   const anchorGate = assertAdoptionAnchorPreserved(toPersist, stored);
   if (!anchorGate.ok) {
     return anchorGate;
@@ -326,7 +315,6 @@ async function resolveCheckRules(
     return resolved;
   }
 
-  // note: Start from resolved refs; embedded rules win by rule_id (replace or append).
   const merged = [...resolved.value];
   for (const rule of embedded) {
     const index = merged.findIndex((item) => item.rule_id === rule.rule_id);
@@ -347,8 +335,6 @@ export async function orchestrateCheck(
   request: CheckRequest,
   runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>,
 ): Promise<SpokeResult<CheckResponse>> {
-  // note: Unavailable or unsupported cognition requirements reject the whole request
-  // before any port read or checker/finding side effect.
   const cognition = assertSupportedCognitionSelection(
     request.scope.cognition,
     "scope.cognition",
@@ -362,8 +348,6 @@ export async function orchestrateCheck(
     return rulesResult;
   }
 
-  // note: The port sees baseline Scope fields only; cognition is applied locally
-  // after disclosure, so a broader provider result can never reach the checker.
   const scope = baselineScope(request.scope);
 
   const entriesResult = await ports.listKnowledgeEntries(scope);
@@ -404,11 +388,6 @@ export async function orchestrateCheck(
   return spokeOk({ findings: put.value });
 }
 
-/**
- * note: The KE port is queried with baseline Scope fields only. Cognition is a
- * derivative selection applied locally after disclosure, so an unauthorized
- * record can never influence the query, count or projection.
- */
 function baselineScope<T extends Scope>(scope: T): T {
   if (scope.cognition === undefined) {
     return scope;
@@ -448,7 +427,6 @@ export async function orchestrateAssemble(
     return eventsResult;
   }
 
-  // note: Events are loaded/filtered for sequence parity; packet builders use entries only.
   filterTimelineEventsByScope(eventsResult.value, scope);
 
   const entries = entriesResult.value.filter((knowledgeEntry) =>
@@ -574,7 +552,6 @@ export async function orchestrateForkCheck(
     return rulesResult;
   }
 
-  // note: Baseline scope only — cognition is enforced locally after disclosure.
   const scope = baselineScope(request.scope);
 
   const entriesResult = await ports.listKnowledgeEntries(scope);
@@ -657,7 +634,6 @@ export async function orchestrateForkAssemble(
     return eventsResult;
   }
 
-  // note: Events are loaded/filtered for sequence parity; packet builders use entries only.
   filterTimelineEventsByScope(eventsResult.value, scope);
 
   const entries = entriesResult.value.filter((knowledgeEntry) =>
@@ -679,7 +655,6 @@ export async function orchestrateForkAssemble(
   return spokeOk({ packet: packetResult.value });
 }
 
-/** note: Library-boundary gate — non-empty correlation id and non-empty source list. */
 function assertExtractRequestBoundaries(
   request: ExtractRequest,
 ): SpokeResult<void> {
@@ -702,11 +677,6 @@ function assertExtractRequestBoundaries(
   return spokeOk();
 }
 
-/**
- * note: Verify the injected loading method at the dynamic boundary — structural
- * typing cannot protect runtime composition, so a null/absent port rejects
- * instead of throwing a TypeError.
- */
 function requireExtractionLoadMethod(
   ports: ExtractionPort,
 ): SpokeResult<void> {
@@ -721,10 +691,6 @@ function requireExtractionLoadMethod(
   return spokeOk();
 }
 
-/**
- * invariant: every returned candidate is an ordinary provisional
- * entry. No partial success, no status rewriting, no dropped candidates.
- */
 function assertExtractionCandidatesProvisional(
   candidates: KnowledgeEntry[],
 ): SpokeResult<void> {
@@ -793,11 +759,6 @@ export async function orchestrateExtract(
     candidates,
     run: {
       run_id: request.run_id,
-      // note: ExtractionRunMetadata requires a non-empty `method` (minLength 1), but
-      // the port boundary is dynamic and `ExtractionResult` cannot enforce it:
-      // only a non-empty string is emitted, and every other value is treated as
-      // absent instead of producing a schema-invalid response. Mirrors the Rust
-      // orchestrator, where `Option<String>` carries the same reachable states.
       ...(typeof method === "string" && method.length > 0 ? { method } : {}),
       ...(coverageHint !== undefined ? { coverage_hint: coverageHint } : {}),
     },

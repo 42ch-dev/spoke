@@ -176,35 +176,9 @@ import type { EnvelopeBytes, Transport } from "./transport.js";
 
 const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
 
-/**
- * why: process-wide single-use store of **accepted** server-hello
- * `(peer_id, nonce)` pairs (spec §Nonce / replay protection: "Receiver MUST
- * reject a hello whose `(peer_id, nonce)` pair was already accepted"; "an
- * in-memory set for the life of the process is sufficient for the reference
- * stack").
- *
- * The host-side gate (loopback-host.ts / Rust `gate.rs`) records the
- * client's hello on accept; the RemoteAdapter is the receiver of the
- * **server's** hello, so it enforces the same receiver rule here. A replayed
- * signed server hello — captured on an earlier dial through this process —
- * is rejected before any `ConnectSession` snapshot is accepted, so an active
- * transport attacker cannot re-enter `Established` with a stale signature.
- * The store is module-scoped (across adapter instances) for exactly this
- * reason: an adapter dials once, and the replay arrives on a later dial.
- *
- * Cross-restart replay (the store resets) is defeated separately by the
- * **dial binding**: the responder signs its hello over `peer_nonce` = the
- * initiator's nonce, and the dial asserts it — see the verify call below.
- */
 let acceptedServerHellos = new NonceStore();
 
 /**
- * note: test-only reset of the process-wide accepted-server-hello store —
- * simulates a process restart, so the cross-restart replay test can target
- * the dial binding (the responder-hello `peer_nonce` assert) rather than the
- * in-memory nonce single-use gate. Mirrors the Rust adapter's
- * `reset_accepted_server_hellos_for_test`.
- *
  * @internal test-only — not part of the RemoteAdapter public API.
  */
 export function __resetAcceptedServerHellosForTest(): void {
@@ -217,10 +191,6 @@ function encodeEnvelope(doc: unknown): EnvelopeBytes {
   return textEncoder.encode(encodeJsonMessage(doc));
 }
 
-/**
- * note: bounded wait — races `promise` against a deadline and rejects with a
- * descriptive error on elapse. Every dial await is bounded (no bare waits).
- */
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(
@@ -240,12 +210,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
   });
 }
 
-/**
- * note: internal invoke-failure classes. Consumers only ever observe these
- * mapped to `SpokeResult` `INTERNAL_ERROR` rejects with `details.kind`
- * (contract §8.2) — except `connectRemoteAdapter`, which throws for
- * dial/hello failures (§8.2 last row).
- */
 type RemoteErrorKind =
   | "transport"
   | "session_closed"
@@ -403,35 +367,23 @@ export interface RemoteIdentity {
 }
 
 export interface RemoteAdapterOptions {
-  /** note: message-oriented transport (consumer-provided; loopback ships in-repo). */
   transport: Transport;
   localIdentity: RemoteIdentity;
-  /** note: host manifest advertised in this adapter's signed hello. */
   localManifest: HostCapabilityManifest;
-  /**
-   * note: preconfigured remote Ed25519 public key — how the key is obtained
-   * is transport-adapter-owned (spec §Auth model); the remote's peer_id is
-   * derived from it and must be on `allowlist` (fail-closed).
-   */
   remotePubkey: Uint8Array;
-  /** invariant: must contain the remote's derived peer_id (fail-closed). */
   allowlist: readonly string[];
-  /** note: bounded-wait deadline for the handshake and each invoke, ms (default 5000). */
   invokeTimeoutMs?: number;
-  /** note: optional capability-token proof attached as `auth` on outbound invokes (§3.2/§3.3). */
   capabilityToken?: CapabilityTokenProof;
 }
 
 interface PendingInvoke {
   correlation: Correlation;
-  /** note: the request op — a response envelope carries no op of its own. */
   op: string;
   resolve: (response: ConnectInvokeResponse) => void;
   reject: (error: RemoteError) => void;
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** note: gate-phase outcome for a reverse invoke (see `#runReverseGate`). */
 type ReverseGateResult =
   | { ok: true }
   | {
@@ -465,40 +417,16 @@ export type ToolHandler = (
 export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, AdoptionPort, AdoptionPorts {
   readonly #transport: Transport;
   readonly #invokeTimeoutMs: number;
-  /** note: this adapter's raw 32-byte Ed25519 seed (hello identity — signs outbound envelopes). */
   readonly #secret: Uint8Array;
-  /** note: the remote peer's 32-byte hello Ed25519 public key (verifies inbound envelopes). */
   readonly #remotePubkey: Uint8Array;
   #capabilityToken?: CapabilityTokenProof;
 
-  // why: verification-gating state is ECMAScript `#`-private (NOT TS
-  // `private`) — the invoke gate reads these slots, and no JS consumer can
-  // write a `#`-slot from outside the class, so a forged `Established` /
-  // forged `session` / forged remote-manifest cache is unreachable even
-  // through an `any` cast or a subclass.
   #stateInternal: RemoteAdapterState = "Disconnected";
   #session: Session | null = null;
   #remoteManifestInternal: HostCapabilityManifest | null = null;
   #receiveLoopRunning = false;
   #pending = new Map<string, PendingInvoke>();
-  /**
-   * note: tool-handler registry for reverse invokes (frozen contract §6) —
-   * `registerToolHandler` fills it; the receive loop's serving path looks it
-   * up by exact capability id. The local manifest's `tools[]` (carried
-   * through hello) is the discovery source — this registry MUST NOT mutate
-   * the manifest; a registry/manifest mismatch is surfaced at invoke time: a
-   * manifest-declared tool with no registered handler is denied fail-closed
-   * (op_unsupported → CAPABILITY_PORT_MISSING); `validateManifestTools`
-   * checks manifest-internal consistency only.
-   */
   #toolHandlers = new Map<string, ToolHandler>();
-  /**
-   * why: outbound send serialization tail. Sequences are allocated
-   * synchronously in call order, but the Ed25519 sign is async (WebCrypto) —
-   * without a chain, signs complete out of order and requests hit the wire
-   * out of sequence, which the peer's strict inbound gate rejects. Every
-   * invoke chains its send behind the previous invoke's send.
-   */
   #sendTail: Promise<void> = Promise.resolve();
 
   constructor(
@@ -515,34 +443,24 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     this.#capabilityToken = capabilityToken;
   }
 
-  /** note: read-only session state (contract §4 labels). */
   get state(): RemoteAdapterState {
     return this.#stateInternal;
   }
 
-  /** note: the remote-assigned session id (empty before establishment). */
   get sessionId(): string {
     return this.#session?.session_id ?? "";
   }
 
-  /** note: the verified remote peer id (empty before establishment). */
   get remotePeerId(): string {
     return this.#session?.responder_peer_id ?? "";
   }
 
-  /**
-   * note: the remote peer's `HostCapabilityManifest`, from the authenticated
-   * hello `host` (contract §7). Throws when accessed before establishment
-   * (programmer misuse — a dialed adapter always has one).
-   */
   get remoteManifest(): HostCapabilityManifest {
     if (this.#remoteManifestInternal === null) {
       throw new Error("connect session is not established — remote manifest unavailable");
     }
     return this.#remoteManifestInternal;
   }
-
-  // note: BaselinePorts (async)
 
   async getKnowledgeEntry(entryId: string): Promise<SpokeResult<KnowledgeEntry>> {
     return this.#invokeMapped<KnowledgeEntry>(PORT_OPS.getKnowledgeEntry, {
@@ -708,22 +626,10 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
   }
 
 
-  /**
-   * note: remote extract core op (frozen contract F1) — delegates literal op
-   * `"extract"` with the `ExtractRequest` as the invoke payload. No local
-   * capability pre-gate: the responder's negotiated-set gate denies when
-   * `ke-extraction` is absent; D7 maps wire `op_unsupported` /
-   * `capability_missing` to `CAPABILITY_PORT_MISSING`.
-   */
   async extract(request: ExtractRequest): Promise<SpokeResult<ExtractResponse>> {
     return this.#invokeExtractMapped(request);
   }
 
-  /**
-   * note: HostManifestPort — "self" on a RemoteAdapter is the **remote** peer
-   * (contract §7). Returns the authenticated hello `host` from the session
-   * cache, cache-only, no network round-trip.
-   */
   async getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>> {
     const manifest = this.#remoteManifestInternal;
     if (manifest === null) {
@@ -742,22 +648,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     );
   }
 
-  // note: MemoryPort — memory protocol §13
-
-  /**
-   * note: client `MemoryPort` over the session — one method per op, each
-   * sending the op's request object as the invoke payload and returning the
-   * op's response object, the same `#invokeMapped` shape as the `port.*`
-   * catalogue. Rows mirror `MEMORY_OPS` (Rust parity: `impl MemoryPort for
-   * RemoteAdapter`).
-   *
-   * invariant: the `principal` parameter is the LOCAL admission context —
-   * over the wire the serving host admits the authenticated peer as the
-   * requester's principal (MEM-R003), so it is never transmitted. There is
-   * no local capability pre-gate: an unnegotiated family answers
-   * `capability_missing`, mapped to `CAPABILITY_PORT_MISSING` with
-   * `details.wire_code`.
-   */
   async describe(
     _principal: Principal,
     request: MemoryDescribeRequest,
@@ -1086,24 +976,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     );
   }
 
-  // note: HistoryPort — spoke-history contract §Connect operations
-
-  /**
-   * note: client `HistoryPort` over the session — `get` sends the request
-   * object and decodes the wrapped `snapshot` member; `prune` attaches the
-   * wire-required `idempotency_key` itself — the key is a connect-layer
-   * dedup concern the port signature deliberately omits, so this face
-   * accepts a caller-supplied key for retries (`options.idempotencyKey`)
-   * and generates one only when the caller omits it (spoke-history
-   * contract §9.1: retries replay the same key). `principal` is the LOCAL
-   * admission context — over the wire the serving host admits the
-   * authenticated peer; `scope` is sent so the serving face can match it
-   * to its admission (an unmatched scope refuses before the port). The
-   * responder's gate is the only capability authority: an unnegotiated
-   * `spoke-history` answers `capability_missing`, mapped to
-   * `CAPABILITY_PORT_MISSING` with `details.wire_code` (Rust parity:
-   * `impl HistoryPort for RemoteAdapter`). Rows mirror `HISTORY_OPS`.
-   */
   async getHistorySnapshot(
     _principal: Principal,
     scope: Scope,
@@ -1125,11 +997,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       return result;
     }
     const snapshot = result.value.snapshot;
-    // note: `#invokeMapped` validated the RevisionSnapshot shape; the
-    // client boundary additionally binds the envelope to the requested
-    // selectors (same `isValidRevisionSnapshot` rule as the serving face,
-    // selectors arg) — a wrong-target success is a transport decode
-    // error, never `Ok` (spoke-history contract §9).
     if (
       !isValidRevisionSnapshot(snapshot, {
         entity_kind: entityKind,
@@ -1157,11 +1024,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       entity_kind: entityKind,
       entity_id: entityId,
       keep,
-      // why: the wire request requires `idempotency_key` but the port
-      // signature must not carry it (contract) — the caller owns the key
-      // for retries so a replay reproduces the dedup namespace; a fresh
-      // key is generated only when the caller omits it (Rust parity:
-      // `generate_request_id`).
       idempotency_key: options?.idempotencyKey ?? globalThis.crypto.randomUUID(),
       scope,
     };
@@ -1171,22 +1033,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     );
   }
 
-  // note: AdoptionPort — spoke-knowledge-adoption contract §Connect operation
-
-  /**
-   * note: client `AdoptionPort` over the session — `adopt` sends the
-   * `KnowledgeAdoptRequest` object (its required `idempotency_key` is
-   * caller-owned for retries, matching the contract's connect dedup
-   * namespace) and returns the response envelope verbatim
-   * (`{ outcome, entry }` on the success branch). `principal` and `scope`
-   * are the LOCAL admission context — over the wire the serving host
-   * admits the authenticated peer (MEM-R003 parity; they are not sent).
-   * The responder's compound gate is the only capability authority: an
-   * unnegotiated `spoke-knowledge-adoption` or `spoke-knowledge` answers
-   * `capability_missing`, mapped to `CAPABILITY_PORT_MISSING` with
-   * `details.wire_code` (Rust parity:
-   * `impl AdoptionPort for RemoteAdapter`). Row mirrors `ADOPTION_OPS`.
-   */
   async adoptKnowledgeEntry(
     _principal: Principal,
     _scope: Scope,
@@ -1198,45 +1044,16 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     );
   }
 
-  /**
-   * note: `AdoptionPorts` probe — this adapter serves adoption, so the
-   * availability probe answers itself (parity with the Rust blanket
-   * `AdoptionPorts` impl: `Some(self)`; a dynamically assembled
-   * boundary that lacks adoption simply omits `asAdoption`).
-   */
   asAdoption(): AdoptionPort {
     return this;
   }
 
-  /**
-   * note: release the session and transport. Idempotent; pending invokes fail
-   * with `INTERNAL_ERROR` `details.kind = "session_closed"`.
-   */
   close(): void {
     this.#closeSession("local shutdown");
   }
 
   // see contract §6 — tool serving (reverse invokes)
 
-  /**
-   * note: register a handler for a `tools.<ns>.<tool_id>` capability served
-   * on this adapter (frozen contract §6). A reverse invoke whose op passes
-   * the dispatch gate dispatches to the registered handler; the handler runs
-   * off the receive loop and its `SpokeResult` maps to a signed
-   * `ConnectInvokeResponse` (success `{ result }` branch, or the error
-   * branch via `toErrorEnvelope`).
-   *
-   * invariant: a non-`tools.` id throws (grammar assertion, programmer
-   * misuse, like the generated-type ergonomics of `toolCapabilityId`);
-   * duplicate registration for the same id OVERWRITES the previous handler
-   * (last-wins, documented).
-   *
-   * invariant: the registry does NOT mutate the local manifest — descriptor
-   * truth for discovery stays in the manifest's `tools[]` (sent through
-   * hello); registering a handler for a tool the manifest does not declare
-   * leaves that id unserved (invoking it answers the dispatch-deny branch).
-   * `validateManifestTools` checks manifest-internal consistency only.
-   */
   registerToolHandler(capabilityId: string, handler: ToolHandler): void {
     const parsed = parseToolCapabilityId(capabilityId);
     if (!parsed.ok) {
@@ -1245,21 +1062,10 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     this.#toolHandlers.set(capabilityId, handler);
   }
 
-  /**
-   * note: forward tool-invoke face (frozen contract §6) — issues a
-   * `ConnectInvokeRequest` with `op = capabilityId` toward the remote peer
-   * and resolves with the tool's `result` (extracted from the success
-   * `payload = { result: <opaque JSON> }`). Deny answers map via the
-   * existing D7 row (`op_unsupported` / `capability_missing` →
-   * `CAPABILITY_PORT_MISSING` with `details.wire_code` preserved). Reuses
-   * the `#invokeOp` wire-order tail and its deferred-send poison-close.
-   */
   async invokeTool(
     capabilityId: string,
     args: Record<string, unknown>,
   ): Promise<SpokeResult<unknown>> {
-    // why: fail fast on a non-tool capability id (the op string IS the
-    // capability string; a non-`tools.` id is a programming error).
     const parsed = parseToolCapabilityId(capabilityId);
     if (!parsed.ok) {
       return parsed;
@@ -1269,10 +1075,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       if ("error" in response) {
         return mapErrorEnvelope(response.error);
       }
-      // invariant: tool success-payload gate (frozen §4) — success is
-      // `payload = { "result": <opaque JSON> }`; a success payload without
-      // a `result` key rejects with `INTERNAL_ERROR` `details.kind =
-      // "transport"` (mirrors the `#invokeMapped` shape gate).
       if (
         typeof response.payload !== "object" ||
         response.payload === null ||
@@ -1295,31 +1097,18 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     }
   }
 
-  // note: session lifecycle is hard-private — only `connectRemoteAdapter` dials.
-  //
-  // why: ECMAScript `#`-private methods AND state fields are invisible to
-  // consumers in the shipped `dist/remote/index.d.ts` AND unreachable at
-  // runtime (not even through an `any` cast or a subclass), so no consumer
-  // can forge `Established` state past the hello/allowlist/nonce
-  // verification. The dial entrypoint lives on the class
-  // (`connectRemoteAdapter` static below) where these stay callable.
-
-  /** note: dial-only — the adapter is in `Handshaking` while dialing. */
   #beginHandshake(): void {
     this.#stateInternal = "Handshaking";
   }
 
-  /** note: dial-only — sends one handshake envelope. */
   async #sendEnvelope(doc: unknown): Promise<void> {
     await this.#transport.send(encodeEnvelope(doc));
   }
 
-  /** note: dial-only — receives and decodes the next handshake envelope. */
   async #recvEnvelope(): Promise<unknown> {
     return decodeJsonMessage(await this.#transport.recv());
   }
 
-  /** note: dial-only — binds the authenticated session and starts the receive loop. */
   #establish(session: Session, remoteManifest: HostCapabilityManifest): void {
     this.#session = session;
     this.#remoteManifestInternal = remoteManifest;
@@ -1327,23 +1116,11 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     this.#runReceiveLoop();
   }
 
-  /**
-   * note: every failure path that makes the session unusable — transitions
-   * to `Closed`, settles every pending waiter, and releases the transport
-   * (fire-and-forget).
-   */
   #closeSession(reason: string): void {
     if (this.#stateInternal === "Closed") {
       return;
     }
     this.#stateInternal = "Closed";
-    // note: fire-and-forget teardown (contract §2.1: close is optional and
-    // idempotent; `close()` is void) — neither a synchronous throw nor a
-    // rejecting async close may surface: the adapter has already transitioned
-    // to `Closed` and every pending invoke is failed below, so no caller could
-    // receive the failure (§8.2 defines no close-failure row). A sync throw is
-    // caught here; `Promise.resolve` (not `instanceof Promise`) drains
-    // cross-realm / non-native thenables.
     let closeResult: unknown;
     try {
       closeResult = this.#transport.close?.();
@@ -1351,11 +1128,7 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       closeResult = undefined;
     }
     if (closeResult !== undefined) {
-      void Promise.resolve(closeResult).catch(() => {
-        // note: transport close failure is intentionally swallowed — the
-        // session is unusable either way and the adapter already settled
-        // waiters.
-      });
+      void Promise.resolve(closeResult).catch(() => {});
     }
     this.#failAllPending(
       new RemoteError("session_closed", `connect session closed: ${reason}`),
@@ -1369,8 +1142,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     }
     this.#pending.clear();
   }
-
-  // note: receive loop is adapter-owned — port methods never call recv.
 
   #runReceiveLoop(): void {
     if (this.#receiveLoopRunning) {
@@ -1392,33 +1163,16 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       try {
         doc = decodeJsonMessage(await this.#transport.recv());
       } catch (error) {
-        // note: transport loss — fail every pending waiter and transition to
-        // `Closed` (contract §6 "Transport close mid-flight" / §8.2).
         this.#closeSession(
           `transport loss: ${error instanceof Error ? error.message : String(error)}`,
         );
         return;
       }
 
-      // invariant: classify request shape FIRST (normative `spoke-connect.md`
-      // §Request / response classification) — an inbound envelope carrying
-      // `op` is a `ConnectInvokeRequest`, never a response, even though a
-      // reverse request carries the same correlation echo fields + payload
-      // as the response success branch. Without this order the reverse
-      // request would satisfy the response discriminator and be silently
-      // swallowed by the request_id demux below.
       if (isConnectInvokeRequest(doc)) {
-        // note: reverse invoke serving — the gate (peek → verify → advance)
-        // is awaited INLINE, so the loop reads the next envelope only after
-        // this request's gate completes and steps 3–5 are serialized per
-        // session (frozen §4). Dispatch (gate → handler) fires without
-        // blocking the loop.
         try {
           await this.#serveReverseInvoke(doc);
         } catch (error) {
-          // why: unexpected serving failure (local key misconfiguration /
-          // internal bug) fails closed like transport loss — a live session
-          // must not silently drop reverse invokes.
           this.#closeSession(
             `reverse invoke serving failed: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -1428,8 +1182,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       }
 
       if (isConnectInvokeResponse(doc)) {
-        // note: demux by request_id; unknown/duplicate responses are dropped
-        // (protocol v1 defines no retry).
         const entry = this.#pending.get(doc.request_id);
         if (entry === undefined) {
           continue;
@@ -1437,11 +1189,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
         clearTimeout(entry.timer);
         this.#pending.delete(doc.request_id);
         try {
-          // note: correlation echo check first (non-mutating wire-position
-          // validation), then envelope-auth verify (contract §7: the response
-          // must carry the peer's authentic signature over the exact wire
-          // branch). A forged/tampered response fails closed — only this
-          // waiter, never a session-state mutation.
           checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
           await verifyInvokeResponseAuth(
             this.#remotePubkey,
@@ -1454,11 +1201,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
           if (error instanceof EnvelopeAuthError) {
             entry.reject(new RemoteError(error.kind, error.message));
           } else if (error instanceof CoreError && error.code === "crypto") {
-            // why: crypto verify failure (wrong-length / invalid key bytes —
-            // local key misuse, no envelope-auth kind) is still a
-            // verification failure of the response's authenticator, so
-            // `envelope_auth_invalid`, never mislabeled as a correlation
-            // mismatch (Rust parity).
             entry.reject(new RemoteError("envelope_auth_invalid", error.message));
           } else {
             entry.reject(
@@ -1471,26 +1213,15 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
         }
         continue;
       }
-
-      // note: post-handshake stray envelope (hello / session / unknown shape)
-      // is ignored.
     }
   }
 
   // see contract §4 — reverse invoke serving pipeline
 
-  /**
-   * note: sends one signed response envelope, fire-and-forget — responses are
-   * demuxed by `request_id` on the peer, so a send failure is not observable
-   * to this session.
-   */
   #sendReverseResponse(doc: unknown): void {
-    void this.#transport.send(encodeEnvelope(doc)).catch(() => {
-      // note: peer gone — responses are fire-and-forget at the serving boundary.
-    });
+    void this.#transport.send(encodeEnvelope(doc)).catch(() => {});
   }
 
-  /** note: signs and sends an error-branch response to a reverse invoke. */
   async #sendReverseErrorEnvelope(
     doc: ConnectInvokeRequest,
     error: ErrorEnvelope,
@@ -1514,17 +1245,10 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     );
   }
 
-  /**
-   * note: serves one reverse invoke in the canonical order (frozen §4):
-   * classify (caller) → stray → sequence peek → envelope-auth verify →
-   * advance → gate → handler → signed response. The caller (receive loop)
-   * awaits this method inline so peek → verify → advance are serialized;
-   * dispatch fires without blocking the loop.
-   */
   async #serveReverseInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const gate = await this.#runReverseGate(doc);
     if (gate === null) {
-      return; // note: stray — ignored
+      return;
     }
     if (!gate.ok) {
       await this.#sendReverseErrorEnvelope(doc, {
@@ -1538,24 +1262,11 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     void this.#dispatchReverseInvoke(doc);
   }
 
-  /**
-   * note: gate phase — sequence peek (non-mutating) → envelope-auth verify →
-   * advance. Fail-closed (auth-before-advance, spec §Verify rules): a
-   * forged/tampered/stripped signature answers `auth_failed` and leaves the
-   * inbound counter unchanged. Returns `null` for stray requests (ignored),
-   * a rejection spec for gate failures, or `{ok: true}` when dispatch may
-   * run.
-   */
   async #runReverseGate(doc: ConnectInvokeRequest): Promise<ReverseGateResult> {
     const session = this.#session;
     if (session === null) {
-      return null; // note: stray — no established session
+      return null;
     }
-    // note: stray check (single-peer adapter) — a `session_id` bound to a
-    // DIFFERENT live session is ignored (no response). A `session_id` bound
-    // to no established session stays on this path and is rejected
-    // `auth_failed` at verify (session-binding assert below): this adapter
-    // owns one session, so verify owns the binding check.
     try {
       session.peekInboundSequence(doc.sequence);
     } catch {
@@ -1580,28 +1291,18 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
           details: { kind: error.kind },
         };
       }
-      throw error; // note: wrong-length key is adapter misconfiguration — fail loudly
+      throw error;
     }
-    // invariant: advance the inbound counter only after envelope-auth verify passed.
     session.acceptInboundSequence(doc.sequence);
     return { ok: true };
   }
 
-  /**
-   * note: dispatch phase — runs after the serialized gate and may interleave
-   * with other invokes. Fully contained: a throwing/rejecting handler answers
-   * the error branch and never crashes the loop.
-   */
   async #dispatchReverseInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const session = this.#session;
     if (session === null) {
       return;
     }
     try {
-      // note: dispatch gate is `Session.dispatchAllowed`-level logic (frozen
-      // §3) — `tools.*` ops require the op string itself, evaluated against
-      // `negotiated_capabilities` (never a raw requirements-map
-      // composition, which would deny the self-describing tools family).
       if (!session.dispatchAllowed(doc.op)) {
         await this.#sendReverseErrorEnvelope(doc, {
           code: "op_unsupported",
@@ -1610,8 +1311,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
         });
         return;
       }
-      // note: handler or deny — fail-closed serving (frozen deny matrix): a
-      // gate pass with no registered handler answers `op_unsupported`.
       const handler = this.#toolHandlers.get(doc.op);
       if (handler === undefined) {
         await this.#sendReverseErrorEnvelope(doc, {
@@ -1621,12 +1320,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
         });
         return;
       }
-      // note: the request payload carries the tool arguments as
-      // `{ "arguments": <opaque JSON> }` (frozen §4). A non-object arguments
-      // field is a malformed provider request — serve `{}` (the structural
-      // argument gate is caller-side). The unchecked cast is deliberate:
-      // `payload` is any-JSON on the wire, so a null / malformed value keeps
-      // its pre-existing property-access outcome (serving error path).
       const payload = doc.payload as { arguments?: unknown };
       const argumentsField = payload.arguments;
       const handlerArgs: Record<string, unknown> =
@@ -1639,15 +1332,12 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       try {
         result = await handler(handlerArgs);
       } catch (error) {
-        // note: handler threw → error branch via toErrorEnvelope (INTERNAL_ERROR
-        // for a crash); never crashes the loop (frozen §6).
         result = spokeReject(
           SpokeRejectCode.INTERNAL_ERROR,
           error instanceof Error ? error.message : String(error),
         );
       }
       if (result.ok) {
-        // note: success branch is `payload = { "result": <opaque JSON> }` (frozen §4).
         this.#sendReverseResponse(
           await authenticateInvokeResponse(
             this.#secret,
@@ -1667,9 +1357,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
         await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
       }
     } catch (error) {
-      // why: unexpected serving failure (e.g. non-JSON-serializable handler
-      // result) answers the error branch so the invoker never hangs, and
-      // never crashes the loop.
       try {
         await this.#sendReverseErrorEnvelope(doc, {
           code: SpokeRejectCode.INTERNAL_ERROR,
@@ -1677,18 +1364,10 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
           extensions: {},
         });
       } catch {
-        // note: peer gone — responses are fire-and-forget.
       }
     }
   }
 
-  // note: invoke path
-
-  /**
-   * note: send one op invoke and resolve with its correlated response envelope.
-   * Rejects with `RemoteError` on timeout / transport failure / session
-   * close / correlation mismatch / sequence exhaustion.
-   */
   async #invokeOp(
     op: string,
     payload: Record<string, unknown>,
@@ -1704,8 +1383,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     try {
       sequence = session.allocateOutboundSequence();
     } catch (error) {
-      // why: outbound sequence exhaustion makes the session unusable (no wrap) —
-      // close it and fail this invoke with `sequence_exhausted` (§6/§8.2).
       this.#closeSession("outbound sequence exhausted");
       throw new RemoteError(
         "sequence_exhausted",
@@ -1754,10 +1431,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
         reject,
         timer,
       });
-      // invariant: outbound wire-order serialization — the tail entry is created HERE,
-      // synchronously, so the wire order matches the allocation order even
-      // though the Ed25519 sign completes asynchronously (an out-of-order
-      // send would be rejected by the peer's strict inbound sequence gate).
       const prevSend = this.#sendTail;
       let releaseSend: () => void = () => {};
       this.#sendTail = new Promise<void>((resolveTail) => {
@@ -1767,19 +1440,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
         (signed) => {
           void prevSend
             .then(() => {
-              // why: the invoke may have settled while this send waited behind
-              // the tail (timeout fired → entry deleted; session closed →
-              // `#failAllPending` cleared the map). Do NOT transmit late:
-              // the caller already observed the failure, and a retry would
-              // otherwise produce a duplicate dispatch on the host. A
-              // timeout drop is worse than a duplicate dispatch though: the
-              // allocated outbound sequence was never transmitted, so the
-              // peer's inbound gate is stuck at that sequence and every
-              // later invoke fails `inbound_sequence_mismatch` — the wire
-              // state is unreconcilable. Close the session (fails remaining
-              // pending with `session_closed`, mirroring the
-              // `sequence_exhausted` precedent at §6/§8.2) instead of
-              // leaving a silently poisoned session.
               if (!this.#pending.has(unsigned.request_id)) {
                 this.#closeSession(
                   "deferred invoke skipped (settled while queued) — outbound sequence never transmitted",
@@ -1789,8 +1449,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
               try {
                 return this.#transport.send(encodeEnvelope(signed));
               } catch (error) {
-                // why: synchronous encode failure (e.g. non-JSON-serializable
-                // payload): same cleanup, same mapping.
                 throw new RemoteError(
                   "transport",
                   `invoke encode failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1802,9 +1460,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
                 releaseSend();
               },
               (sendError) => {
-                // why: async send failure (transport closed between setup and
-                // send): settle this invoke now — no dead entry waits out
-                // the timeout.
                 releaseSend();
                 clearTimeout(timer);
                 this.#pending.delete(unsigned.request_id);
@@ -1834,7 +1489,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     });
   }
 
-  /** note: invoke the `extract` core op and map the wire response (F1). */
   async #invokeExtractMapped(
     request: ExtractRequest,
   ): Promise<SpokeResult<ExtractResponse>> {
@@ -1928,15 +1582,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
   }
 
   /**
-   * note: test-only — position the outbound counter of the established session so
-   * the loopback suite can exercise sequence exhaustion without 2⁵³ real
-   * invokes (mirrors the Rust in-module unit test, which reaches
-   * `OutboundSequence::set_next` under `#[cfg(test)]`; TS has no cfg(test),
-   * so the hook is a guarded public method instead).
-   *
-   * It never grants state forgery: it throws unless the adapter is already
-   * `Established` and only advances an established session's counter.
-   *
    * @internal test-only — the sequence-exhaustion fixture. Not part of the
    * RemoteAdapter public API.
    */
@@ -1992,7 +1637,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
     adapter.#beginHandshake();
 
     try {
-      // note: step 1 — send our signed hello (nonce generated internally, single-use).
       //    The initiator hello signs the 4-field object (no `peer_nonce`);
       //    the nonce is kept for the responder-hello dial-binding assert.
       const initiatorNonce = generateNonce();
@@ -2008,7 +1652,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
         "hello send",
       );
 
-      // note: step 2 — await + verify the server's signed hello (signature + identity).
       //    Dial binding: the responder signs the 5-field object incl.
       //    `peer_nonce` = our nonce; a replayed responder hello (signed over
       //    a different or absent initiator nonce — e.g. captured on an
@@ -2028,12 +1671,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
         helloDoc,
         initiatorNonce,
       );
-      // safety: receiver-side nonce single-use (spec §Nonce / replay protection) —
-      // record the accepted server hello and reject a replayed one. An
-      // active transport attacker cannot reuse a previously-signed hello
-      // from the allowlisted peer to re-enter `Established` on a later dial
-      // — the replay is rejected here, before any `ConnectSession` snapshot
-      // (which Greptile's scenario would otherwise fabricate) is accepted.
       if (!acceptedServerHellos.checkAndRecord(remotePeerId, helloDoc.nonce)) {
         throw new Error(
           `server hello replay rejected: (peer_id ${remotePeerId}, nonce ${helloDoc.nonce}) was already accepted`,
@@ -2041,7 +1678,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       }
       const remoteManifest: HostCapabilityManifest = helloDoc.host;
 
-      // note: step 3 — await + validate the A-assigned session snapshot. Envelope-auth
       //    verify runs on the wire form BEFORE the typed checks
       //    (`spoke-connect-session-jcs-v1` against the responder's hello
       //    key; the step-6 peer-id binding assert replaces the old manual
@@ -2067,13 +1703,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       if (sessionDoc.initial_sequence !== 0) {
         throw new Error("session snapshot initial_sequence must be 0");
       }
-      // why: the session snapshot's `opened_at` is a shared wire Timestamp —
-      // the strict RFC 3339 grammar (mandatory offset) is the one contract
-      // (spoke-connect contract §Session snapshot / spoke-data-model §Shared
-      // wire scalars). The shape guard above checks presence only, so an
-      // offsetless spelling — or a non-string JSON value, which
-      // `RegExp.exec` would coerce (a one-element array) — must fail the
-      // dial before a session exists.
       if (
         typeof sessionDoc.opened_at !== "string" ||
         !isStrictTimestamp(sessionDoc.opened_at)
@@ -2097,8 +1726,6 @@ export class RemoteAdapter implements BaselinePorts, MemoryPort, HistoryPort, Ad
       );
       return adapter;
     } catch (error) {
-      // why: handshake rejection releases the transport so the peer sees a clean
-      // disconnect (mirrors the connect-client handshake-rejection pattern).
       adapter.close();
       throw error;
     }

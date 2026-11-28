@@ -1,20 +1,3 @@
-/**
- * note: Orchestrated remote tool invocation over an injected `ToolInvokePort`.
- *
- * Frozen sequence (`tool-contracts.md` §5; no `requireToolInvokePort`
- * wrapper): (1) `parseToolCapabilityId(request.capability_id)` grammar gate
- * → `INVALID_INPUT`; (2) runtime guard `port == null || typeof
- * port.invokeTool !== "function"` → else `CAPABILITY_PORT_MISSING` with
- * `details.capability = request.capability_id` (per-tool blame — observable
- * at the JS boundary where structural typing cannot protect dynamic
- * composition: null/undefined and structurally-missing ports reject instead
- * of throwing a `TypeError`); (3) `port.invokeTool(request)` returned as-is.
- *
- * Argument validation is NOT re-run here — callers run the structural
- * argument gate (`validateToolArguments`, see `tools/helpers.ts`) before
- * orchestrating; this function validates only request grammar.
- */
-
 import {
   SpokeRejectCode,
   spokeReject,

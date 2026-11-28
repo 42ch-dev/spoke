@@ -8,23 +8,6 @@ import { verifyHelloEd25519 } from "../src/core/hello.js";
 import { PROTOCOL_VERSION } from "../src/core/version.js";
 import { fromHex } from "./hex.js";
 
-/**
- * why: cross-language golden vector: the golden identity advertising
- * `protocol_version` 2 while the core `PROTOCOL_VERSION` is 1 is a
- * mixed-version hello — the version gate is `verifyHelloEd25519` step 1,
- * BEFORE signature verification, so the wire hello MUST reject with
- * `code: "protocol_version_mismatch"` regardless of its (object-stale,
- * never-consulted) pinned signature.
- *
- * The fixture is a byte-identical registered copy of the SSOT under
- * `crates/spoke-connect/tests/fixtures/` (sync gate:
- * `tooling/connect/golden-vector-sync.mjs`); the Rust side consumes the SSOT
- * directly in `crates/spoke-connect/tests/golden_hello_version_mismatch.rs`
- * and asserts the same outcome — `CoreError::ProtocolVersionMismatch` — on
- * the same bytes: the cross-language parity proof for the shipped
- * version-first gate.
- */
-
 interface GoldenHelloVersionMismatchFixture {
   version: number;
   seed_hex: string;
@@ -43,8 +26,6 @@ const fixture: GoldenHelloVersionMismatchFixture = JSON.parse(
 
 describe("golden-hello-version-mismatch (cross-language golden vector)", () => {
   it("rejects the pinned mixed-version hello with protocol_version_mismatch", async () => {
-    // why: the fixture must actually be a mismatch — the golden vector is only
-    // meaningful while the core stays at version 1.
     expect(fixture.hello.protocol_version).not.toBe(PROTOCOL_VERSION);
 
     const publicKey = fromHex(fixture.pubkey_hex);

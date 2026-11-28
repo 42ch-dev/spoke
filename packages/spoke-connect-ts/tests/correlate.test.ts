@@ -15,11 +15,6 @@ import {
   authenticateInvokeResponse,
 } from "../src/core/envelope-auth.js";
 
-/**
- * why: deterministic 32-byte test identity seed (mirrors the Rust
- * `correlate.rs` test module convention — no key material as a literal in a
- * crypto call site).
- */
 const TEST_SEED: Uint8Array = Uint8Array.from({ length: 32 }, () => 0x2b);
 
 async function request(

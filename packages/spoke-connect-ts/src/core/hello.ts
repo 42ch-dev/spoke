@@ -158,16 +158,6 @@ export async function verifyHelloEd25519(
     );
   }
 
-  // safety: the claimed peer id was just checked to equal `expectedPeerId`, so
-  // canonicalizing over `expectedPeerId` reproduces the signer's bytes.
-  // Role-aware signed object: 5 fields (incl. `peer_nonce`) for a responder
-  // hello, 4 fields for an initiator hello. When the initiator supplies
-  // `expectedPeerNonce`, the responder's `peer_nonce` must be PRESENT AND
-  // equal to it — this is the dial binding that defeats cross-restart
-  // replay. Fail-closed (spec §Dial binding): a dial that expects a
-  // responder MUST NOT accept an initiator-shaped hello — a mixed-version
-  // old responder omits `peer_nonce`, and silently falling back to the
-  // 4-field verify would skip the binding assert entirely.
   let bytes: Uint8Array;
   if (hello.peer_nonce !== undefined) {
     if (

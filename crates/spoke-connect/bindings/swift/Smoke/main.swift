@@ -29,11 +29,6 @@
 // smoke-generated bindings + `-D SMOKE_HOST` and also link
 // loopback_smoke.swift + multi_peer_router_smoke.swift. Full sequence in
 // README.md in this directory.
-//
-// Note: a plain `cargo build` (default features) between steps replaces the
-// ffi cdylib in the shared `target/debug`. If the smoke fails with
-// `dyld: Symbol not found: _ffi_spoke_connect_rustbuffer_free`, re-run the
-// cdylib build before recompiling.
 
 import Foundation
 

@@ -23,13 +23,6 @@ import {
 } from "./fixtures/golden.js";
 import { fromHex, toHex } from "./hex.js";
 
-/**
- * why: golden-vector parity (AD-P0-4): every value asserted here is byte-identical
- * to the constants captured from rust-libp2p and redeclared in
- * crates/spoke-connect/src/core/{hello_crypto,peer_id}.rs and to
- * `.agents/specs/connect/spoke-connect.md` §Identity binding /
- * §Signature canonicalization.
- */
 describe("golden-vector parity with Rust core", () => {
   it("derives the golden public key from the golden seed", () => {
     expect(toHex(getPublicKeyEd25519(GOLDEN_SEED))).toBe(toHex(GOLDEN_PUBKEY));
@@ -85,7 +78,6 @@ describe("WebCrypto backend coverage", () => {
   });
 
   it("reports the runtime backend for the auto-selected path", (ctx) => {
-    // why: Node 24+ always ships WebCrypto Ed25519; older runtimes may lack it.
     if (!webcryptoOk && Number.parseInt(process.versions.node, 10) < 24) ctx.skip();
     expect(webcryptoOk).toBe(true);
   });

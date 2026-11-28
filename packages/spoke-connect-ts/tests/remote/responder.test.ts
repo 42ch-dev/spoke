@@ -1,27 +1,3 @@
-/**
- * note: `connectResponder` (Task 2 of tools-connect-reverse-invoke) — loopback
- * pair: the productized responder (`connectResponder` on the server end,
- * frozen contract `tool-contracts.md` §6) ↔ a T1 tool-serving
- * `RemoteAdapter` (dialer).
- *
- * Asserts, per the plan:
- * (a) the ported demo responder recipe: allowlist-first → hello verify →
- *     nonce single-use → dial-bound responder hello → signed session
- *     snapshot; gate = peek → verify → advance (serialized), with
- *     auth-before-advance;
- * (b) `port.*` serving against an injected async `BaselinePorts` via the
- *     D4 catalogue, with the dispatch-deny branch for unknown port methods
- *     AND for absent `ports` (documented);
- * (c) the `invokeTool` reverse face: outbound counter, request signing,
- *     send-tail wire-order serialization, response correlation +
- *     envelope-auth verify, per-waiter timeout (waiter-only), and the
- *     deferred-send poison-close mirror (a waiter that settles while its
- *     send is queued closes the session);
- * (d) carried-over demo behaviors: the empty-intersection snapshot
- *     fallback still establishes, and an unparseable inbound closes the
- *     connection.
- */
-
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 
@@ -96,10 +72,6 @@ import {
   type RemoteServePorts,
 } from "@42ch/spoke-connect/remote";
 
-/**
- * note: the scope the default fixture knowledge face admits; `toServePorts`
- * forwards baseline get/put through it and matches list wire scopes.
- */
 const ADMITTED_SCOPE: Scope = { scope_id: "toy-scope-001" };
 
 function knowledgeFaceAdmitting(
@@ -119,11 +91,6 @@ function knowledgeFaceAdmitting(
   };
 }
 
-/**
- * note: legacy fixture adapters carry the extract/memory service fields on the
- * same object as the baseline port methods; the responder now takes a face
- * object, so test fixtures normalize once here.
- */
 function toServePorts(
   ports: BaselinePorts & Partial<RemoteExtractService> & Partial<RemoteMemoryService>,
   admitted?: Scope,
@@ -136,7 +103,6 @@ function toServePorts(
   };
 }
 
-/** note: fixture seed — base+i, all values within byte range for base ≤ 0xe0. */
 function seed(base: number): Uint8Array {
   return Uint8Array.from({ length: 32 }, (_, i) => base + i);
 }
@@ -168,7 +134,6 @@ const BOOM_DESCRIPTOR: ToolDescriptor = {
   output: {},
 };
 
-/** note: namespaces own the tool namespaces; every tool capability ∈ capabilities[]. */
 function toolManifest(hostId: string): HostCapabilityManifest {
   return {
     ...schemaConformantManifest(),
@@ -176,8 +141,6 @@ function toolManifest(hostId: string): HostCapabilityManifest {
     namespaces: ["toy_world", "math", "echo"],
     capabilities: [
       "spoke-baseline",
-      // why: these fixtures serve the knowledge face, so the session negotiates
-      // `spoke-knowledge` explicitly (no flag implies it).
       "spoke-knowledge",
       "tools.math.add",
       "tools.echo.echo",
@@ -202,21 +165,13 @@ interface DialResponderOptions {
   ports?: BaselinePorts &
     Partial<RemoteExtractService> &
     Partial<RemoteMemoryService>;
-  /** note: the scope the default knowledge face admits (list wire scopes must match). */
   admittedScope?: Scope;
-  /** note: bound on the RESPONDER's reverse-invoke waiters, ms. */
   responderTimeoutMs?: number;
-  /** note: bound on the CLIENT's dial + invoke waiters, ms. */
   clientTimeoutMs?: number;
   clientTransport?: (clientEnd: Transport) => Transport;
   responderTransport?: (serverEnd: Transport) => Transport;
 }
 
-/**
- * note: pairs `connectResponder` (server end) with a real T1
- * `connectRemoteAdapter` (client end); the responder's handshake runs in
- * the background and the client's dial is the synchronization point.
- */
 async function dialWithResponder(
   options: DialResponderOptions = {},
 ): Promise<{
@@ -237,7 +192,6 @@ async function dialWithResponder(
   const clientManifest = options.clientManifest ?? toolManifest("test-client");
   const responderManifest =
     options.responderManifest ?? toolManifest("test-responder");
-  // why: fixture hygiene — both manifests must satisfy the manifest-tools rules.
   for (const manifest of [clientManifest, responderManifest]) {
     const validated = validateManifestTools(manifest);
     expect(validated.ok, `manifest tools must validate: ${manifest.host_id}`).toBe(
@@ -270,16 +224,12 @@ function decodeWire(bytes: EnvelopeBytes): Record<string, unknown> {
   return decodeJsonMessage(bytes) as Record<string, unknown>;
 }
 
-/** note: real wall-clock wait — only for real-timer integration fixtures. */
 function delay(ms: number): Promise<void> {
-  // why: the project's TS lib target predates `Promise.withResolvers` (ES2024),
-  // so executor form is required here.
   return new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
   });
 }
 
-/** note: bounded poll (5s) for an async state transition. */
 async function untilState(
   target: { state: ConnectResponderState | string },
   state: string,
@@ -304,12 +254,9 @@ function decodeEnvelope(bytes: EnvelopeBytes): unknown {
   return decodeJsonMessage(bytes);
 }
 
-/** note: starts a responder WITHOUT dialing — raw-wire tests drive the wire. */
 async function startRawResponder(options: {
-  /** note: `null` = port-less host (no `ports` face configured). */
   ports?: BaselinePorts | null;
   manifest?: HostCapabilityManifest;
-  /** note: responder serve budget + reverse-invoke waiter deadline, ms. */
   invokeTimeoutMs?: number;
 } = {}): Promise<{
   responder: ConnectResponder;
@@ -350,7 +297,6 @@ async function startRawResponder(options: {
   };
 }
 
-/** note: raw initiator handshake — the real library client is exercised elsewhere. */
 async function rawHandshake(
   client: Transport,
   options: {
@@ -379,7 +325,6 @@ async function rawHandshake(
   return { session_id: sessionDoc.session_id };
 }
 
-/** note: signs a raw wire `ConnectInvokeRequest` over the locked 5-field set. */
 async function signInvokeRequest(
   seed: Uint8Array,
   request: {
@@ -387,7 +332,6 @@ async function signInvokeRequest(
     sequence: number;
     request_id: string;
     op: string;
-    /** note: wire any-JSON payload (`OpaqueJson`), including JSON null. */
     payload: unknown;
   },
 ): Promise<ConnectInvokeRequest> {
@@ -407,12 +351,8 @@ describe("connectResponder handshake and session", () => {
         expect(client.state).toBe("Established");
         expect(responder.sessionId.length).toBeGreaterThan(0);
         expect(responder.sessionId).toBe(client.sessionId);
-        // note: session peer binding — the responder's remote peer is the dialer.
         expect(responder.remotePeerId).toBe(peerIdClient);
         expect(client.remotePeerId).toBe(peerIdResponder);
-        // note: discovery after auth — the authenticated hello `host` is the
-        // source, so the responder sees the dialer's tools[] only once the
-        // signed-hello handshake completed.
         expect(responder.remoteManifest).toEqual(toolManifest("test-client"));
         expect(responder.remoteManifest.tools?.map((t) => t.capability_id)).toEqual([
           "tools.math.add",
@@ -447,15 +387,13 @@ describe("connectResponder handshake and session", () => {
         transport: pair.server,
         identity: { seed: seedResponder },
         manifest: toolManifest("test-responder"),
-        allowlist: [peerIdStranger], // note: allow the STRANGER (client-side trusts the server)
+        allowlist: [peerIdStranger],
         peerKeys: {
           [peerIdStranger]: getPublicKeyEd25519(seedStranger),
         },
         ports: { baseline: new ToyWorldAdapter() },
       });
       try {
-        // why: the server-side allowlist rejects the hello and closes the
-        // transport, failing the dial fast.
         await expect(
           connectRemoteAdapter({
             transport: pair.client,
@@ -488,9 +426,6 @@ describe("connectResponder port serving (D4 catalogue)", () => {
           expect(mira.value.entry_id).toBe(MIRA_ENTRY_ID);
         }
 
-        // note: create (expected_base_revision null), then a compare-and-swap
-        // update over the wire — the toy-world store treats an absent revision
-        // as 0, so base 0 accepts the update.
         const compass: KnowledgeEntry = {
           schema_version: 1,
           entry_id: "test-harbor/item/compass",
@@ -514,8 +449,6 @@ describe("connectResponder port serving (D4 catalogue)", () => {
           expect(updated.value.status).toBe("confirmed");
         }
 
-        // note: negative OCC over the wire — re-creating an existing entry rejects
-        // REVISION_CONFLICT through the responder's error branch.
         const conflicted = await client.putKnowledgeEntry(compass, null);
         expect(conflicted.ok).toBe(false);
         if (!conflicted.ok) {
@@ -550,13 +483,6 @@ describe("connectResponder port serving (D4 catalogue)", () => {
   it(
     "validates the nullable relation.put CAS fence before the provider (qc1 F-004)",
     async () => {
-      // why: the baseline Relation dispatch used to cast
-      // `expected_base_revision` straight to the provider; Rust refuses an
-      // out-of-domain parse before constructing the call. The inclusive
-      // `2^53` endpoint must reach the provider, an out-of-domain value
-      // (`1e20`, which still signs — the signed boundary refuses only the
-      // integer-token range) must refuse `INVALID_INPUT` with zero provider
-      // calls.
       const baseline = asBaselineOnly(ToyWorldAdapter.withCommittedFixtures());
       const bases: (number | null)[] = [];
       const ports: BaselinePorts = {
@@ -611,8 +537,6 @@ describe("connectResponder port serving (D4 catalogue)", () => {
         expect(refusedResponse.error.code).toBe(SpokeRejectCode.INVALID_INPUT);
         expect(bases).toEqual([2 ** 53]);
 
-        // note: an unbounded nested `relation.revision` is refused before the
-        // provider (qc2); Rust's typed decode refuses the same value.
         const badRevision = await signInvokeRequest(seedClient, {
           session_id: sessionId,
           sequence: 2,
@@ -630,8 +554,6 @@ describe("connectResponder port serving (D4 catalogue)", () => {
         expect(badRevisionResponse.error.code).toBe(SpokeRejectCode.INVALID_INPUT);
         expect(bases).toEqual([2 ** 53]);
 
-        // note: Rust refuses a missing CAS member; absence must not become
-        // `null` (create-only) on the TS path (qc2).
         const missingCas = await signInvokeRequest(seedClient, {
           session_id: sessionId,
           sequence: 3,
@@ -664,9 +586,6 @@ describe("connectResponder port serving (D4 catalogue)", () => {
           pubkeyResponder,
           peerIdResponder,
         });
-        // why: a wire-valid, properly signed invoke for an op outside the D4
-        // catalogue — the dispatch gate denies it (no core row, no product
-        // map row) with the existing `op_unsupported` error branch.
         const unknownOp = await signInvokeRequest(seedClient, {
           session_id: sessionId,
           sequence: 0,
@@ -692,9 +611,6 @@ describe("connectResponder port serving (D4 catalogue)", () => {
   it(
     "denies port.* invokes with the dispatch-deny branch when ports are absent",
     async () => {
-      // why: no `ports` injected — the capability gate passes (spoke-baseline is
-      // negotiated) but there is no BaselinePorts to serve, so the responder
-      // answers the dispatch-deny branch, mapped by the D7 invoker row.
       const { responder, client } = await dialWithResponder();
       try {
         const result = await client.getKnowledgeEntry(MIRA_ENTRY_ID);
@@ -716,17 +632,9 @@ describe("connectResponder port serving (D4 catalogue)", () => {
 });
 
 describe("connectResponder optional-port serving (gate → probe → serve/deny)", () => {
-  /**
-   * note: manifest declaring the optional families on top of the tool-carrying
-   * baseline — `l2-computable` (project / compute) + `l5-fork`
-   * (listForkTimelineEvents). Both dial peers carry it so the negotiated
-   * intersection authorizes the optional ops on the responder's gate.
-   */
   function optionalManifest(hostId: string): HostCapabilityManifest {
     return {
       ...toolManifest(hostId),
-      // why: the tool-carrying baseline capabilities stay; the optional family
-      // capability ids are appended.
       capabilities: [
         ...toolManifest(hostId).capabilities,
         "l2-computable",
@@ -749,8 +657,6 @@ describe("connectResponder optional-port serving (gate → probe → serve/deny)
     async () => {
       const { responder, client } = await optionalDial();
       try {
-        // note: baseline smoke in the SAME session — the catalogue extension must
-        // not disturb the baseline six (serving-order preservation).
         const mira = await client.getKnowledgeEntry(MIRA_ENTRY_ID);
         expect(mira.ok).toBe(true);
         if (mira.ok) {
@@ -765,9 +671,6 @@ describe("connectResponder optional-port serving (gate → probe → serve/deny)
         const result = await client.project(request);
         expect(result.ok).toBe(true);
         if (result.ok) {
-          // note: the adapter echoes request ids and serves the committed
-          // projection fixture — proves the payload carried the request
-          // through the loopback and the responder delegated it.
           expect(result.value).toEqual({
             session_id: "sess_tw_dawn_arrival",
             entry_id: "kb_tw_harbor",
@@ -826,8 +729,6 @@ describe("connectResponder optional-port serving (gate → probe → serve/deny)
         const result = await client.listForkTimelineEvents(scope);
         expect(result.ok).toBe(true);
         if (result.ok) {
-          // note: the committed fixtures carry exactly one fork-branch event —
-          // proves the fork_id survived the loopback into the provider.
           expect(result.value).toHaveLength(1);
           expect(result.value[0]).toMatchObject({
             timeline_event_id: "evt_tw_harbor_storm_delay",
@@ -854,9 +755,6 @@ describe("connectResponder optional-port serving (gate → probe → serve/deny)
   it(
     "denies port.computable.project when l2-computable is not negotiated (gate deny → op_unsupported → CAPABILITY_PORT_MISSING + wire_code)",
     async () => {
-      // why: default manifests advertise spoke-baseline only ⇒ the negotiated
-      // set lacks l2-computable ⇒ the responder's dispatch gate denies the
-      // op even though the injected provider implements it (gate FIRST).
       const { responder, client } = await dialWithResponder({
         ports: fullPorts(),
       });
@@ -941,10 +839,6 @@ describe("connectResponder optional-port serving (gate → probe → serve/deny)
   it(
     "denies all three optional ops when the capability is declared but the provider is baseline-only (probe deny → op_unsupported → CAPABILITY_PORT_MISSING + wire_code)",
     async () => {
-      // why: both peers declare the optional families (gate passes) but the
-      // injected ports object is a baseline-only view without the optional
-      // methods — the responder's structural probe (gate → probe → deny)
-      // answers the same dispatch-deny branch as absent ports.
       const { responder, client } = await dialWithResponder({
         ports: asBaselineOnly(ToyWorldAdapter.withCommittedFixtures()),
         clientManifest: optionalManifest("test-client"),
@@ -956,8 +850,6 @@ describe("connectResponder optional-port serving (gate → probe → serve/deny)
           entry_id: "kb_tw_harbor",
           state: { tide_level: 2.1, cargo_tons: 40 },
         });
-        // note: probe deny (not the gate deny) — the capability gate passed and
-        // the responder's structural probe reports the missing method.
         expect(projectResult).toEqual({
           ok: false,
           code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
@@ -1009,10 +901,6 @@ describe("connectResponder optional-port serving (gate → probe → serve/deny)
   it(
     "serves computable ops and probe-denies fork ops on a mixed composite (computable face present, fork face absent)",
     async () => {
-      // note: mixed host — the injected ports compose the baseline + l2-computable
-      // faces without the l5-fork face; computable ops serve through the
-      // present face, while the fork op probe-denies (the gate passes, so the
-      // missing face is host misconfiguration).
       const full = ToyWorldAdapter.withCommittedFixtures();
       const mixedComposite = {
         ...asBaselineOnly(full),
@@ -1066,8 +954,6 @@ describe("connectResponder reverse invoke (invokeTool)", () => {
           b: 3,
         });
         expect(result).toEqual({ ok: true, value: { sum: 5 } });
-        // note: the dialer-side registered handler is what ran, with the
-        // request's arguments object passed through.
         expect(calls).toEqual([{ args: { a: 2, b: 3 } }]);
         expect(responder.state).toBe("Established");
         expect(client.state).toBe("Established");
@@ -1084,8 +970,6 @@ describe("connectResponder reverse invoke (invokeTool)", () => {
     async () => {
       const { responder, client } = await dialWithResponder();
       try {
-        // note: the tool IS negotiated but the dialer serves no handler for it —
-        // fail-closed serving → op_unsupported → D7 mapping.
         const result = await responder.invokeTool("tools.math.add", {
           a: 1,
           b: 2,
@@ -1108,9 +992,6 @@ describe("connectResponder reverse invoke (invokeTool)", () => {
   it(
     "maps a deny (not negotiated) to CAPABILITY_PORT_MISSING (dispatch gate)",
     async () => {
-      // why: the client manifest carries no tools, so the negotiated set lacks the
-      // tool capability and the dialer's dispatch gate denies the reverse
-      // invoke (frozen deny matrix: gate fail → op_unsupported).
       const noTools: HostCapabilityManifest = {
         ...schemaConformantManifest(),
         host_id: "test-client",
@@ -1161,15 +1042,6 @@ describe("connectResponder reverse invoke (invokeTool)", () => {
   it(
     "rejects a reverse invokeTool whose dialer success payload lacks a result key (INTERNAL_ERROR kind transport)",
     async () => {
-      // why: T2-M1 (folded) — the RESPONDER's reverse invokeTool { result } gate.
-      // The dialer's serving path answers a signed success envelope whose
-      // payload is NOT `{ result: <opaque JSON> }` — the frozen tool
-      // success-payload gate must reject instead of surfacing
-      // spokeOk(garbage). Wire-level injector on the CLIENT end: the
-      // dialer's outbound RESPONSES to reverse invokes are re-signed with
-      // malformed payloads (legitimately signed, so the responder's
-      // envelope-auth verify passes and the { result } gate is what
-      // rejects).
       const malformedPayloads: Record<string, unknown>[] = [
         {},
         { not_result: 1 },
@@ -1215,8 +1087,6 @@ describe("connectResponder reverse invoke (invokeTool)", () => {
             message: expect.stringContaining("payload decode failed"),
             details: { kind: "transport" },
           });
-          // note: the malformed payload fails only this waiter — the session
-          // stays usable for the next reverse invoke.
           expect(responder.state).toBe("Established");
           expect(client.state).toBe("Established");
         }
@@ -1231,17 +1101,12 @@ describe("connectResponder reverse invoke (invokeTool)", () => {
   it(
     "times out the waiter without closing the session (waiter-only timeout)",
     async () => {
-      // why: the dialer's handler never resolves — the request DID hit the wire
-      // (outbound sequence transmitted), so the waiter times out but the
-      // session stays usable on both ends (no poison-close).
       const { responder, client } = await dialWithResponder({
         responderTimeoutMs: 100,
       });
       try {
         client.registerToolHandler(
           "tools.echo.boom",
-          // why: `Promise.withResolvers` needs the ES2024 lib target, and a
-          // never-settling promise has no resolvers to call anyway.
           () => new Promise<never>(() => {}),
         );
         const timedOut = await responder.invokeTool("tools.echo.boom", {});
@@ -1272,15 +1137,6 @@ describe("connectResponder reverse invoke (invokeTool)", () => {
   it(
     "closes the session when a timed-out queued reverse invoke's send is skipped (poison-close mirror)",
     async () => {
-      // why: wire-level injector on the RESPONDER end — the FIRST outbound
-      // reverse invoke's send is delayed on the wire, and the second reverse
-      // invoke's send is serialized behind it (send tail) and times out
-      // while waiting, before its send ever starts. When the first send
-      // finally completes, the queued send is skipped: its waiter already
-      // settled, so transmitting it late would be a duplicate dispatch on
-      // the dialer. The skip must instead close the session (the allocated
-      // outbound sequence never hit the wire, so the dialer's inbound gate
-      // would be stuck at it), mirroring the adapter's `#invokeOp`.
       const sentSequences: number[] = [];
       let firstSendDelayed = false;
       const { responder, client } = await dialWithResponder({
@@ -1291,13 +1147,6 @@ describe("connectResponder reverse invoke (invokeTool)", () => {
             if ("op" in doc) {
               if (!firstSendDelayed) {
                 firstSendDelayed = true;
-                // note: real-clock delay is deliberate (integration exception) —
-                // the race under test IS between the responder's invoke
-                // timeout timer and a slow transport send, with both peers
-                // on real timers; fake timers cannot drive the loopback
-                // transport or WebCrypto signing. The 200ms wire delay sits
-                // far outside the 100ms invoke timeout, so the ordering is
-                // deterministic under load.
                 await delay(200);
               }
               sentSequences.push(doc.sequence as number);
@@ -1375,10 +1224,6 @@ describe("connectResponder forward tool serving", () => {
   it(
     "keeps the error path for a tools.* invoke whose any-JSON payload is null",
     async () => {
-      // why: regression guard (pre-fix semantics restored) — the wire `payload` is
-      // any-JSON, so a null payload reaches the tool-argument read with no
-      // structural gate on the serving side. It must fail into the serving
-      // error branch, never be defaulted to `{}` and handed to the handler.
       const responderCalls: { args: Record<string, unknown> }[] = [];
       const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =
         await startRawResponder();
@@ -1431,8 +1276,6 @@ describe("connectResponder forward tool serving", () => {
           message: "provider exploded",
         });
         expect(boomCalls).toEqual(["boom"]);
-        // note: loop damage check — the responder's serve loop survived, so a
-        // different forward invoke for a healthy handler still succeeds.
         responder.registerToolHandler("tools.math.add", async (args) =>
           spokeOk({ sum: (args.a as number) + (args.b as number) }),
         );
@@ -1470,11 +1313,6 @@ describe("connectResponder carried-over demo behaviors", () => {
   it(
     "still establishes on an empty capabilities intersection (snapshot fallback)",
     async () => {
-      // why: disjoint capability sets — the negotiated intersection is empty, so
-      // the responder's signed session snapshot must fall back to
-      // `["spoke-baseline"]` (wire minItems 1). The dialer computes its own
-      // intersection for gating, so the fallback has no authorization
-      // impact; the dial must simply establish.
       const clientOnly: HostCapabilityManifest = {
         ...schemaConformantManifest(),
         host_id: "test-client",
@@ -1508,10 +1346,6 @@ describe("connectResponder carried-over demo behaviors", () => {
     async () => {
       const { responder, client, pair } = await dialWithResponder();
       try {
-        // why: a frame that fails JSON decode is a protocol violation, so the
-        // responder's serve loop must actually close the transport (the
-        // carried-over demo behavior); a bare return would leave the
-        // client's established session hanging on its next invoke.
         await pair.client.send(new TextEncoder().encode("not json {{{"));
         await untilState(responder, "Closed", "responder");
         await untilState(client, "Closed", "client");
@@ -1581,10 +1415,6 @@ describe("connectResponder per-invoke gate (peek → verify → advance)", () =>
           pubkeyResponder,
           peerIdResponder,
         });
-        // note: a wire request whose `sequence` is present but is a STRING — the
-        // strict `InboundSequence.peek` throws → `invalid_sequence` deny
-        // (Rust mirrors this deny at the gate's sequence extraction: the
-        // normative deny-observability parity, not a silent `Stray`).
         const malformed = await signInvokeRequest(seedClient, {
           session_id: sessionId,
           sequence: "5" as unknown as number,
@@ -1629,9 +1459,6 @@ describe("connectResponder per-invoke gate (peek → verify → advance)", () =>
           pubkeyResponder,
           peerIdResponder,
         });
-        // note: wire-level tamper — mutate the payload AFTER signing, so the
-        // envelope-auth verify must fail BEFORE advance (auth-before-
-        // advance), answering auth_failed with the locked details.kind.
         const tampered = await signInvokeRequest(seedClient, {
           session_id: sessionId,
           sequence: 0,
@@ -1647,8 +1474,6 @@ describe("connectResponder per-invoke gate (peek → verify → advance)", () =>
         expect(rejection.error.code).toBe("auth_failed");
         expect(rejection.error.details?.kind).toBe("envelope_auth_invalid");
 
-        // note: auth-before-advance — the inbound counter is UNCHANGED, so the
-        // same sequence re-issued with a valid signature succeeds.
         const retry = await signInvokeRequest(seedClient, {
           session_id: sessionId,
           sequence: 0,
@@ -1676,8 +1501,6 @@ function manifestWithCaps(
   capabilities: readonly string[],
 ): HostCapabilityManifest {
   const base = schemaConformantManifest();
-  // why: every fixture host here serves the toy ports, including the knowledge
-  // face, so `spoke-knowledge` is always negotiated explicitly.
   const caps = [
     ...new Set([...base.capabilities, "spoke-knowledge", ...capabilities]),
   ] as [string, ...string[]];
@@ -1769,10 +1592,6 @@ describe("ke remote", () => {
         const joined = wireRequests.join("\n");
         expect(joined).not.toContain(LOADER_CANARY);
         expect(joined).toContain("run-ke-remote-1");
-        // why: both wire directions — the response bytes must carry the assembled
-        // batch (positive control) and no loader value (F1: no content
-        // channel; the request direction alone would leave the response
-        // unproven).
         const joinedResponses = wireResponses.join("\n");
         expect(joinedResponses).toContain("run-ke-remote-1");
         expect(joinedResponses).not.toContain(LOADER_CANARY);
@@ -2392,7 +2211,6 @@ describe("scope-bearing ops refuse a non-object payload", () => {
   const KNOWLEDGE_SCOPE_OPS = ["port.knowledge.get", "port.knowledge.put"];
   const NON_OBJECT_PAYLOADS: unknown[] = [null, "payload", 7, []];
 
-  /** note: counts the provider method behind every scope-bearing op. */
   function spyPorts(): { ports: BaselinePorts; calls: string[] } {
     const calls: string[] = [];
     const base = ToyWorldAdapter.withCommittedFixtures();
@@ -2426,7 +2244,6 @@ describe("scope-bearing ops refuse a non-object payload", () => {
     return { ports, calls };
   }
 
-  /** note: both hellos must negotiate `l5-fork` for the fork op's gate. */
   function withFork(hostId: string): HostCapabilityManifest {
     const base = toolManifest(hostId);
     return { ...base, capabilities: [...base.capabilities, "l5-fork"] };
@@ -2560,7 +2377,6 @@ describe("scope-bearing ops refuse a non-object payload", () => {
   }, 15000);
 });
 
-/** note: a promise plus the externally driven settle handles for a parked provider. */
 function parkingGate(): {
   promise: Promise<void>;
   release: () => void;
@@ -2569,21 +2385,12 @@ function parkingGate(): {
   let release!: () => void;
   let fail!: (error: unknown) => void;
   const promise = new Promise<void>((resolve, reject) => {
-    // why: the project's TS lib target predates `Promise.withResolvers` (ES2024).
     release = () => resolve();
     fail = (error) => reject(error);
   });
   return { promise, release, fail };
 }
 
-/**
- * note: provider double for the serve-budget cases: `listKnowledgeEntries`,
- * `compute` and `extract` record entry and park until the test releases (or
- * fails) the gate, so a witness can prove the responder's own local serve
- * budget bounded the wait while the dialer's budget stayed far longer. Every
- * other method delegates; the optional/fork faces stay absent (baseline-only
- * projection).
- */
 interface ParkedProvider {
   ports: BaselinePorts & Partial<RemoteExtractService>;
   calls: string[];
@@ -2616,11 +2423,6 @@ function parkedProvider(): ParkedProvider {
   return { ports, calls, release: gate.release, fail: gate.fail };
 }
 
-/**
- * note: inbound wire capture for the serve-wait witnesses: every frame the dialer
- * receives, decoded, so the served response can be asserted instead of an
- * elapsed-time proxy.
- */
 function wireCapture(
   frames: Record<string, unknown>[],
 ): (transport: Transport) => Transport {
@@ -2644,12 +2446,6 @@ function framesWith(
   return frames.filter((frame) => frame[field] !== undefined);
 }
 
-/**
- * note: outbound capture for the close-invalidation witnesses: every frame the
- * RESPONDER attempts to send, decoded. The attempt is the observable — the
- * loopback transport rejects a send once the connection is closed, so a
- * delivered frame can no longer be captured on the other end.
- */
 function sentCapture(
   frames: Record<string, unknown>[],
 ): (transport: Transport) => Transport {
@@ -2665,7 +2461,6 @@ function sentCapture(
   });
 }
 
-/** note: bounded poll (5s) until the parked provider has recorded `method` entry. */
 async function untilParked(
   parked: ParkedProvider,
   method: string,
@@ -2681,7 +2476,6 @@ async function untilParked(
   }
 }
 
-/** note: bounded poll (500ms) until every in-flight `#withServeBudget` wait has settled. */
 async function untilServeBudgetDrained(
   responder: ConnectResponder,
 ): Promise<void> {
@@ -2714,9 +2508,6 @@ describe("serve timeout (local serve budget)", () => {
   it(
     "bounds a parked Scope port provider, answers one signed timeout and keeps the session usable",
     async () => {
-      // why: the provider parks and the responder's own 25ms budget expires while
-      // the dialer's budget is far longer (2000ms), so the observed reject can
-      // only come from the serve-side bound.
       const parked = parkedProvider();
       const frames: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
@@ -2742,8 +2533,6 @@ describe("serve timeout (local serve budget)", () => {
         expect(errors).toHaveLength(1);
         expectServedTimeout(errors[0]!, 25);
 
-        // note: a late settlement is discarded — releasing the parked provider
-        // after expiry produces no second response.
         const payloads = framesWith(frames, "payload").length;
         parked.release();
         await delay(50);
@@ -2816,9 +2605,6 @@ describe("serve timeout (local serve budget)", () => {
   it(
     "bounds a parked extract service and consumes the late rejection",
     async () => {
-      // note: the whole extraction service (loader + extractor) is one bounded
-      // wait, and a late rejection is consumed — no unhandled rejection, no
-      // second response.
       const parked = parkedProvider();
       const frames: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
@@ -2896,8 +2682,6 @@ describe("serve timeout (local serve budget)", () => {
         expect(errors).toHaveLength(1);
         expectServedTimeout(errors[0]!, 0);
 
-        // note: the bounded wait never closes the session — a further invoke on
-        // the same session is answered on the wire again.
         expect(responder.state).toBe("Established");
         const again = await client.getKnowledgeEntry(MIRA_ENTRY_ID);
         expect(again.ok).toBe(false);
@@ -2917,9 +2701,6 @@ describe("serve timeout (local serve budget)", () => {
   it(
     "zero budget keeps gate, probe and ownership denials ahead of the bound",
     async () => {
-      // note: `l5-fork` negotiated, `l2-computable` not — one dial covers the
-      // capability deny, the optional-face probe deny and the payload-
-      // dependent ownership deny, all of which run before the serve bound.
       const parked = parkedProvider();
       const { responder, client, pair } = await dialWithResponder({
         ports: parked.ports,
@@ -2984,11 +2765,6 @@ describe("serve timeout (local serve budget)", () => {
   it(
     "zero budget answers INVALID_INPUT for a malformed knowledge payload (Rust decode_knowledge_call parity)",
     async () => {
-      // why: face split (QC W-001) closed by B2 — the TS face now mirrors the Rust
-      // `decode_knowledge_call`, so a malformed `port.knowledge.get` payload is
-      // decoded before the serve bound and keeps its `INVALID_INPUT`
-      // reject at any budget, with zero provider calls (the provider never
-      // starts).
       const baseline = asBaselineOnly(ToyWorldAdapter.withCommittedFixtures());
       const calls: string[] = [];
       const ports: BaselinePorts = {
@@ -3007,8 +2783,6 @@ describe("serve timeout (local serve budget)", () => {
           pubkeyResponder,
           peerIdResponder,
         });
-        // note: a non-string `entry_id` is malformed for the D4 row the Rust face
-        // decodes before its bound.
         const malformed = await signInvokeRequest(seedClient, {
           session_id: sessionId,
           sequence: 0,
@@ -3065,10 +2839,6 @@ describe("serve timeout (local serve budget)", () => {
   it(
     "answers nothing when the provider settles after the responder closed",
     async () => {
-      // why: a close releases the session, so a provider that settles afterwards
-      // must not answer a late success or a late error. The wide 200ms budget
-      // keeps the parked provider's release well inside the wait, so this
-      // witness covers the closed-state check rather than the timer.
       const parked = parkedProvider();
       const sent: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
@@ -3080,8 +2850,6 @@ describe("serve timeout (local serve budget)", () => {
       });
       try {
         const scope: Scope = { scope_id: "serve-timeout-scope" };
-        // note: the close fails the dialer's waiter (the session is gone), so the
-        // witness asserts the responder's own send attempts instead.
         void client.listKnowledgeEntries(scope).catch(() => undefined);
         await untilParked(parked, "listKnowledgeEntries");
         expect(parked.calls).toEqual(["listKnowledgeEntries"]);
@@ -3106,10 +2874,6 @@ describe("serve timeout (local serve budget)", () => {
   it(
     "settles the in-flight serve budget wait when the responder closes",
     async () => {
-      // why: close must settle `#withServeBudget`'s race, not only clear its timer —
-      // a never-released provider leaves `pending` unresolved, and a disarm
-      // that only clears the timer leaves `expired` unsettled too, so the
-      // fire-and-forget dispatch would hang indefinitely.
       const parked = parkedProvider();
       const sent: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
@@ -3148,10 +2912,6 @@ describe("serve timeout (local serve budget)", () => {
   it(
     "disarms the serve budget when the responder closes mid-wait",
     async () => {
-      // why: the armed serve timer must not outlive the close — past the 25ms
-      // budget a surviving timer would have answered the signed timeout, so
-      // the absence of any send attempt after the budget elapsed is the
-      // disarm witness. A provider settling later is discarded too.
       const parked = parkedProvider();
       const sent: Record<string, unknown>[] = [];
       const { responder, client, pair } = await dialWithResponder({
@@ -3216,7 +2976,6 @@ function memoryVectors(): MemoryVector[] {
   return fixture.vectors;
 }
 
-/** note: ops exercised end-to-end through the adapter + responder seam. */
 const MEMORY_VECTOR_OPS = [
   "memory.describe",
   "memory.capture",
@@ -3263,8 +3022,6 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
       clientManifest: memoryManifest("test-client"),
       responderManifest: memoryManifest("test-responder"),
     });
-    // note: the client-side `principal` is a local admission context — the host
-    // derives it from the authenticated peer, so it never rides the wire.
     const principal = { principal_id: "prn_local_caller", extensions: {} };
 
     try {
@@ -3344,8 +3101,6 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
         return spokeOk(vector.response);
       },
     };
-    // why: neither manifest declares the memory family, so the gate denies before
-    // the service is probed.
     const { responder, client } = await dialWithResponder({ ports });
 
     try {
@@ -3357,7 +3112,6 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
       if (!result.ok) {
         expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
         expect(result.details?.wire_code).toBe("capability_missing");
-        // note: per the protocol §14.2 rule, a memory-boundary deny is classified terminal.
         expect(result.details?.retry_class).toBe("terminal");
       }
       expect(calls).toBe(0);
@@ -3368,8 +3122,6 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
   });
 
   it("answers an unknown memory op with op_unsupported plus the terminal retry class", async () => {
-    // why: protocol §14.2 — the gate denies before the memory service is probed,
-    // so the terminal classification must ride the dispatch-deny envelope itself.
     const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =
       await startRawResponder({ manifest: memoryManifest("test-responder") });
     try {
@@ -3393,8 +3145,6 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
       expect(memoryDeny.error.code).toBe("op_unsupported");
       expect(memoryDeny.error.details?.retry_class).toBe("terminal");
 
-      // note: control — the classification stays memory-scoped, so an unknown op
-      // of another family keeps its bare `op_unsupported` envelope.
       const unknownOther = await signInvokeRequest(seedClient, {
         session_id: sessionId,
         sequence: 1,
@@ -3433,8 +3183,6 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
         expect(op).toBe("memory.capture");
         expect(payload.idempotency_key).toBe("cap-uncertain");
         if (commits === 0) {
-          // why: the provider commits after the responder's budget expires, so the
-          // transport cannot know whether the mutation landed.
           await delay(150);
           commits += 1;
         }
@@ -3475,8 +3223,6 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
   });
 
   it("reports OUTCOME_UNCERTAIN when the memory service throws after invocation", async () => {
-    // why: protocol §14.3 parity with the Rust detached-invoke panic — the provider
-    // died after admission, so a clean INTERNAL_ERROR would assert no-effect.
     const vector = memoryVectors().find((entry) => entry.op === "memory.capture");
     expect(vector).toBeDefined();
     const request = {

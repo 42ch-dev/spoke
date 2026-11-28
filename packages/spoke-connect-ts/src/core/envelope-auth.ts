@@ -110,8 +110,6 @@ export type InvokeResponseSignInput =
   | Omit<Extract<ConnectInvokeResponse, { payload: unknown }>, "signature" | "extensions">
   | Omit<Extract<ConnectInvokeResponse, { error: object }>, "signature" | "extensions">;
 
-// invariant: wire key sets are runtime whitelists, mirroring the locked field tables
-
 const SESSION_WIRE_KEYS: readonly string[] = [
   "session_id",
   "initiator_peer_id",
@@ -123,7 +121,6 @@ const SESSION_WIRE_KEYS: readonly string[] = [
   "extensions",
 ];
 
-/** invariant: signed fields of a `ConnectSession` (exactly these keys, no others). */
 const SESSION_SIGNED_KEYS: readonly string[] = [
   "session_id",
   "initiator_peer_id",
@@ -144,7 +141,6 @@ const INVOKE_REQUEST_WIRE_KEYS: readonly string[] = [
   "extensions",
 ];
 
-/** note: signed fields of a `ConnectInvokeRequest` (`auth` conditional, checked separately). */
 const INVOKE_REQUEST_SIGNED_KEYS: readonly string[] = [
   "session_id",
   "sequence",
@@ -171,14 +167,11 @@ const INVOKE_RESPONSE_ERROR_WIRE_KEYS: readonly string[] = [
   "extensions",
 ];
 
-/** note: signed fields common to both `ConnectInvokeResponse` branches (branch key checked separately). */
 const INVOKE_RESPONSE_SIGNED_KEYS: readonly string[] = [
   "session_id",
   "sequence",
   "request_id",
 ];
-
-// invariant: signed-object construction uses exact keys, no others
 
 function sessionSignedObject(session: SessionSignInput): Record<string, unknown> {
   return {
@@ -207,12 +200,6 @@ function invokeRequestSignedObject(
   return signedObject;
 }
 
-/**
- * note: fail-closed wire-shape guard: every wire key must be in the allowed set
- * (unknown keys = field-set drift ⇒ `envelope_auth_invalid`) and every
- * signed field must be present (a missing signed field is a malformed
- * signed object ⇒ `envelope_auth_invalid`).
- */
 function assertWireKeys(
   wire: Record<string, unknown>,
   allowed: readonly string[],
@@ -236,25 +223,12 @@ function assertWireKeys(
   }
 }
 
-/**
- * note: one root-relative wire path of a signed object (object keys; array
- * elements are transparent). Mirrors `RevisionPath` in
- * `crates/spoke-connect/src/core/jcs.rs`.
- */
 type RevisionPath = readonly string[];
 
-/** note: inclusive revision endpoint (`2^53`) — the Rust `EXACT_INTEGER_BOUND`. */
 const EXACT_INTEGER_BOUND = 2 ** 53;
 
-/** note: the path state of a subtree no declared revision path reaches. */
 const NO_REVISION_PATHS: readonly RevisionPath[] = [];
 
-/**
- * note: request paths that own a revision integer, per op — the Rust
- * `REQUEST_REVISION_PATHS` tables (`.agents/specs/connect/spoke-connect.md`
- * §Signature canonicalization). A member outside these paths is product
- * data: its key spelling never assigns a revision domain.
- */
 const REQUEST_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> = {
   "history.revisions.get": [["payload", "revision"]],
   "history.revisions.prune": [["payload", "keep"]],
@@ -298,16 +272,6 @@ const REQUEST_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> 
   ],
 };
 
-/**
- * note: response paths that own a revision integer, per op — mirrors the
- * Rust `RESPONSE_REVISION_PATHS` table (derived from
- * `schemas/ops/*-response.schema.json` plus the bare entity payloads of the
- * `port.*` reads and writes). A response envelope carries no `op`, so the
- * caller supplies the request op that produced it and only that op's set
- * applies — own-keyed, empty fallback — so no response inherits another
- * op's exception. The same set also applies under the reverse-invoke
- * success wrapper `payload.result` (frozen §4).
- */
 const RESPONSE_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>> = {
   extract: [
     ["payload", "candidates", "adoption_anchor", "source_revision"],
@@ -388,12 +352,6 @@ const RESPONSE_REVISION_PATHS: Readonly<Record<string, readonly RevisionPath[]>>
   ],
 };
 
-/**
- * note: the adoption refusal vocabulary belongs to `REVISION_CONFLICT`
- * alone (spoke-knowledge-adoption §Refusal vocabulary), so a generic
- * rejection on the same op owns no revision slot. Mirrors the Rust
- * `ADOPTION_*_CONFLICT_PATH` gate.
- */
 const ADOPTION_CONFLICT_CODE = "REVISION_CONFLICT";
 const ADOPTION_TRANSPORT_CONFLICT_PATH: RevisionPath = [
   "error",
@@ -407,7 +365,6 @@ const ADOPTION_SERVED_CONFLICT_PATH: RevisionPath = [
   "adopted_revision",
 ];
 
-/** note: the adoption conflict detail, admitted only on its owning discriminator. */
 function adoptionConflictPaths(
   signedObject: Record<string, unknown>,
   op: string | undefined,
@@ -434,38 +391,28 @@ function adoptionConflictPaths(
   return paths;
 }
 
-/** note: the owning revision paths of one signed object (Rust `revision_paths`). */
 function revisionPaths(
   signedObject: Record<string, unknown>,
   op?: string,
 ): readonly RevisionPath[] {
   const signedOp = signedObject.op;
   if (typeof signedOp === "string") {
-    // note: own-key lookup — the open op vocabulary admits prototype names
-    // such as `constructor`, which own no paths and must not inherit one.
     return Object.hasOwn(REQUEST_REVISION_PATHS, signedOp)
       ? REQUEST_REVISION_PATHS[signedOp]
       : NO_REVISION_PATHS;
   }
   if ("payload" in signedObject || "error" in signedObject) {
-    // note: one variant per response — a transport error at the root or a
-    // served `payload.error` owns no success path, so a malformed payload
-    // carrying both `entry` and `error` cannot borrow the success set.
     const payload = signedObject.payload;
     const errorVariant =
       "error" in signedObject ||
       (typeof payload === "object" &&
         payload !== null &&
         "error" in (payload as Record<string, unknown>));
-    // note: own-key lookup — an absent or unlisted op owns no response path.
     const paths = errorVariant
       ? NO_REVISION_PATHS
       : op !== undefined && Object.hasOwn(RESPONSE_REVISION_PATHS, op)
         ? RESPONSE_REVISION_PATHS[op]
         : NO_REVISION_PATHS;
-    // note: a reverse-invoke success wraps the served value as
-    // `payload.result` (frozen §4), so the same op's declared paths apply
-    // one level deeper on that branch.
     const served: readonly RevisionPath[] = paths.map((path) => [
       "payload",
       "result",
@@ -477,19 +424,6 @@ function revisionPaths(
   return [];
 }
 
-/**
- * why: the signed-boundary member domain (Rust `core/jcs.rs` parity, qc2
- * C-QC2-01): an integer past `2^53 - 1` is signable only at a declared
- * revision path, and there only at the exact `±2^53` endpoint — every other
- * value has no shared IEEE-754 identity with the peer, so signing refuses it
- * instead of rounding it into the signed identity.
- *
- * The refusal mirrors the Rust integer-token range: `serde_json` keeps an
- * integer token as `u64`/`i64` until that range overflows and only then falls
- * back to `f64`, so `[2^53, 2^64)` and `[-2^63, -2^53]` are the values
- * `serde_jcs` refuses; a wider `f64` keeps the shared spelling both stacks
- * emit for it.
- */
 function assertRevisionDomain(
   value: unknown,
   paths: readonly RevisionPath[],
@@ -511,8 +445,6 @@ function assertRevisionDomain(
     return;
   }
   if (Array.isArray(value)) {
-    // note: an array element shares its array's path — positional indexes are
-    // not wire members, so the element never owns a revision slot itself.
     for (const element of value) {
       assertRevisionDomain(element, paths, depth, false);
     }
@@ -534,9 +466,6 @@ function assertRevisionDomain(
         continuations.push(path);
       }
     }
-    // note: carry only the paths whose prefix already matched, so a sibling
-    // path never supplies this member's component. A member no path owns
-    // keeps no path state, but its subtree still faces the endpoint refusal.
     if (terminal) {
       assertRevisionDomain(member, NO_REVISION_PATHS, depth + 1, true);
     } else if (continuations.length === 0) {
@@ -574,14 +503,6 @@ async function signEnvelope(
   return base64UrlEncode(await signEd25519(secret, bytes));
 }
 
-/**
- * why: verify steps 1–2 (locked order): the `signature` field must be present
- * and non-empty (`envelope_auth_missing`), then it must decode and
- * round-trip through `encode(decode(sig)) === sig` — the unique canonical
- * RFC 4648 base64url no-padding encoding, rejecting alternate encodings of
- * the final character's slack bits and padded input — and be exactly 64
- * bytes (`envelope_auth_invalid`).
- */
 function requireSignature(signatureField: unknown): Uint8Array {
   if (typeof signatureField !== "string" || signatureField === "") {
     throw new EnvelopeAuthError(
@@ -613,12 +534,6 @@ function requireSignature(signatureField: unknown): Uint8Array {
   return signature;
 }
 
-/**
- * note: verify steps 4–5 (locked order): JCS-canonicalize the signed object and
- * Ed25519-verify the decoded signature against the peer's hello public key.
- * A non-32-byte public key is adapter-supplied misuse → `CoreError("crypto")`
- * (mirrors `verifyHelloEd25519`), not a wire rejection.
- */
 async function verifyCanonicalSignature(
   publicKey: Uint8Array,
   signedObject: Record<string, unknown>,

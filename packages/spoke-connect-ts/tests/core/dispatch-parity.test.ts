@@ -15,19 +15,11 @@ import {
 } from "../../src/core/dispatch.js";
 import { negotiatedCapabilities } from "../../src/core/session.js";
 
-/**
- * why: `tokenAuthorizesOp` parity tests — mirror
- * `crates/spoke-connect/src/core/dispatch.rs` unit tests
- * (`token_grant_authorizes_by_membership`,
- * `token_grant_missing_requirement_denies`,
- * `token_grant_unknown_ops_fail_closed`).
- */
 const BASELINE_OPS = ["upsert", "promote", "relate", "check", "assemble"];
 const COMPUTABLE_OPS = ["project", "compute"];
 
 describe("tokenAuthorizesOp (port of dispatch.rs token_authorizes_op)", () => {
   it("authorizes by membership of the required capability (subset-of-grant)", () => {
-    // why: extra capabilities on the token are ignored when unused.
     expect(
       tokenAuthorizesOp(CAPABILITY_SPOKE_BASELINE, [
         "spoke-baseline",
@@ -36,7 +28,6 @@ describe("tokenAuthorizesOp (port of dispatch.rs token_authorizes_op)", () => {
       ]),
     ).toBe(true);
     expect(tokenAuthorizesOp(CAPABILITY_L2_COMPUTABLE, ["l2-computable"])).toBe(true);
-    // why: the grant is NOT an exact-list match: a subset suffices.
     expect(
       tokenAuthorizesOp(CAPABILITY_SPOKE_BASELINE, [
         "spoke-baseline",
@@ -77,7 +68,6 @@ describe("tokenAuthorizesOp (port of dispatch.rs token_authorizes_op)", () => {
         false,
       );
     }
-    // why: unknown op: no requirement → never authorized by the token gate.
     expect(
       tokenAuthorizesOp(requiredCapability("custom-op"), ["spoke-baseline"]),
     ).toBe(false);
@@ -95,10 +85,7 @@ describe("tools.* prefix rule (parity golden vector, frozen §3)", () => {
   });
 
   it("dispatchAllowed authorizes only when the exact capability is negotiated", () => {
-    // why: authorized: the tool capability string itself is negotiated.
     expect(dispatchAllowed(TOOL_OP, [TOOL_OP])).toBe(true);
-    // why: not negotiated / wrong capability: denied (the self-describing tool
-    // gate never consults an umbrella flag or the baseline capability).
     expect(dispatchAllowed(TOOL_OP, [CAPABILITY_SPOKE_BASELINE])).toBe(false);
     expect(dispatchAllowed(TOOL_OP, [CAPABILITY_L2_COMPUTABLE])).toBe(false);
     expect(dispatchAllowed(TOOL_OP, [])).toBe(false);
@@ -126,12 +113,6 @@ describe("ke remote", () => {
   });
 });
 
-// why: memory family (SPOKE memory protocol §4.1/§13) token grants — parity twin
-// of the Rust `core::dispatch::tests` memory block. Three flags gate disjoint
-// op groups, and the token grant is a second, independent boundary next to
-// the negotiated set: a grant carrying only a sibling flag never authorizes a
-// row. The op lists stay explicit so a per-row drift between the languages
-// fails one of the two suites.
 describe("memory family token grants (parity with dispatch.rs)", () => {
   const MEMORY_CORE_OPS = [
     "memory.describe",
@@ -220,8 +201,6 @@ describe("memory family token grants (parity with dispatch.rs)", () => {
 describe("spoke-cognition family (parity with dispatch.rs)", () => {
   it("has one canonical family constant and no op-table row", () => {
     expect(CAPABILITY_SPOKE_COGNITION).toBe("spoke-cognition");
-    // why: the requirement is payload-only: no op names the family, so an
-    // unnegotiated family never denies an ordinary call.
     for (const op of [
       "upsert",
       "check",
@@ -238,8 +217,6 @@ describe("spoke-cognition family (parity with dispatch.rs)", () => {
   });
 
   it("locates the op's declared requirement member on the raw payload", () => {
-    // why: only the actual carrier of the dispatched operation can demand
-    // cognition; every slot below comes from the registered request schema.
     expect(
       cognitionRequirementField("check", {
         scope: { scope_id: "s", cognition: { view: "current" } },
@@ -255,12 +232,9 @@ describe("spoke-cognition family (parity with dispatch.rs)", () => {
         cognition_filter: { state: { eq: "known" } },
       }),
     ).toBe("cognition_filter");
-    // why: a present `null` is a requirement (malformed), never "absent".
     expect(
       cognitionRequirementField("memory.recall", { cognition_filter: null }),
     ).toBe("cognition_filter");
-    // why: the slots are disjoint per op, so unrelated data can never stand in
-    // front of the op's real requirement.
     expect(
       cognitionRequirementField("memory.records.list", {
         cognition: {},
@@ -277,8 +251,6 @@ describe("spoke-cognition family (parity with dispatch.rs)", () => {
       cognitionRequirementPresent("port.finding.put", { findings: [] }),
     ).toBe(false);
     expect(cognitionRequirementPresent("check", { scope: "s" })).toBe(false);
-    // why: tool arguments, a Memory filter on a Scope op, and any opaque
-    // `cognition` member elsewhere are ordinary payload data.
     expect(
       cognitionRequirementPresent("tools.math.add", {
         arguments: {},
@@ -299,8 +271,6 @@ describe("spoke-cognition family (parity with dispatch.rs)", () => {
         scope: { scope_id: "s", cognition: { view: "current" } },
       }),
     ).toBe(false);
-    // why: a Memory content write's `content.cognition` is written data, not a
-    // request requirement; its placement `scope` is unrelated payload too.
     expect(
       cognitionRequirementPresent("memory.records.create", {
         content: { cognition: { records: [] } },
@@ -315,8 +285,6 @@ describe("spoke-cognition family (parity with dispatch.rs)", () => {
   });
 
   it("never derives the family from the legacy flag", () => {
-    // why: the negotiation is the plain intersection: `l5-mind` on one side grants
-    // nothing, and no alias exists on either side.
     expect(negotiatedCapabilities(["l5-mind"], ["spoke-cognition"])).toEqual([]);
     expect(negotiatedCapabilities(["spoke-cognition"], ["l5-mind"])).toEqual([]);
   });

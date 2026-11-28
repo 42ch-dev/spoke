@@ -9,24 +9,8 @@ import {
   type SpokeResult,
 } from "../result.js";
 
-// note: Pure wire-shape gates for the frozen spoke-cognition family
-// (schemas/data/cognition.schema.json). These guards check required/variant
-// fields, closed/open keys, enums, reference/tuple shape, target-chain/order
-// consistency, non-empty evidence/prior basis, category/assertion/metric
-// compatibility, view placement, filter grammar and projection group/trace
-// consistency only. They never resolve references, judge evidence
-// sufficiency, compute probabilities or perform I/O.
-
-/**
- * note: Placement of a standard record — holder-side current authority
- * (`view = "current"`) or recorded-at-time Memory content
- * (`view = "recorded_at"`). Absent placement means placement-agnostic
- * shape validation (both views are enum-valid).
- */
 type CognitionPlacement = "authority" | "memory";
 
-// note: Closed vocabularies (cognition.schema.json). Static membership tables are
-// Records, matching the existing validator convention.
 const REFERENCE_KINDS: Record<string, true> = {
   knowledge_entry: true,
   timeline_event: true,
@@ -117,8 +101,6 @@ const EPISODE_KINDS: Record<string, true> = {
   external: true,
 };
 
-// note: Fixed metric key → estimand mapping — the key is present only when its
-// distinct estimate exists, and no cross-estimand arithmetic is inferred.
 const KEY_ESTIMAND: Record<string, string> = {
   b: "holder_credence",
   p: "capture",
@@ -131,15 +113,12 @@ const CATEGORY_METRIC_KEYS: Record<string, string[]> = {
   perception: ["p", "f", "r"],
   epistemic: ["k", "r"],
 };
-// note: q.assertion per epistemic state (no-record is a projection state, not an
-// enum value).
 const EPISTEMIC_ASSERTIONS: Record<string, string> = {
   known: "knowledge_criterion",
   ignorant: "ignorance_criterion",
   undetermined: "assessor_indeterminacy",
 };
 
-// note: Closed-envelope property tables (additionalProperties: false).
 const REFERENCE_KEYS: Record<string, true> = {
   kind: true,
   id: true,
@@ -334,7 +313,6 @@ const PROJECTION_ITEM_KEYS: Record<string, true> = {
   selection: true,
 };
 
-// note: Required identity realm for every reference kind.
 const NAMESPACE_RE = /^[a-z][a-z0-9_-]*$/;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -366,8 +344,6 @@ function isExtensionMap(value: unknown): boolean {
     Object.entries(value).every(([key, entry]) => NAMESPACE_RE.test(key) && isPlainObject(entry));
 }
 
-// invariant: finite declared probability in the closed 0..1 range; 0 and 1 are admitted
-// only as deliberately assigned values, never label defaults.
 function isProbability01(value: unknown): value is number {
   return (
     typeof value === "number" &&
@@ -376,24 +352,6 @@ function isProbability01(value: unknown): value is number {
     value <= 1
   );
 }
-
-// note: --- C5 diagnostic grammar -------------------------------------------
-//
-// Every `check*` below returns the relative path of the first member that
-// fails that grammar, or `undefined` when the value passes. A failure with no
-// member path (`null`) names the checked value itself, so a cross-field
-// failure (reversed `q` bounds, a predicate with two arms) or a non-object
-// keeps its enclosing member's path. Member names are rendered where they are
-// discovered: an ordinary identifier stays dotted (`holder.id`), any other
-// name keeps its JSON-quoted bracket form (`q[""]`, `q["a.b"]`), so an empty
-// member never collides with the enclosing object's own failure. Paths are
-// built only on failure, and one traversal walks the original value: no probe
-// copies and no second schema map.
-
-/**
- * note: `undefined` passes; `null` is the checked value itself; a string is the
- * rendered relative path of the failing member.
- */
 type Problem = string | null;
 
 const MEMBER_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -406,7 +364,6 @@ function childPath(name: string, problem: Problem): string {
   if (problem === null) {
     return name;
   }
-  // note: A rendered non-identifier member already carries its brackets.
   return problem.startsWith("[")
     ? `${name}${problem}`
     : `${name}.${problem}`;
@@ -431,7 +388,6 @@ function checkOptional(
   return problem === undefined ? undefined : childPath(key, problem);
 }
 
-// note: Complete (kind, namespace, id) tuple identity; shape only — no resolution.
 function checkCognitionReference(value: unknown): Problem | undefined {
   if (!isPlainObject(value)) {
     return null;
@@ -456,7 +412,6 @@ function isCognitionReference(value: unknown): value is Record<string, unknown> 
   return checkCognitionReference(value) === undefined;
 }
 
-// note: Target chain never exceeds 3; `depth` counts nested `about` links.
 function isCognitionTarget(value: unknown, depth: number): boolean {
   if (depth > 2 || !isPlainObject(value) || !hasOnlyKeys(value, TARGET_KEYS)) {
     return false;
@@ -506,9 +461,6 @@ function isCognitionCriterion(value: unknown): boolean {
   );
 }
 
-// note: Every completed standard assessment/metric has a non-empty evidence basis
-// or an explicit declared prior basis; a declared basis may remain
-// uncalibrated and supplies no default probability, interval or calibration.
 function isAssessmentBasis(value: unknown): boolean {
   if (!isPlainObject(value) || !hasOnlyKeys(value, BASIS_KEYS)) {
     return false;
@@ -534,9 +486,6 @@ function isAssessmentBasis(value: unknown): boolean {
   return false;
 }
 
-// invariant: 0 <= lower <= upper <= 1; level strictly inside (0, 1); kind "other"
-// requires an explicit description. Unquantified uncertainty is an absent
-// `uncertainty`, never a fabricated zero-width interval.
 function isProbabilityUncertainty(value: unknown): boolean {
   if (!isPlainObject(value) || !hasOnlyKeys(value, UNCERTAINTY_KEYS)) {
     return false;
@@ -590,7 +539,6 @@ function isTimestamp(value: unknown): boolean {
   return typeof value === "string" && isStrictTimestamp(value);
 }
 
-// note: A single metric whose estimand is fixed by its enclosing metrics key.
 function isCognitionMetric(value: unknown, estimand: string): boolean {
   if (!isPlainObject(value) || !hasOnlyKeys(value, METRIC_KEYS)) {
     return false;
@@ -619,8 +567,6 @@ function isCognitionMetric(value: unknown, estimand: string): boolean {
   return value.criterion === undefined || isCognitionCriterion(value.criterion);
 }
 
-// note: Category-compatible metric keys only, each with its fixed estimand; absent
-// keys are ordinary missing data, never zero or unsupported features.
 function isCognitionMetrics(value: unknown, category: string): boolean {
   if (!isPlainObject(value) || !hasOnlyKeys(value, METRICS_KEYS)) {
     return false;
@@ -667,8 +613,6 @@ function duplicateEstimate(record: Record<string, unknown>, category: string): b
     (key !== "k" || sameJson(record.criterion, metric.criterion));
 }
 
-// note: Shared required members of the three completed standard record variants.
-// The holder is an actor/group and never kind = world.
 function isAssessmentMembers(
   value: Record<string, unknown>,
   category: string,
@@ -731,7 +675,6 @@ function isBeliefRecord(
   ) {
     return false;
   }
-  // note: Retained Belief dimensions; every optional dimension is a closed enum.
   if (
     (value.truth !== undefined &&
       (typeof value.truth !== "string" || TRUTHS[value.truth] !== true)) ||
@@ -762,8 +705,6 @@ function isBeliefRecord(
   if (chain > 3) {
     return false;
   }
-  // note: order 1 — about absent; order 2/3 — about present and chain depth equals
-  // the order. order 0 keeps the shared vocabulary without a chain rule.
   if (order === 1 && target.about !== undefined) {
     return false;
   }
@@ -810,7 +751,6 @@ function isEpistemicAssessment(
   );
 }
 
-// note: Actual capture constraints if known; open — unknown keys round-trip verbatim.
 function isObservationAccess(value: unknown): boolean {
   if (!isPlainObject(value)) {
     return false;
@@ -859,7 +799,6 @@ function isPerceptionRecord(
   if (!isCognitionTarget(target, 0)) {
     return false;
   }
-  // note: Perception target and episode share the complete carrier reference.
   const targetObject = target as Record<string, unknown>;
   if (targetObject.kind !== "perceived_content" && targetObject.kind !== "episode") return false;
   const episode = value.episode as Record<string, unknown>;
@@ -877,16 +816,6 @@ function isPerceptionRecord(
   return isAssessmentMembers(value, "perception", "actual_capture", placement);
 }
 
-/**
- * note: Wire-shape gate for a closed standard cognition record (Belief, epistemic
- * or Perception variant).
- *
- * When `placement` is supplied, the record `view` must match the placement:
- * `"authority"` requires `view = "current"` and `"memory"` requires
- * `view = "recorded_at"` (Memory recorded-at-time shape). Without a
- * placement, both views are shape-valid. Pure validation only — no reference
- * resolution, evidence-sufficiency judgement or probability calculation.
- */
 function validatePlacedRecord(
   value: unknown,
   placement?: CognitionPlacement,
@@ -910,14 +839,10 @@ export function validateCognitionRecord(value: unknown): value is CognitionRecor
   return validatePlacedRecord(value);
 }
 
-// note: `record_id` is unique within one carrier (§3) and nowhere else, so the same
-// id may still identify different records in another carrier.
 function hasDistinctRecordIds(records: readonly CognitionRecord[]): boolean {
   return new Set(records.map((record) => record.record_id)).size === records.length;
 }
 
-// note: One carrier's record list — every entry is a placed record of that carrier's
-// view and the ids are distinct, so the trace can name one record.
 function validateCarrierRecords(
   value: unknown,
   view: "current" | "recorded_at",
@@ -932,8 +857,6 @@ function validateCarrierRecords(
 }
 
 export function validateCognitionContent(value: unknown): boolean {
-  // note: In-process spreads keep the key with value `undefined`; that is the
-  // absent state, like every sibling optional member. Explicit `null` is not.
   return isPlainObject(value) &&
     (value.cognition === undefined ||
       validateCarrierRecords(value.cognition, "recorded_at"));
@@ -943,7 +866,6 @@ function isWorldFactRecord(value: unknown): boolean {
   if (!isPlainObject(value) || !hasOnlyKeys(value, WORLD_FACT_KEYS)) {
     return false;
   }
-  // note: Narrated order-0 facts — the holder is the designated world authority.
   if (
     !isNonEmptyString(value.fact_id) ||
     !isCognitionReference(value.holder) ||
@@ -1012,7 +934,6 @@ export function validateObservationModule(value: unknown): boolean {
   );
 }
 
-// note: Categorical predicate — exactly one of {eq: <enum member>} or {absent: true}.
 function checkCategoricalPredicate(
   value: unknown,
   members: Record<string, true>,
@@ -1021,7 +942,6 @@ function checkCategoricalPredicate(
     return null;
   }
   const keys = Object.keys(value);
-  // note: A genuine unknown member outranks the arm count — name it where it is.
   const unknown = keys.find((key) => key !== "eq" && key !== "absent");
   if (unknown !== undefined) {
     return renderMember(unknown);
@@ -1041,14 +961,11 @@ function checkCategoricalPredicate(
     : "eq";
 }
 
-// note: Closed fork predicate — exactly one of {eq: <non-empty fork id>} or
-// {absent: true}. An omitted predicate is a wildcard and valid.
 function checkForkIdPredicate(value: unknown): Problem | undefined {
   if (!isPlainObject(value)) {
     return null;
   }
   const keys = Object.keys(value);
-  // note: A genuine unknown member outranks the arm count — name it where it is.
   const unknown = keys.find((key) => key !== "eq" && key !== "absent");
   if (unknown !== undefined) {
     return renderMember(unknown);
@@ -1066,9 +983,6 @@ function checkForkIdPredicate(value: unknown): Problem | undefined {
   return isNonEmptyString(value.eq) ? undefined : "eq";
 }
 
-// note: Inclusive range over the declared foundational q.value; at least one bound
-// is required and min <= max. Uncalibrated but declared values participate
-// identically — the validator checks the grammar, not the semantics.
 function checkQRange(value: unknown): Problem | undefined {
   if (!isPlainObject(value)) {
     return null;
@@ -1092,7 +1006,6 @@ function checkQRange(value: unknown): Problem | undefined {
     : null;
 }
 
-// note: Filter target predicate — closed carrier/target_id/kind envelope.
 function checkTargetPredicate(value: unknown): Problem | undefined {
   if (!isPlainObject(value)) {
     return null;
@@ -1117,7 +1030,6 @@ function checkTargetPredicate(value: unknown): Problem | undefined {
   return undefined;
 }
 
-// note: Filter assessment-context predicate — closed context_id/fork_id envelope.
 function checkContextPredicate(value: unknown): Problem | undefined {
   if (!isPlainObject(value)) {
     return null;
@@ -1162,13 +1074,6 @@ function cognitionReject(problem: Problem, message: string): SpokeReject {
   );
 }
 
-/**
- * note: Relative path of the first member that fails the closed CognitionFilter
- * grammar, or `undefined` when the filter passes. Bare numeric keys and
- * schema-unknown predicates are not standard probability filters and fail
- * the closed envelope. Pure grammar validation only — predicates are not
- * evaluated against any record set here.
- */
 function checkCognitionFilter(value: unknown): Problem | undefined {
   if (!isPlainObject(value)) {
     return null;
@@ -1264,20 +1169,12 @@ function isSelectionPolicyIdentity(value: unknown): boolean {
   return checkSelectionPolicyIdentity(value) === undefined;
 }
 
-// note: Union of the CognitionSelection envelope members; the view decides which
-// subset is admitted.
 const SELECTION_KEYS: Record<string, true> = {
   view: true,
   filter: true,
   selection_policy: true,
 };
 
-/**
- * note: Relative path of the first member that fails the CognitionSelection union:
- * `view = "current"` requires an explicitly identified `selection_policy`;
- * `view = "recorded_at"` carries a filter only. The library verifies the
- * policy identity is present — it supplies no policy algorithm.
- */
 function checkCognitionSelection(value: unknown): Problem | undefined {
   if (!isPlainObject(value)) {
     return null;
@@ -1336,11 +1233,6 @@ function isSelectionTrace(value: unknown): boolean {
   );
 }
 
-// note: One item and its assessments describe one source group (§5.3) — the same
-// complete holder reference, target identity (carrier tuple, kind, target_id
-// — never text/about) and assessment context. Record ids are never compared
-// here: an item aggregates records from separate carriers, and a `record_id`
-// is unique only within its own carrier (§3).
 function isSameGroupMember(
   item: Record<string, unknown>,
   record: CognitionRecord,
@@ -1389,15 +1281,9 @@ function isCognitionProjectionItem(
   }
   const assessments = value.assessments as CognitionRecord[];
   const recordIds = assessments.map((record) => record.record_id);
-  // note: Duplicate ids reject inside a carrier only (validateCarrierRecords); two
-  // carriers may each contribute the same local id to one item.
   if (!assessments.every((record) => isSameGroupMember(value, record))) {
     return false;
   }
-  // note: The current selection trace is required iff view = current and presence
-  // = assessed; recorded-at-time projection has no current selection. Its
-  // candidates are exactly this item's assessments, so the selected id always
-  // names a record the item carries.
   if (withSelection) {
     if (value.selection === undefined || !isSelectionTrace(value.selection)) {
       return false;

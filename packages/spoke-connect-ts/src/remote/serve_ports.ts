@@ -1,19 +1,3 @@
-/**
- * note: the `spoke-history` serving face (spoke-history contract §Connect
- * operations / §9.1). `RemoteHistoryService` is the invoke seam the
- * responder calls for both `history.*` ops; `HistoryPortService` adapts a
- * provider `HistoryPort` to that face, mirroring `RemoteMemoryService` /
- * `MemoryPortService` (Rust parity: `crates/spoke-connect/src/remote/
- * serve_ports.rs`).
- *
- * The service owns the three concerns the contract keeps OUT of
- * `HistoryPort`: peer admission (`HistoryAdmission` maps the authenticated
- * `peer_id` to the `Principal` and admitted `Scope`), effective-scope
- * resolution (a present request `scope` MUST equal the admission; absent
- * uses the admission), and prune deduplication (the recorded-outcome model
- * keyed `(effective_scope, requester_principal_id, op, idempotency_key)`).
- */
-
 import canonicalize from "canonicalize";
 
 import type {
@@ -62,9 +46,7 @@ export type HistoryAdmission = (
   scopeId?: string,
 ) => SpokeResult<{ principal: Principal; scope: Scope }>;
 
-/** note: `history.revisions.get` wire op. */
 export const HISTORY_OP_GET = "history.revisions.get";
-/** note: `history.revisions.prune` wire op. */
 export const HISTORY_OP_PRUNE = "history.revisions.prune";
 
 /**
@@ -124,7 +106,6 @@ function decodeHistoryScope(
   return spokeOk(scope as unknown as Scope);
 }
 
-/** note: closed request shapes (Rust `deny_unknown_fields` parity). */
 const HISTORY_GET_WIRE_KEYS = new Set([
   "entity_kind",
   "entity_id",
@@ -223,10 +204,6 @@ export function decodeHistoryCall(
         );
       }
       const key = payload.idempotency_key;
-      // note: the wire bound is 1–128 Unicode code points (schema
-      // `maxLength`; Rust parity: the generated parser's
-      // `chars().count()`), not UTF-16 code units — supplementary-plane
-      // keys that fit the schema bound must be admitted.
       if (
         typeof key !== "string" ||
         [...key].length === 0 ||
@@ -247,8 +224,6 @@ export function decodeHistoryCall(
       });
     }
     default:
-      // note: unreachable — the allowedKeys guard rejected non-history ops;
-      // kept so the switch is exhaustive.
       return spokeReject(
         SpokeRejectCode.CAPABILITY_PORT_MISSING,
         `unimplemented history op ${op}`,
@@ -430,8 +405,8 @@ function settleDedupKey<T>(
  * for the lifetime of the store, so a replayed evicted key answers
  * `RECEIPT_EXPIRED` forever — never `unseen`.
  *
- * shortcut: tombstones grow unboundedly with distinct evicted keys; a
- * durable host store owns the bounded-retention guarantee.
+ * shortcut: tombstones grow unboundedly with distinct evicted keys;
+ * upgrade: a durable host store owns bounded retention.
  */
 export class InMemoryHistoryDedupStore implements HistoryDedupStore {
   readonly #maxEntries: number;
@@ -440,12 +415,6 @@ export class InMemoryHistoryDedupStore implements HistoryDedupStore {
     { payloadDigest: string; outcome: unknown }
   >();
   readonly #tombstones = new Map<string, true>();
-  /**
-   * note: keyed single-flight (spoke-knowledge-adoption contract §Repeat
-   * and idempotency) — one in-flight execution chain per dedup key, owned
-   * by the store object itself so every service instance sharing it
-   * serializes the SAME key while unrelated keys proceed concurrently.
-   */
   readonly #inFlight = new Map<string, Promise<unknown>>();
 
   constructor(options?: { maxEntries?: number }) {
@@ -542,10 +511,6 @@ export class HistoryPortService implements RemoteHistoryService {
     op: string,
     payload: unknown,
   ): Promise<SpokeResult<unknown>> {
-    // note: the closed request decode runs BEFORE admission (contract: a
-    // malformed payload answers INVALID_INPUT before admission, dedup and any
-    // port call; Rust parity: `decode_history_call` then `admit`). The
-    // selector therefore comes from the decoded call, never the raw payload.
     const decoded = decodeHistoryCall(op, payload);
     if (!decoded.ok) {
       return decoded;
@@ -556,9 +521,6 @@ export class HistoryPortService implements RemoteHistoryService {
       return admitted;
     }
     const { principal, scope: admittedScope } = admitted.value;
-    // note: a present request scope MUST equal the admitted scope (contract
-    // §Connect operations); equality is membership-independent — canonical
-    // JSON — because the contract admits no subset semantics for history.
     if (call.scope !== undefined) {
       const scopeEqual =
         canonicalize(call.scope) === canonicalize(admittedScope);
@@ -586,8 +548,6 @@ export class HistoryPortService implements RemoteHistoryService {
       if (!result.ok) {
         return result;
       }
-      // note: serving-side success validation (contract §9: the serving face
-      // validates provider output before emitting).
       return validServedSnapshot(result.value, call);
     }
     return this.#invokePrune(principal, effectiveScope, op, payload, call);
@@ -604,15 +564,6 @@ export class HistoryPortService implements RemoteHistoryService {
     if (!digestResult.ok) {
       return digestResult;
     }
-    // note: the dedup key is the RFC 8785 canonical JSON serialization of
-    // the ordered retry-identity tuple `(op, effective_scope,
-    // requester_principal_id, idempotency_key)` — structural member
-    // boundaries, never delimiter joining, so a `|` inside a member can
-    // never collide two distinct retry identities (contract §Repeat and
-    // idempotency; Rust parity: `serde_jcs::to_string` in
-    // `HistoryPortService::invoke`). The `payload_digest` is stored in
-    // the record and compared inside — same identity + different digest
-    // is the IDEMPOTENCY_CONFLICT branch.
     const dedupKey = canonicalize([
       op,
       effectiveScope,
@@ -625,12 +576,6 @@ export class HistoryPortService implements RemoteHistoryService {
         `invalid ${op} dedup tuple: not JSON-canonicalizable`,
       );
     }
-    // note: the dedup critical section (lookup → port call → record)
-    // runs under the store-interface keyed single-flight claim (Rust
-    // parity: `dedup.claim_key`) — overlapping same-key prunes cannot
-    // both observe `unseen` and execute twice, while unrelated keys
-    // proceed concurrently (contract §Repeat and idempotency /
-    // §Injected dedup stores).
     return settleDedupKey(this.#dedup, dedupKey, () =>
       this.#dedupPrune(
         principal,
@@ -663,11 +608,6 @@ export class HistoryPortService implements RemoteHistoryService {
           "idempotency_key replayed with a different payload digest",
         );
       }
-      // note: same-key same-digest replay returns the recorded outcome —
-      // the settled SpokeResult verbatim, no port call, no re-evaluated
-      // preconditions (contract §9.1). The replay is a fresh snapshot of
-      // the record: caller-visible mutation must never alter what a later
-      // replay observes (qc3 F-009).
       return JSON.parse(
         JSON.stringify(existing.outcome),
       ) as SpokeResult<unknown>;
@@ -679,13 +619,6 @@ export class HistoryPortService implements RemoteHistoryService {
       call.entityId,
       call.keep,
     );
-    // note: validate the provider's success — a malformed prune result
-    // is a transport decode reject, never `Ok` (contract §9). Either
-    // settled outcome — refusal, validated success, or the malformed-
-    // success reject — is recorded: a same-digest replay returns the
-    // recorded outcome verbatim and never re-executes (contract §9.1).
-    // The record is a snapshot and the returned result a SECOND one:
-    // caller-visible results never alias the dedup receipt record.
     const outcome = result.ok ? validServedPruneResult(result.value) : result;
     await this.#dedup.record(
       dedupKey,
@@ -696,17 +629,10 @@ export class HistoryPortService implements RemoteHistoryService {
   }
 }
 
-/** note: served-side snapshot validation — the emitted get response is `{ snapshot }` per the `HistoryRevisionsGetResponse` Variant0 member. */
 function validServedSnapshot(
   value: RevisionSnapshot,
   call: Extract<HistoryCall, { kind: "get" }>,
 ): SpokeResult<unknown> {
-  // note: one strict `RevisionSnapshot` rule for both boundaries
-  // (`isValidRevisionSnapshot` — Rust parity: `validate_history_snapshot`):
-  // complete core shape, variant agreeing with `entity_kind`, nested
-  // entity id and revision equal to the envelope, and the envelope equal
-  // to the request selectors. Malformed or wrong-target → transport
-  // decode reject, never `Ok`.
   if (
     !isValidRevisionSnapshot(value, {
       entity_kind: call.entityKind,
@@ -723,7 +649,6 @@ function validServedSnapshot(
   return spokeOk({ snapshot: value });
 }
 
-/** note: served-side prune validation — `deleted` integer ≥ 0 and `floor_revision` present (nullable) or the answer is a decode error, never `Ok` (contract §9). */
 function validServedPruneResult(value: unknown): SpokeResult<unknown> {
   if (
     !isJsonObject(value) ||
@@ -745,29 +670,10 @@ function validServedPruneResult(value: unknown): SpokeResult<unknown> {
 }
 
 /**
- * note: the `spoke-knowledge-adoption` serving face (spoke-knowledge-
- * adoption contract §Connect operation and capability gate /
- * §Repeat and idempotency). `RemoteAdoptionService` is the invoke seam
- * the responder calls for `knowledge.adopt`; `AdoptionPortService`
- * adapts a provider `AdoptionPort` to that face, mirroring
- * `RemoteHistoryService` / `HistoryPortService` (Rust parity:
- * `crates/spoke-connect/src/remote/serve_ports.rs`).
- *
- * The service owns the two concerns the contract keeps OUT of
- * `AdoptionPort`: peer admission (`AdoptionAdmission` maps the
- * authenticated `peer_id` to the `Principal` and admitted `Scope`) and
- * connect idempotency deduplication (the `(effective_scope,
- * requester_principal_id, op, idempotency_key)` namespace with the
- * SHA-256 / RFC 8785 request digest). Retirement resolution, owner-
- * private absence, copy rules and create-only OCC all live in the
- * provider port — they never reach this seam.
- */
-
-/**
  * Admission context: maps the authenticated connect peer to the
  * `Principal` and the `Scope` the provider admits for source visibility
  * and destination authorization (MEM-R003 parity; contract
- * configured `AdoptionPort`. Both come from the host's admission
+ * `AdoptionPort`). Both come from the host's admission
  * context, never from the payload — the request carries scope ids, not a
  * declared `Scope`. `scopeId` is the request's declared destination scope;
  * it is advisory, never an authorization grant, and a one-argument callback
@@ -778,10 +684,8 @@ export type AdoptionAdmission = (
   scopeId?: string,
 ) => SpokeResult<{ principal: Principal; scope: Scope }>;
 
-/** note: `knowledge.adopt` wire op. */
 export const KNOWLEDGE_OP_ADOPT = "knowledge.adopt";
 
-/** note: closed request shape (Rust `deny_unknown_fields` parity). */
 const ADOPTION_ADOPT_WIRE_KEYS = new Set([
   "source_scope_id",
   "source_entry_id",
@@ -844,8 +748,6 @@ export function decodeAdoptionCall(
   if (typeof idempotencyKey !== "string") {
     return adoptionInputReject(op, "idempotency_key must be a string");
   }
-  // why: the contract counts Unicode code points, not UTF-16 units or
-  // UTF-8 bytes — spread iterates code points.
   const keyLength = [...idempotencyKey].length;
   if (keyLength < 1 || keyLength > 128) {
     return adoptionInputReject(
@@ -854,9 +756,6 @@ export function decodeAdoptionCall(
     );
   }
   const sourceRevision = payload.source_revision;
-  // note: the revision domain is `[0, 2^53]` inclusive — NOT
-  // `Number.isSafeInteger`, which stops one below it and would split the
-  // endpoint from Rust's `adopt_request_from_payload` decode.
   if (!isRevisionInteger(sourceRevision)) {
     return adoptionInputReject(
       op,
@@ -960,21 +859,12 @@ export class AdoptionPortService implements RemoteAdoptionService {
         `unimplemented adoption op ${op}`,
       );
     }
-    // note: the digest covers the WHOLE request object under RFC 8785 —
-    // the adoption exact-integer rule (inclusive 2^53 endpoint, C5) —
-    // refuse any member outside it before hashing (Rust parity:
-    // `adopt_payload_integers_exact`; history keeps its own stricter
-    // `payloadIntegersJcsExact` rule).
     if (!adoptPayloadIntegersExact(payload)) {
       return spokeReject(
         SpokeRejectCode.INVALID_INPUT,
         `invalid ${op} payload: integer member outside the exact-integer range`,
       );
     }
-    // note: request validation and decode complete before admission
-    // (contract §KnowledgeAdoptRequest): a malformed payload keeps its
-    // `INVALID_INPUT` regardless of the admission decision, in the same
-    // order as the Rust serving face.
     const decoded = decodeAdoptionCall(op, payload);
     if (!decoded.ok) {
       return decoded;
@@ -989,25 +879,12 @@ export class AdoptionPortService implements RemoteAdoptionService {
       return admitted;
     }
     const { principal, scope: effectiveScope } = admitted.value;
-    // note: destination admission (contract Wire-wide rules / C7;
-    // QC2-08): the destination `scope_id` is authorized against the
-    // admitted context BEFORE dedup, single-flight and any provider or
-    // source-chain work — an out-of-scope destination refuses
-    // `NOT_AUTHORIZED` without touching the source (Rust parity:
-    // `AdoptionPortService::invoke`).
     if (request.destination_scope_id !== effectiveScope.scope_id) {
       return spokeReject(
         SpokeRejectCode.NOT_AUTHORIZED,
         "adoption destination scope is outside the admitted context",
       );
     }
-    // note: the dedup key is the RFC 8785 canonical JSON serialization of
-    // the ordered retry-identity tuple `(op, effective_scope,
-    // requester_principal_id, idempotency_key)` — structural member
-    // boundaries, never delimiter joining, so distinct retry identities
-    // always derive distinct keys (contract §Repeat and idempotency).
-    // The `payload_digest` is stored in the record and compared inside —
-    // same identity + different digest is the IDEMPOTENCY_CONFLICT branch.
     const dedupKey = canonicalize([
       op,
       effectiveScope,
@@ -1020,10 +897,6 @@ export class AdoptionPortService implements RemoteAdoptionService {
         `invalid ${op} dedup tuple: not JSON-canonicalizable`,
       );
     }
-    // note: keyed single-flight is owned by the dedup store interface —
-    // a shared store serializes the SAME key across every service
-    // instance using it while unrelated keys proceed independently
-    // (contract §Repeat and idempotency).
     return settleDedupKey(this.#dedup, dedupKey, () =>
       this.#dedupAdopt(
         principal,
@@ -1056,14 +929,6 @@ export class AdoptionPortService implements RemoteAdoptionService {
           "idempotency_key replayed with a different payload digest",
         );
       }
-      // note: same-key same-digest replay returns the recorded outcome —
-      // no port call — but the wire `outcome` normalizes to
-      // `already_present` (contract §Repeat and idempotency: "the same key
-      // and same request digest return the existing copy with outcome
-      // already_present"); recorded refusals replay verbatim. The replay is
-      // a fresh snapshot of the record: a store lookup returns the stored
-      // reference, and mutating the caller-visible result must never
-      // alter what a later replay observes (qc3 F-009).
       const recorded = JSON.parse(
         JSON.stringify(existing.outcome),
       ) as SpokeResult<unknown>;
@@ -1079,25 +944,12 @@ export class AdoptionPortService implements RemoteAdoptionService {
       }
       return recorded;
     }
-    // note: the port receives the complete `KnowledgeAdoptRequest`,
-    // `idempotency_key` included — dedup is Connect-owned, but the key
-    // is pass-through context for the provider (contract §Standalone
-    // `AdoptionPort`; Rust parity: `&request`).
     const result = await this.#port.adoptKnowledgeEntry(
       principal,
       effectiveScope,
       request,
     );
 
-    // note: validate the provider's success — a malformed adopt response
-    // is a transport decode reject, never `Ok`. Either settled outcome —
-    // refusal, validated success, or the malformed-success reject — is
-    // snapshotted before it is recorded: a same-digest replay returns the
-    // recorded outcome verbatim and never re-executes, and a later
-    // provider-side mutation of its own result object can never change
-    // what a replay observes (contract §Repeat and idempotency). The
-    // returned result is a SECOND snapshot: caller-visible results never
-    // alias the dedup receipt record (qc3 F-009).
     const outcome = result.ok
       ? validServedAdoptResult(result.value, request.destination_entry_id)
       : validateAdoptRejectReceipt(
@@ -1135,25 +987,6 @@ const FAILURE_BRANCH_MEMBERS: Record<string, true> = {
   extensions: true,
 };
 
-/**
- * note: served-side adopt-response validation. Two branches travel as a
- * served `Ok`:
- * - success (`OneOf0`): `{outcome, entry, extensions?}` — `outcome` is
- *   `"adopted"` or `"already_present"`, `entry` is the destination
- *   `KnowledgeEntry`, and a success entry ALWAYS carries
- *   `adoption_anchor` (contract §KnowledgeAdoptRequest and response: "a
- *   provider result whose entry lacks the anchor is malformed and is
- *   answered as a transport/serving refusal rather than Ok");
- * - failure (`OneOf1`, contract E3): `{error, extensions?}` — a provider
- *   error envelope emitted verbatim, never converted into a transport
- *   reject.
- *
- * A shape outside the two closed branches is a transport decode reject
- * (`INTERNAL_ERROR`), never `Ok`. The emitted object is re-materialized
- * through a JSON round-trip so the dedup record and the replayed outcome
- * can never observe a later provider-side mutation of the provider's own
- * object.
- */
 function validServedAdoptResult(
   value: unknown,
   destinationEntryId: string | undefined,
@@ -1305,11 +1138,6 @@ function validServedAdoptResult(
       { kind: "transport" },
     );
   }
-  // note: QC2-03 — an explicit `destination_entry_id` binds the served
-  // `entry.entry_id` to the requested selector; a success entry for
-  // another slot is malformed (Rust parity: `valid_served_adopt_result`).
-  // An absent selector defaults to the entry's own id, so no equality
-  // check applies then.
   if (
     destinationEntryId !== undefined &&
     value.entry.entry_id !== destinationEntryId
@@ -1320,11 +1148,6 @@ function validServedAdoptResult(
       { kind: "transport" },
     );
   }
-  // note: snapshot the settled JSON — the replay must return the
-  // recorded outcome, not a live reference into provider state. A
-  // producer-supplied `extensions` member survives verbatim (contract
-  // E2: present-empty ≡ absent, but a supplied member is never
-  // dropped).
   return spokeOk(
     JSON.parse(
       JSON.stringify(

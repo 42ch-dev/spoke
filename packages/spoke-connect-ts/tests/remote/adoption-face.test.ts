@@ -1,28 +1,3 @@
-/**
- * note: `spoke-knowledge-adoption` conformance — corpus interpreter for
- * the adoption serving face (spoke-knowledge-adoption contract §Connect
- * operation / §Repeat and idempotency / §Anchor immutability). Loads the
- * shared wire vectors from `fixtures/adoption-conformance/` and drives
- * them against the SHIPPED serving path — the same JSON case produces
- * the same wire outcome as the Rust runner
- * (`crates/spoke-connect/tests/adoption_conformance.rs`).
- *
- * `surface: "wire"` cases run over a real `connectResponder` ↔
- * `RemoteAdapter` loopback (the compound capability gate, responder
- * dispatch, `AdoptionPortService` decode / admission / dedup and the
- * served-response validation boundary); `surface: "service"` cases run
- * through `AdoptionPortService.invoke` directly.
- *
- * The scripted `AdoptionPort` implements only the provider-owned
- * contract semantics over the seeded tables — owner-private admission,
- * the shared `resolveRetirementChain` helper, the copy rules,
- * create-only OCC, anchor repeat classification — so every gate, dedup
- * and validation assertion measures connect code, never fixture policy.
- * The fixture scoped store applies the shared
- * `assertAdoptionAnchorPreserved` gate before OCC (the anchor-immutable
- * vectors measure that shipped helper over the wire).
- */
-
 import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
@@ -82,9 +57,7 @@ function manifest(
 
 const HOST_CAPABILITIES = ["spoke-knowledge", "spoke-knowledge-adoption"];
 const CLIENT_CAPABILITIES = ["spoke-knowledge", "spoke-knowledge-adoption"];
-/** note: the destination scope the fixture store and knowledge face admit. */
 const DESTINATION_SCOPE = "spc_local";
-/** note: every source entry is stored under this scope in the source table. */
 const SOURCE_SCOPE = "spc_shared";
 const DEFAULT_ADMITTED_SCOPES = [SOURCE_SCOPE, DESTINATION_SCOPE];
 
@@ -126,9 +99,6 @@ interface CaseInput {
 function fixtureState(input: CaseInput): FixtureState {
   const sources = new Map<string, SeededSource>();
   for (const source of input.sources ?? []) {
-    // note: an optional per-source `scope_id` seeds the entry under a
-    // scope other than `SOURCE_SCOPE` so a case can resolve a retirement
-    // terminal that lives outside the admitted scopes.
     sources.set(`${source.scope_id ?? SOURCE_SCOPE}|${source.entry_id}`, {
       entryId: source.entry_id,
       scopeId: source.scope_id ?? SOURCE_SCOPE,
@@ -164,7 +134,6 @@ interface FixtureState {
   destinationGovernance: JsonObject;
 }
 
-/** note: one generic absence — missing, out-of-scope and owner-private all answer it. */
 function genericNotFound<T>(): SpokeResult<T> {
   return spokeReject("NOT_FOUND", "no such source");
 }
@@ -247,11 +216,6 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
       const sourceEntryId = request.source_entry_id;
       const destinationScopeId = request.destination_scope_id;
       const sourceRevision = request.source_revision;
-      // note: C7 destination admission (D2): the destination `space_id`
-      // authorization check precedes every source access — an out-of-scope
-      // destination refuses `NOT_AUTHORIZED` without touching the source,
-      // so a retired or unresolvable source can never leak a chain trace
-      // to an unauthorized caller.
       if (!state.admittedScopes.includes(destinationScopeId)) {
         return spokeReject(
           "NOT_AUTHORIZED",
@@ -292,9 +256,6 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
         async (node) =>
           state.sources.get(`${node.scope_id}|${node.entry_id}`)?.successors,
         async (entryId) => {
-          // note: a successor id resolves against the whole seeded table —
-          // successor references are storage-owned names, and a chain may
-          // legitimately reach a node stored under another scope.
           for (const key of [
             `${sourceScopeId}|${entryId}`,
             ...[...state.sources.keys()].filter(
@@ -321,18 +282,10 @@ function scriptedAdoptionPort(state: FixtureState): AdoptionPort {
       if (terminalEntry === undefined) {
         return spokeReject("INTERNAL_ERROR", "resolved terminal is not stored");
       }
-      // note: a resolved terminal outside the admitted scopes is the same
-      // generic absence as a missing source (contract §Admission and
-      // owner-private absence).
       if (!state.admittedScopes.includes(terminal.value.source_scope_id)) {
         return genericNotFound();
       }
 
-      // note: the entry adoption actually copies must satisfy the same
-      // visibility predicate as the requested source (contract
-      // §Admission and owner-private absence): an owner-private resolved
-      // terminal invisible to the admitted viewpoint is the same generic
-      // absence and no destination write occurs.
       if (terminalEntry.disclosure === "owner-private") {
         const owner = terminalEntry.owner as string | undefined;
         if (owner !== (scope.viewpoint as string | undefined)) {
@@ -1060,8 +1013,6 @@ describe("adoption dedup single-flight (contract §Repeat and idempotency)", () 
     const [firstResult, secondResult] = await Promise.all([first, second]);
     expect(firstResult.ok).toBe(true);
     expect(secondResult.ok).toBe(true);
-    // note: at most one provider invocation per retry identity across
-    // both services; the replay returns the recorded outcome.
     expect(calls.length).toBe(2);
   });
 
@@ -1082,9 +1033,6 @@ describe("adoption dedup single-flight (contract §Repeat and idempotency)", () 
     await expect(
       service.invoke("peer_a", "knowledge.adopt", adoptPayload("k3")),
     ).rejects.toThrow("provider crashed");
-    // note: the unsettled invocation released its claim — no stale
-    // recorded outcome, and the retry reaches the provider again (B3:
-    // recorded-outcome dedup covers settled outcomes only).
     const retry = await service.invoke(
       "peer_a",
       "knowledge.adopt",
@@ -1209,12 +1157,6 @@ describe("adoption dedup single-flight fallback (lookup/record-only store — F-
   });
 
   it("admits the inclusive 2^53 endpoint for source_revision but refuses it in a product extension (F-013/F-006, qc2 Important 2)", async () => {
-    // note: `9007199254740993` parses to exactly `9007199254740992`
-    // (2^53) — the same wire number Rust's adoption path admits for the
-    // top-level `source_revision`. Every other integral member keeps the
-    // `2^53 - 1` ceiling: Rust's request digest canonicalizes with
-    // `serde_jcs`, which refuses an integer at `2^53` outside the re-spelled
-    // `source_revision`.
     const calls: number[] = [];
     const port: AdoptionPort = {
       adoptKnowledgeEntry: async (_p, _s, request) => {
@@ -1323,8 +1265,6 @@ describe("served result E1 revision domain + E2 extensions presence", () => {
     );
     expect(result.ok).toBe(true);
     if (result.ok && result.value !== null && typeof result.value === "object") {
-      // note: `extensions` is an optional declared response member —
-      // the served value preserves the producer's member verbatim.
       expect("extensions" in result.value && result.value.extensions).toEqual(
         { product: { v: 1 } },
       );
@@ -1712,9 +1652,6 @@ describe("connect-level adoption failure payload (F-030)", () => {
 
 describe("responder adoption reject boundary (F-032)", () => {
   it("an injected service's out-of-domain details.adopted_revision answers INTERNAL_ERROR kind transport", async () => {
-    // why: the responder must not trust an arbitrary injected
-    // `RemoteAdoptionService` — the guard cannot live only inside
-    // `AdoptionPortService`.
     const bespoke: RemoteAdoptionService = {
       invoke: async () =>
         spokeReject("REVISION_CONFLICT", "conflict", {
@@ -1787,10 +1724,6 @@ describe("adoption destination admission (contract Wire-wide rules)", () => {
 
 describe("adoption request extensions and numeric parity", () => {
   it("an extension float member that Rust parses as f64 digests identically on both stacks (extension-number parity)", async () => {
-    // note: qc1 F-013 — `1e20` in an extension value arrives at Rust as
-    // f64 and passes its integer-identity gate; TS must accept it the
-    // same way and refuse only an integer-literal member beyond the
-    // JCS exact-integer range.
     const port: AdoptionPort = {
       adoptKnowledgeEntry: async () => spokeOk(adoptedResponse()),
     };
@@ -1819,12 +1752,6 @@ describe("adoption request extensions and numeric parity", () => {
     if (!scalarValue.ok) {
       expect(scalarValue.code).toBe("INVALID_INPUT");
     }
-    // note: qc1 F-013 / qc3 F-006 / qc2 Important 2 — the inclusive `2^53`
-    // endpoint is reserved for the revision-typed member (`source_revision`).
-    // Product-owned `extensions` are non-revision members: Rust's JCS digest
-    // stops one below `2^53` for them, so an integer value at the endpoint
-    // must refuse here too. Non-integral floats stay admitted (the
-    // pre-existing parsed-value behavior), as does the `>= 2^64` branch.
     const endpoint = await service.invoke("peer_a", "knowledge.adopt", {
       ...adoptPayload("k8"),
       extensions: { product: { v: 9007199254740992 } },

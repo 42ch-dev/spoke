@@ -23,9 +23,6 @@ import {
   validateCognitionProjection,
 } from "./validate.js";
 
-// note: Shared cross-language cognition selection contract (TS ↔ Rust) — both
-// suites execute every vector id from this single file and must observe the
-// same matched record ids, projection summaries or reject codes.
 const vectorFile = JSON.parse(
   readFileSync(
     join(
@@ -51,10 +48,6 @@ interface SelectionVector {
     | ProjectionExpectation;
 }
 
-// note: A project vector may describe its records as separate carriers. Each carrier
-// is validated by its own public guard before its records reach the projector,
-// so shared local ids prove carrier-local identity rather than one carrier's
-// duplicate.
 interface CarrierInput {
   shape: "cognition-module" | "cognition-content";
   input: { records?: CognitionRecord[]; cognition?: CognitionRecord[] };
@@ -192,8 +185,6 @@ function runVector(vector: SelectionVector): void {
       vector.expected,
     );
     expect(validateCognitionProjection(result.value), vector.id).toBe(true);
-    // note: The producer's projection reaches MindState verbatim; that carrier adds
-    // no second identity rule.
     expect(
       validateMindState({
         schema_version: 1,

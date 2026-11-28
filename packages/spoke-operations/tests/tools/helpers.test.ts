@@ -85,12 +85,6 @@ describe("parseToolCapabilityId", () => {
   });
 
   it("rejects trailing line terminators (ECMA-262 $ is strict end-of-input)", () => {
-    // note: Schema-pattern identity (F-007) — the pattern string is byte-identical
-    // to the schema. ECMA-262 `$` without the `m` flag anchors at the
-    // absolute end of input — a trailing line terminator does NOT match
-    // (unlike PCRE/Python `re`; verified against V8 and regress). "Fixing"
-    // this to accept trailing terminators would diverge from the schema
-    // pattern, which is forbidden.
     expect(parseToolCapabilityId("tools.tool_demo.lookup\n").ok).toBe(false);
     expect(parseToolCapabilityId("tools.tool_demo.lookup\r").ok).toBe(false);
     expect(parseToolCapabilityId("tools.tool_demo.lookup\r\n").ok).toBe(false);
@@ -441,8 +435,6 @@ describe("validateToolArguments", () => {
   });
 
   it("rejects a runtime non-object descriptor.input at the JS boundary", () => {
-    // note: JS boundary — `input: null` from unvalidated JSON must reject with the
-    // same object-ness guard as validateToolDescriptor, not throw a TypeError.
     const descriptor = makeDescriptor({
       input: null as unknown as ToolDescriptor["input"],
     });

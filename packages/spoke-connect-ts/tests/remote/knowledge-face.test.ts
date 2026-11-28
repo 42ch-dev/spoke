@@ -1,20 +1,3 @@
-/**
- * note: Knowledge capability split (see
- * .agents/adr/implemented/feature/2026-11-19-knowledge-capability-split.md):
- *
- * 1. `capabilitySatisfies` — plain membership: `spoke-baseline` never
- *    satisfies `spoke-knowledge` (the knowledge face serves those ops).
- * 2. Knowledge-only serve ports (`knowledgeOnlyServePorts`) serve the three
- *    knowledge ops without a baseline face; `assemble` stays denied.
- * 3. Per-peer admission: two callers admitted to different scopes cannot
- *    read/list/update each other's same-id entries; an unbound caller and a
- *    `scope_id`/`viewpoint` mismatch refuse `NOT_AUTHORIZED` before any
- *    store call.
- * 4. The router's hard filter selects knowledge-only peers for the three
- *    knowledge ops while a knowledge-only peer never qualifies for core
- *    baseline ops.
- */
-
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it, vi } from "vitest";
@@ -188,8 +171,6 @@ function scopedStoreFace(
       },
       async listScopedKnowledgeEntries(scope) {
         storeCalls.push("list");
-        // why: a pending gate keeps the store call outstanding, so only the
-        // serve deadline can answer.
         if (storeGate !== undefined) {
           await storeGate;
         }
@@ -320,7 +301,6 @@ describe("knowledge-only responder", () => {
         expect(listed.value.map((e) => e.entry_id)).toEqual(["kb_a1"]);
       }
 
-      // note: core op denial is covered by the raw-wire probe below.
     } finally {
       close();
     }
@@ -349,9 +329,6 @@ describe("knowledge-only responder", () => {
     }
   });
   it("a decimal SourceSpan is schema-valid: the put succeeds (F-019)", async () => {
-    // note: `SourceSpan.start`/`end` are plain numbers on the wire
-    // (Rust `f64`), not integers — the put decode must admit decimal
-    // span members.
     const { client, close } = await dialKnowledgeOnlyHost({
       admission: () => spokeOk(SCOPE_A),
       clientSeed: seed(0x10),
@@ -429,8 +406,6 @@ describe("knowledge-only responder", () => {
   });
 
   it("isolates same-id entries across two admitted scopes", async () => {
-    // note: one shared scoped store behind two host instances; each caller is
-    // admitted to its own scope by peer id.
     const admitted = new Map<string, Scope>([
       [derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x10))), SCOPE_A],
       [derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x11))), SCOPE_B],
@@ -485,8 +460,6 @@ describe("knowledge-only responder", () => {
       };
     };
 
-    // why: caller A carries ke-ownership so the viewpoint-matching probe below
-    // reaches the scope-equality gate rather than the ownership conjunct.
     const callerA = await dial(seed(0x10), ["spoke-knowledge", "ke-ownership"]);
     const callerB = await dial(seed(0x11));
     try {
@@ -601,17 +574,10 @@ describe("knowledge-only responder", () => {
 
   it("shares one serve deadline between admission and the list store call", async () => {
     const storeCalls: string[] = [];
-    // why: executor form — `Promise.withResolvers` needs the ES2024 lib. The
-    // store call stays outstanding, so only the serve deadline can answer.
     const storeGate = new Promise<void>(() => {
     });
-    // why: only `Date` is faked — admission advances the responder's clock past
-    // the budget instead of sleeping, so no wall-clock bound is asserted and
-    // the outcome does not depend on machine timing.
     vi.useFakeTimers({ toFake: ["Date"] });
     const { client, close } = await dialKnowledgeOnlyHost({
-      // why: admission is synchronous producer work, so it spends the budget in
-      // place (the Rust path parks it on the blocking pool).
       admission: () => {
         vi.setSystemTime(Date.now() + 500);
         return spokeOk(SCOPE_A);
@@ -629,8 +595,6 @@ describe("knowledge-only responder", () => {
         expect(listed.code).toBe("INTERNAL_ERROR");
         expect(listed.details?.kind).toBe("timeout");
       }
-      // why: the whole budget went to admission, so the store gets none of it
-      // and is never called — a second full budget would have called it.
       expect(storeCalls).toEqual([]);
     } finally {
       close();
@@ -658,10 +622,6 @@ describe("knowledge-only responder", () => {
 
   it("answers OUTCOME_UNCERTAIN when the put store call outlives the budget", async () => {
     const storeCalls: string[] = [];
-    // why: executor form — `Promise.withResolvers` needs the ES2024 lib. The
-    // gate never settles, so the put is invoked (recorded in `storeCalls`) and
-    // the serve deadline answers while it may have applied — contract §14.3
-    // uncertain, not a clean timeout.
     const storeGate = new Promise<void>(() => {});
     const { client, close } = await dialKnowledgeOnlyHost({
       admission: () => spokeOk(SCOPE_A),
@@ -735,8 +695,6 @@ describe("knowledge-only responder", () => {
 
   it("keeps the plain serve timeout when the get store call outlives the budget", async () => {
     const storeCalls: string[] = [];
-    // why: same never-settling gate — a read has no store effect to be
-    // uncertain about, so the expiry keeps the plain serve timeout.
     const storeGate = new Promise<void>(() => {});
     const { client, close } = await dialKnowledgeOnlyHost({
       admission: () => spokeOk(SCOPE_A),
@@ -1051,9 +1009,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(badRevision.error?.code).toBe("INVALID_INPUT");
 
-      // note: a malformed `entry` object (a required KnowledgeEntry member
-      // missing) is refused like Rust's typed decode, before admission and the
-      // store.
       const missingName = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1068,8 +1023,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(missingName.error?.code).toBe("INVALID_INPUT");
 
-      // note: OCC revisions mirror Rust's `Option<u64>` — negative and
-      // fractional values are invalid, not merely non-numeric ones.
       const negativeRevision = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1092,8 +1045,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(fractionalRevision.error?.code).toBe("INVALID_INPUT");
 
-      // note: `entry.schema_version` is a typed `SchemaVersion` (integer >= 1)
-      // in Rust; a missing or zero version fails decode.
       const missingSchemaVersion = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1122,8 +1073,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       );
       expect(zeroSchemaVersion.error?.code).toBe("INVALID_INPUT");
 
-      // note: Rust decodes the revision as `Option<u64>` — an integer beyond
-      // `Number.MAX_SAFE_INTEGER` cannot be represented faithfully.
       const unsafeRevision = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1151,9 +1100,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       expect(admissionCalls).toHaveLength(1);
       expect(storeCalls).toEqual(["get", "put"]);
 
-      // note: Rust's `Option<u64>` decodes a missing member as None — a put
-      // without `expected_base_revision` is a create, and the store sees `null`
-      // (an `undefined` would take the stale-revision branch instead).
       const missingRevision = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1181,9 +1127,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       knowledgeOnlyServePorts(face),
     );
     try {
-      // note: `body.tags: 5` fails the full wire-shape decode (Rust typed
-      // decode parity) — the refusal is INVALID_INPUT, never a
-      // stored-state OCC answer, even on an occupied slot.
       const malformed = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1310,8 +1253,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
       knowledgeOnlyServePorts(face),
     );
     try {
-      // note: the list scope decodes as a typed Scope (Rust parity) — a scalar
-      // never reaches the list-admission guard or the store.
       const refused = await rawInvoke(
         clientEnd,
         seed(0x10),
@@ -1358,9 +1299,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
         "port.knowledge.get",
         { entry_id: "kb_any" },
       );
-      // note: the dialer maps this dispatch-deny row to CAPABILITY_PORT_MISSING
-      // (details.wire_code = "op_unsupported"); the wire never carries the
-      // application-coded literal.
       expect(denied.error?.code).toBe("op_unsupported");
 
       const baselineDenied = await rawInvoke(
@@ -1460,8 +1398,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
         "port.knowledge.get",
         { entry_id: "kb_a", scope: wellFormedCognition },
       );
-      // note: no `spoke-cognition` family negotiated — the family refusal owns
-      // a well-formed requirement, and the shape still owned the malformed one.
       expect(unavailable.error?.code).toBe("capability_missing");
       expect(admissionCalls).toHaveLength(0);
     } finally {
@@ -1494,9 +1430,6 @@ describe("knowledge dispatch pre-validation and refusals", () => {
     const cases = matrix.request_scope_cases;
     expect(cases.length).toBeGreaterThan(0);
 
-    // note: one fresh host per case — the negotiated set is fixed at the
-    // handshake, and the case's admitted scope comes from the admission
-    // callback. The fixture is the same file the Rust loopback harness reads.
     for (const [index, scopeCase] of cases.entries()) {
       const storeCalls: string[] = [];
       const face = scopedStoreFace(

@@ -26,13 +26,6 @@ export class OutboundSequence {
     this.nextValue = 0;
   }
 
-  /**
-   * note: assign the next outbound sequence.
-   *
-   * The counter starts at 0; on exhaustion (past the JSON-safe wire maximum)
-   * `sequence_exhausted` is thrown and the counter is left exhausted —
-   * sequences never wrap. The caller must close the session.
-   */
   allocate(): number {
     const sequence = this.nextValue;
     if (sequence > MAX_SEQUENCE) {
@@ -47,10 +40,6 @@ export class OutboundSequence {
   }
 
   /**
-   * note: test-only — position the counter at `value` so transport tests can
-   * exercise exhaustion without 2⁵³ allocations (mirrors Rust
-   * `#[cfg(test)] set_next`).
-   *
    * @internal test-only — mirrors Rust `#[cfg(test)] set_next`. Not part
    * of the public session-core API; production transports allocate
    * sequences only through `allocate()` / `Session.allocateOutboundSequence()`.
@@ -68,13 +57,6 @@ export class InboundSequence {
     this.nextExpectedValue = 0;
   }
 
-  /**
-   * note: accept `sequence` iff it equals the next expected inbound sequence;
-   * on acceptance the expectation advances by 1 and the new expectation is
-   * returned. A replayed or out-of-order sequence throws
-   * `inbound_sequence_mismatch` and the expectation is left unchanged — the
-   * caller must reject the invoke without dispatching it.
-   */
   advance(sequence: number): number {
     if (sequence < 0) {
       throw new CoreInvokeError(
